@@ -193,6 +193,13 @@ public static class WorkspaceAuxiliaryStateIntegrity
                 workspaceId,
                 currentContentRevision,
                 contactReceipts);
+        var contactsDraft = state.CharacterCreationContactsDraft;
+        contactReceiptsValid = contactReceiptsValid && (contactsDraft is null
+            ? contactReceipts?.Any(entry => entry.Receipt.WritePlan.PendingDraft is not null) != true
+            : CharacterCreationContactsDraftRules.IsValidShape(workspaceId, currentContentRevision, contactsDraft)
+              && contactReceipts is { Count: > 0 }
+              && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                  contactsDraft, contactReceipts[^1].Receipt.WritePlan.PendingDraft));
         IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? lifestyleReceipts =
             state.CharacterCreationLifestyleReceipts;
         bool lifestyleReceiptsValid = lifestyleReceipts is null

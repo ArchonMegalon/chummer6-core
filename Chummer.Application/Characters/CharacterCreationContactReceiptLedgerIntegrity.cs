@@ -1,5 +1,6 @@
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
+using Chummer.Application.Workspaces;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -145,6 +146,12 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
             return false;
         }
 
+        if (receipt.WritePlan.PendingDraft is not null)
+            return HasValidDraftTransition(entry, currentDocument, replacementDocument);
+        if (currentDocument.AuxiliaryState.CharacterCreationContactsDraft is not null
+            || replacementDocument.AuxiliaryState.CharacterCreationContactsDraft is not null)
+            return false;
+
         CharacterCreationContactsAuthoritySnapshot currentAuthority =
             CharacterCreationContactsAuthorityEvaluator.Evaluate(currentDocument);
         CharacterCreationContactsAuthoritySnapshot replacementAuthority =
@@ -236,6 +243,86 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
         {
             return false;
         }
+    }
+
+    private static bool HasValidDraftTransition(CharacterCreationContactReceiptLedgerEntry entry,
+        WorkspaceDocument current, WorkspaceDocument replacement)
+    {
+        var receipt = entry.Receipt;
+        var plan = receipt.WritePlan;
+        var draft = plan.PendingDraft!;
+        if (plan.Schema != CharacterCreationContactsSchemas.DraftWritePlanV1
+            || current.Content != replacement.Content
+            || !CharacterCreationContactsDraftRules.Equal(draft, replacement.AuxiliaryState.CharacterCreationContactsDraft)
+            || !CharacterCreationContactsDraftRules.IsValidShape(receipt.WorkspaceId, receipt.ContentRevision, draft)
+            || draft.BaseContentRevision != receipt.PreviousContentRevision)
+            return false;
+        try
+        {
+            var workspace = new WorkspaceStoredDocument(receipt.WorkspaceId, current,
+                receipt.PreviousContentRevision, receipt.PreviousSavedRevision, DateTimeOffset.UnixEpoch);
+            var oldDraft = current.AuxiliaryState.CharacterCreationContactsDraft;
+            var beforeDraft = CharacterCreationContactsDraftRules.Create(workspace,
+                draft.Policy, draft.CarryoverPolicy, oldDraft?.Contacts ?? []);
+            if (beforeDraft is null || !CharacterCreationContactsDraftRules.InputsMatch(beforeDraft, draft)
+                || oldDraft is not null && !CharacterCreationContactsDraftRules.InputsMatch(oldDraft, draft)
+                || !CharacterCreationContactsDraftRules.TryProject(workspace, beforeDraft, out var logicalBefore)
+                || logicalBefore is null) return false;
+
+            // Reconstruct precisely the proposed field operations. The existing
+            // XML transition validator below still checks editable fields,
+            // before values, semantic constraints, budgets and untouched data.
+            XDocument expected = XDocument.Parse(logicalBefore.Content, LoadOptions.PreserveWhitespace);
+            XElement root = expected.Root!;
+            XElement? target = FindUniqueContact(root, plan.ContactId);
+            if (plan.ChangeKind == CharacterCreationContactChangeKind.Add)
+            {
+                if (target is not null) return false;
+                target = CharacterCreationContactsService.CreateDefaultContact(plan.ContactId);
+                root.Element("contacts")!.Add(target);
+            }
+            if (target is null) return false;
+            if (plan.ChangeKind == CharacterCreationContactChangeKind.Remove) target.Remove();
+            else
+                foreach (var operation in plan.Operations)
+                {
+                    if (operation.FieldId == CharacterCreationContactFieldIds.Presence) continue;
+                    if (!s_WriteFields.TryGetValue(operation.FieldId, out var field)) return false;
+                    target.SetElementValue(field.ElementName, operation.AfterValue);
+                }
+            if (!CharacterCreationContactsDraftRules.TryReadSelections(root, out var selections)
+                || !CharacterCreationContactsDraftRules.Equal(selections, draft.Contacts)) return false;
+
+            var logicalAfter = logicalBefore with
+            {
+                State = logicalBefore.State with { Payload = expected.ToString(SaveOptions.DisableFormatting) }
+            };
+            if (CharacterCreationContactsDraftRules.ValidatePointOnlySelection(logicalAfter).Length != 0)
+                return false;
+            var logicalPlan = plan with
+            {
+                PendingDraft = null,
+                Schema = plan.ChangeKind == CharacterCreationContactChangeKind.Edit
+                    ? CharacterCreationContactsSchemas.WritePlanV1 : CharacterCreationContactsSchemas.WritePlanV2,
+                ContentDigestBefore = ComputeContentDigest(logicalBefore.Content),
+                ContentDigestAfter = ComputeContentDigest(logicalAfter.Content)
+            };
+            // Pure validation inputs, never persisted or exposed as receipts.
+            // The real receipt keeps identical raw-XML digests and binds the
+            // auxiliary draft; only the semantic projection changes here.
+            var logicalEntry = entry with
+            {
+                Receipt = receipt with
+                {
+                    WritePlan = logicalPlan,
+                    ContentDigestBefore = logicalPlan.ContentDigestBefore,
+                    ContentDigestAfter = logicalPlan.ContentDigestAfter
+                }
+            };
+            return HasValidContentTransition(logicalEntry, logicalBefore, logicalAfter);
+        }
+        catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
+            or IOException or OverflowException) { return false; }
     }
 
     private static bool HasValidCollectionTransition(
@@ -417,7 +504,9 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
             || receipt.SavedRevision != receipt.ContentRevision
             || !IsCanonicalDigest(receipt.ContentDigestBefore)
             || !IsCanonicalDigest(receipt.ContentDigestAfter)
-            || string.Equals(receipt.ContentDigestBefore, receipt.ContentDigestAfter, StringComparison.Ordinal)
+            || (receipt.WritePlan?.PendingDraft is null
+                ? FixedEquals(receipt.ContentDigestBefore, receipt.ContentDigestAfter)
+                : !FixedEquals(receipt.ContentDigestBefore, receipt.ContentDigestAfter))
             || !IsCanonicalDigest(receipt.SourceDigest)
             || !IsCanonicalDigest(receipt.RulesDigest)
             || !IsCanonicalDigest(receipt.RuntimeDigest)
@@ -445,8 +534,13 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
     {
         if (plan is null
             || !Enum.IsDefined(plan.ChangeKind)
-            || !string.Equals(plan.Schema, plan.ChangeKind == CharacterCreationContactChangeKind.Edit
+            || !string.Equals(plan.Schema, plan.PendingDraft is not null
+                ? CharacterCreationContactsSchemas.DraftWritePlanV1 : plan.ChangeKind == CharacterCreationContactChangeKind.Edit
                 ? CharacterCreationContactsSchemas.WritePlanV1 : CharacterCreationContactsSchemas.WritePlanV2, StringComparison.Ordinal)
+            || plan.PendingDraft is { } draft && (
+                !CharacterCreationContactsDraftRules.IsValidShape(receipt.WorkspaceId, receipt.ContentRevision, draft)
+                || draft.BaseContentRevision != receipt.PreviousContentRevision
+                || !FixedEquals(draft.RawCharacterXmlDigest, receipt.ContentDigestBefore))
             || !string.Equals(plan.StepId, CharacterCreationWizardStepIds.ContactsLifestyles, StringComparison.Ordinal)
             || plan.ContactId != receipt.ContactId
             || plan.Operations is not { Count: > 0 }

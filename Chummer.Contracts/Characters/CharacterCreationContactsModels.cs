@@ -10,6 +10,8 @@ public static class CharacterCreationContactsSchemas
     public const string ReceiptV1 = "chummer.character_creation_contacts.receipt.v1";
     public const string WritePlanV1 = "chummer.character_creation_contacts.write_plan.v1";
     public const string WritePlanV2 = "chummer.character_creation_contacts.write_plan.v2";
+    public const string DraftV1 = "chummer.character_creation_contacts.draft.v1";
+    public const string DraftWritePlanV1 = "chummer.character_creation_contacts.draft_write_plan.v1";
     public const string RulesV1 = "chummer.character_creation_contacts.sr5_rules.v1";
     public const string RuntimeV1 = "chummer.character_creation_contacts.runtime.v1";
 }
@@ -146,6 +148,23 @@ public sealed record CharacterCreationContactIdentity(
     string GroupName);
 
 /// <summary>
+/// Contacts chosen during a Priority-table build. The raw bootstrap document
+/// stays unchanged until finalization; inputs name the confirmed draft graph.
+/// </summary>
+public sealed record CharacterCreationContactsDraft(
+    string Schema,
+    CharacterWorkspaceId WorkspaceId,
+    long BaseContentRevision,
+    string RawCharacterXmlDigest,
+    string PrerequisiteDraftDigest,
+    string AttributesDraftDigest,
+    string QualitiesDraftDigest,
+    CharacterCreationKarmaContactsPolicy Policy,
+    CharacterCreationKarmaCarryoverPolicy CarryoverPolicy,
+    IReadOnlyList<CharacterCreationKarmaContactSelection> Contacts,
+    string DraftDigest);
+
+/// <summary>
 /// Strongly typed partial edit. Null means unchanged; Identity, when present,
 /// replaces the complete saved identity projection and can therefore clear a value.
 /// No XML path or caller-defined field name crosses this boundary.
@@ -266,6 +285,9 @@ public sealed record CharacterCreationContactAtomicWritePlan(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public CharacterCreationContactChangeKind ChangeKind { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationContactsDraft? PendingDraft { get; init; }
 }
 
 public sealed record CharacterCreationContactsState(

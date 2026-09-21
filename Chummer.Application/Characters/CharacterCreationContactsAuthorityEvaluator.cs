@@ -348,7 +348,7 @@ public static class CharacterCreationContactsAuthorityEvaluator
             .Select(improvement => improvement.ToString(SaveOptions.DisableFormatting))
             .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
-        return CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
+        string legacy = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
         {
             Schema = "chummer.character_creation_contacts.source.v1",
             Settings = ReadValue(root, "settings"),
@@ -360,6 +360,8 @@ public static class CharacterCreationContactsAuthorityEvaluator
             Improvements = improvements,
             SourceAnchors = CharacterCreationContactSourceAnchors.All
         });
+        string inputs = ReadValue(root, CharacterCreationContactsDraftRules.InputMarker);
+        return inputs.Length == 0 ? legacy : CharacterCreationFinalizationDigest.Compute(new { Legacy = legacy, Inputs = inputs });
     }
 
     private static bool TryParseNonNegativeInt(string value, out int parsed)

@@ -28,6 +28,28 @@ public static class CharacterCreationFinalizationProjector
         out string[] blockers,
         CharacterCreationKarmaCarryoverPolicy? carryoverPolicy,
         CharacterCreationFinalizationStartingCash? startingCash = null)
+        => TryProjectCore(workspace, out characterXml, out deltas, out sourceAnchorIds,
+            out karmaRemaining, out startingNuyen, out nuyenRemaining, out blockers,
+            carryoverPolicy, startingCash, contactsInputOnly: false);
+
+    /// <summary>Read-only draft projection; does not choose starting cash or finalize the runner.</summary>
+    internal static bool TryProjectContactInputs(WorkspaceStoredDocument workspace,
+        CharacterCreationKarmaCarryoverPolicy carryoverPolicy, out string characterXml, out string[] blockers)
+        => TryProjectCore(workspace, out characterXml, out _, out _, out _, out _, out _, out blockers,
+            carryoverPolicy, null, contactsInputOnly: true);
+
+    private static bool TryProjectCore(
+        WorkspaceStoredDocument workspace,
+        out string characterXml,
+        out CharacterCreationFinalizationDelta[] deltas,
+        out string[] sourceAnchorIds,
+        out decimal karmaRemaining,
+        out decimal startingNuyen,
+        out decimal nuyenRemaining,
+        out string[] blockers,
+        CharacterCreationKarmaCarryoverPolicy? carryoverPolicy,
+        CharacterCreationFinalizationStartingCash? startingCash,
+        bool contactsInputOnly)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         characterXml = string.Empty;
@@ -190,6 +212,34 @@ public static class CharacterCreationFinalizationProjector
             }
             CharacterCareerReputationProjector.ValidateSavedInputShape(root);
             EnsureEmptyOwnedContainer(root, "lifestyles");
+            if (contactsInputOnly)
+            {
+                // Internal calculation input only. Keep the uncreated lifecycle
+                // and do not invent a cash roll or issue a finalization plan.
+                SetDirect(root, "karma", karmaBeforeCarryover.ToString(CultureInfo.InvariantCulture));
+                characterXml = document.ToString(SaveOptions.DisableFormatting);
+                blockers = [];
+                return true;
+            }
+            if (auxiliary.CharacterCreationContactsDraft is { } contactsDraft)
+            {
+                if (!CharacterCreationContactsDraftRules.IsValidShape(workspace.Id, workspace.ContentRevision, contactsDraft)
+                    || !CharacterCreationContactsDraftRules.TryProject(workspace, contactsDraft, out var contactProjection)
+                    || contactProjection is null
+                    || CharacterCreationContactsDraftRules.ValidatePointOnlySelection(contactProjection).Length != 0)
+                {
+                    blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
+                    return false;
+                }
+                EnsureEmptyOwnedContainer(root, "contacts");
+                XElement contactRoot = XDocument.Parse(contactProjection.Content).Root!;
+                ReplaceDirect(root, new XElement(contactRoot.Element("contacts")!));
+                SetDirect(root, "contactpoints", contactRoot.Element("contactpoints")!.Value);
+                foreach (var contact in contactsDraft.Contacts)
+                    AddDelta(projected, ref order, $"contact:{contact.ContactId:D}",
+                        "contact", contact.ContactId.ToString("D"), null, contact.Identity.Name, 0, 0,
+                        contactsDraft.Policy.SourceAnchorIds);
+            }
             // Readiness validates all non-cash inputs without fabricating a roll.
             // A real projection/confirmation always requires the explicit choice.
             if (startingCash is null)

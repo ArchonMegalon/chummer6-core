@@ -29,10 +29,12 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         StringComparer.Ordinal);
 
     private readonly IWorkspaceStore _workspaceStore;
+    private readonly ICharacterSourceDataResolver? _sourceData;
 
-    public CharacterCreationContactsService(IWorkspaceStore workspaceStore)
+    public CharacterCreationContactsService(IWorkspaceStore workspaceStore, ICharacterSourceDataResolver? sourceData = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
+        _sourceData = sourceData;
     }
 
     public CharacterCreationContactResult<CharacterCreationContactsState> Load(
@@ -236,7 +238,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 Payload = evaluation.ReplacementContent,
                 AuxiliaryState = workspace.Document.AuxiliaryState with
                 {
-                    CharacterCreationContactReceipts = receipts
+                    CharacterCreationContactReceipts = receipts,
+                    CharacterCreationContactsDraft = preview.WritePlan.PendingDraft
+                        ?? workspace.Document.AuxiliaryState.CharacterCreationContactsDraft
                 }
             }
         };
@@ -488,8 +492,21 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         if (!siblingsPreserved || kind == CharacterCreationContactChangeKind.Edit && !nestedPreserved)
             blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
 
+        CharacterCreationContactsDraft? pendingDraft = null;
+        if (context.PendingDraft is { } pending)
+        {
+            blockers.AddRange(CharacterCreationContactsDraftRules.ValidatePointOnlySelection(replacementWorkspaceDocument));
+            if (!CharacterCreationContactsDraftRules.TryReadSelections(replacementRoot, out var selections)
+                || (pendingDraft = CharacterCreationContactsDraftRules.Create(workspace,
+                    pending.Policy, pending.CarryoverPolicy, selections)) is null)
+                blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
+            // Confirm changes the typed auxiliary lane, never bootstrap XML.
+            replacementContent = workspace.Document.Content;
+            contentAfter = context.Binding.ContentDigest;
+        }
         var plan = new CharacterCreationContactAtomicWritePlan(
-            kind == CharacterCreationContactChangeKind.Edit
+            pendingDraft is not null ? CharacterCreationContactsSchemas.DraftWritePlanV1
+                : kind == CharacterCreationContactChangeKind.Edit
                 ? CharacterCreationContactsSchemas.WritePlanV1
                 : CharacterCreationContactsSchemas.WritePlanV2,
             CharacterCreationWizardStepIds.ContactsLifestyles,
@@ -503,7 +520,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             nestedAfter,
             siblingsPreserved,
             nestedPreserved,
-            PlanDigest: string.Empty) { ChangeKind = kind };
+            PlanDigest: string.Empty) { ChangeKind = kind, PendingDraft = pendingDraft };
         plan = plan with
         {
             PlanDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -616,8 +633,18 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
     private AuthorityContext BuildContext(OwnerScope owner, WorkspaceStoredDocument workspace)
     {
         var blockers = new List<string>();
+        WorkspaceDocument calculationDocument = workspace.Document;
+        CharacterCreationContactsDraft? pending = null;
+        if (CharacterCreationBootstrapAuthority.HasBootstrapState(workspace.Document))
+        {
+            if (_sourceData is not null && CharacterCreationContactsDraftRules.TryLoad(workspace, _sourceData,
+                    out pending, out var projected) && projected is not null)
+                calculationDocument = projected;
+            else
+                blockers.Add(CharacterCreationContactsBlockers.BudgetAuthorityRequired);
+        }
         CharacterCreationContactsAuthoritySnapshot authority =
-            CharacterCreationContactsAuthorityEvaluator.Evaluate(workspace.Document);
+            CharacterCreationContactsAuthorityEvaluator.Evaluate(calculationDocument);
         blockers.AddRange(authority.AuthorityBlockers);
         if (!SupportsAtomicCommit(owner))
         {
@@ -635,7 +662,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         XElement root;
         try
         {
-            document = XDocument.Parse(workspace.Document.Content, LoadOptions.PreserveWhitespace);
+            document = XDocument.Parse(calculationDocument.Content, LoadOptions.PreserveWhitespace);
             root = document.Root ?? throw new XmlException();
             if (!string.Equals(root.Name.LocalName, "character", StringComparison.Ordinal))
                 throw new XmlException();
@@ -700,7 +727,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             authority.HighPlacesBudget,
             blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal)
-                .ToArray());
+                .ToArray(), pending);
     }
 
     private static List<CharacterCreationContactProjection> ProjectContacts(
@@ -1050,7 +1077,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             editable ? [] : [CharacterCreationContactsBlockers.FieldNotEditable],
             CharacterCreationContactSourceAnchors.All);
 
-    private static CharacterCreationContactIdentity ReadIdentity(XElement contact) => new(
+    internal static CharacterCreationContactIdentity ReadIdentity(XElement contact) => new(
         ReadValue(contact, "name"),
         ReadValue(contact, "role"),
         ReadValue(contact, "location"),
@@ -1306,7 +1333,8 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         IReadOnlyList<ContactElement> ContactElements,
         CharacterCreationContactBudget ContactBudget,
         CharacterCreationContactBudget HighPlacesBudget,
-        IReadOnlyList<string> AuthorityBlockers);
+        IReadOnlyList<string> AuthorityBlockers,
+        CharacterCreationContactsDraft? PendingDraft);
 
     private sealed record PreviewEvaluation(
         CharacterCreationContactResult<CharacterCreationContactPreview> Result,

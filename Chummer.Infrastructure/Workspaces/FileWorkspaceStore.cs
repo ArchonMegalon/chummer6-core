@@ -1746,7 +1746,9 @@ public sealed partial class FileWorkspaceStore :
             replacementMagicResonanceReceipts);
         bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
             currentContactReceipts,
-            replacementContactReceipts);
+            replacementContactReceipts)
+            && string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationContactsDraft),
+                JsonSerializer.Serialize(replacementState.CharacterCreationContactsDraft), StringComparison.Ordinal);
         bool lifestyleReceiptsUnchanged = HasSameLifestyleReceiptLedger(
             currentLifestyleReceipts,
             replacementLifestyleReceipts);
