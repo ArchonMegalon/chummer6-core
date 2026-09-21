@@ -41,6 +41,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 Schema = CharacterCreationFoundationSchemas.EffectCompilationV1,
                 RulesetId = rulesetId,
                 CompilerSemantics,
+                ContinuationDraftSemantics = "ordered-later-stages-draft-only-v1",
                 SupportedEffectKinds = new[]
                 {
                     "attributelevel:v1",
@@ -72,9 +73,13 @@ internal static class CharacterCreationFoundationEffectCompiler
 
         var blockers = new List<string>
         {
-            // This ledger schema contains Nationality only.  Creation cannot be
-            // finalized before Formative Years, Teen Years and Further Education.
-            CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete
+            // A complete sequence is still only a draft. This compiler handles
+            // nationality effects, not the cumulative later-module transaction.
+            LifeModuleJourneyStageOrders.Required
+                .Where(stage => stage != LifeModuleJourneyStageOrders.Nationality)
+                .All(stage => ledger.AdditionalModules?.Any(entry => entry.StageOrder == stage) == true)
+                ? CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired
+                : CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete
         };
 
         bool effectLedgerMatches = CharacterCreationFoundationDraftLedgerIntegrity

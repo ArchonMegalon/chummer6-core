@@ -19,7 +19,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
+public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 {
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";

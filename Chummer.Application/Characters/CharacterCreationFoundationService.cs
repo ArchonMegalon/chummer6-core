@@ -12,10 +12,9 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
 
-public sealed class CharacterCreationFoundationService : ICharacterCreationFoundationService
+public sealed partial class CharacterCreationFoundationService : ICharacterCreationFoundationService,
+    ICharacterCreationLifeModuleJourneyService
 {
-    private const string NationalityStageName = "Nationality";
-
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterFileQueries _characterFileQueries;
     private readonly ICharacterSourceDataResolver _sourceDataResolver;
@@ -61,6 +60,10 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
     // The evaluator supplies its isolated workspace and frozen source services.
     // This proves an existing draft's source semantics, never permission to write.
     internal IReadOnlyList<string> ValidateContinuationDraft(WorkspaceStoredDocument workspace)
+        => ValidateContinuationDraft(workspace, null, false);
+
+    private IReadOnlyList<string> ValidateContinuationDraft(WorkspaceStoredDocument workspace,
+        IReadOnlyCollection<string>? sources, bool sourceFilterApplied)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         CharacterCreationFoundationDraftLedger? draft = workspace.Document.AuxiliaryState
@@ -69,7 +72,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             return [CharacterCreationFoundationBlockers.PendingDraftInvalid];
 
         CharacterCreationFoundationResult<CharacterCreationFoundationState> stateResult =
-            BuildState(workspace, requestedSources: null, sourceFilterApplied: false);
+            BuildState(workspace, sources, sourceFilterApplied);
         List<string> blockers = stateResult.Blockers
             .Where(IsContinuationSemanticBlocker)
             .ToList();
@@ -101,6 +104,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         (CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired
         or CharacterCreationFoundationBlockers.CharacterAlreadyCreated
         or CharacterCreationFoundationBlockers.PendingDraftDuplicate
+        or CharacterCreationFoundationBlockers.FoundationLockedByJourney
         // Preview emits this when another draft revision cannot be allocated.
         or CharacterCreationFoundationBlockers.PendingDraftConflict);
 
@@ -114,6 +118,12 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationFoundationBlockers.ExplicitConfirmationRequired);
         }
+
+        if (_workspaceStore.Get(request.Binding.WorkspaceId).Value?.Document.AuxiliaryState
+            .CharacterCreationFoundationDraft?.AdditionalModules is { Count: > 0 })
+            return Blocked<CharacterCreationFoundationApplyReceipt>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.FoundationLockedByJourney);
 
         PreviewEvaluation evaluation = EvaluatePreview(new CharacterCreationFoundationPreviewRequest(
             Binding: request.Binding,
@@ -682,7 +692,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         }
 
         LifeModuleCatalogAuthorityDto? catalogAuthority = null;
-        IReadOnlyList<LifeModuleLegalOptionDto> nationalities = [];
+        IReadOnlyList<LifeModuleLegalOptionDto> modules = [];
         try
         {
             catalogAuthority = _lifeModulesCatalog.GetAuthority();
@@ -691,8 +701,11 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             {
                 // An empty list is an authoritative "no books" filter. Null is
                 // never passed here because it would expose every source.
-                nationalities = _lifeModulesCatalog.GetOptionProjections(
-                    NationalityStageName,
+                modules = _lifeModulesCatalog.GetOptionProjections(
+                    // Initial nationality previews do not need to repeatedly
+                    // project every later module in the catalog.
+                    stage: workspace.Document.AuxiliaryState.CharacterCreationFoundationDraft
+                        ?.AdditionalModules is null ? "Nationality" : null,
                     effectiveSources);
             }
             else if (string.IsNullOrWhiteSpace(catalogAuthority.RawXmlDigest))
@@ -772,7 +785,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             hasSourceProfileAuthority,
             hasExistingLifeModuleQuality,
             pendingDraft,
-            nationalities,
+            modules,
             metatypeOptions);
         blockers.AddRange(lifeModuleBudget.Blockers);
         if (!string.Equals(
@@ -792,6 +805,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         if (summary.Created)
             blockers.Add(CharacterCreationFoundationBlockers.CharacterAlreadyCreated);
 
+        LifeModuleLegalOptionDto[] nationalities = modules
+            .Where(module => module.StageOrder == LifeModuleJourneyStageOrders.Nationality).ToArray();
         string[] normalizedBlockers = blockers
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -1172,6 +1187,9 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 CharacterCreationFoundationBlockers.LifeModuleBudgetPendingDraftAuthorityRequired);
         }
 
+        if (pendingCostIsExact && used > sourceProfile.BuildPoints.GetValueOrDefault())
+            blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetExceeded);
+
         string[] normalizedBlockers = blockers
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -1253,7 +1271,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 return false;
             cost = metatypeCost + module.KarmaCost;
             costIsExact = module.KarmaIsExact;
-            return true;
+            return TryAddContinuationCost(draft, nationalities, ref cost, ref costIsExact);
         }
 
         LifeModuleVersionProjectionDto? version = module.Versions.FirstOrDefault(item =>
@@ -1262,7 +1280,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             return false;
         cost = metatypeCost + version.KarmaCost;
         costIsExact = version.KarmaIsExact;
-        return true;
+        return TryAddContinuationCost(draft, nationalities, ref cost, ref costIsExact);
     }
 
     private static bool TryResolveMetatypeCost(

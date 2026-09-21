@@ -87,7 +87,26 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
                && ledger.ProjectedEffects.All(IsStructurallyValid)
                && ledger.FollowUpValues.All(item =>
                    IsNormalizedNonEmpty(item.Key) && item.Value is not null)
-               && ledger.SourceAnchorIds.All(IsNormalizedNonEmpty);
+               && ledger.SourceAnchorIds.All(IsNormalizedNonEmpty)
+               && (ledger.AdditionalModules is null
+                   || (ledger.AdditionalModules.Count is > 0 and <= 128
+                       && ledger.AdditionalModules.All(entry => entry is not null
+                           && entry.StageOrder is >= LifeModuleJourneyStageOrders.FormativeYears and <= LifeModuleJourneyStageOrders.RealLife
+                           && IsNormalizedNonEmpty(entry.StageId)
+                           && entry.Selection is not null
+                           && IsNormalizedNonEmpty(entry.Selection.ModuleId)
+                           && (entry.Selection.VersionId is null || IsNormalizedNonEmpty(entry.Selection.VersionId))
+                           && entry.KarmaCost >= 0
+                           && entry.RequirementEvaluations is not null
+                           && entry.RequirementEvaluations.All(IsStructurallyValid)
+                           && entry.ProjectedEffects is not null
+                           && entry.ProjectedEffects.All(IsStructurallyValid)
+                           && entry.FollowUpValues is not null
+                           && entry.FollowUpValues.All(item => IsNormalizedNonEmpty(item.Key) && item.Value is not null)
+                           && entry.SourceAnchorIds is not null
+                           && entry.SourceAnchorIds.Count > 0
+                           && entry.SourceAnchorIds.All(IsNormalizedNonEmpty)
+                           && entry.StoryTemplate is not null)));
     }
 
     public static bool HasSameLogicalPayload(

@@ -1,5 +1,6 @@
 using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Workspaces;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -74,6 +75,9 @@ public static class CharacterCreationFoundationBlockers
     public const string PendingDraftConflict = "pending-draft-conflict";
     public const string PendingDraftDuplicate = "pending-draft-duplicate";
     public const string PendingDraftInvalid = "pending-draft-invalid";
+    public const string FoundationLockedByJourney = "foundation-locked-by-life-module-journey";
+    public const string LifeModuleStageInvalid = "life-module-stage-invalid";
+    public const string LifeModuleSelectionInvalid = "life-module-selection-invalid";
     public const string RulesetSr5Required = "ruleset-sr5-required";
     public const string SourceDigestConflict = "source-digest-conflict";
     public const string StaleRawCharacterXmlDigest = "stale-raw-character-xml-digest";
@@ -140,7 +144,13 @@ public sealed record CharacterCreationFoundationDraftLedger(
     IReadOnlyList<string> SourceAnchorIds,
     string CompilationStatus,
     bool CharacterEffectsApplied,
-    string DraftDigest);
+    string DraftDigest)
+{
+    // Omit absent continuation data so existing nationality-only ledger bytes
+    // and their canonical hashes remain readable without a migration.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleDraftEntry>? AdditionalModules { get; init; }
+}
 
 public sealed record CharacterCreationFoundationState(
     string Schema,
