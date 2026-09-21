@@ -1,6 +1,7 @@
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
+using System.Text;
 
 namespace Chummer.Application.Characters;
 
@@ -28,9 +29,38 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Attributes is not null && !TryFreezeAttributes(selection.Attributes, out attributes)) return false;
         Sr6CreationSkillSelection? skills = null;
         if (selection.Skills is not null && !TryFreezeSkills(selection.Skills, out skills)) return false;
+        Sr6CreationKnowledgeSelection? knowledge = null;
+        if (selection.Knowledge is not null && !TryFreezeKnowledge(selection.Knowledge, out knowledge)) return false;
         frozen = selection with { Assignments = CharacterCreationPriorityCategoryIds.Ordered
-            .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(), Attributes = attributes, Skills = skills };
+            .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
+            Attributes = attributes, Skills = skills, Knowledge = knowledge };
         return true;
+    }
+
+    public static bool TryFreezeKnowledge(Sr6CreationKnowledgeSelection? selection, out Sr6CreationKnowledgeSelection? frozen)
+    {
+        frozen = null;
+        if (selection is null || !KnowledgeName(selection.NativeLanguage)
+            || selection.KnowledgeSkills is not { Count: <= 32 } || selection.Languages is not { Count: <= 32 }) return false;
+        var topics = selection.KnowledgeSkills.ToArray();
+        var languages = selection.Languages.ToArray();
+        if (topics.Length + languages.Length > 32
+            || topics.Any(row => row is null || row.Id == Guid.Empty || !KnowledgeName(row.Name))
+            || languages.Any(row => row is null || row.Id == Guid.Empty || !KnowledgeName(row.Name)
+                || !Sr6CreationLanguageLevels.Ordered.Contains(row.Level, StringComparer.Ordinal))
+            || topics.Select(row => row.Id).Concat(languages.Select(row => row.Id)).Distinct().Count() != topics.Length + languages.Length
+            || topics.Select(row => row.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != topics.Length
+            || languages.Select(row => row.Name).Append(selection.NativeLanguage).Distinct(StringComparer.OrdinalIgnoreCase).Count() != languages.Length + 1)
+            return false;
+        frozen = new(selection.NativeLanguage, topics.OrderBy(row => row.Id).ToArray(), languages.OrderBy(row => row.Id).ToArray());
+        return true;
+    }
+
+    private static bool KnowledgeName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 80 || name != name.Trim() || name.Any(char.IsControl)) return false;
+        try { return name.IsNormalized(NormalizationForm.FormC); }
+        catch (ArgumentException) { return false; }
     }
 
     public static bool TryFreezeSkills(Sr6CreationSkillSelection? selection, out Sr6CreationSkillSelection? frozen)

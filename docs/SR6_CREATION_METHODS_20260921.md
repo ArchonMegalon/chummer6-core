@@ -3,7 +3,36 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: SR6 skill points and specializations
+## Current increment: free knowledge and language choices
+
+Priority/Sum-to-Ten drafts now carry a separate knowledge/language allocation.
+Core derives its free pool from the validated Logic allocation. One native
+language is additional and free. Knowledge topics are unrated and cost one pick;
+language levels Basic/Specialist/Expert cost 1/2/3 picks cumulatively and provide
+comprehension bonuses 0/2/3. Additional native languages cannot be purchased with
+these picks. These rules were checked in the owned German 2024 core printing,
+printed pp70 and 100. No source prose or PDF is committed.
+
+Names are bounded, Unicode-normalized player input with stable entry IDs. Topics
+explicitly require GM scope review, not an invented GM approval. Duplicate IDs,
+duplicate names, unsupported levels, malformed collections and overspend are
+rejected. Core requires an attribute allocation, recomputes Logic and carries
+its exact attribute authority. Lowering Logic below already chosen knowledge
+costs blocks the changed preview instead of silently dropping entries.
+
+The same owner/revision-bound atomic foundation writer handles confirmation.
+Attributes and skills remain intact. Null knowledge fields preserve older
+decision digests. Cold load recomputes the projection and rejects a rehashed
+forged Logic/result. Karma, Bilingual and other quality adjustments, final
+character grants, other build methods and Career remain later work.
+
+Local keyless Docker / .NET 10.0.103: **124 tests PASS**, zero failed/skipped,
+`core-sr6-knowledge-1.log`. Includes both method persistence/replay, language
+levels, free native language, derived-budget rebinding, malformed input, deep
+copies and forged-state rejection, alongside prior foundation/attribute/skill
+and bootstrap/priority regressions. Not a package seal, main merge or Play claim.
+
+## Historical increment: SR6 skill points and specializations
 
 Priority/Sum-to-Ten foundation decisions now also carry typed skill choices.
 The Core-owned list contains the 19 SR6 skills, with separate availability for

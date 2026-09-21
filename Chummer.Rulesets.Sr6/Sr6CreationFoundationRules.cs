@@ -65,7 +65,8 @@ public static class Sr6CreationFoundationRules
         return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod, Metatypes(), Talents(), selected)
         {
             AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected),
-            SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId)
+            SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId),
+            KnowledgePointBudget = selected?.Attributes?.Values.Single(row => row.AttributeId == "Logic").Value
         });
     }
 
@@ -81,6 +82,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.Skills is { } requestedSkills
             && !Sr6CreationFoundationIntegrity.TryFreezeSkills(requestedSkills, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationSkillBlockers.InvalidAllocation);
+        if (selection?.Knowledge is { } requestedKnowledge
+            && !Sr6CreationFoundationIntegrity.TryFreezeKnowledge(requestedKnowledge, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKnowledgeBlockers.InvalidSelection);
         if (!Sr6CreationFoundationIntegrity.TryFreezeSelection(selection, out selection))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPriorityBlockers.CategoriesInvalid);
 
@@ -116,6 +120,13 @@ public static class Sr6CreationFoundationRules
             if (skills.Value is null) return new(skills.Outcome, null, skills.Blockers);
             preview = preview with { Skills = skills.Value,
                 SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationSkillRules.SourceAnchor] };
+        }
+        if (selection.Knowledge is { } knowledgeSelection)
+        {
+            var knowledge = Sr6CreationKnowledgeRules.Evaluate(preview, knowledgeSelection);
+            if (knowledge.Value is null) return new(knowledge.Outcome, null, knowledge.Blockers);
+            preview = preview with { Knowledge = knowledge.Value,
+                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationKnowledgeRules.SourceAnchor] };
         }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }
