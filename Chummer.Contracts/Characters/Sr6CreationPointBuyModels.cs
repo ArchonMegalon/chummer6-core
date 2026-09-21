@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Chummer.Contracts.Characters;
 
 /// <summary>Purchased pools, not attribute ratings, Karma or character effects.</summary>
@@ -13,7 +15,11 @@ public sealed record Sr6CreationPointBuyLimits(int CharacterPoints, int FreeAttr
 /// <summary>Pool purchase review only. AllCharacterPointsSpent is not finalization permission.</summary>
 public sealed record Sr6CreationPointBuyPreview(int CharacterPoints, int PointsSpent, int PointsRemaining,
     int TalentCost, int AttributeCost, int SkillCost, int AdjustmentCost, int ResourceCost, int CustomizationKarma,
-    bool AllCharacterPointsSpent, int FreeSpells, int FreeComplexForms, int FreePowerPoints, string AuthorityDigest);
+    bool AllCharacterPointsSpent, int FreeSpells, int FreeComplexForms, int FreePowerPoints, string AuthorityDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PowerPointCost { get; init; }
+}
 
 public static class Sr6CreationPointBuyBlockers
 {

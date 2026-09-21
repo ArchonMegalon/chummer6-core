@@ -71,7 +71,8 @@ public static class Sr6CreationFoundationRules
             AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected),
             SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId),
             KnowledgePointBudget = selected?.Attributes?.Values.Single(row => row.AttributeId == "Logic").Value,
-            PointBuyLimits = pointBuy ? Sr6CreationPointBuyRules.Limits() : null
+            PointBuyLimits = pointBuy ? Sr6CreationPointBuyRules.Limits() : null,
+            TalentOptions = selected is null ? null : Sr6CreationTalentRules.Options(selected)
         });
     }
 
@@ -90,6 +91,8 @@ public static class Sr6CreationFoundationRules
         if (selection?.Knowledge is { } requestedKnowledge
             && !Sr6CreationFoundationIntegrity.TryFreezeKnowledge(requestedKnowledge, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKnowledgeBlockers.InvalidSelection);
+        if (selection?.TalentAllocation is { SelectedPowerPoints: < 0 or > 6 })
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationTalentBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -141,6 +144,20 @@ public static class Sr6CreationFoundationRules
             if (skills.Value is null) return new(skills.Outcome, null, skills.Blockers);
             preview = preview with { Skills = skills.Value,
                 SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationSkillRules.SourceAnchor] };
+        }
+        if (selection.TalentAllocation is { } talentSelection)
+        {
+            var talent = Sr6CreationTalentRules.Evaluate(preview, talentSelection);
+            if (talent.Value is null) return new(talent.Outcome, null, talent.Blockers);
+            preview = preview with { TalentAllocation = talent.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Concat(talent.Value.SourceAnchorIds).Distinct(StringComparer.Ordinal).ToArray() };
+            if (preview.PointBuy is { } points)
+            {
+                int spent = points.PointsSpent + talent.Value.PowerPointCharacterPointCost;
+                preview = preview with { PointBuy = points with { PointsSpent = spent,
+                    PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
+                    PowerPointCost = talent.Value.PowerPointCharacterPointCost } };
+            }
         }
         if (selection.Knowledge is { } knowledgeSelection)
         {

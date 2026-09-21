@@ -35,6 +35,7 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Skills is not null && !TryFreezeSkills(selection.Skills, out skills)) return false;
         Sr6CreationKnowledgeSelection? knowledge = null;
         if (selection.Knowledge is not null && !TryFreezeKnowledge(selection.Knowledge, out knowledge)) return false;
+        if (selection.TalentAllocation is { SelectedPowerPoints: < 0 or > 6 }) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
             Attributes = attributes, Skills = skills, Knowledge = knowledge };

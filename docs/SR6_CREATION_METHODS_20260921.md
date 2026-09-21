@@ -3,7 +3,40 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: Point Buy pool purchase and allocation
+## Current increment: talent budgets and whole power-point purchases
+
+Priority/Sum-to-Ten and Point Buy now use a separate Core-owned talent budget
+after attribute allocation. The owned German 2024 core pp67–68/158–160 and
+Companion p30 were checked directly. Priority free spells/forms use the original
+talent-priority Magic/Resonance, not adjustment increases. Adept power points
+use final Magic. A mystic adept splits original priority Magic between whole
+power points and twice the remaining amount in free spells/rituals. Aspected
+Sorcery, Enchanting and Conjuring have distinct entitlements.
+
+Point Buy has no free spells/forms/power points. This increment purchases whole
+power points at 4 CP for adepts or 8 CP for mystic adepts, capped by final Magic.
+Spell/form purchase ceilings use final Magic/Resonance; mystic adept power
+points reduce the spell ceiling first. These are ceilings only: no individual
+spell, ritual, alchemical spell, complex form or adept power is learned here.
+The SR6 catalogs and ability selection, Karma/quality adjustments and final
+character effects remain open. No SR5 catalog is substituted.
+
+The total Point Buy review includes power-point costs and rejects overspend.
+Its existing authority digest still identifies the pool calculation; the new
+talent authority and enclosing preview digest bind the additional purchase.
+Attribute changes preserve talent choices and block an invalid reduced-Magic
+budget instead of silently deleting purchases. Atomic confirmation/replay and
+cold projection recomputation use the existing foundation service. Omitted
+nullable talent fields preserve older decision hashes.
+
+Local keyless Docker / .NET 10.0.103: **155 tests PASS**, zero failed/skipped,
+`core-sr6-talents-2.log`. Coverage includes both priority methods, adjusted versus
+original ratings, three aspects, Point Buy purchases/caps, cold save/replay,
+invalid inputs, exact CP exhaustion and rehashed forged entitlements. Run 1
+passed 151 cases before the additional Sum-to-Ten rows. No package seal, main
+merge, finalization or Play publication is implied.
+
+## Historical increment: Point Buy pool purchase and allocation
 
 The Point Buy bootstrap now enters its own pool-purchase calculation through
 the same owner/revision-bound atomic foundation service. It accepts no priority
