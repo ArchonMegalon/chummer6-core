@@ -16,6 +16,8 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
 {
     public const int MaximumEntries = 4096;
     private const int MaximumTextLength = 32_767;
+    internal static string AbsentContactDigest { get; } =
+        CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new { ContactAbsent = true });
 
     private static readonly IReadOnlyDictionary<string, ContactWriteField> s_WriteFields =
         new Dictionary<string, ContactWriteField>(StringComparer.Ordinal)
@@ -166,6 +168,8 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
 
             XElement? currentContact = FindUniqueContact(currentRoot, receipt.ContactId);
             XElement? replacementContact = FindUniqueContact(replacementRoot, receipt.ContactId);
+            if (receipt.WritePlan.ChangeKind != CharacterCreationContactChangeKind.Edit)
+                return HasValidCollectionTransition(receipt.WritePlan, current, replacement);
             if (currentContact is null
                 || replacementContact is null
                 || !CharacterContactEditSemanticsResolver.TryResolve(
@@ -232,6 +236,99 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
         {
             return false;
         }
+    }
+
+    private static bool HasValidCollectionTransition(
+        CharacterCreationContactAtomicWritePlan plan, XDocument current, XDocument replacement)
+    {
+        XElement currentRoot = current.Root!;
+        XElement replacementRoot = replacement.Root!;
+        // Multiple containers or duplicate identities are never a collection edit.
+        if (currentRoot.Elements("contacts").Count() > 1 || replacementRoot.Elements("contacts").Count() != 1
+            || !string.Equals(plan.Schema, CharacterCreationContactsSchemas.WritePlanV2, StringComparison.Ordinal)
+            || plan.Operations.Count == 0)
+            return false;
+
+        CharacterCreationContactWriteOperation presence = plan.Operations[0];
+        bool adding = plan.ChangeKind == CharacterCreationContactChangeKind.Add;
+        if ((!adding && plan.ChangeKind != CharacterCreationContactChangeKind.Remove)
+            || presence.FieldId != CharacterCreationContactFieldIds.Presence
+            || presence.BeforeValue != (adding ? "absent" : "present")
+            || presence.AfterValue != (adding ? "present" : "absent")
+            || !presence.SourceAnchorIds.SequenceEqual(CharacterCreationContactSourceAnchors.All))
+            return false;
+
+        XElement? before = FindUniqueContact(currentRoot, plan.ContactId);
+        XElement? after = FindUniqueContact(replacementRoot, plan.ContactId);
+        XDocument expected = new(current);
+        if (adding)
+        {
+            if ((currentRoot.Element("contacts")?.Elements("contact") ?? []).Any(contact =>
+                    Guid.TryParse(ReadValue(contact, "guid"), out Guid id) && id == plan.ContactId)
+                || after is null)
+                return false;
+            XElement baseline = CharacterCreationContactsService.CreateDefaultContact(plan.ContactId);
+            XElement added = new(baseline);
+            XElement? collection = expected.Root!.Element("contacts");
+            if (collection is null)
+            {
+                collection = new XElement("contacts");
+                expected.Root.Add(collection);
+            }
+            collection.Add(added);
+            if (!CharacterContactEditSemanticsResolver.TryResolve(currentRoot, baseline, out var semantics)
+                || !CharacterContactEditSemanticsResolver.TryResolve(replacementRoot, after, out var afterSemantics))
+                return false;
+            var changed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var operation in plan.Operations.Skip(1))
+            {
+                if (!changed.Add(operation.FieldId)
+                    || !s_WriteFields.TryGetValue(operation.FieldId, out var field)
+                    || !operation.SourceAnchorIds.SequenceEqual(CharacterCreationContactSourceAnchors.All)
+                    || !IsEditable(operation.FieldId, semantics)
+                    || !TryNormalizeExistingValue(baseline, semantics, operation.FieldId, field, out string value)
+                    || value != operation.BeforeValue
+                    || !TryValidateAfterValue(operation.FieldId, field, semantics, operation.AfterValue)
+                    || !AfterSemanticMatches(operation.FieldId, operation.AfterValue, afterSemantics))
+                    return false;
+                XElement? element = added.Element(field.ElementName);
+                if (element is null)
+                    added.Add(new XElement(field.ElementName, operation.AfterValue));
+                else
+                    element.Value = operation.AfterValue;
+            }
+        }
+        else
+        {
+            if (before is null || after is not null || plan.Operations.Count != 1
+                || ReadValue(before, "type").Length != 0
+                   && !string.Equals(ReadValue(before, "type"), "Contact", StringComparison.OrdinalIgnoreCase)
+                || !CharacterContactEditSemanticsResolver.TryResolve(currentRoot, before, out var semantics)
+                || !semantics.CanDelete)
+                return false;
+            FindUniqueContact(expected.Root!, plan.ContactId)!.Remove();
+        }
+
+        string nestedBefore = adding ? AbsentContactDigest : ComputeNestedStateDigest(before!);
+        string nestedAfter = adding ? ComputeNestedStateDigest(after!) : AbsentContactDigest;
+        // Removing an element joins adjacent whitespace text nodes on the next XML parse.
+        // Compare their exact serialized bytes, not parser-specific node segmentation.
+        return string.Equals(expected.ToString(SaveOptions.DisableFormatting), replacement.ToString(SaveOptions.DisableFormatting), StringComparison.Ordinal)
+               && FixedEquals(plan.UntouchedSiblingDigestBefore, ComputeCollectionSiblingDigest(currentRoot, plan.ContactId))
+               && FixedEquals(plan.UntouchedSiblingDigestAfter, ComputeCollectionSiblingDigest(replacementRoot, plan.ContactId))
+               && FixedEquals(plan.NestedStateDigestBefore, nestedBefore)
+               && FixedEquals(plan.NestedStateDigestAfter, nestedAfter)
+               && plan.PreservesNestedState == FixedEquals(nestedBefore, nestedAfter);
+    }
+
+    internal static string ComputeCollectionSiblingDigest(XElement root, Guid contactId)
+    {
+        XElement collection = root.Element("contacts") is { } contacts ? new(contacts) : new("contacts");
+        foreach (XElement contact in collection.Elements("contact").Where(contact =>
+                     Guid.TryParse(ReadValue(contact, "guid"), out Guid id) && id == contactId).ToArray())
+            contact.Remove();
+        return CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+            collection.ToString(SaveOptions.DisableFormatting));
     }
 
     private static bool HasExactReceiptAuthority(
@@ -347,7 +444,9 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
         CharacterCreationContactReceipt receipt)
     {
         if (plan is null
-            || !string.Equals(plan.Schema, CharacterCreationContactsSchemas.WritePlanV1, StringComparison.Ordinal)
+            || !Enum.IsDefined(plan.ChangeKind)
+            || !string.Equals(plan.Schema, plan.ChangeKind == CharacterCreationContactChangeKind.Edit
+                ? CharacterCreationContactsSchemas.WritePlanV1 : CharacterCreationContactsSchemas.WritePlanV2, StringComparison.Ordinal)
             || !string.Equals(plan.StepId, CharacterCreationWizardStepIds.ContactsLifestyles, StringComparison.Ordinal)
             || plan.ContactId != receipt.ContactId
             || plan.Operations is not { Count: > 0 }
@@ -365,9 +464,10 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
             || !IsCanonicalDigest(plan.UntouchedSiblingDigestBefore)
             || !FixedEquals(plan.UntouchedSiblingDigestBefore, plan.UntouchedSiblingDigestAfter)
             || !IsCanonicalDigest(plan.NestedStateDigestBefore)
-            || !FixedEquals(plan.NestedStateDigestBefore, plan.NestedStateDigestAfter)
+            || !IsCanonicalDigest(plan.NestedStateDigestAfter)
+            || plan.PreservesNestedState != FixedEquals(plan.NestedStateDigestBefore, plan.NestedStateDigestAfter)
             || !plan.PreservesUntouchedSiblingState
-            || !plan.PreservesNestedState
+            || plan.ChangeKind == CharacterCreationContactChangeKind.Edit && !plan.PreservesNestedState
             || !IsCanonicalDigest(plan.PlanDigest))
         {
             return false;

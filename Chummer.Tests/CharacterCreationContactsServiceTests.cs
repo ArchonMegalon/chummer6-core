@@ -17,6 +17,172 @@ public sealed class CharacterCreationContactsServiceTests
     private static readonly Guid PetId = Guid.Parse("22222222-3333-4444-8555-666666666666");
 
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Add_then_remove_contact_is_previewed_atomic_and_replays_after_cold_reopen(string buildMethod)
+    {
+        WithService((store, service, id, directory) =>
+        {
+            var initial = Load(service, id);
+            Assert.IsNotNull(initial.NewContactTemplate);
+            Guid addedId = Guid.Parse("44444444-5555-4666-8777-888888888888");
+            var add = new CharacterCreationContactEdit(addedId,
+                initial.NewContactTemplate.Identity with { Name = "Street Doc", Role = "Medic" },
+                Connection: 2, Loyalty: 2) { ChangeKind = CharacterCreationContactChangeKind.Add };
+            var preview = Preview(service, initial.Binding, add);
+            Assert.IsTrue(preview.ContactBefore.IsAbsent);
+            Assert.IsFalse(preview.ContactAfter.IsAbsent);
+            Assert.AreEqual(4, preview.ContactAfter.ContactPointCost);
+            Assert.AreEqual(12, preview.ContactBudgetAfter.Used);
+            Assert.AreEqual(CharacterCreationContactsSchemas.WritePlanV2, preview.WritePlan.Schema);
+            Assert.IsFalse(preview.WritePlan.PreservesNestedState);
+            Assert.IsTrue(preview.WritePlan.PreservesUntouchedSiblingState);
+            Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision, "Preview must not write.");
+            var addRequest = new CharacterCreationContactConfirmRequest(initial.Binding, add,
+                preview.PreviewDigest, "contact-add", false);
+            Assert.AreEqual(CharacterCreationContactOutcomes.Blocked, service.Confirm(addRequest).Outcome);
+            var added = service.Confirm(addRequest with { ExplicitlyConfirmed = true });
+            Assert.AreEqual(CharacterCreationContactOutcomes.Applied, added.Outcome, string.Join(",", added.Blockers));
+
+            var cold = new CharacterCreationContactsService(new FileWorkspaceStore(directory));
+            var reopened = Load(cold, id);
+            Assert.AreEqual(3, reopened.Contacts.Count);
+            Assert.AreEqual("Street Doc", reopened.Contacts.Single(c => c.ContactId == addedId).Identity.Name);
+            Assert.AreEqual(2L, reopened.Binding.SavedRevision);
+            Assert.AreEqual(CharacterCreationContactOutcomes.Replayed,
+                cold.Confirm(addRequest with { ExplicitlyConfirmed = true }).Outcome);
+
+            var remove = new CharacterCreationContactEdit(addedId) { ChangeKind = CharacterCreationContactChangeKind.Remove };
+            var removal = Preview(cold, reopened.Binding, remove);
+            Assert.IsTrue(removal.ContactAfter.IsAbsent);
+            Assert.AreEqual(8, removal.ContactBudgetAfter.Used);
+            var removeRequest = new CharacterCreationContactConfirmRequest(reopened.Binding, remove,
+                removal.PreviewDigest, "contact-remove", true);
+            var removed = cold.Confirm(removeRequest);
+            Assert.AreEqual(CharacterCreationContactOutcomes.Applied, removed.Outcome, string.Join(",", removed.Blockers));
+            var twiceCold = new CharacterCreationContactsService(new FileWorkspaceStore(directory));
+            var final = Load(twiceCold, id);
+            Assert.AreEqual(2, final.Contacts.Count);
+            Assert.AreEqual(3L, final.Binding.SavedRevision);
+            Assert.AreEqual(CharacterCreationContactOutcomes.Replayed, twiceCold.Confirm(removeRequest).Outcome);
+            Assert.AreEqual(CharacterCreationContactOutcomes.Replayed,
+                twiceCold.Confirm(addRequest with { ExplicitlyConfirmed = true }).Outcome);
+            Assert.AreEqual(2, Load(twiceCold, id).Contacts.Count, "Replaying old add must not resurrect a deleted Contact.");
+            XDocument original = XDocument.Parse(Fixture().Replace("<buildmethod>Priority</buildmethod>",
+                $"<buildmethod>{buildMethod}</buildmethod>", StringComparison.Ordinal), LoadOptions.PreserveWhitespace);
+            XDocument finalXml = XDocument.Parse(new FileWorkspaceStore(directory).Get(id).Value!.Document.Content,
+                LoadOptions.PreserveWhitespace);
+            Assert.IsTrue(XNode.DeepEquals(original, finalXml), "All unrelated XML and nested state must survive.");
+        }, Fixture().Replace("<buildmethod>Priority</buildmethod>",
+            $"<buildmethod>{buildMethod}</buildmethod>", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Add_first_contact_without_a_container_and_remove_last_contact_preserves_the_runner()
+    {
+        XDocument empty = XDocument.Parse(Fixture(), LoadOptions.PreserveWhitespace);
+        empty.Root!.Element("contacts")!.Remove();
+        WithService((_, service, id, _) =>
+        {
+            var initial = Load(service, id);
+            var add = new CharacterCreationContactEdit(ContactId,
+                initial.NewContactTemplate!.Identity with { Name = "Fixer" }) { ChangeKind = CharacterCreationContactChangeKind.Add };
+            var preview = Preview(service, initial.Binding, add);
+            var result = service.Confirm(new(initial.Binding, add, preview.PreviewDigest, "first-contact", true));
+            Assert.AreEqual(CharacterCreationContactOutcomes.Applied, result.Outcome, string.Join(",", result.Blockers));
+            var withContact = Load(service, id);
+            Assert.AreEqual(1, withContact.Contacts.Count);
+            var remove = new CharacterCreationContactEdit(ContactId) { ChangeKind = CharacterCreationContactChangeKind.Remove };
+            var removal = Preview(service, withContact.Binding, remove);
+            var removed = service.Confirm(new(withContact.Binding, remove, removal.PreviewDigest, "last-contact", true));
+            Assert.AreEqual(CharacterCreationContactOutcomes.Applied, removed.Outcome, string.Join(",", removed.Blockers));
+            Assert.AreEqual(0, Load(service, id).Contacts.Count);
+        }, empty.ToString(SaveOptions.DisableFormatting));
+    }
+
+    [TestMethod]
+    public void Collection_changes_reject_collision_overspend_locked_deletion_and_mixed_intent()
+    {
+        WithService((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var identity = state.NewContactTemplate!.Identity with { Name = "New" };
+            foreach (Guid collision in new[] { ContactId, PetId })
+                Assert.IsFalse(service.Preview(new(state.Binding,
+                    new(collision, identity) { ChangeKind = CharacterCreationContactChangeKind.Add })).Success);
+            Assert.IsFalse(service.Preview(new(state.Binding,
+                new(Guid.NewGuid(), identity, 6, 6) { ChangeKind = CharacterCreationContactChangeKind.Add })).Success);
+            Assert.IsFalse(service.Preview(new(state.Binding,
+                new(ContactId, Free: true) { ChangeKind = CharacterCreationContactChangeKind.Remove })).Success);
+            Assert.IsFalse(service.Preview(new(state.Binding,
+                new(PetId) { ChangeKind = CharacterCreationContactChangeKind.Remove })).Success);
+            Assert.IsFalse(service.Preview(new(state.Binding,
+                new(ContactId) { ChangeKind = (CharacterCreationContactChangeKind)999 })).Success);
+            Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+        });
+        WithService((_, service, id, _) =>
+        {
+            var state = Load(service, id);
+            Assert.IsFalse(state.Contacts.Single(c => c.ContactId == ContactId).CanDelete);
+            var result = service.Preview(new(state.Binding,
+                new(ContactId) { ChangeKind = CharacterCreationContactChangeKind.Remove }));
+            CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationContactsBlockers.FieldNotEditable);
+        }, Fixture().Replace($"<guid>{ContactId:D}</guid>", $"<guid>{ContactId:D}</guid><readonly />", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Historical_edit_command_serialization_omits_new_collection_discriminator()
+    {
+        var edit = new CharacterCreationContactEdit(ContactId, Free: true);
+        var legacyShape = new { edit.ContactId, edit.Identity, edit.Connection, edit.Loyalty,
+            edit.IsGroup, edit.Free, edit.Family, edit.Blackmail };
+        Assert.AreEqual(CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(legacyShape),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(edit));
+    }
+
+    [TestMethod]
+    public void Collection_receipts_cannot_authorize_unrelated_writes_even_with_recomputed_hashes()
+    {
+        foreach (var kind in new[] { CharacterCreationContactChangeKind.Add, CharacterCreationContactChangeKind.Remove })
+        WithService((store, service, id, directory) =>
+        {
+            var original = store.Get(id).Value!;
+            var state = Load(service, id);
+            var edit = kind == CharacterCreationContactChangeKind.Add
+                ? new CharacterCreationContactEdit(Guid.NewGuid(), state.NewContactTemplate!.Identity with { Name = "Medic" }) { ChangeKind = kind }
+                : new CharacterCreationContactEdit(ContactId) { ChangeKind = kind };
+            var preview = Preview(service, state.Binding, edit);
+            var applied = service.Confirm(new(state.Binding, edit, preview.PreviewDigest, "collection-forgery", true));
+            Assert.AreEqual(CharacterCreationContactOutcomes.Applied, applied.Outcome, kind + ": " + string.Join(",", applied.Blockers));
+            var committed = store.Get(id).Value!.Document;
+            XDocument forgedXml = XDocument.Parse(committed.Content, LoadOptions.PreserveWhitespace);
+            forgedXml.Root!.Element("root-sentinel")!.SetElementValue("value", "unauthorized");
+            string forgedContent = forgedXml.ToString(SaveOptions.DisableFormatting);
+            string digest = CharacterCreationContactReceiptLedgerIntegrity.ComputeContentDigest(forgedContent);
+            var plan = applied.Value!.WritePlan with { ContentDigestAfter = digest, PlanDigest = string.Empty };
+            plan = plan with { PlanDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(plan) };
+            var receipt = applied.Value with { ContentDigestAfter = digest, WritePlan = plan, ReceiptDigest = string.Empty };
+            receipt = receipt with { ReceiptDigest = CharacterCreationContactReceiptLedgerIntegrity.ComputeReceiptDigest(receipt) };
+            var forged = committed with
+            {
+                State = committed.State with
+                {
+                    Payload = forgedContent,
+                    AuxiliaryState = committed.AuxiliaryState with
+                    {
+                        CharacterCreationContactReceipts = [new(receipt.IdempotencyKeyDigest, receipt.CommandDigest, receipt)]
+                    }
+                }
+            };
+            var boundary = new FileWorkspaceStore(Path.Combine(directory, "forgery"));
+            Assert.IsTrue(boundary.CreateWorkspaceDocument(id, original.Document).Success);
+            Assert.IsFalse(boundary.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(id,
+                1, original.Document.AuxiliaryStateDigest, forged).Success);
+            Assert.AreEqual(original.Document.Content, boundary.Get(id).Value!.Document.Content);
+        });
+    }
+
+    [TestMethod]
     public void Fractional_contact_modifier_is_rounded_up_before_budget_admission()
     {
         string xml = Fixture().Replace("<improvements />", "<improvements><improvement><improvementttype>ContactKarmaDiscount</improvementttype><val>0.1</val><enabled>1</enabled><condition>create</condition></improvement></improvements>", StringComparison.Ordinal);

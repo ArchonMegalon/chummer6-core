@@ -1,4 +1,5 @@
 using Chummer.Contracts.Workspaces;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -8,12 +9,14 @@ public static class CharacterCreationContactsSchemas
     public const string PreviewV1 = "chummer.character_creation_contacts.preview.v1";
     public const string ReceiptV1 = "chummer.character_creation_contacts.receipt.v1";
     public const string WritePlanV1 = "chummer.character_creation_contacts.write_plan.v1";
+    public const string WritePlanV2 = "chummer.character_creation_contacts.write_plan.v2";
     public const string RulesV1 = "chummer.character_creation_contacts.sr5_rules.v1";
     public const string RuntimeV1 = "chummer.character_creation_contacts.runtime.v1";
 }
 
 public static class CharacterCreationContactFieldIds
 {
+    public const string Presence = "contact-presence";
     public const string Name = "name";
     public const string Role = "role";
     public const string Location = "location";
@@ -155,7 +158,19 @@ public sealed record CharacterCreationContactEdit(
     bool? IsGroup = null,
     bool? Free = null,
     bool? Family = null,
-    bool? Blackmail = null);
+    bool? Blackmail = null)
+{
+    // Omitted for historical edits so persisted command digests remain valid.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCreationContactChangeKind ChangeKind { get; init; }
+}
+
+public enum CharacterCreationContactChangeKind
+{
+    Edit,
+    Add,
+    Remove
+}
 
 public sealed record CharacterCreationContactOption(
     string OptionId,
@@ -191,7 +206,14 @@ public sealed record CharacterCreationContactProjection(
     bool CountsAgainstHighPlacesBudget,
     IReadOnlyList<CharacterCreationContactFieldAuthority> Fields,
     IReadOnlyList<string> SourceAnchorIds,
-    string ContactDigest);
+    string ContactDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsAbsent { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CanDelete { get; init; }
+}
 
 public sealed record CharacterCreationContactBudget(
     string BudgetId,
@@ -240,7 +262,11 @@ public sealed record CharacterCreationContactAtomicWritePlan(
     string NestedStateDigestAfter,
     bool PreservesUntouchedSiblingState,
     bool PreservesNestedState,
-    string PlanDigest);
+    string PlanDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCreationContactChangeKind ChangeKind { get; init; }
+}
 
 public sealed record CharacterCreationContactsState(
     string Schema,
@@ -252,7 +278,12 @@ public sealed record CharacterCreationContactsState(
     CharacterCreationContactBudget HighPlacesBudget,
     IReadOnlyList<string> Blockers,
     bool CanEdit,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    /// <summary>Core-owned defaults and bounds; the caller supplies a new stable ID.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationContactProjection? NewContactTemplate { get; init; }
+}
 
 public sealed record CharacterCreationContactPreview(
     string Schema,
