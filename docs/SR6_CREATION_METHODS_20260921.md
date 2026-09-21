@@ -5,9 +5,9 @@ Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
 ## Implemented
 
-- Separate SR6 wire identities: `Priority`, `SumtoTen`, `PointBuy`, `LifePath`.
-  The latter three alternatives are described in Catalyst's Sixth World
-  Companion; this identity catalog is not a rule-budget or readiness claim.
+- Separate SR6 method catalog: `Priority`, `SumtoTen`, `PointBuy`, `LifePath`,
+  and the optional `Karma` system. The latter is not SR5's Karma rules even though
+  the wire name is shared. This catalog is not a rule-budget or readiness claim.
 - Shape validation admits an explicitly SR6, uncreated draft with a known method
   before metatype selection. It does not choose Human, substitute SR5 Karma/Life
   Modules, authorize a bootstrap, or permit Career finalization.
@@ -31,7 +31,8 @@ as a pass. No APK, native SR6 smoke, package reseal or release was produced.
 
 ## Not enabled in the app yet
 
-UI feature commit `2905f4450` now shows SR6's own four method identities, but
+UI feature commit `2905f4450` introduced SR6's first four method identities; the
+follow-up also adds the optional SR6 Karma system found in the owned book. However,
 `DialogCoordinator.StartAuthoritativeNewCharacterAsync` and Core's
 `CharacterCreationBootstrapService` explicitly require SR5. The associated
 profile and source-binding contracts are SR5-only. These guards are unchanged.
@@ -64,3 +65,38 @@ The affected local Docker build and 25 focused tests passed in
 Next concrete dependency remains the SR6 source-bound bootstrap and typed editor,
 followed by save/reopen. Point Buy and Life Path still need their own Companion
 mechanics rather than either edition's priority projection.
+
+## Owned Companion source located
+
+The artifact-intake lookup located the user's `Shadowrun_Schattenkompendium.pdf`
+in the established pCloud Shadowrun library. A private local cache was made
+outside Git. ISBN: 978-3-96928-057-7; publisher: Pegasus, 2022; PDF: 225 pages;
+SHA-256: `fe4e5b69c6ea721bc59c26ceec084f40d3f29f84671e2ea3ad17482bf9e236fa`.
+Printed page numbers below are not interchangeable with the English edition.
+No PDF, illustrations, examples or source prose belong in this repository.
+
+Implementation inputs checked against this source:
+
+- p28: Sum-to-Ten uses five categories, ranks A–E costing 4–0 and an exact
+  total of ten. This confirms the new allocation calculation.
+- p29–31: Point Buy uses 100 **character points**, not Karma. Initial pools are
+  4 attribute points, 12 skill points and 1 adjustment point. Additional maxima
+  are 20/20/12, priced at 2/2/4 CP respectively. Resources cost 1 CP per
+  15,000 nuyen, capped at 450,000. Talent and magic purchases need their own
+  rules; Point Buy does not receive free spells or adept power points.
+- p32–34: Life Path has three initial stages followed by exactly eight adult
+  modules. Only one adult module may be selected twice. It is not SR5's
+  Karma-costed sequence. Contacts and knowledge/languages come from its modules,
+  not automatic Charisma/Logic pools.
+- p156–157: Optional Karma creation is a **fifth** distinct method. Its ordinary
+  budget is 1,000 Karma (800/1,200 for explicitly selected alternative levels),
+  not the SR5 budget and not Point Buy's 100 CP. Its talent/magic costs also differ.
+
+These observations are not a complete imported Companion rules pack. Native
+bootstrap, allocation editors, typed grants, full method validation and persistence
+still have to consume edition- and book-bound rules before any method is enabled.
+
+After adding the optional Karma identity, the local affected build and **82
+focused Core tests passed** with zero failed/skipped in
+`core-sr6-five-methods-1.log`. This includes all five pending-method file/codec
+roundtrips, the unchanged SR5 bootstrap boundary, and the allocation tests.

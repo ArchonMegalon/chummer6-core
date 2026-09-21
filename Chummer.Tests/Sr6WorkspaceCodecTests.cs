@@ -126,6 +126,7 @@ public class Sr6WorkspaceCodecTests
     [DataRow(Sr6CharacterCreationBuildMethods.SumToTen)]
     [DataRow(Sr6CharacterCreationBuildMethods.PointBuy)]
     [DataRow(Sr6CharacterCreationBuildMethods.LifePath)]
+    [DataRow(Sr6CharacterCreationBuildMethods.Karma)]
     public void Pending_sr6_method_survives_rename_disk_reopen_and_download_without_a_human_default(string method)
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-sr6-method-" + Guid.NewGuid().ToString("N"));

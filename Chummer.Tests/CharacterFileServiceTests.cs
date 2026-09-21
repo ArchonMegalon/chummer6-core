@@ -105,6 +105,7 @@ public class CharacterFileServiceTests
     [DataRow(Sr6CharacterCreationBuildMethods.SumToTen)]
     [DataRow(Sr6CharacterCreationBuildMethods.PointBuy)]
     [DataRow(Sr6CharacterCreationBuildMethods.LifePath)]
+    [DataRow(Sr6CharacterCreationBuildMethods.Karma)]
     public void Pending_sr6_method_keeps_its_edition_and_does_not_choose_a_metatype(string method)
     {
         var service = new CharacterFileService();
@@ -123,7 +124,7 @@ public class CharacterFileServiceTests
     }
 
     [DataTestMethod]
-    [DataRow("Karma", "<gameedition>SR6</gameedition>")]
+    [DataRow("karma", "<gameedition>SR6</gameedition>")]
     [DataRow("LifeModule", "<gameedition>SR6</gameedition>")]
     [DataRow("PointBuy", "")]
     [DataRow("PointBuy", "<gameedition>SR5</gameedition>")]
@@ -144,9 +145,9 @@ public class CharacterFileServiceTests
     [TestMethod]
     public void Sr6_known_methods_do_not_expand_sr5_creation_permission()
     {
-        CollectionAssert.AreEqual(new[] { "Priority", "SumtoTen", "PointBuy", "LifePath" },
+        CollectionAssert.AreEqual(new[] { "Priority", "SumtoTen", "PointBuy", "LifePath", "Karma" },
             Sr6CharacterCreationBuildMethods.All.ToArray());
-        Assert.IsFalse(Sr6CharacterCreationBuildMethods.IsKnown("Karma"));
+        Assert.IsTrue(Sr6CharacterCreationBuildMethods.IsKnown("Karma"));
         Assert.IsFalse(Sr6CharacterCreationBuildMethods.IsKnown("LifeModule"));
         Assert.IsFalse(Sr6CharacterCreationBuildMethods.IsKnown(null));
         Assert.IsFalse(CharacterCreationBuildMethods.IsSupported("PointBuy"));
