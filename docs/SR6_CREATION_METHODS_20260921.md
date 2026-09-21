@@ -3,7 +3,42 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: persisted Priority/Sum-to-Ten foundation
+## Current increment: attributed SR6 draft allocation
+
+The existing atomic foundation decision now accepts an optional typed attribute
+allocation. It keeps ordinary attribute points separate from metatype adjustment
+points, derives maxima from the existing SR6 metatype provider, allows adjustment
+on both increased and reduced metatype ranges, and enforces the single physical/
+mental attribute at its maximum. Edge and active Magic/Resonance use adjustment
+points only. Mundane characters cannot purchase an awakened attribute. Raising
+Magic/Resonance does not rewrite the priority base used by later talent grants.
+
+The owned core printing's pp65–67 were inspected directly for these rules. No
+rulebook text or PDF was added to Git. The preview includes per-attribute base,
+both expenditures, resulting rating, maximum, remaining pools and source binding.
+Partial allocations may be saved as drafts; they do not imply completion.
+Qualities, customization Karma, augmentation and final character effects are
+not part of this allocation yet.
+
+Allocation is in the same owner/revision-bound atomic decision, not a separate
+uncoordinated writer. The new nullable fields are omitted when absent, preserving
+earlier foundation serialization/digests. Both old and new decisions re-evaluate
+current rules on load. Edited allocations require another exact preview and
+explicit confirmation; stale foundations and rehashed forged results fail closed.
+
+Local keyless Docker / .NET 10.0.103: **98 tests PASS**, zero failed/skipped,
+`core-sr6-attributes-1.log`. Includes new allocation, negative, cold-reopen,
+idempotency and old-digest tests plus existing SR6 foundation/bootstrap/priority
+regressions. This branch integrates Life Modules `83ea93b5b` and SR6 `e8efffedd`;
+it is not a new package seal or main release authority.
+
+The preceding native increment, Android `d12ab8a7`, already completed Priority
+and Sum-to-Ten foundation save/restart routes on API36. It did not yet have this
+attribute allocation. See Android's `SR6_FOUNDATION_PHONE_20260921.md` for its
+bounded debug evidence. Full SR6 creation/finalization and the other methods
+remain open. No Play publication is implied by either increment.
+
+## Historical increment: persisted Priority/Sum-to-Ten foundation
 
 The SR6-owned service now loads, previews and explicitly confirms the five
 priorities plus metatype and talent. It derives Companion availability from the
@@ -87,7 +122,7 @@ and method/profile tests. Log: `core-sr6-methods-2.log` in the existing local
 larger unrelated Karma suite by class name and was stopped; it is not counted
 as a pass. No APK, native SR6 smoke, package reseal or release was produced.
 
-## Not enabled in the app yet
+## Historical method-bootstrap status
 
 The previous SR5-only bootstrap restriction has been replaced by explicit SR6
 dispatch with its own profiles/provider. Neither repo has been package-resealed

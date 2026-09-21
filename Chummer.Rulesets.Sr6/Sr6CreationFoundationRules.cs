@@ -61,8 +61,11 @@ public static class Sr6CreationFoundationRules
         }
         var binding = new Sr6CreationFoundationBinding(saved.Id, saved.ContentRevision, saved.SavedRevision,
             saved.Document.AuxiliaryStateDigest, bootstrap.BindingDigest, AuthorityDigest(bootstrap));
-        return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod, Metatypes(), Talents(),
-            state.Sr6CreationFoundationDecisions?.LastOrDefault()?.Preview));
+        var selected = state.Sr6CreationFoundationDecisions?.LastOrDefault()?.Preview;
+        return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod, Metatypes(), Talents(), selected)
+        {
+            AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected)
+        });
     }
 
     public static CharacterCreationFoundationResult<Sr6CreationFoundationPreview> Preview(
@@ -96,6 +99,13 @@ public static class Sr6CreationFoundationRules
         int resonance = selection.TalentId == "technomancer" ? baseRating : 0;
         string[] anchors = companion ? [CoreSourceAnchor, "sr6_schattenkompendium_2022:p28"] : [CoreSourceAnchor];
         var preview = new Sr6CreationFoundationPreview(binding, selection, priorities.Budget, magic, resonance, anchors, string.Empty);
+        if (selection.Attributes is { } allocation)
+        {
+            var attributes = Sr6CreationAttributeRules.Evaluate(preview, allocation);
+            if (attributes.Value is null)
+                return new(attributes.Outcome, null, attributes.Blockers);
+            preview = preview with { Attributes = attributes.Value };
+        }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }
 

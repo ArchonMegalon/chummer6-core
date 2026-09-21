@@ -24,8 +24,23 @@ public static class Sr6CreationFoundationIntegrity
                 || item.Rank is not ("A" or "B" or "C" or "D" or "E"))
             || assignments.Select(item => item.CategoryId).Distinct(StringComparer.Ordinal).Count() != 5)
             return false;
+        Sr6CreationAttributeSelection? attributes = null;
+        if (selection.Attributes is not null && !TryFreezeAttributes(selection.Attributes, out attributes)) return false;
         frozen = selection with { Assignments = CharacterCreationPriorityCategoryIds.Ordered
-            .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray() };
+            .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(), Attributes = attributes };
+        return true;
+    }
+
+    public static bool TryFreezeAttributes(Sr6CreationAttributeSelection? selection, out Sr6CreationAttributeSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.Allocations is not { Count: 11 }) return false;
+        var rows = selection.Allocations.ToArray();
+        if (rows.Length != 11 || rows.Any(row => row is null
+                || !Sr6CreationAttributeIds.Ordered.Contains(row.AttributeId, StringComparer.Ordinal)
+                || row.AttributePoints is < 0 or > 24 || row.AdjustmentPoints is < 0 or > 13)
+            || rows.Select(row => row.AttributeId).Distinct(StringComparer.Ordinal).Count() != 11) return false;
+        frozen = new(Sr6CreationAttributeIds.Ordered.Select(id => rows.Single(row => row.AttributeId == id)).ToArray());
         return true;
     }
 

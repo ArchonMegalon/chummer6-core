@@ -15,7 +15,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class Sr6CreationFoundationTests
+public sealed partial class Sr6CreationFoundationTests
 {
     [TestMethod]
     [DataRow(Sr6CharacterCreationBuildMethods.Priority)]

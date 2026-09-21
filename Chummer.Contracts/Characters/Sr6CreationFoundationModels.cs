@@ -1,4 +1,5 @@
 using Chummer.Contracts.Workspaces;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -13,7 +14,12 @@ public sealed record Sr6CreationFoundationBinding(
 public sealed record Sr6CreationFoundationSelection(
     string MetatypeId,
     string TalentId,
-    IReadOnlyList<Sr6CreationPriorityChoice> Assignments);
+    IReadOnlyList<Sr6CreationPriorityChoice> Assignments)
+{
+    // Absent on earlier foundation decisions; preserve their canonical bytes.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationAttributeSelection? Attributes { get; init; }
+}
 
 public sealed record Sr6CreationFoundationOption(string Id, IReadOnlyList<string> AllowedRanks);
 
@@ -22,7 +28,10 @@ public sealed record Sr6CreationFoundationState(
     string BuildMethod,
     IReadOnlyList<Sr6CreationFoundationOption> Metatypes,
     IReadOnlyList<Sr6CreationFoundationOption> Talents,
-    Sr6CreationFoundationPreview? Selection);
+    Sr6CreationFoundationPreview? Selection)
+{
+    public IReadOnlyList<Sr6CreationAttributeOption>? AttributeOptions { get; init; }
+}
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>
 public sealed record Sr6CreationFoundationPreview(
@@ -32,7 +41,11 @@ public sealed record Sr6CreationFoundationPreview(
     int BaseMagic,
     int BaseResonance,
     IReadOnlyList<string> SourceAnchorIds,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationAttributePreview? Attributes { get; init; }
+}
 
 public sealed record Sr6CreationFoundationConfirmRequest(
     Sr6CreationFoundationBinding Binding,
