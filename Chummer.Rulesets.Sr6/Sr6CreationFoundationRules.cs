@@ -75,7 +75,8 @@ public static class Sr6CreationFoundationRules
             TalentOptions = selected is null ? null : Sr6CreationTalentRules.Options(selected),
             ComplexFormOptions = selected is { Selection.TalentId: "technomancer", TalentAllocation: not null }
                 ? Sr6CreationComplexFormRules.Catalog() : null,
-            SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected)
+            SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected),
+            AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected)
         });
     }
 
@@ -102,6 +103,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.Spells is { } requestedSpells
             && !Sr6CreationFoundationIntegrity.TryFreezeSpells(requestedSpells, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationSpellBlockers.InvalidSelection);
+        if (selection?.AdeptPowers is { } requestedPowers
+            && !Sr6CreationFoundationIntegrity.TryFreezeAdeptPowers(requestedPowers, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationAdeptPowerBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -195,6 +199,13 @@ public static class Sr6CreationFoundationRules
                     PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
                     SpellCost = spells.Value.CharacterPointCost } };
             }
+        }
+        if (selection.AdeptPowers is { } powerSelection)
+        {
+            var powers = Sr6CreationAdeptPowerRules.Evaluate(preview, powerSelection);
+            if (powers.Value is null) return new(powers.Outcome, null, powers.Blockers);
+            preview = preview with { AdeptPowers = powers.Value,
+                SourceAnchorIds = [.. preview.SourceAnchorIds, .. powers.Value.SourceAnchorIds] };
         }
         if (selection.Knowledge is { } knowledgeSelection)
         {

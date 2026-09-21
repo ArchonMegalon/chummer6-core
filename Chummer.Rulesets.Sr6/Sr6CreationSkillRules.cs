@@ -15,8 +15,8 @@ public static class Sr6CreationSkillRules
             string? reason = id switch
             {
                 "Tasking" when talent != "technomancer" => Sr6CreationSkillBlockers.SkillUnavailable,
-                "Astral" when talent is "adept" or "mystic-adept" => Sr6CreationSkillBlockers.AstralPowerRequired,
-                "Astral" when talent is not ("magician" or "aspected-magician") => Sr6CreationSkillBlockers.SkillUnavailable,
+                "Astral" when talent is "adept" or "mystic-adept" && !Sr6CreationAdeptPowerRules.HasAstralPerception(foundation.Selection) => Sr6CreationSkillBlockers.AstralPowerRequired,
+                "Astral" when talent is not ("magician" or "aspected-magician" or "adept" or "mystic-adept") => Sr6CreationSkillBlockers.SkillUnavailable,
                 "Sorcery" or "Conjuring" or "Enchanting" when talent == "aspected-magician" && aspect is null => Sr6CreationSkillBlockers.AspectRequired,
                 "Sorcery" or "Conjuring" or "Enchanting" when talent == "aspected-magician" && aspect != id => Sr6CreationSkillBlockers.SkillUnavailable,
                 "Sorcery" or "Conjuring" or "Enchanting" when talent is not ("magician" or "aspected-magician" or "mystic-adept") => Sr6CreationSkillBlockers.SkillUnavailable,

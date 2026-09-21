@@ -40,9 +40,24 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.ComplexForms is not null && !TryFreezeComplexForms(selection.ComplexForms, out forms)) return false;
         Sr6CreationSpellSelection? spells = null;
         if (selection.Spells is not null && !TryFreezeSpells(selection.Spells, out spells)) return false;
+        Sr6CreationAdeptPowerSelection? powers = null;
+        if (selection.AdeptPowers is not null && !TryFreezeAdeptPowers(selection.AdeptPowers, out powers)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers };
+        return true;
+    }
+
+    public static bool TryFreezeAdeptPowers(Sr6CreationAdeptPowerSelection? selection, out Sr6CreationAdeptPowerSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.Choices is not { Count: <= 24 }) return false;
+        var rows = selection.Choices.ToArray();
+        if (rows.Length > 24 || rows.Any(row => row is null || row.Rating is < 1 or > 6
+                || string.IsNullOrEmpty(row.CatalogId) || row.CatalogId.Length > 100
+                || row.CatalogId.Any(c => !(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-')))
+            || rows.Select(row => row.CatalogId).Distinct(StringComparer.Ordinal).Count() != rows.Length) return false;
+        frozen = new(rows.OrderBy(row => row.CatalogId, StringComparer.Ordinal).ToArray());
         return true;
     }
 

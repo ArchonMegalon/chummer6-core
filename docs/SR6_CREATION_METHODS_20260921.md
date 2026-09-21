@@ -3,7 +3,40 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: spell and ritual selections — 22 September 2026
+## Current increment: adept-power selections — 22 September 2026
+
+Core now offers all 22 core-book power families as 51 explicit purchase options,
+including physical-attribute, sense and improved-skill variants. The owned German
+2024 core pp95/158–160 was inspected directly. Costs use integer quarter-points;
+level limits use Magic and any lower power-specific or natural-rating ceiling.
+Unspent power points are permitted. Point Buy pays for its whole power-point
+budget once; allocating powers does not charge CP again. Mystic budgets remain
+separate from spell slots, and reducing a budget rejects an incompatible saved
+selection rather than silently dropping powers.
+
+The [official FAQ](https://shadowrunsixthworld.com/shadowrun-sixth-world-faq/)
+was checked on 22 September 2026 for Improved Ability combat pricing. Mixed-use
+skills expose separate full-use and noncombat-only purchases, never both for
+one skill. The frozen catalog, scope and costs are bound into Core's power
+authority digest with the FAQ source anchor. The German profile's prohibition
+on Magic-linked improved skills remains in force; Tasking is not available to
+adepts. Astral uses Intuition and requires the paid Astral Perception power.
+
+Astral Perception unlocks the Astral skill within the same atomic draft. Removing
+the power while retaining Astral ranks is rejected. Improved abilities use
+natural saved skill/attribute ratings, not their own enhanced projection.
+Improved Reflexes carries an explicit non-stacking warning. These are known
+power selections only: no runtime buffs, qi foci, quality discounts, gear
+interaction or finalization is claimed.
+
+Local keyless Docker: **167 Core tests PASS**, `core-sr6-powers-1.log`, filter
+`FullyQualifiedName~Sr6Creation`. Tests cover every option, both adept types and
+all three methods, fractional costs, natural-rating caps, combat scopes, Astral
+admission/removal, budget reductions, invalid input, detached canonical choices,
+cold reopen/idempotency, unchanged XML and rehashed forged-cost rejection.
+No package reseal, main merge or Play publication is implied.
+
+## Historical increment: spell and ritual selections — 22 September 2026
 
 Core functional commit `4ac8a21b1` adds 73 spells and eight rituals from the
 owned German 2024 core, pp134–148, to the existing atomic SR6 draft service.
