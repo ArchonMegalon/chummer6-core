@@ -3,7 +3,39 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: talent budgets and whole power-point purchases
+## Current increment: concrete complex-form selections — 22 September 2026
+
+Core functional commit `18b4e317f` adds Technomancer complex-form choices to the
+existing atomic draft service. The 15 core form families expand into 71 selectable
+identities: ordinary forms, four matrix-attribute variants for each increase/
+decrease form, 20 fixed programs, 25 roll-bearing Overclock action variants,
+and six autosoft kinds. Source names follow the owned German 2024 core;
+pp180–185, 189–191 and 201 were inspected directly. No SR5 catalog or book prose
+is copied. Drone/weapon subjects for the applicable autosofts remain bounded,
+normalized player text requiring GM review, not catalog-verified equipment.
+
+Priority/Sum-to-Ten consume the original-Resonance free-form slots; Point Buy
+charges 2 CP per form under its final-Resonance ceiling. The total CP review
+includes these purchases. Lowered budgets, duplicate variants, unknown IDs,
+missing/extraneous subjects and malformed collections are rejected without
+dropping saved selections. Arrays are frozen and canonically ordered. Existing
+null-field hashes remain unchanged. Cold load recomputes both source identity
+and cost, rejecting a redigested forged projection; repeated confirmation
+replays the original receipt instead of adding another decision.
+
+Local keyless Docker / .NET 10.0.103: **145 tests PASS**, zero failed/skipped,
+`core-sr6-forms-1.log`, filter `FullyQualifiedName~Sr6Creation`. This is a
+different selected subset from the older 155-test run below. New coverage
+includes all three methods, every offered catalog variant, canonical ordering,
+invalid inputs/duplicates, CP exhaustion/overspend, reduced-Resonance rejection,
+deep copies, atomic save/cold reopen/replay and forged-cost rejection.
+
+These remain draft choices, not activated Matrix effects or a finalized runner.
+Spell/ritual selection, adept-power spending, customization Karma, remaining
+creation domains and Life Path/optional Karma still need implementation. No
+package seal, main merge, signed AAB or Play claim is implied.
+
+## Historical increment: talent budgets and whole power-point purchases
 
 Priority/Sum-to-Ten and Point Buy now use a separate Core-owned talent budget
 after attribute allocation. The owned German 2024 core pp67–68/158–160 and
