@@ -2140,9 +2140,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveCreationKarmaContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
         {
+            policy = null;
+            return _buildMethod == CharacterCreationBuildMethods.Karma
+                && TryResolveCreationContactsPolicy(out policy);
+        }
+
+        public bool TryResolveCreationContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
+        {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest

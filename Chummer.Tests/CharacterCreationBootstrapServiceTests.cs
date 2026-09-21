@@ -383,6 +383,35 @@ public sealed class CharacterCreationBootstrapServiceTests
             CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _) && (predicate?.Invoke(option) ?? true));
 
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId, true)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId, true)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId, true)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId, false)]
+    public void Creation_contacts_policy_uses_the_selected_profile_without_reinterpreting_the_method(
+        string method, string profile, bool supported)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(FindCoreRoot());
+        var created = CreateService(store, resolver, CreateFileQueries()).Create(
+            CanonicalRequest() with { BuildMethod = method, SettingsProfileId = profile });
+        Assert.IsNotNull(created.Value, string.Join(",", created.Blockers));
+        var before = store.Get(created.Value.WorkspaceId).Value!;
+        var context = resolver.TryCreateContext(before.Document.Content)!;
+        Assert.AreEqual(supported, context.TryResolveCreationContactsPolicy(out var policy));
+        Assert.AreEqual(method == CharacterCreationBuildMethods.Karma,
+            context.TryResolveCreationKarmaContactsPolicy(out _));
+        if (supported)
+        {
+            Assert.IsTrue(CharacterCreationKarmaContactsRules.IsValidPolicy(policy));
+            Assert.AreEqual(profile, policy!.SettingsProfileId);
+            Assert.AreEqual(before.Document.AuxiliaryState.CharacterCreationBootstrapBinding!.RawProfileInputsDigest,
+                policy.RawProfileInputsDigest);
+        }
+        else Assert.IsNull(policy);
+        AssertJsonEqual(before, store.Get(created.Value.WorkspaceId).Value!);
+    }
+
+    [TestMethod]
     public void Karma_contacts_use_profile_allowance_and_charge_only_overflow_without_mutation()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
@@ -452,8 +481,11 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
         Assert.AreEqual("{CHA} * 6", policy!.ContactPointsExpression);
         Assert.AreEqual(2, policy.GroupContactKarmaMultiplier);
+        Assert.IsTrue(context.TryResolveCreationContactsPolicy(out var shared));
+        AssertJsonEqual(policy, shared!);
         fixture.EditSettings(settings => settings.SetElementValue("freekarmacontactsmultiplier", 7));
         Assert.IsFalse(context.TryResolveCreationKarmaContactsPolicy(out _));
+        Assert.IsFalse(context.TryResolveCreationContactsPolicy(out _));
         Assert.IsTrue(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationKarmaContactsPolicy(out var fresh));
         Assert.AreNotEqual(policy.AuthorityDigest, fresh!.AuthorityDigest);
         Assert.AreEqual("{CHA} * 7", fresh.ContactPointsExpression);
