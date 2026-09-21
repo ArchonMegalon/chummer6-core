@@ -3,6 +3,49 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
+## Current increment: persisted Priority/Sum-to-Ten foundation
+
+The SR6-owned service now loads, previews and explicitly confirms the five
+priorities plus metatype and talent. It derives Companion availability from the
+persisted SR6 Sum-to-Ten profile, not a caller flag. Metatype/rank restrictions,
+mundane versus awakened talent availability, priority base Magic/Resonance and
+attribute/skill/resource/adjustment budgets are evaluated together.
+
+Confirmation appends a workspace-owned pending decision through the existing
+file-store lock and atomic checkpoint. It does **not** grant character effects,
+spells, power points, allocated attributes, or finalization permission. Reopen
+revalidates the bootstrap, current SR6 calculation and decision history. Generic
+workspace writers cannot add or remove that history. The full owner stamp is
+leased synchronously; stale revisions, changed quotes, foreign/expired owners
+and reused operation IDs with different commands fail closed. Recovery observes
+the durable result without repeating an uncertain write. Imported history is
+not accepted as a successful local replay.
+
+The artifact-intake skill located and privately cached the user's German SR6
+core PDF `Shadowrun_6_Downloadversion_2024.pdf` (354 PDF pages), SHA-256
+`104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023`.
+Printed pp65–67 were checked for the priority, metatype and talent rules used
+here. The foundation quote explicitly identifies this source; it does not reuse
+an English printing's page numbers. The PDF and prose remain outside Git.
+
+Local keyless Docker / .NET 10.0.103: affected build and **85 focused tests PASS**,
+zero failed/skipped, in `core-sr6-foundation-5.log`. Coverage includes durable
+cold reopen, replay/conflict/concurrency, before/after-replace I/O recovery,
+forged-budget revalidation, generic-writer rejection, owner isolation, imported
+history and selected existing SR5 bootstrap/Karma persistence regressions.
+Run 4 passed 73 before the two additional boundaries and SR5 regression selection.
+Runs 1/2 found compile errors; run 3 exposed the missing required alias in the
+new test fixture. They were corrected and are not counted as passing evidence.
+
+The existing SR6 method-selection Presentation build was checked against these
+changed Core inputs: **31 tests PASS**, zero errors, seven existing unrelated
+MSTEST0032 warnings, in `sr6-ui-foundation-1.log`.
+
+This remains a typed Core service, not an Android page. Native foundation and
+allocation adapters, source-bound grants, completion for the alternative
+methods, DE/EN/ES copy and real phone save/restart testing are still outstanding.
+No package reseal, main merge, APK/AAB, signing or Play publication is claimed.
+
 ## Implemented
 
 - All five methods now have separate SR6 bootstrap profile identities and can

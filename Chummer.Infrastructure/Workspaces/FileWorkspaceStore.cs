@@ -21,7 +21,8 @@ public sealed partial class FileWorkspaceStore :
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationBootstrapAtomicCreateCapability,
     ICharacterCareerReputationAtomicCommitCapability,
-    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ISr6CreationFoundationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 4;
@@ -1570,6 +1571,12 @@ public sealed partial class FileWorkspaceStore :
         {
             return false;
         }
+
+        // SR6 choices have their own source-validated transaction. No generic
+        // writer, including an unrelated lane, can replace or discard them.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFoundationDecisions),
+                JsonSerializer.Serialize(replacementState.Sr6CreationFoundationDecisions), StringComparison.Ordinal))
+            return false;
 
         if (!string.Equals(
                 JsonSerializer.Serialize(currentState.CharacterCreationFinalizationArchive),

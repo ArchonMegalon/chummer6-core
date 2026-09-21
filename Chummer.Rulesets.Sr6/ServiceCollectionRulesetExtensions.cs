@@ -14,6 +14,7 @@ public static class ServiceCollectionRulesetExtensions
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRulesetWorkspaceCodec, Sr6WorkspaceCodec>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRulesetCharacterCreationBootstrapProvider, Sr6CharacterCreationBootstrapProvider>());
+        services.TryAddSingleton<ISr6CreationFoundationService, Sr6CreationFoundationService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRulesetPlugin, Chummer.Rulesets.Sr6.Sr6RulesetPlugin>());
         return services;
     }

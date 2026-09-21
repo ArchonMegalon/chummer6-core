@@ -264,6 +264,7 @@ public static class WorkspaceAuxiliaryStateIntegrity
                 currentContentRevision,
                 finalizationReceipts);
         return foundationValid
+               && Sr6CreationFoundationIntegrity.IsValidLedger(workspaceId, currentContentRevision, state)
                && CharacterCreationKarmaMetatypeTransaction.IsValidLedger(workspaceId, currentContentRevision, state)
                && prerequisiteValid
                && attributesValid
