@@ -74,7 +74,8 @@ public static class Sr6CreationFoundationRules
             PointBuyLimits = pointBuy ? Sr6CreationPointBuyRules.Limits() : null,
             TalentOptions = selected is null ? null : Sr6CreationTalentRules.Options(selected),
             ComplexFormOptions = selected is { Selection.TalentId: "technomancer", TalentAllocation: not null }
-                ? Sr6CreationComplexFormRules.Catalog() : null
+                ? Sr6CreationComplexFormRules.Catalog() : null,
+            SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected)
         });
     }
 
@@ -98,6 +99,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.ComplexForms is { } requestedForms
             && !Sr6CreationFoundationIntegrity.TryFreezeComplexForms(requestedForms, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationComplexFormBlockers.InvalidSelection);
+        if (selection?.Spells is { } requestedSpells
+            && !Sr6CreationFoundationIntegrity.TryFreezeSpells(requestedSpells, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationSpellBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -176,6 +180,20 @@ public static class Sr6CreationFoundationRules
                 preview = preview with { PointBuy = points with { PointsSpent = spent,
                     PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
                     ComplexFormCost = forms.Value.CharacterPointCost } };
+            }
+        }
+        if (selection.Spells is { } spellSelection)
+        {
+            var spells = Sr6CreationSpellRules.Evaluate(preview, spellSelection);
+            if (spells.Value is null) return new(spells.Outcome, null, spells.Blockers);
+            preview = preview with { Spells = spells.Value,
+                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationSpellRules.SourceAnchor] };
+            if (preview.PointBuy is { } points)
+            {
+                int spent = points.PointsSpent + spells.Value.CharacterPointCost;
+                preview = preview with { PointBuy = points with { PointsSpent = spent,
+                    PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
+                    SpellCost = spells.Value.CharacterPointCost } };
             }
         }
         if (selection.Knowledge is { } knowledgeSelection)

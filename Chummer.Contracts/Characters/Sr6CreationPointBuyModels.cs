@@ -22,6 +22,9 @@ public sealed record Sr6CreationPointBuyPreview(int CharacterPoints, int PointsS
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ComplexFormCost { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SpellCost { get; init; }
 }
 
 public static class Sr6CreationPointBuyBlockers

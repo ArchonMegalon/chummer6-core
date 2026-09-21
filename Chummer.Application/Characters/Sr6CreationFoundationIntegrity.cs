@@ -38,9 +38,23 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.TalentAllocation is { SelectedPowerPoints: < 0 or > 6 }) return false;
         Sr6CreationComplexFormSelection? forms = null;
         if (selection.ComplexForms is not null && !TryFreezeComplexForms(selection.ComplexForms, out forms)) return false;
+        Sr6CreationSpellSelection? spells = null;
+        if (selection.Spells is not null && !TryFreezeSpells(selection.Spells, out spells)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells };
+        return true;
+    }
+
+    public static bool TryFreezeSpells(Sr6CreationSpellSelection? selection, out Sr6CreationSpellSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.CatalogIds is not { Count: <= 12 }) return false;
+        string[] ids = selection.CatalogIds.ToArray();
+        if (ids.Length > 12 || ids.Any(id => string.IsNullOrEmpty(id) || id.Length > 100
+                || id.Any(c => !(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-')))
+            || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length) return false;
+        frozen = new(ids.Order(StringComparer.Ordinal).ToArray());
         return true;
     }
 
