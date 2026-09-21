@@ -227,7 +227,19 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
 
         EnsureElement(root, "name", string.Empty);
         EnsureElement(root, "alias", string.Empty);
-        EnsureElement(root, "metatype", string.Empty);
+        // A pending SR6 draft deliberately has no metatype yet. Creating an empty
+        // node during an ordinary rename would make that saved draft fail the
+        // next validation/reopen. Never guess Human or repair an invalid empty
+        // metatype into an admitted pending state.
+        bool pendingSelection = root.Elements("gameedition").Count() == 1
+            && root.Element("gameedition")?.Value == "SR6"
+            && root.Elements("buildmethod").Count() == 1
+            && Sr6CharacterCreationBuildMethods.IsKnown(root.Element("buildmethod")?.Value)
+            && root.Elements("created").Count() == 1
+            && bool.TryParse(root.Element("created")?.Value, out bool created)
+            && !created;
+        if (!pendingSelection || root.Element("metatype") is not null)
+            EnsureElement(root, "metatype", string.Empty);
         EnsureElement(root, "buildmethod", string.Empty);
         EnsureElement(root, "createdversion", string.Empty);
         EnsureElement(root, "appversion", string.Empty);

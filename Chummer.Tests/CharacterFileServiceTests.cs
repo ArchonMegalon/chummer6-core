@@ -100,6 +100,63 @@ public class CharacterFileServiceTests
         Assert.IsFalse(summary.Created);
     }
 
+    [DataTestMethod]
+    [DataRow(Sr6CharacterCreationBuildMethods.Priority)]
+    [DataRow(Sr6CharacterCreationBuildMethods.SumToTen)]
+    [DataRow(Sr6CharacterCreationBuildMethods.PointBuy)]
+    [DataRow(Sr6CharacterCreationBuildMethods.LifePath)]
+    public void Pending_sr6_method_keeps_its_edition_and_does_not_choose_a_metatype(string method)
+    {
+        var service = new CharacterFileService();
+        string xml = CreateValidationXml(method, false, null)
+            .Replace("<character>", "<character><gameedition>SR6</gameedition>", StringComparison.Ordinal);
+
+        Assert.IsTrue(service.ValidateXml(xml).IsValid);
+        CharacterFileSummary summary = service.ParseSummaryFromXml(xml);
+        Assert.AreEqual(method, summary.BuildMethod);
+        Assert.AreEqual(string.Empty, summary.Metatype);
+        Assert.IsFalse(summary.Created);
+        Assert.IsFalse(service.ValidateXml(xml.Replace("<created>False</created>",
+            "<created>True</created>", StringComparison.Ordinal)).IsValid);
+        Assert.IsFalse(service.ValidateXml(xml.Replace("<character>",
+            "<character><metatype />", StringComparison.Ordinal)).IsValid);
+    }
+
+    [DataTestMethod]
+    [DataRow("Karma", "<gameedition>SR6</gameedition>")]
+    [DataRow("LifeModule", "<gameedition>SR6</gameedition>")]
+    [DataRow("PointBuy", "")]
+    [DataRow("PointBuy", "<gameedition>SR5</gameedition>")]
+    [DataRow("LifePath", "<gameedition>SR4</gameedition>")]
+    [DataRow("LifePath", "<gameedition>sr6</gameedition>")]
+    [DataRow("LifePath", "<gameedition>SR6</gameedition><gameedition>SR5</gameedition>")]
+    [DataRow("PointBuy", "<gameedition>SR6</gameedition><buildmethod>Priority</buildmethod>")]
+    [DataRow("PointBuy", "<gameedition>SR6</gameedition><created>False</created>")]
+    [DataRow("pointbuy", "<gameedition>SR6</gameedition>")]
+    public void Pending_sr6_shape_does_not_admit_cross_edition_aliases_or_ambiguous_fields(
+        string method, string edition)
+    {
+        string xml = CreateValidationXml(method, false, null)
+            .Replace("<character>", "<character>" + edition, StringComparison.Ordinal);
+        Assert.IsFalse(new CharacterFileService().ValidateXml(xml).IsValid);
+    }
+
+    [TestMethod]
+    public void Sr6_known_methods_do_not_expand_sr5_creation_permission()
+    {
+        CollectionAssert.AreEqual(new[] { "Priority", "SumtoTen", "PointBuy", "LifePath" },
+            Sr6CharacterCreationBuildMethods.All.ToArray());
+        Assert.IsFalse(Sr6CharacterCreationBuildMethods.IsKnown("Karma"));
+        Assert.IsFalse(Sr6CharacterCreationBuildMethods.IsKnown("LifeModule"));
+        Assert.IsFalse(Sr6CharacterCreationBuildMethods.IsKnown(null));
+        Assert.IsFalse(CharacterCreationBuildMethods.IsSupported("PointBuy"));
+        Assert.IsFalse(CharacterCreationBuildMethods.IsSupported("LifePath"));
+        Assert.IsFalse(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+            "PointBuy", out _));
+        Assert.IsFalse(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+            "LifePath", out _));
+    }
+
     [TestMethod]
     public void ApplyMetadataUpdate_updates_name_alias_and_all_notes_nodes()
     {

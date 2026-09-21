@@ -5,12 +5,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Workspaces;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Presentation;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Xml;
+using Chummer.Infrastructure.Workspaces;
 using Chummer.Rulesets.Sr6;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -117,6 +119,77 @@ public class Sr6WorkspaceCodecTests
         StringAssert.Contains(updated.Payload, "<notes>Notes Here</notes>");
         StringAssert.Contains(updated.Payload, "<gamenotes>Game Notes</gamenotes>");
         StringAssert.Contains(updated.Payload, "<groupnotes>Group Notes</groupnotes>");
+    }
+
+    [DataTestMethod]
+    [DataRow(Sr6CharacterCreationBuildMethods.Priority)]
+    [DataRow(Sr6CharacterCreationBuildMethods.SumToTen)]
+    [DataRow(Sr6CharacterCreationBuildMethods.PointBuy)]
+    [DataRow(Sr6CharacterCreationBuildMethods.LifePath)]
+    public void Pending_sr6_method_survives_rename_disk_reopen_and_download_without_a_human_default(string method)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "chummer-sr6-method-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Sr6WorkspaceCodec codec = CreateCodec();
+            string xml = $"""
+                <character><gameedition>SR6</gameedition><name>Pending</name>
+                <alias>Runner</alias><buildmethod>{method}</buildmethod>
+                <createdversion>test</createdversion><appversion>test</appversion>
+                <karma>0</karma><nuyen>0</nuyen><created>False</created></character>
+                """;
+            WorkspacePayloadEnvelope envelope = codec.WrapImport(RulesetDefaults.Sr6,
+                new WorkspaceImportDocument(xml, RulesetDefaults.Sr6));
+            Assert.IsTrue(codec.Validate(envelope).IsValid);
+
+            WorkspacePayloadEnvelope renamed = codec.UpdateMetadata(envelope,
+                new UpdateWorkspaceMetadata("Renamed", "Same Runner", "Saved notes"));
+            Assert.IsTrue(codec.Validate(renamed).IsValid);
+            Assert.IsFalse(renamed.Payload.Contains("<metatype", StringComparison.Ordinal));
+
+            var store = new FileWorkspaceStore(directory);
+            WorkspaceStoreMutationResult created = store.CreateWorkspaceDocument(new WorkspaceDocument(
+                renamed, WorkspaceDocumentFormat.NativeXml));
+            Assert.IsTrue(created.Success);
+            CharacterWorkspaceId id = created.Entry!.Value.Id;
+            WorkspaceStoreReadResult reopened = new FileWorkspaceStore(directory).Get(id);
+            Assert.IsTrue(reopened.Success);
+            WorkspacePayloadEnvelope persisted = reopened.Value!.Document.PayloadEnvelope;
+            Assert.AreEqual(renamed, persisted);
+            Assert.IsTrue(codec.Validate(persisted).IsValid);
+            Assert.AreEqual(method, codec.ParseSummary(persisted).BuildMethod);
+            Assert.IsFalse(codec.ParseSummary(persisted).Created);
+
+            WorkspaceDownloadReceipt download = codec.BuildDownload(id, persisted, WorkspaceDocumentFormat.NativeXml);
+            Assert.AreEqual(RulesetDefaults.Sr6, download.RulesetId);
+            StringAssert.EndsWith(download.FileName, ".chum6");
+            string downloaded = Encoding.UTF8.GetString(Convert.FromBase64String(download.ContentBase64));
+            Assert.AreEqual(renamed.Payload, downloaded);
+            Assert.IsTrue(codec.Validate(codec.WrapImport(RulesetDefaults.Sr6,
+                new WorkspaceImportDocument(downloaded, RulesetDefaults.Sr6))).IsValid);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Pending_sr6_rename_does_not_erase_an_invalid_explicit_empty_metatype()
+    {
+        Sr6WorkspaceCodec codec = CreateCodec();
+        WorkspacePayloadEnvelope invalid = codec.WrapImport(RulesetDefaults.Sr6,
+            new WorkspaceImportDocument("""
+                <character><gameedition>SR6</gameedition><name>Pending</name><metatype />
+                <buildmethod>LifePath</buildmethod><createdversion>test</createdversion>
+                <appversion>test</appversion><karma>0</karma><nuyen>0</nuyen><created>False</created></character>
+                """, RulesetDefaults.Sr6));
+        Assert.IsFalse(codec.Validate(invalid).IsValid);
+        WorkspacePayloadEnvelope renamed = codec.UpdateMetadata(invalid,
+            new UpdateWorkspaceMetadata("Renamed", null, null));
+        Assert.IsFalse(codec.Validate(renamed).IsValid);
+        StringAssert.Contains(renamed.Payload, "<metatype");
     }
 
     [TestMethod]
