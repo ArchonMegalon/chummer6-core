@@ -3,7 +3,38 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: concrete complex-form selections — 22 September 2026
+## Current increment: spell and ritual selections — 22 September 2026
+
+Core functional commit `4ac8a21b1` adds 73 spells and eight rituals from the
+owned German 2024 core, pp134–148, to the existing atomic SR6 draft service.
+The creation rules on pp67–68, alchemy on p152 and Companion p30 were inspected
+directly. Core supplies stable formula identities, kinds, categories and page
+anchors. Attribute/element/trigger decisions made when casting do not become
+invented extra purchases. In SR6, alchemy uses known spells; no SR5-style
+duplicate alchemical catalog or purchase is introduced.
+
+Priority/Sum-to-Ten share original-Magic spell/ritual grants. Point Buy charges
+2 CP per formula, shares the final-Magic limit, and subtracts mystic-adept power
+points before determining the limit. Full/mystic magicians have Sorcery and
+Enchanting access; aspected Sorcery accepts spells/rituals, aspected Enchanting
+accepts only spells, and Conjuring grants neither. The aspect does not create
+a second free pool. Empty/absent choices remain distinguishable, historical
+null-field digests remain stable, and costs join the existing total CP review.
+
+Local keyless Docker / .NET10.0.103: **156 Core tests PASS**,
+`core-sr6-spells-1.log`, filter `FullyQualifiedName~Sr6Creation`. New coverage
+checks every catalog entry, three methods, aspects, mystic split, CP exhaustion,
+malformed/duplicate/unknown IDs, canonical detached arrays, save/cold reopen,
+idempotent replay and rehashed forged-cost rejection. No warnings/errors were
+reported by this focused build/test run.
+
+These are known-formula draft selections only. They do not cast a spell,
+prepare an alchemical object, satisfy runtime ritual requirements or finalize
+a character. Adept-power selection, qualities/Karma, equipment, finalization
+and complete Life Path/optional Karma flows remain open. No package reseal,
+main merge or Play publication is implied.
+
+## Historical increment: concrete complex-form selections — 22 September 2026
 
 Core functional commit `18b4e317f` adds Technomancer complex-form choices to the
 existing atomic draft service. The 15 core form families expand into 71 selectable
