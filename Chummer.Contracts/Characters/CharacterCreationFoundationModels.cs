@@ -534,6 +534,10 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleFinalizationBudgetQuote? FinalizationBudget { get; init; }
+
+    /// <summary>Complete proposed runner and cost deltas, not persistence authority.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFinalizationPlan? FinalizationPlan { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(

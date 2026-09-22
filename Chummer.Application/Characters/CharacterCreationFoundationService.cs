@@ -411,6 +411,32 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             finalBudget = CharacterCreationLifeModuleFinalizationBudgetRules.Evaluate(workspace.Document.Content,
                 finalEffects, finalRacial, finalTalent, finalAttributes, finalSkills, finalResources, finalGear,
                 finalLifestyles, finalContacts, finalMagic, state.LifeModuleBudget.Total, request.StartingNuyenDiceTotal, sourceContext);
+        CharacterCreationFinalizationPlan? characterPlan = null;
+        bool characterProjectionFailed = false;
+        if (finalBudget?.Quote is { } finances && writePlan.Plan is { } appliedEffects && metatypePlan?.Plan is { } appliedRacial
+            && talentPlan?.Plan is { } appliedTalent && attributes?.Quote is { } appliedAttributes
+            && skillQuote is { Catalog: { } appliedCatalog, Quote: { } appliedSkills }
+            && resourceQuote?.Quote is { } appliedResources && gearQuote is { Authority: { } appliedGearAuthority, Quote: { } appliedGear }
+            && lifestyles is { Authority: { } appliedLifestyleAuthority, Quote: { } appliedLifestyles }
+            && contacts?.Quote is { } appliedContacts && magic is { Catalog: { } appliedMagicCatalog, Quote: { } appliedMagic })
+        {
+            var parts = new CharacterCreationLifeModuleCharacterParts(appliedEffects, appliedRacial, appliedTalent,
+                appliedAttributes, appliedCatalog, appliedSkills, appliedResources, appliedGearAuthority, appliedGear,
+                appliedLifestyleAuthority, appliedLifestyles, appliedContacts, appliedMagicCatalog, appliedMagic, finances);
+            if (CharacterCreationLifeModuleCharacterProjector.TryProject(workspace.Document.Content, parts, out var projected))
+            {
+                var binding = new CharacterCreationFinalizationBinding(workspace.Id, workspace.ContentRevision, workspace.SavedRevision,
+                    state.Binding.RawCharacterXmlDigest, workspace.Document.AuxiliaryStateDigest, CharacterCreationBuildMethods.LifeModules,
+                    projected!.ComponentsDigest);
+                var anchors = projected.Deltas.SelectMany(row => row.SourceAnchorIds).Concat(finances.SourceAnchorIds)
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+                characterPlan = new(CharacterCreationFinalizationSchemas.PlanV1, binding, projected.Deltas,
+                    finances.KarmaCarried, appliedResources.NuyenFromKarma, finances.CareerNuyen, anchors,
+                    projected.RawCharacterXmlDigest, string.Empty);
+                characterPlan = characterPlan with { PlanDigest = CharacterCreationFinalizationDigest.Compute(characterPlan) };
+            }
+            else characterProjectionFailed = true;
+        }
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
@@ -431,6 +457,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .Concat(contacts?.Blockers ?? [])
             .Concat(magic?.Blockers ?? [])
             .Concat(finalBudget?.Blockers ?? [])
+            .Concat(characterProjectionFailed ? [CharacterCreationFoundationBlockers.FinalizationEffectUnsupported] : Array.Empty<string>())
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -471,7 +498,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             MagicQuote = magic?.Quote,
             CarryoverPolicy = finalBudget?.Policy,
             StartingCashSource = finalBudget?.StartingCashSource,
-            FinalizationBudget = finalBudget?.Quote
+            FinalizationBudget = finalBudget?.Quote,
+            FinalizationPlan = characterPlan
         };
         preview = preview with
         {
