@@ -190,7 +190,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     request.DraftDigest)
                 { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases,
                     TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection,
-                    KarmaResourceInvestment = request.KarmaResourceInvestment });
+                    KarmaResourceInvestment = request.KarmaResourceInvestment, GearSelection = request.GearSelection });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -366,6 +366,13 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             resourceQuote = CharacterCreationLifeModuleResourcesRules.Evaluate(workspace.Document.Content, resourceEffects,
                 resourceRacial, resourceTalent, resourceAttributes, resourceSkills, state.LifeModuleBudget.Total,
                 request.KarmaResourceInvestment, sourceContext);
+        CharacterCreationLifeModuleGearQuoteResult? gearQuote = null;
+        if (writePlan.Plan is { } gearEffects && metatypePlan?.Plan is { } gearRacial
+            && talentPlan?.Plan is { } gearTalent && attributes?.Quote is { } gearAttributes
+            && skillQuote?.Quote is { } gearSkills && resourceQuote?.Quote is { } gearResources
+            && sourceContext is not null && state.LifeModuleBudget.IsExact)
+            gearQuote = CharacterCreationLifeModuleGearRules.Evaluate(workspace.Document.Content, gearEffects, gearRacial,
+                gearTalent, gearAttributes, gearSkills, gearResources, state.LifeModuleBudget.Total, request.GearSelection, sourceContext);
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
@@ -380,6 +387,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .Concat(attributes?.Blockers ?? [])
             .Concat(skillQuote?.Blockers ?? [])
             .Concat(resourceQuote?.Blockers ?? [])
+            .Concat(gearQuote?.Blockers ?? [])
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -408,7 +416,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             SkillsCatalog = skillQuote?.Catalog,
             SkillsQuote = skillQuote?.Quote,
             ResourcesPolicy = resourceQuote?.Policy,
-            ResourcesQuote = resourceQuote?.Quote
+            ResourcesQuote = resourceQuote?.Quote,
+            GearAuthority = gearQuote?.Authority,
+            GearQuote = gearQuote?.Quote
         };
         preview = preview with
         {

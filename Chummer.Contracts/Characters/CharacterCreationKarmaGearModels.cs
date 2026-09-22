@@ -1,6 +1,7 @@
 namespace Chummer.Contracts.Characters;
 
-/// <summary>Source and limits of a Karma basket, without retaining the entire gear catalog.</summary>
+/// <summary>Source and limits of a creation basket, without retaining the entire
+/// gear catalog. Historical type name; each method owns its funding/quote binding.</summary>
 public sealed record CharacterCreationKarmaGearBasis(
     string SettingsProfileId,
     string ProfileDigest,
