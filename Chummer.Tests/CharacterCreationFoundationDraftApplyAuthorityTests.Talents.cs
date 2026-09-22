@@ -100,6 +100,22 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.IsFalse(preview.CanApply);
             Assert.IsNotNull(preview.AttributeQuote);
             Assert.AreEqual(plan.PlanDigest, preview.AttributeQuote.TalentPlanDigest);
+            Assert.IsNotNull(preview.SkillsQuote, string.Join(", ", preview.FinalizationBlocked));
+            Assert.IsNotNull(preview.SkillsCatalog);
+            Assert.AreEqual(plan.PlanDigest, preview.SkillsQuote.TalentPlanDigest);
+            var unlocked = preview.SkillsQuote.AllowedActiveSkillSourceIds.ToHashSet(StringComparer.Ordinal);
+            foreach (var skill in preview.SkillsCatalog.ActiveSkills.Where(item => item.Category is "Magical Active" or "Resonance Active"))
+            {
+                bool permitted = id switch
+                {
+                    MagicianTalentId or MysticTalentId => skill.Category == "Magical Active",
+                    AdeptTalentId => skill.Category == "Magical Active" && string.IsNullOrEmpty(skill.SkillGroup),
+                    TechnomancerTalentId => skill.Category == "Resonance Active",
+                    AspectedTalentId => skill.Category == "Magical Active" && (string.IsNullOrEmpty(skill.SkillGroup) || skill.SkillGroup == unlock),
+                    _ => false
+                };
+                Assert.AreEqual(permitted, unlocked.Contains(skill.SourceSkillId), skill.Name);
+            }
             Assert.HasCount(attribute is null ? 9 : 10, preview.AttributeQuote.Attributes);
             if (attribute is not null)
             {

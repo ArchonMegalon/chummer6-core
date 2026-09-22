@@ -2088,15 +2088,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         public bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+            => TryResolveCreationSkillSpendingPolicy(CharacterCreationBuildMethods.Karma,
+                CharacterCreationKarmaSkillsPolicy.SchemaV1, out policy);
+
+        public bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+            => TryResolveCreationSkillSpendingPolicy(CharacterCreationBuildMethods.LifeModules,
+                CharacterCreationKarmaSkillsPolicy.LifeModulesSchemaV1, out policy);
+
+        private bool TryResolveCreationSkillSpendingPolicy(string method, string schema,
+            out CharacterCreationKarmaSkillsPolicy? policy)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || _buildMethod != method
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
+                || method == CharacterCreationBuildMethods.LifeModules && ReadValue(settings, "buildmethod") != method
                 || !TryReadKarmaCost(settings, "karmanewactiveskill", out int newActive)
                 || !TryReadKarmaCost(settings, "karmaimproveactiveskill", out int improveActive)
                 || !TryReadKarmaCost(settings, "karmanewknowledgeskill", out int newKnowledge)
@@ -2117,7 +2127,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (!expressionValid || string.IsNullOrWhiteSpace(expression) || _sourceInputs.HasSourceDrift)
                 return false;
             var result = new CharacterCreationKarmaSkillsPolicy(
-                CharacterCreationKarmaSkillsPolicy.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                schema, _settingsProfileId, _rawProfileInputsDigest,
                 newActive, improveActive, newKnowledge, improveKnowledge, newGroup, improveGroup,
                 specialization, knowledgeSpecialization, activeCap, knowledgeCap, expression,
                 useBroken, strict, specBreak, pointSpecs, compensate,

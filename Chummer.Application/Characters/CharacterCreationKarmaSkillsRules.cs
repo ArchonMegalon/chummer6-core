@@ -278,14 +278,17 @@ public static class CharacterCreationKarmaSkillsRules
         && policy.AuthorityDigest == CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(policy);
 
     private static bool TryKnowledgePoints(string expression, CharacterCreationKarmaAttributesQuote attributes, out int points)
+        => TryKnowledgePoints(expression, attributes.Attributes.ToDictionary(item => item.AttributeId, item => item.Current), out points);
+
+    internal static bool TryKnowledgePoints(string expression, IReadOnlyDictionary<string, int> attributes, out int points)
     {
         points = 0;
         if (string.IsNullOrWhiteSpace(expression) || expression.Length > 2048) return false;
-        foreach (var attribute in attributes.Attributes)
+        foreach (var attribute in attributes)
         {
-            string value = attribute.Current.ToString(CultureInfo.InvariantCulture);
-            expression = expression.Replace("{" + attribute.AttributeId + "Unaug}", value, StringComparison.Ordinal)
-                .Replace("{" + attribute.AttributeId + "}", value, StringComparison.Ordinal);
+            string value = attribute.Value.ToString(CultureInfo.InvariantCulture);
+            expression = expression.Replace("{" + attribute.Key + "Unaug}", value, StringComparison.Ordinal)
+                .Replace("{" + attribute.Key + "}", value, StringComparison.Ordinal);
         }
         expression = expression.Replace(" div ", " / ", StringComparison.Ordinal);
         int depth = 0;
@@ -302,7 +305,7 @@ public static class CharacterCreationKarmaSkillsRules
         return true;
     }
 
-    private static bool TryActiveInterval(int lower, int upper, CharacterCreationKarmaSkillsPolicy policy,
+    internal static bool TryActiveInterval(int lower, int upper, CharacterCreationKarmaSkillsPolicy policy,
         bool compensate, int? otherMinimum, int memberCount, out int cost)
     {
         cost = 0;

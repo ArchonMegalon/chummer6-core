@@ -163,6 +163,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Life Modules costs, caps and knowledge expression; not a Karma-foundation authority.</summary>
+    bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>Profile-bound Karma funding only, without Priority grants or later improvements.</summary>
     bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
     {

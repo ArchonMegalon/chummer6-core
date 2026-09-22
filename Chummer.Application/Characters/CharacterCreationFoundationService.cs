@@ -189,7 +189,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     request.DraftRevision,
                     request.DraftDigest)
                 { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases,
-                    TalentSelection = request.TalentSelection });
+                    TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -353,10 +353,15 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 ? CharacterCreationLifeModuleAttributeRules.Evaluate(workspace.Document.Content, attributeEffects, racial,
                     attributePolicy, request.AttributePurchases, talentPlan?.Plan)
                 : new(null, [CharacterCreationAttributesBlockers.AuthorityUnavailable]);
+        CharacterCreationLifeModuleSkillsQuoteResult? skillQuote = null;
+        if (writePlan.Plan is { } skillEffects && metatypePlan?.Plan is { } skillRacial
+            && talentPlan?.Plan is { } skillTalent && attributes?.Quote is { } skillAttributes && sourceContext is not null)
+            skillQuote = CharacterCreationLifeModuleSkillsRules.Evaluate(workspace.Document.Content, skillEffects,
+                skillRacial, skillTalent, skillAttributes, request.SkillSelection, sourceContext);
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
-                + (talentPlan?.Plan?.Talent.KarmaCost ?? 0) > state.LifeModuleBudget.Total;
+                + (talentPlan?.Plan?.Talent.KarmaCost ?? 0) + (skillQuote?.Quote?.KarmaUsed ?? 0) > state.LifeModuleBudget.Total;
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)
@@ -365,6 +370,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .Concat(metatypePlan?.Blockers ?? [])
             .Concat(talentPlan?.Blockers ?? [])
             .Concat(attributes?.Blockers ?? [])
+            .Concat(skillQuote?.Blockers ?? [])
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -389,7 +395,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             MetatypeWriteSummary = metatypePlan?.Plan?.Summary,
             AttributeQuote = attributes?.Quote,
             TalentCatalog = talentPlan?.Catalog,
-            TalentWriteSummary = talentPlan?.Plan?.Summary
+            TalentWriteSummary = talentPlan?.Plan?.Summary,
+            SkillsCatalog = skillQuote?.Catalog,
+            SkillsQuote = skillQuote?.Quote
         };
         preview = preview with
         {
