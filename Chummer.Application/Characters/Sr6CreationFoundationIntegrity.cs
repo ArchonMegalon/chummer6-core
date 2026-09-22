@@ -10,9 +10,9 @@ public static class Sr6CreationFoundationIntegrity
 {
     public const int MaximumDecisions = 128;
     // Full mystic-adept draft: foundation + attributes + skills + Karma +
-    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ.
+    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ + contacts.
     // This is a shape bound; SR6 still re-evaluates every exact source and digest.
-    public const int MaximumSourceAnchors = 12;
+    public const int MaximumSourceAnchors = 13;
     public static string Digest<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
     public static string PreviewDigest(Sr6CreationFoundationPreview preview) => Digest(preview with { PreviewDigest = string.Empty });
     public static string DecisionDigest(Sr6CreationFoundationDecision decision) => Digest(decision with { DecisionDigest = string.Empty });
@@ -50,9 +50,25 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Karma is not null && !TryFreezeKarma(selection.Karma, out karma)) return false;
         Sr6CreationQualitySelection? qualities = null;
         if (selection.Qualities is not null && !TryFreezeQualities(selection.Qualities, out qualities)) return false;
+        Sr6CreationContactSelection? contacts = null;
+        if (selection.Contacts is not null && !TryFreezeContacts(selection.Contacts, out contacts)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities, Contacts = contacts };
+        return true;
+    }
+
+    public static bool TryFreezeContacts(Sr6CreationContactSelection? selection, out Sr6CreationContactSelection? frozen)
+    {
+        frozen = null;
+        // Bounded transport shape. The SR6 module separately checks actual Charisma and points.
+        if (selection?.Contacts is not { Count: <= 64 }) return false;
+        var rows = selection.Contacts.ToArray();
+        if (rows.Length > 64 || rows.Any(row => row is null || row.Id == Guid.Empty
+                || !KnowledgeName(row.Name) || row.Role is not null && !KnowledgeName(row.Role)
+                || row.Connection is < 1 or > 12 || row.Loyalty is < 1 or > 12)
+            || rows.Select(row => row.Id).Distinct().Count() != rows.Length) return false;
+        frozen = new(rows.OrderBy(row => row.Id).ToArray());
         return true;
     }
 

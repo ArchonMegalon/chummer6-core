@@ -3,7 +3,29 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: rated qualities — 22 September 2026
+## Current increment: contacts — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy have a separate free contact pool. The owned
+German 2024 core pp52–53/70 supplies Charisma × 6, Connection + Loyalty cost,
+and the creation cap of final natural Charisma on each rating. General ratings
+run 1–12, not SR5's Loyalty cap of six. Final Charisma includes admitted pool
+and customization-Karma increases. Contacts do not spend Karma or CP.
+
+Names/optional roles are bounded player text, with stable entry IDs; identical
+names do not imply identical NPCs. The preview records GM-review need, not GM
+approval. Changes to attributes or Karma recheck saved contacts and block
+rating/budget excess rather than deleting entries. Old nullable fields remain
+omitted, preserving earlier decision bytes. All thirteen combined-domain
+source anchors fit the shape bound and retain exact replay validation.
+
+`core-sr6-contacts-1.log`: **242 focused Core Creation/codec tests PASS**.
+Coverage includes all three methods, final-Charisma costs/caps, Loyalty above
+six, stable-ID editing/removal/cold reopen, hostile text/rating/ID shapes,
+unchanged other pools, thirteen-anchor history and rehashed cost forgery.
+These remain pending draft contacts; equipment and finalization are still open.
+No package seal, in-play social automation or Play publication is claimed.
+
+## Historical increment: rated qualities — 22 September 2026
 
 Five rated families extend the existing catalogue: Focused Concentration
 (1–3, 12 Karma/level), Built Tough (1–4, 4/level), Will to Live (1–3, 8/level),

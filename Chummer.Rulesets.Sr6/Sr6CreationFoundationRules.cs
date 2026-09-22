@@ -80,7 +80,8 @@ public static class Sr6CreationFoundationRules
             KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected),
             KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected),
             KarmaKnowledgeOptions = selected is null ? null : Sr6CreationKarmaKnowledgeRules.Options(selected),
-            QualityOptions = selected is null ? null : Sr6CreationQualityRules.Options(selected)
+            QualityOptions = selected is null ? null : Sr6CreationQualityRules.Options(selected),
+            ContactOptions = selected is null ? null : Sr6CreationContactRules.Options(selected)
         });
     }
 
@@ -116,6 +117,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.Qualities is { } requestedQualities
             && !Sr6CreationFoundationIntegrity.TryFreezeQualities(requestedQualities, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationQualityBlockers.InvalidSelection);
+        if (selection?.Contacts is { } requestedContacts
+            && !Sr6CreationFoundationIntegrity.TryFreezeContacts(requestedContacts, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationContactBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -239,6 +243,13 @@ public static class Sr6CreationFoundationRules
             if (knowledge.Value is null) return new(knowledge.Outcome, null, knowledge.Blockers);
             preview = preview with { Knowledge = knowledge.Value,
                 SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationKnowledgeRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
+        }
+        if (selection.Contacts is { } contactSelection)
+        {
+            var contacts = Sr6CreationContactRules.Evaluate(preview, contactSelection);
+            if (contacts.Value is null) return new(contacts.Outcome, null, contacts.Blockers);
+            preview = preview with { Contacts = contacts.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationContactRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
         }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }

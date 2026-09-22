@@ -9,11 +9,12 @@ namespace Chummer.Tests;
 public sealed partial class Sr6CreationFoundationTests
 {
     [TestMethod]
-    [DataRow(false, false, false)]
-    [DataRow(true, false, false)]
-    [DataRow(true, true, false)]
-    [DataRow(true, true, true)]
-    public void Karma_specialty_on_existing_mystic_adept_preserves_all_domain_anchors(bool withKnowledge, bool withQualities, bool withMetatypeUpgrade)
+    [DataRow(false, false, false, false)]
+    [DataRow(true, false, false, false)]
+    [DataRow(true, true, false, false)]
+    [DataRow(true, true, true, false)]
+    [DataRow(true, true, true, true)]
+    public void Karma_specialty_on_existing_mystic_adept_preserves_all_domain_anchors(bool withKnowledge, bool withQualities, bool withMetatypeUpgrade, bool withContacts)
     {
         using var fixture = new Fixture("PointBuy");
         var seed = PointBuy(talent: "mystic-adept") with
@@ -38,9 +39,10 @@ public sealed partial class Sr6CreationFoundationTests
                 Knowledge = new([new(Guid.NewGuid(), "Magic")], []) } };
         if (withQualities) seed = seed with { Qualities = new(["analytical-mind", "ar-vertigo"]) };
         if (withMetatypeUpgrade) seed = seed with { Qualities = new(["built-tough-2", "ar-vertigo"]) };
+        if (withContacts) seed = seed with { Contacts = new([new(Guid.NewGuid(), "Fixer", null, 1, 1)]) };
         var request = fixture.Request(seed);
         var quote = fixture.Preview(seed);
-        Assert.HasCount((withKnowledge ? 10 : 9) + (withQualities ? 1 : 0) + (withMetatypeUpgrade ? 1 : 0), quote.SourceAnchorIds);
+        Assert.HasCount((withKnowledge ? 10 : 9) + (withQualities ? 1 : 0) + (withMetatypeUpgrade ? 1 : 0) + (withContacts ? 1 : 0), quote.SourceAnchorIds);
         Assert.AreEqual(50, quote.Karma!.KarmaSpent);
         Assert.AreEqual(withMetatypeUpgrade ? 56 : withQualities ? 57 : 50, quote.Karma.KarmaBudget);
         var committed = fixture.Service.Confirm(fixture.Stamp, request);
