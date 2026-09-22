@@ -3,7 +3,33 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: Karma specializations — 22 September 2026
+## Current increment: Karma knowledge and languages — 22 September 2026
+
+The same customization step now buys additional unrated knowledge (3 Karma)
+and language levels (3 Karma per additional level), using the owned German
+2024 core pp70/72/100. Free Logic-pool choices and native language remain
+unchanged. A purchased target level for an existing language binds its exact
+entry ID/name and charges only the difference; new languages cost all levels.
+Only Basic/Specialist/Expert are supported, with comprehension bonuses 0/2/3.
+Knowledge topics remain bounded player text subject to GM review.
+
+Core rejects native/duplicate purchases, ID substitution, non-increases and
+malformed names. Changes to the free pool re-evaluate the entire selection;
+Karma and free-pool overspending block rather than dropping choices. Purchases
+share the existing 50-Karma budget, while CP/base pools stay separate. New
+nullable fields preserve historical decisions when no knowledge is bought.
+Knowledge anchors reuse the existing authority and are deduplicated, keeping
+the complete mixed-domain draft within its ten-anchor bound.
+
+`core-sr6-karma-knowledge-1.log`: **194 Core tests PASS**. Coverage includes
+three methods, costs, stable IDs, free-pool separation, budget/identity/name
+negatives, canonical null/empty compatibility, cold reopen/replay and rehashed
+cost/comprehension forgery rejection. Qualities, equipment and finalization,
+plus full Life Path/optional Karma method flows, remain unfinished.
+`core-sr6-karma-knowledge-combined.log`: both mixed-domain mystic-adept cases
+also pass after adding Karma knowledge to the ten-source-anchor regression.
+
+## Historical increment: Karma specializations — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy now permit the allowed five-Karma specialty
 purchase in the same atomic customization step. The owned German 2024 core

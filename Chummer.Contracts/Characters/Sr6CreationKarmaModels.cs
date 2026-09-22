@@ -8,7 +8,21 @@ public sealed record Sr6CreationKarmaSelection(IReadOnlyList<Sr6CreationKarmaInc
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<Sr6CreationKarmaSpecialization>? Specializations { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationKarmaKnowledgeSelection? Knowledge { get; init; }
 }
+public sealed record Sr6CreationKarmaKnowledgeSelection(IReadOnlyList<Sr6CreationKnowledgeEntry> KnowledgeSkills,
+    IReadOnlyList<Sr6CreationLanguageEntry> Languages);
+public sealed record Sr6CreationKarmaKnowledgeOptions(int KnowledgeKarmaCost, int LanguageLevelKarmaCost,
+    string NativeLanguage, IReadOnlyList<Sr6CreationLanguageEntry> PoolLanguages,
+    IReadOnlyList<string> LanguageLevels, IReadOnlyList<string> SourceAnchorIds);
+public sealed record Sr6CreationKarmaKnowledgeValue(Guid Id, string Name, int KarmaCost, bool NeedsGmReview);
+public sealed record Sr6CreationKarmaLanguageValue(Guid Id, string Name, string? BaseLevel, string Level,
+    int LevelsPurchased, int KarmaCost, int ComprehensionBonus);
+public sealed record Sr6CreationKarmaKnowledgePreview(IReadOnlyList<Sr6CreationKarmaKnowledgeValue> KnowledgeSkills,
+    IReadOnlyList<Sr6CreationKarmaLanguageValue> Languages, int KarmaCost, string AuthorityDigest,
+    IReadOnlyList<string> SourceAnchorIds);
 public sealed record Sr6CreationKarmaSpecialization(string SkillId, string Subject);
 public sealed record Sr6CreationKarmaSpecializationOption(string SkillId, int BaseRating,
     IReadOnlyList<string> PoolSpecializations, int DicePoolBonus, bool Available, string? UnavailableReason);
@@ -30,6 +44,9 @@ public sealed record Sr6CreationKarmaPreview(IReadOnlyList<Sr6CreationKarmaValue
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<Sr6CreationKarmaSpecializationValue>? Specializations { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationKarmaKnowledgePreview? Knowledge { get; init; }
 }
 
 public static class Sr6CreationKarmaBlockers
@@ -40,4 +57,6 @@ public static class Sr6CreationKarmaBlockers
     public const string BudgetExceeded = "sr6-creation-karma-budget-exceeded";
     public const string SpecializationLimit = "sr6-creation-karma-specialization-limit";
     public const string SpecializationRatingRequired = "sr6-creation-karma-specialization-rating-required";
+    public const string KnowledgeRequired = "sr6-creation-karma-knowledge-required";
+    public const string KnowledgeConflict = "sr6-creation-karma-knowledge-conflict";
 }

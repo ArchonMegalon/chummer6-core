@@ -69,12 +69,29 @@ public static class Sr6CreationFoundationIntegrity
                 || !Sr6CreationSkillIds.Ordered.Contains(row.SkillId, StringComparer.Ordinal) || !KnowledgeName(row.Subject))
             || specialties.Select(row => (row.SkillId, Subject: row.Subject.ToUpperInvariant())).Distinct().Count() != specialties.Length))
             return false;
+        Sr6CreationKarmaKnowledgeSelection? knowledge = null;
+        if (selection.Knowledge is { } requestedKnowledge)
+        {
+            if (requestedKnowledge.KnowledgeSkills is not { Count: <= 32 } || requestedKnowledge.Languages is not { Count: <= 32 }) return false;
+            var topics = requestedKnowledge.KnowledgeSkills.ToArray();
+            var languages = requestedKnowledge.Languages.ToArray();
+            if (topics.Length + languages.Length > 32
+                || topics.Any(row => row is null || row.Id == Guid.Empty || !KnowledgeName(row.Name))
+                || languages.Any(row => row is null || row.Id == Guid.Empty || !KnowledgeName(row.Name)
+                    || !Sr6CreationLanguageLevels.Ordered.Contains(row.Level, StringComparer.Ordinal))
+                || topics.Select(row => row.Id).Concat(languages.Select(row => row.Id)).Distinct().Count() != topics.Length + languages.Length
+                || topics.Select(row => row.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != topics.Length
+                || languages.Select(row => row.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != languages.Length) return false;
+            if (topics.Length + languages.Length > 0)
+                knowledge = new(topics.OrderBy(row => row.Id).ToArray(), languages.OrderBy(row => row.Id).ToArray());
+        }
         frozen = new(attributes.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(),
             skills.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(), selection.KarmaForNuyen)
         {
             Specializations = specialties is { Length: > 0 }
                 ? specialties.OrderBy(row => row.SkillId, StringComparer.Ordinal).ThenBy(row => row.Subject, StringComparer.Ordinal).ToArray()
-                : null
+                : null,
+            Knowledge = knowledge
         };
         return true;
 

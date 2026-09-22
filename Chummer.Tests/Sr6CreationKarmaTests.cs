@@ -30,6 +30,9 @@ public sealed partial class Sr6CreationFoundationTests
         Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(seed)).Value);
         var before = fixture.Store.Get(fixture.Id).Value!;
         seed = seed with { Karma = seed.Karma! with { Specializations = [new("Astral", "AstralCombat")] } };
+        if (withKnowledge)
+            seed = seed with { Karma = seed.Karma with { KarmaForNuyen = 2,
+                Knowledge = new([new(Guid.NewGuid(), "Magic")], []) } };
         var request = fixture.Request(seed);
         var quote = fixture.Preview(seed);
         Assert.HasCount(withKnowledge ? 10 : 9, quote.SourceAnchorIds);

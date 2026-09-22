@@ -64,6 +64,7 @@ public sealed record Sr6CreationFoundationState(
     public IReadOnlyList<Sr6CreationAdeptPowerOption>? AdeptPowerOptions { get; init; }
     public Sr6CreationKarmaOptions? KarmaOptions { get; init; }
     public Sr6CreationKarmaSpecializationOptions? KarmaSpecializationOptions { get; init; }
+    public Sr6CreationKarmaKnowledgeOptions? KarmaKnowledgeOptions { get; init; }
 }
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>

@@ -78,7 +78,8 @@ public static class Sr6CreationFoundationRules
             SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected),
             AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected),
             KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected),
-            KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected)
+            KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected),
+            KarmaKnowledgeOptions = selected is null ? null : Sr6CreationKarmaKnowledgeRules.Options(selected)
         });
     }
 
@@ -224,7 +225,7 @@ public static class Sr6CreationFoundationRules
             var knowledge = Sr6CreationKnowledgeRules.Evaluate(preview, knowledgeSelection);
             if (knowledge.Value is null) return new(knowledge.Outcome, null, knowledge.Blockers);
             preview = preview with { Knowledge = knowledge.Value,
-                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationKnowledgeRules.SourceAnchor] };
+                SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationKnowledgeRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
         }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }

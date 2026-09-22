@@ -87,8 +87,15 @@ public static class Sr6CreationKarmaRules
                 return Fail(Sr6CreationKarmaBlockers.SpecializationLimit);
             specialties.Add(new(purchase.SkillId, purchase.Subject, specialtyOptions.KarmaCost, option.DicePoolBonus, true));
         }
+        Sr6CreationKarmaKnowledgePreview? knowledge = null;
+        if (frozen.Knowledge is { } knowledgeSelection)
+        {
+            var result = Sr6CreationKarmaKnowledgeRules.Evaluate(foundation, knowledgeSelection);
+            if (result.Value is null) return new(result.Outcome, null, result.Blockers);
+            knowledge = result.Value;
+        }
         int spent = attributes.Sum(row => row.KarmaCost) + skills.Sum(row => row.KarmaCost)
-            + frozen.KarmaForNuyen + specialties.Sum(row => row.KarmaCost);
+            + frozen.KarmaForNuyen + specialties.Sum(row => row.KarmaCost) + (knowledge?.KarmaCost ?? 0);
         if (frozen.KarmaForNuyen > options.MaximumKarmaForNuyen || spent > options.KarmaBudget)
             return Fail(Sr6CreationKarmaBlockers.BudgetExceeded);
         int remaining = options.KarmaBudget - spent;
@@ -115,10 +122,18 @@ public static class Sr6CreationKarmaRules
             });
             anchors = [.. anchors, SpecializationSourceAnchor];
         }
+        if (knowledge is not null)
+        {
+            authority = Sr6CreationFoundationIntegrity.Digest(new
+            {
+                Schema = "chummer.sr6.creation-karma-with-knowledge.v1", BaseAuthority = authority, Knowledge = knowledge
+            });
+            anchors = anchors.Concat(knowledge.SourceAnchorIds).Distinct(StringComparer.Ordinal).ToArray();
+        }
         return new(CharacterCreationFoundationOutcomes.Success, new(attributes.ToArray(), skills.ToArray(),
             options.KarmaBudget, spent, remaining, frozen.KarmaForNuyen, nuyen, foundation.Budget.ResourcesNuyen + nuyen,
             options.MaximumCarryOver, Math.Max(0, remaining - options.MaximumCarryOver), powerPoints, authority, anchors)
-            { Specializations = specialties.Count > 0 ? specialties.ToArray() : null }, []);
+            { Specializations = specialties.Count > 0 ? specialties.ToArray() : null, Knowledge = knowledge }, []);
     }
 
     // These consume only an already evaluated preview. Never read unverified client increases here.
