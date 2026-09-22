@@ -2211,7 +2211,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
-                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
+                    or CharacterCreationBuildMethods.LifeModules)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
