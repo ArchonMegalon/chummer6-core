@@ -235,6 +235,9 @@ public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyDictionary<string, string>? QualityInstanceValues { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? AttributePurchases { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
@@ -246,6 +249,9 @@ public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyDictionary<string, string>? QualityInstanceValues { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? AttributePurchases { get; init; }
 }
 
 /// <summary>
@@ -419,6 +425,9 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleMetatypeWriteSummary? MetatypeWriteSummary { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleAttributeQuote? AttributeQuote { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(
