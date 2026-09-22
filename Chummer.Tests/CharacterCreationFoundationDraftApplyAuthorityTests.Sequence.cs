@@ -53,8 +53,14 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 "Skipping education is a real source-owned zero-effect decision, not a missing stage.");
             CollectionAssert.AreEqual(new[] { "version", "version", "module" },
                 sequence.Occurrences[0].Compilation.Effects.Take(3).Select(effect => effect.SourcePhase).ToArray());
-            Assert.IsTrue(sequence.Occurrences[2].Compilation.Effects.Any(effect => effect.PromptIds.Count > 0),
-                "Unresolved later-module prompts must be visible, not hidden behind nationality.");
+            var corporateInputs = sequence.Occurrences[2].Compilation.Effects
+                .Where(effect => effect.InputResolution is not null).ToArray();
+            Assert.HasCount(4, corporateInputs);
+            Assert.IsTrue(corporateInputs.All(effect => effect.PromptIds.Count == 0
+                && effect.CompilationStatus == CharacterCreationFoundationEffectCompilationStatuses.Supported));
+            Assert.IsTrue(corporateInputs.SelectMany(effect => effect.InputResolution!.Inputs).All(input =>
+                input.Value == draft.AdditionalModules[1].FollowUpValues[input.PromptId]),
+                "Confirmed later-module answers must be consumed from their own occurrence, not asked again.");
             Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                 draft.AdditionalModules[0].FollowUpValues, sequence.Occurrences[1].FollowUpValues));
 

@@ -274,7 +274,26 @@ public sealed record CharacterCreationFoundationEffectInstruction(
     /// </summary>
     public IReadOnlyDictionary<string, string> IgnoredSourceMetadata { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Confirmed source-owned answers used by this instruction. Original draft
+    /// projections remain unchanged; both projections and each prompt are bound
+    /// into InstructionDigest through this resolution.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFoundationEffectInputResolution? InputResolution { get; init; }
 }
+
+public sealed record CharacterCreationFoundationEffectInputResolution(
+    string SourceEffectDigest,
+    string ResolvedEffectDigest,
+    IReadOnlyList<CharacterCreationFoundationEffectInputBinding> Inputs);
+
+public sealed record CharacterCreationFoundationEffectInputBinding(
+    string PromptId,
+    string ValuePath,
+    string Value,
+    string PromptDigest);
 
 public sealed record CharacterCreationFoundationEffectTargetBinding(
     string TargetKind,

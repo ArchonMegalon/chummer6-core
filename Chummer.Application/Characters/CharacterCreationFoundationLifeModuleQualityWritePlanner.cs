@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.LifeModules;
@@ -20,7 +21,7 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
     private const string PlanSchema =
         "chummer.character_creation_foundation_lifemodule_quality_write_plan.v3";
     private const string WriterSemantics =
-        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-and-skillgrouplevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;free-quality-pools-literal-v1;pushtext-addqualities-dependent-quality-composite-v1;literal-addqualities-v1-without-selection-consumer;ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
+        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-and-skillgrouplevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;free-quality-pools-literal-v1;pushtext-addqualities-dependent-quality-composite-v1;literal-addqualities-v1-without-selection-consumer;ordered-distinct-improvements;deterministic-quality-uuidv8;confirmed-knowledge-inputs-v1;no-partial-apply";
 
     private static readonly IReadOnlySet<string> s_AllowedSourceChildren =
         new HashSet<string>(
@@ -206,7 +207,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                     instruction.TargetBinding,
                     instruction.IgnoredSourceMetadata
                         .OrderBy(item => item.Key, StringComparer.Ordinal)
-                        .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)))
+                        .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal))
+                { InputResolution = instruction.InputResolution })
                 .ToArray(),
             SelectionPushes: compilation.SelectionPushes.ToArray(),
             SelectionConsumers: compilation.SelectionConsumers.ToArray(),
@@ -1022,7 +1024,11 @@ internal sealed record CharacterCreationFoundationEffectWriteProvenance(
     string InstructionDigest,
     IReadOnlyList<string> SourceAnchorIds,
     CharacterCreationFoundationEffectTargetBinding? TargetBinding,
-    IReadOnlyDictionary<string, string> IgnoredSourceMetadata);
+    IReadOnlyDictionary<string, string> IgnoredSourceMetadata)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFoundationEffectInputResolution? InputResolution { get; init; }
+}
 
 internal sealed record CharacterCreationFoundationEffectWritePlanResult(
     CharacterCreationFoundationEffectWritePlan? Plan,

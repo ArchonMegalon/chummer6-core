@@ -2144,7 +2144,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     }
 
     [TestMethod]
-    public void Finalization_prompt_effects_are_typed_and_confirm_is_repeatable_zero_write()
+    public void Finalization_confirmed_knowledge_inputs_are_typed_and_confirm_is_repeatable_zero_write()
     {
         string directory = CreateTempDirectory();
         try
@@ -2172,13 +2172,11 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                     draft.DraftRevision,
                     draft.DraftDigest))
                 .Value!;
-            Assert.IsTrue(preview.Compilation.Effects.Any(effect =>
-                effect.CompilationStatus
-                == CharacterCreationFoundationEffectCompilationStatuses.PromptRequired
-                && effect.PromptIds.Count > 0));
-            CollectionAssert.Contains(
-                preview.FinalizationBlocked.ToList(),
-                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+            var answered = preview.Compilation.Effects.Where(effect => effect.InputResolution is not null).ToArray();
+            Assert.HasCount(3, answered, "The version has two prompts and the UCAS module has its own language choice.");
+            Assert.IsTrue(answered.All(effect => effect.PromptIds.Count == 0
+                && effect.CompilationStatus == CharacterCreationFoundationEffectCompilationStatuses.Supported));
+            Assert.IsFalse(preview.FinalizationBlocked.Contains(CharacterCreationFoundationBlockers.FinalizationPromptRequired));
             string targetPath = WorkspacePath(directory, id);
             byte[] before = File.ReadAllBytes(targetPath);
             DateTime beforeWrite = File.GetLastWriteTimeUtc(targetPath);
@@ -2194,7 +2192,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.IsNull(duplicate.Value);
             CollectionAssert.Contains(
                 first.Blockers.ToList(),
-                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+                CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete);
             CollectionAssert.AreEqual(before, File.ReadAllBytes(targetPath));
             Assert.AreEqual(beforeWrite, File.GetLastWriteTimeUtc(targetPath));
             WorkspaceStoredDocument reopened = new FileWorkspaceStore(directory).Get(id).Value!;
