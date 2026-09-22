@@ -2426,13 +2426,47 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             catalog = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
                 || !TryResolveCreationKarmaTalents(out var talents) || talents is null
+                || !TryResolveMagicPurchaseInputs(out var policy, out string customDigest, out var slices, out var anchors)) return false;
+            var result = new CharacterCreationKarmaMagicCatalog(CharacterCreationKarmaMagicCatalog.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, customDigest, policy!, talents, slices,
+                anchors.Concat(talents.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationKarmaMagicRules.ComputeCatalogDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleMagicCatalog(out CharacterCreationLifeModuleMagicCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || !TryResolveCreationLifeModuleTalents(out var talents) || talents is null
+                || !TryResolveMagicPurchaseInputs(out var policy, out string customDigest, out var slices, out var anchors)) return false;
+            var result = new CharacterCreationLifeModuleMagicCatalog(_settingsProfileId, _rawProfileInputsDigest,
+                customDigest, policy!, talents, slices,
+                anchors.Concat(talents.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationLifeModuleMagicRules.ComputeCatalogDigest(result) };
+            return true;
+        }
+
+        private bool TryResolveMagicPurchaseInputs(out CharacterCreationKarmaMagicPolicy? policy, out string customDigest,
+            out IReadOnlyList<CharacterCreationKarmaMagicCatalogSlice> catalogs, out IReadOnlyList<string> anchors)
+        {
+            policy = null;
+            customDigest = string.Empty;
+            catalogs = [];
+            anchors = [];
+            if (_buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
+                || _sourceInputs.HasSourceDrift
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
-                || !CharacterCreationKarmaMagicRules.TryCreatePolicy(_settingsProfileId, settingsDigest,
-                    settings.ToString(SaveOptions.DisableFormatting), out var policy)
-                || !TryComputeSelectedCustomDataInputsDigest(_customDirectories, out string customDigest)
+                || !(_buildMethod == CharacterCreationBuildMethods.Karma
+                    ? CharacterCreationKarmaMagicRules.TryCreatePolicy(_settingsProfileId, settingsDigest,
+                        settings.ToString(SaveOptions.DisableFormatting), out policy)
+                    : CharacterCreationKarmaMagicRules.TryCreateLifeModulePolicy(_settingsProfileId, settingsDigest,
+                        settings.ToString(SaveOptions.DisableFormatting), out policy))
+                || !TryComputeSelectedCustomDataInputsDigest(_customDirectories, out customDigest)
                 || customDigest != _selectedCustomDataInputsDigest) return false;
 
             (string File, string Container, string Row, string Kind)[] sources =
@@ -2452,7 +2486,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     || !TryEnumerateTargets(source.File, [source.Container], source.Row, out var rows)) return false;
                 var options = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
                     rows, source.Kind, digest, books, blockers);
-                // A visible choice must be applicable by this same Karma lane.
+                // A visible choice must be applicable by this purchase lane.
                 // Keep incomplete/custom or unsupported rows visible but disabled.
                 slices.Add(new(source.Kind, digest, options.Select(option => option.IsEnabled
                     && !CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _)
@@ -2460,12 +2494,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     : option).ToArray()));
             }
             if (blockers.Count != 0 || _sourceInputs.HasSourceDrift) return false;
-            var result = new CharacterCreationKarmaMagicCatalog(CharacterCreationKarmaMagicCatalog.SchemaV1,
-                _settingsProfileId, _rawProfileInputsDigest, customDigest, policy!, talents, slices.ToArray(),
-                policy!.SourceAnchorIds.Concat(talents.SourceAnchorIds).Concat(sources.Select(source => source.File))
-                    .Concat(_customDirectories.Select(directory => $"customdata:{directory.Name}"))
-                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
-            catalog = result with { AuthorityDigest = CharacterCreationKarmaMagicRules.ComputeCatalogDigest(result) };
+            catalogs = slices.ToArray();
+            anchors = policy!.SourceAnchorIds.Concat(sources.Select(source => source.File))
+                .Concat(_customDirectories.Select(directory => $"customdata:{directory.Name}"))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             return true;
         }
 

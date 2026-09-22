@@ -16,6 +16,16 @@ public static class CharacterCreationKarmaMagicRules
 
     public static bool TryCreatePolicy(string profileId, string settingsInputsDigest, string canonicalSourceXml,
         out CharacterCreationKarmaMagicPolicy? policy)
+        => TryCreatePolicy(profileId, settingsInputsDigest, canonicalSourceXml, CharacterCreationBuildMethods.Karma,
+            CharacterCreationKarmaMagicPolicy.SchemaV1, out policy);
+
+    public static bool TryCreateLifeModulePolicy(string profileId, string settingsInputsDigest, string canonicalSourceXml,
+        out CharacterCreationKarmaMagicPolicy? policy)
+        => TryCreatePolicy(profileId, settingsInputsDigest, canonicalSourceXml, CharacterCreationBuildMethods.LifeModules,
+            CharacterCreationKarmaMagicPolicy.LifeModulesSchemaV1, out policy);
+
+    private static bool TryCreatePolicy(string profileId, string settingsInputsDigest, string canonicalSourceXml,
+        string buildMethod, string schema, out CharacterCreationKarmaMagicPolicy? policy)
     {
         policy = null;
         if (!CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(profileId, settingsInputsDigest,
@@ -31,14 +41,14 @@ public static class CharacterCreationKarmaMagicRules
             // profile identity and PP fields; the resolver admits the effective
             // settings digest against the captured source context.
             XElement root = XElement.Load(reader, LoadOptions.PreserveWhitespace);
-            if (!TryScalar(root, "buildmethod", out string method) || method != "Karma"
+            if (!TryScalar(root, "buildmethod", out string method) || method != buildMethod
                 || !TryScalar(root, "ignorecomplexformlimit", out string limitText)
                 || !bool.TryParse(limitText, out bool ignoreLimit)
                 || root.Element("karmacost") is not { } costs
                 || !TryCost(costs, "karmaspell", out int spell)
                 || !TryCost(costs, "karmanewcomplexform", out int form)) return false;
             string anchor = $"settings.xml#setting:{profileId}";
-            var result = new CharacterCreationKarmaMagicPolicy(CharacterCreationKarmaMagicPolicy.SchemaV1,
+            var result = new CharacterCreationKarmaMagicPolicy(schema,
                 profileId, settingsInputsDigest, spell, form, ignoreLimit, powerPoints!, canonicalSourceXml,
                 CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalSourceXml),
                 [.. powerPoints!.SourceAnchorIds, anchor + ":karmacost/karmaspell",
@@ -59,6 +69,11 @@ public static class CharacterCreationKarmaMagicRules
         && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
             CharacterCreationMagicResonanceDigest.Compute(policy), CharacterCreationMagicResonanceDigest.Compute(expected));
 
+    internal static bool IsValidLifeModulePolicy(CharacterCreationKarmaMagicPolicy? policy) =>
+        policy is not null
+        && TryCreateLifeModulePolicy(policy.SettingsProfileId, policy.SettingsInputsDigest, policy.CanonicalSourceXml, out var expected)
+        && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(policy, expected);
+
     /// <summary>
     /// Quotes counts already admitted by a caller's typed selection validation.
     /// Karma has zero Priority spell slots even when that exchange house rule is on.
@@ -67,9 +82,16 @@ public static class CharacterCreationKarmaMagicRules
     public static bool TryCalculateCost(CharacterCreationKarmaMagicPolicy? policy, string talentKind,
         int currentMagic, int spellCount, int complexFormCount, int selectedMysticPowerPoints,
         out CharacterCreationKarmaMagicPurchaseCost? cost)
+        => TryCalculateCost(policy, talentKind, currentMagic, spellCount, complexFormCount, selectedMysticPowerPoints,
+            false, out cost);
+
+    internal static bool TryCalculateCost(CharacterCreationKarmaMagicPolicy? policy, string talentKind,
+        int currentMagic, int spellCount, int complexFormCount, int selectedMysticPowerPoints, bool lifeModules,
+        out CharacterCreationKarmaMagicPurchaseCost? cost)
     {
         cost = null;
-        if (!IsValidPolicy(policy) || currentMagic < 0 || spellCount < 0 || complexFormCount < 0
+        if (!(lifeModules ? IsValidLifeModulePolicy(policy) : IsValidPolicy(policy))
+            || currentMagic < 0 || spellCount < 0 || complexFormCount < 0
             || talentKind is not (CharacterCreationMagicResonanceKinds.Mundane
                 or CharacterCreationMagicResonanceKinds.Adept or CharacterCreationMagicResonanceKinds.Magician
                 or CharacterCreationMagicResonanceKinds.MysticAdept or CharacterCreationMagicResonanceKinds.AspectedMagician

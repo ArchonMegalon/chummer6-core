@@ -156,6 +156,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Source-owned Life Modules magic purchases, without Priority free slots.</summary>
+    bool TryResolveCreationLifeModuleMagicCatalog(out CharacterCreationLifeModuleMagicCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
     /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
     bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
     {

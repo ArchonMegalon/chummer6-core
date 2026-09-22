@@ -8,6 +8,7 @@ public sealed record CharacterCreationLifeModuleFinalizationBudgetQuote(
     string ResourcesQuoteDigest,
     string LifestylesQuoteDigest,
     string ContactsQuoteDigest,
+    string MagicQuoteDigest,
     int DiceTotal,
     decimal ResourceKarmaRoundingAdjustment,
     int KarmaBeforeCarryover,

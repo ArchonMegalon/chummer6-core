@@ -192,7 +192,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection,
                     KarmaResourceInvestment = request.KarmaResourceInvestment, GearSelection = request.GearSelection,
                     LifestyleSelection = request.LifestyleSelection, StartingLifestyleId = request.StartingLifestyleId,
-                    ContactSelection = request.ContactSelection, StartingNuyenDiceTotal = request.StartingNuyenDiceTotal });
+                    ContactSelection = request.ContactSelection, StartingNuyenDiceTotal = request.StartingNuyenDiceTotal,
+                    MagicSelection = request.MagicSelection });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -218,8 +219,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         }
 
         // Effects, racial/talent grants, attributes, skills and funding have
-        // source-bound plans, including gear/lifestyles, contacts and carryover.
-        // Awakened purchases and whole-runner validity/atomic persistence still
+        // source-bound plans, including gear/lifestyles, contacts, awakened
+        // purchases and carryover. Whole-runner validity/atomic persistence still
         // need composition. Never apply a supported subgraph early or mark the
         // unfinished runner as created.
         return Blocked<CharacterCreationFoundationFinalizationReceipt>(
@@ -392,15 +393,24 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             contacts = CharacterCreationLifeModuleContactsRules.Evaluate(workspace.Document.Content, contactEffects,
                 contactRacial, contactTalent, contactAttributes, contactSkills, contactResources,
                 state.LifeModuleBudget.Total, request.ContactSelection, sourceContext);
+        CharacterCreationLifeModuleMagicResult? magic = null;
+        if (writePlan.Plan is { } magicEffects && metatypePlan?.Plan is { } magicRacial
+            && talentPlan?.Plan is { } magicTalent && attributes?.Quote is { } magicAttributes
+            && skillQuote?.Quote is { } magicSkills && resourceQuote?.Quote is { } magicResources
+            && contacts?.Quote is { } magicContacts && sourceContext is not null && state.LifeModuleBudget.IsExact)
+            magic = CharacterCreationLifeModuleMagicRules.Evaluate(workspace.Document.Content, magicEffects, magicRacial,
+                magicTalent, magicAttributes, magicSkills, magicResources, magicContacts, state.LifeModuleBudget.Total,
+                request.MagicSelection, sourceContext);
         CharacterCreationLifeModuleFinalizationBudgetResult? finalBudget = null;
         if (writePlan.Plan is { } finalEffects && metatypePlan?.Plan is { } finalRacial
             && talentPlan?.Plan is { } finalTalent && attributes?.Quote is { } finalAttributes
             && skillQuote?.Quote is { } finalSkills && resourceQuote?.Quote is { } finalResources
             && gearQuote?.Quote is { } finalGear && lifestyles?.Quote is { } finalLifestyles
-            && contacts?.Quote is { } finalContacts && sourceContext is not null && state.LifeModuleBudget.IsExact)
+            && contacts?.Quote is { } finalContacts && magic?.Quote is { } finalMagic
+            && sourceContext is not null && state.LifeModuleBudget.IsExact)
             finalBudget = CharacterCreationLifeModuleFinalizationBudgetRules.Evaluate(workspace.Document.Content,
                 finalEffects, finalRacial, finalTalent, finalAttributes, finalSkills, finalResources, finalGear,
-                finalLifestyles, finalContacts, state.LifeModuleBudget.Total, request.StartingNuyenDiceTotal, sourceContext);
+                finalLifestyles, finalContacts, finalMagic, state.LifeModuleBudget.Total, request.StartingNuyenDiceTotal, sourceContext);
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
@@ -419,6 +429,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .Concat(gearQuote?.Blockers ?? [])
             .Concat(lifestyles?.Blockers ?? [])
             .Concat(contacts?.Blockers ?? [])
+            .Concat(magic?.Blockers ?? [])
             .Concat(finalBudget?.Blockers ?? [])
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
@@ -456,6 +467,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             LifestylesQuote = lifestyles?.Quote,
             ContactsPolicy = contacts?.Policy,
             ContactsQuote = contacts?.Quote,
+            MagicCatalog = magic?.Catalog,
+            MagicQuote = magic?.Quote,
             CarryoverPolicy = finalBudget?.Policy,
             StartingCashSource = finalBudget?.StartingCashSource,
             FinalizationBudget = finalBudget?.Quote

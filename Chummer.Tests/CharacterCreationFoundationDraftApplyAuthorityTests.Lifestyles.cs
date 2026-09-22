@@ -197,7 +197,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 
     private static LifeLifestyleBinding LifeLifestyleFixture(decimal investment = 2m)
     {
-        var math = SkillMathFixture();
+        var math = LifeSourceBoundTalentMath();
         var context = new FileSystemCharacterSourceDataResolver(CreateOverlays()).TryCreateContext(math.Xml)!;
         var native = math.Catalog.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
         var skills = CharacterCreationLifeModuleSkillsRules.Evaluate(math.Xml, math.Effects, math.Racial, math.Talent,

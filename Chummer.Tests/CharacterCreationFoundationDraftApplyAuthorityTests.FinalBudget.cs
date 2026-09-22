@@ -9,7 +9,9 @@ namespace Chummer.Tests;
 public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 {
     [TestMethod]
-    public void Life_module_final_budget_binds_explicit_dice_and_reopens_without_mutating_the_draft()
+    [DataRow("mundane")]
+    [DataRow(MagicianTalentId)]
+    public void Life_module_final_budget_binds_explicit_dice_and_reopens_without_mutating_the_draft(string talentId)
     {
         string directory = CreateTempDirectory();
         try
@@ -19,11 +21,19 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             var service = CreateService(fixture.Store);
             var prompt = baseline.ModuleSequence!.QualityLevels.Single().InstancePrompt!;
             var request = QualityInstanceRequest(service, fixture.Id, new Dictionary<string, string> { [prompt.PromptId] = "Renraku" })
-                with { TalentSelection = new("mundane") };
+                with { TalentSelection = new(talentId), AttributePurchases = talentId == "mundane" ? [] : [new("MAG", 3)] };
             var first = service.PreviewFinalization(request).Value!;
             var native = first.SkillsCatalog!.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
             request = request with { SkillSelection = new([new(native.SourceSkillId, native.Kind, 0, IsNativeLanguage: true)], []),
-                KarmaResourceInvestment = 0m, GearSelection = [], LifestyleSelection = [], ContactSelection = [] };
+                KarmaResourceInvestment = 0m, GearSelection = [], LifestyleSelection = [], ContactSelection = [],
+                MagicSelection = new(null, null, [], [], []) };
+            if (talentId != "mundane")
+            {
+                var chooser = service.PreviewFinalization(request).Value!;
+                Assert.IsNotNull(chooser.MagicCatalog, string.Join(", ", chooser.FinalizationBlocked));
+                request = request with { MagicSelection = new(LifeMagicOption(chooser.MagicCatalog, "tradition").Identity, null,
+                    [], [LifeMagicOption(chooser.MagicCatalog, "spell").Identity], []) };
+            }
             var missing = service.PreviewFinalization(request).Value!;
             Assert.IsNotNull(missing.CarryoverPolicy, string.Join(", ", missing.FinalizationBlocked));
             Assert.IsNotNull(missing.StartingCashSource);
@@ -41,13 +51,17 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 request.DraftDigest, preview.PreviewDigest, true)
             {
                 QualityInstanceValues = request.QualityInstanceValues, TalentSelection = request.TalentSelection,
+                AttributePurchases = request.AttributePurchases,
                 SkillSelection = request.SkillSelection, KarmaResourceInvestment = request.KarmaResourceInvestment,
                 GearSelection = request.GearSelection, LifestyleSelection = request.LifestyleSelection,
-                ContactSelection = request.ContactSelection, StartingNuyenDiceTotal = request.StartingNuyenDiceTotal
+                ContactSelection = request.ContactSelection, StartingNuyenDiceTotal = request.StartingNuyenDiceTotal,
+                MagicSelection = request.MagicSelection
             };
             foreach (int? changedDice in new int?[] { null, 5 })
                 CollectionAssert.Contains(service.ConfirmFinalization(confirm with { StartingNuyenDiceTotal = changedDice }).Blockers.ToArray(),
                     CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
+            CollectionAssert.Contains(service.ConfirmFinalization(confirm with { MagicSelection = null }).Blockers.ToArray(),
+                CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
             Assert.IsFalse(service.ConfirmFinalization(confirm).Blockers.Contains(CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch));
             var reopened = CreateService(new FileWorkspaceStore(directory)).PreviewFinalization(request).Value!;
             Assert.AreEqual(JsonSerializer.Serialize(preview.FinalizationBudget), JsonSerializer.Serialize(reopened.FinalizationBudget));
@@ -91,7 +105,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         var policy = current.Policy! with { MaximumKarma = 2, MaximumNuyen = 123.45m };
         policy = policy with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(policy) };
         var result = CharacterCreationLifeModuleFinalizationBudgetRules.Quote(policy, current.StartingCashSource!,
-            fixture.Base.Resources, fixture.Lifestyles, fixture.Contacts, 4).Quote!;
+            fixture.Base.Resources, fixture.Lifestyles, fixture.Contacts, fixture.Magic, 4).Quote!;
         Assert.IsNotNull(result);
         Assert.AreEqual(2, result.KarmaCarried);
         Assert.AreEqual(2500m, result.NuyenBeforeCarryover);
@@ -102,7 +116,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         var zero = policy with { MaximumKarma = 0, MaximumNuyen = 0m };
         zero = zero with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(zero) };
         var zeroQuote = CharacterCreationLifeModuleFinalizationBudgetRules.Quote(zero, current.StartingCashSource!,
-            fixture.Base.Resources, fixture.Lifestyles, fixture.Contacts, 4).Quote!;
+            fixture.Base.Resources, fixture.Lifestyles, fixture.Contacts, fixture.Magic, 4).Quote!;
         Assert.IsNotNull(zeroQuote);
         Assert.AreEqual(0, zeroQuote.KarmaCarried);
         Assert.AreEqual(0m, zeroQuote.NuyenCarried);
@@ -143,9 +157,9 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         Assert.IsNotNull(lowSource);
         var policy = street.Evaluate(4).Policy!;
         Assert.IsNull(CharacterCreationLifeModuleFinalizationBudgetRules.Quote(policy, lowSource,
-            street.Base.Resources, street.Lifestyles, street.Contacts, 7).Quote);
+            street.Base.Resources, street.Lifestyles, street.Contacts, street.Magic, 7).Quote);
         Assert.IsNull(CharacterCreationLifeModuleFinalizationBudgetRules.Quote(policy, streetSource,
-            low.Base.Resources, low.Lifestyles, low.Contacts, 4).Quote);
+            low.Base.Resources, low.Lifestyles, low.Contacts, low.Magic, 4).Quote);
         Assert.IsFalse(street.Base.Context.TryResolveCreationLifeModuleStartingNuyen(Guid.Empty, out _));
         Assert.IsFalse(street.Base.Context.TryResolveCreationLifeModuleStartingNuyen(Guid.NewGuid(), out _));
     }
@@ -155,6 +169,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     [DataRow("lifestyles")]
     [DataRow("policy")]
     [DataRow("source")]
+    [DataRow("magic")]
     public void Life_module_final_budget_rechecks_semantics_and_final_source_authority(string fault)
     {
         var fixture = LifeFinalBudgetFixture();
@@ -174,6 +189,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationFoundationBlockers.SourceDigestConflict);
         if (fault == "policy") Assert.AreEqual(2, context.PolicyReads);
         if (fault == "source") Assert.AreEqual(2, context.SourceReads);
+        if (fault == "magic") Assert.AreEqual(3, context.MagicReads);
     }
 
     private static LifeFinalBudgetBinding LifeFinalBudgetFixture(decimal investment = 0m, string? lifestyle = null,
@@ -189,21 +205,25 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             math.Attributes, fixture.Skills, fixture.Resources, 1000m, contacts ?? [], fixture.Context).Quote!;
         Assert.IsNotNull(lifestyles);
         Assert.IsNotNull(contactQuote);
-        return new(fixture, lifestyles, contactQuote);
+        var magic = CharacterCreationLifeModuleMagicRules.Evaluate(math.Xml, math.Effects, math.Racial, math.Talent,
+            math.Attributes, fixture.Skills, fixture.Resources, contactQuote, 1000m, new(null, null, [], [], []), fixture.Context);
+        Assert.IsNotNull(magic.Quote, string.Join(", ", magic.Blockers));
+        return new(fixture, lifestyles, contactQuote, magic.Quote);
     }
 
     private sealed record LifeFinalBudgetBinding(LifeLifestyleBinding Base, CharacterCreationLifeModuleLifestylesQuote Lifestyles,
-        CharacterCreationLifeModuleContactsQuote Contacts)
+        CharacterCreationLifeModuleContactsQuote Contacts, CharacterCreationLifeModuleMagicQuote Magic)
     {
         internal CharacterCreationLifeModuleFinalizationBudgetResult Evaluate(int? dice, ICharacterSourceDataContext? context = null)
             => CharacterCreationLifeModuleFinalizationBudgetRules.Evaluate(Base.Math.Xml, Base.Math.Effects, Base.Math.Racial,
-                Base.Math.Talent, Base.Math.Attributes, Base.Skills, Base.Resources, Base.Gear, Lifestyles, Contacts, 1000m, dice, context ?? Base.Context);
+                Base.Math.Talent, Base.Math.Attributes, Base.Skills, Base.Resources, Base.Gear, Lifestyles, Contacts, Magic, 1000m, dice, context ?? Base.Context);
     }
 
     private sealed class FinalBudgetDriftContext(ICharacterSourceDataContext inner, string fault) : ICharacterSourceDataContext
     {
         internal int PolicyReads { get; private set; }
         internal int SourceReads { get; private set; }
+        internal int MagicReads { get; private set; }
         public bool TryResolveCyberwareGradeDeviceRating(string sourceId, string grade, out int rating)
             => inner.TryResolveCyberwareGradeDeviceRating(sourceId, grade, out rating);
         public bool TryResolveVehicleModBonuses(string sourceId, string grade, out CharacterVehicleModSourceBonuses bonuses)
@@ -222,6 +242,22 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             => inner.TryResolveCreationLifestylesAuthority(out authority);
         public bool TryResolveCreationContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
             => inner.TryResolveCreationContactsPolicy(out policy);
+        public bool TryResolveCreationFoundationEffectSources(out CharacterCreationFoundationEffectSources? sources)
+            => inner.TryResolveCreationFoundationEffectSources(out sources);
+        public bool TryResolveCreationLifeModuleTalents(out CharacterCreationLifeModuleTalentCatalog? catalog)
+            => inner.TryResolveCreationLifeModuleTalents(out catalog);
+        public bool TryResolveCreationLifeModuleTalentSource(string id, out CharacterCreationTalentQualitySource? source)
+            => inner.TryResolveCreationLifeModuleTalentSource(id, out source);
+        public bool TryResolveCreationLifeModuleMagicCatalog(out CharacterCreationLifeModuleMagicCatalog? catalog)
+        {
+            bool found = inner.TryResolveCreationLifeModuleMagicCatalog(out catalog);
+            if (++MagicReads == (fault == "magic-catalog" ? 2 : 3) && (fault is "magic" or "magic-catalog") && catalog is not null)
+            {
+                catalog = catalog with { CustomDataInputsDigest = "sha256:" + new string('0', 64) };
+                catalog = catalog with { AuthorityDigest = CharacterCreationLifeModuleMagicRules.ComputeCatalogDigest(catalog) };
+            }
+            return found;
+        }
         public bool TryResolveCreationCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
         {
             bool found = inner.TryResolveCreationCarryoverPolicy(out policy);

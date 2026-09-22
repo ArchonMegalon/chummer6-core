@@ -11,7 +11,7 @@ internal static class CharacterCreationLifeModuleFinalizationBudgetRules
         CharacterCreationLifeModuleTalentWritePlan talent, CharacterCreationLifeModuleAttributeQuote attributes,
         CharacterCreationLifeModuleSkillsQuote skills, CharacterCreationLifeModuleResourcesQuote resources,
         CharacterCreationLifeModuleGearQuote gear, CharacterCreationLifeModuleLifestylesQuote lifestyles,
-        CharacterCreationLifeModuleContactsQuote contacts, decimal totalKarma, int? diceTotal,
+        CharacterCreationLifeModuleContactsQuote contacts, CharacterCreationLifeModuleMagicQuote magic, decimal totalKarma, int? diceTotal,
         ICharacterSourceDataContext context)
     {
         try
@@ -20,19 +20,20 @@ internal static class CharacterCreationLifeModuleFinalizationBudgetRules
             // arithmetic nor a freshly recomputed hash establishes spending truth.
             var currentLifestyles = CharacterCreationLifeModuleLifestylesRules.Evaluate(characterXml, effects, racial,
                 talent, attributes, skills, resources, gear, totalKarma, lifestyles.Selection, lifestyles.StartingLifestyleId, context);
-            var currentContacts = CharacterCreationLifeModuleContactsRules.Evaluate(characterXml, effects, racial,
-                talent, attributes, skills, resources, totalKarma, contacts.Selection, context);
-            if (currentLifestyles.Quote is null || currentContacts.Quote is null
-                || !Same(lifestyles, currentLifestyles.Quote) || !Same(contacts, currentContacts.Quote))
+            var currentMagic = CharacterCreationLifeModuleMagicRules.Evaluate(characterXml, effects, racial,
+                talent, attributes, skills, resources, contacts, totalKarma, magic.Selections, context);
+            if (currentLifestyles.Quote is null || currentMagic.Quote is null
+                || !Same(lifestyles, currentLifestyles.Quote) || !Same(magic, currentMagic.Quote))
                 return Failed(CharacterCreationFoundationBlockers.SourceDigestConflict);
             if (!context.TryResolveCreationCarryoverPolicy(out var policy) || policy is null)
                 return Failed(CharacterCreationLifeModuleFinalizationBudgetQuote.PolicyUnavailable);
             if (!TrySource(lifestyles, context, out var source) || source is null)
                 return Failed(CharacterCreationLifeModuleFinalizationBudgetQuote.StartingCashUnavailable);
-            var result = Quote(policy, source, resources, lifestyles, contacts, diceTotal);
+            var result = Quote(policy, source, resources, lifestyles, contacts, magic, diceTotal);
             if (!context.TryResolveCreationCarryoverPolicy(out var finalPolicy) || !Same(policy, finalPolicy)
                 || !TrySource(lifestyles, context, out var finalSource) || !Same(source, finalSource)
                 || !context.TryResolveCreationContactsPolicy(out var finalContacts) || !Same(contacts.Policy, finalContacts)
+                || !context.TryResolveCreationLifeModuleMagicCatalog(out var finalMagic) || !Same(currentMagic.Catalog, finalMagic)
                 || !context.TryResolveCreationLifeModuleQualitiesPolicy(out var finalQualities) || !Same(resources.QualityCosts.Policy, finalQualities)
                 || !context.TryResolveCreationLifeModuleResourcesPolicy(out var finalResources) || !Same(resources.Policy, finalResources)
                 || !context.TryResolveCreationLifestylesAuthority(out var finalLifestyles)
@@ -51,7 +52,8 @@ internal static class CharacterCreationLifeModuleFinalizationBudgetRules
     // Evaluate; no synthetic Karma foundation or random roll is used here.
     internal static CharacterCreationLifeModuleFinalizationBudgetResult Quote(CharacterCreationKarmaCarryoverPolicy policy,
         CharacterCreationStartingNuyenSource source, CharacterCreationLifeModuleResourcesQuote resources,
-        CharacterCreationLifeModuleLifestylesQuote lifestyles, CharacterCreationLifeModuleContactsQuote contacts, int? diceTotal)
+        CharacterCreationLifeModuleLifestylesQuote lifestyles, CharacterCreationLifeModuleContactsQuote contacts,
+        CharacterCreationLifeModuleMagicQuote magic, int? diceTotal)
     {
         try
         {
@@ -60,6 +62,11 @@ internal static class CharacterCreationLifeModuleFinalizationBudgetRules
                 || resources is not { Policy: not null, Blockers.Count: 0 }
                 || lifestyles is not { Blockers.Count: 0, Budget: { IsExact: true, Remaining: >= 0 } }
                 || contacts is not { Blockers.Count: 0 }
+                || magic is not { Blockers.Count: 0, Cost: not null }
+                || magic.QuoteDigest != Hash(magic with { QuoteDigest = string.Empty })
+                || magic.ContactsQuoteDigest != contacts.QuoteDigest || magic.ResourcesQuoteDigest != resources.QuoteDigest
+                || magic.KarmaBeforeMagic != contacts.KarmaAfterContacts
+                || magic.KarmaAfterMagic != contacts.KarmaAfterContacts - magic.Cost.TotalKarma
                 || resources.QuoteDigest != Hash(resources with { QuoteDigest = string.Empty })
                 || lifestyles.QuoteDigest != Hash(lifestyles with { QuoteDigest = string.Empty })
                 || contacts.QuoteDigest != Hash(contacts with { QuoteDigest = string.Empty })
@@ -78,7 +85,7 @@ internal static class CharacterCreationLifeModuleFinalizationBudgetRules
                 return new(policy, source, null, [CharacterCreationLifeModuleFinalizationBudgetQuote.BudgetInvalid]);
 
             decimal adjustment = decimal.Ceiling(resources.KarmaInvestment) - resources.KarmaInvestment;
-            decimal remainingKarma = contacts.KarmaAfterContacts - adjustment;
+            decimal remainingKarma = magic.KarmaAfterMagic - adjustment;
             if (remainingKarma < 0 || remainingKarma > int.MaxValue || decimal.Truncate(remainingKarma) != remainingKarma)
                 return new(policy, source, null, [CharacterCreationLifeModuleFinalizationBudgetQuote.BudgetInvalid]);
             int karma = (int)remainingKarma;
@@ -87,7 +94,7 @@ internal static class CharacterCreationLifeModuleFinalizationBudgetRules
             decimal carriedNuyen = Math.Min(available, policy.MaximumNuyen);
             decimal starting = checked(diceTotal.Value * source.Multiplier);
             var quote = new CharacterCreationLifeModuleFinalizationBudgetQuote(policy, source, resources.QuoteDigest,
-                lifestyles.QuoteDigest, contacts.QuoteDigest, diceTotal.Value, adjustment, karma, carriedKarma, karma - carriedKarma,
+                lifestyles.QuoteDigest, contacts.QuoteDigest, magic.QuoteDigest, diceTotal.Value, adjustment, karma, carriedKarma, karma - carriedKarma,
                 available, carriedNuyen, available - carriedNuyen, starting, checked(carriedNuyen + starting),
                 policy.SourceAnchorIds.Concat(source.SourceAnchorIds).Concat(lifestyles.Budget.SourceAnchorIds)
                     .Append(CharacterCreationKarmaFinalizationBudgetRules.ResourceRoundingAnchor)
