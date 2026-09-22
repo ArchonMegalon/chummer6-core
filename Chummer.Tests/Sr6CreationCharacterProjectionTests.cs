@@ -49,7 +49,7 @@ public sealed partial class Sr6CreationFoundationTests
         Assert.AreEqual(request.PreviewDigest, root.Element("sr6creationprojection")!.Element("foundationpreviewdigest")!.Value);
         Assert.AreEqual(fixture.Binding, projection.Binding);
         CollectionAssert.Contains(projection.IncompleteDomains.ToArray(), "finalization-transaction");
-        CollectionAssert.Contains(projection.IncompleteDomains.ToArray(), "equipment-runtime-stats");
+        CollectionAssert.DoesNotContain(projection.IncompleteDomains.ToArray(), "equipment-runtime-stats");
         var body = root.Element("attributes")!.Elements("attribute").Single(row => row.Element("name")!.Value == "BOD");
         Assert.AreEqual("2", body.Element("base")!.Value);
         Assert.AreEqual("1", body.Element("karma")!.Value);
@@ -94,8 +94,9 @@ public sealed partial class Sr6CreationFoundationTests
         Assert.AreEqual("2", coat.Element("qty")!.Value);
         Assert.AreEqual("1800", coat.Element("sr6totalcost")!.Value);
         Assert.AreEqual("false", coat.Element("equipped")!.Value);
-        Assert.AreEqual("false", coat.Element("sr6runtimestatsavailable")!.Value);
-        Assert.IsNull(coat.Element("armor"), "Do not invent runtime stats from price-only catalog entries.");
+        Assert.AreEqual("true", coat.Element("sr6runtimestatsavailable")!.Value);
+        Assert.AreEqual("3", coat.Element("sr6equipmentprofile")!.Element("armor")!.Element("defenseratingbonus")!.Value);
+        Assert.IsNull(coat.Element("armor"), "Do not emit SR5 armor/soak values for SR6 Defense Rating.");
         Assert.AreEqual("2000", root.Element("lifestyles")!.Element("lifestyle")!.Element("cost")!.Value);
         var balances = fixture.Service.Load(fixture.Stamp, fixture.Id).Value!.DraftSummary!.Balances!;
         Assert.AreEqual(balances.RemainingKarma, (int)root.Element("karma")!);

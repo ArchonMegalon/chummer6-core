@@ -12,6 +12,7 @@ public sealed record Sr6CreationDraftSummary(
 
     public Sr6CreationNaturalValues? NaturalValues { get; init; }
     public Sr6CreationPassiveValues? PassiveValues { get; init; }
+    public IReadOnlyList<Sr6CreationEquipmentProfile> Equipment { get; init; } = [];
 }
 
 public sealed record Sr6CreationDraftStep(string Id, string Status, bool CanOpen,

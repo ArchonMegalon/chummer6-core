@@ -63,7 +63,8 @@ internal static class Sr6CreationDraftSummaryRules
         var natural = Sr6CreationNaturalValuesRules.Project(state);
         return new(state.Binding, steps.AsReadOnly(), balances,
             (saved?.SourceAnchorIds ?? []).Concat(["sr6_core_de_2024:p69-70"]).Distinct(StringComparer.Ordinal).ToArray())
-            { NaturalValues = natural, PassiveValues = Sr6CreationPassiveValuesRules.Project(state, natural) };
+            { NaturalValues = natural, PassiveValues = Sr6CreationPassiveValuesRules.Project(state, natural),
+                Equipment = Sr6CreationEquipmentProfiles.Project(state) };
 
         void Add(string id, bool reviewed, bool canOpen, Sr6CreationDraftRemainder[]? remainders = null, string? unselectedStatus = null)
         {

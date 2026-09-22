@@ -3,7 +3,37 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: atomic SR6 completion — 22 September 2026
+## Current increment: source-backed equipment profiles — 22 September 2026
+
+The read-only draft summary and character projection now retain Core-owned
+equipment statistics for the existing nine armor, six commlink, six cyberdeck
+and ten RCC rows (the last two RCCs remain unavailable at creation). Values and
+conditional/included traits were checked against the owned German 2024 Core
+pp265–269; its SHA-256 and page anchors travel with each profile. No PDF or
+source prose is committed. This platform-neutral contract also serves future
+Windows consumers; it is not a Windows UI or build qualification.
+
+Armor Defense Rating is not SR5 soak. Capacity and bonuses are per item, never
+multiplied by quantity. Nothing is worn, activated, wirelessly enabled or added
+to the unarmored baseline automatically. Commlink D/F and cyberdeck A/S pairs
+remain distinct; absent attributes are not synthesized as zero. RCC sharing,
+slave limits and noise reduction are preserved separately from program slots.
+Included components/conditional traits do not grant extra independently owned
+items or active effects. No optional full-body helmet is invented.
+
+Historical purchase options, previews and decisions keep their original shape
+and bytes. Profiles are computed from a freshly revalidated saved ledger and
+included in the final reviewed document/digest. A supported mundane basket can
+now complete atomically. Any unimplemented item (including weapons/medical
+gear/credsticks in this increment) still blocks completion explicitly.
+
+`core-sr6-equipment-profiles-1.log`: **296 focused SR6 foundation tests PASS**,
+including table values, zero-versus-absent attributes, quantity and unequipped
+behavior, unchanged purchase receipts, all three methods completing with gear,
+cold receipt reopen and rejection of unavailable/unimplemented gear. No new
+package seal or distribution is implied.
+
+## Historical increment: atomic SR6 completion — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy now have an edition-owned finalization review
 and explicit atomic commit. The review revalidates every saved decision and

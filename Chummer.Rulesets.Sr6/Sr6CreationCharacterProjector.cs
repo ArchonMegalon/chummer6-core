@@ -119,6 +119,7 @@ public static class Sr6CreationCharacterProjector
         var armor = new XElement("armors");
         foreach (var row in selection.Gear?.Items ?? [])
         {
+            var profile = summary.Equipment.Single(item => item.ItemId == row.Choice.Id);
             string kind = row.Option.CategoryId switch { "melee" or "projectile" or "firearm" or "launcher" => "weapon", "armor" => "armor", _ => "gear" };
             var item = new XElement(kind, new XElement("guid", row.Choice.Id.ToString("D")),
                 new XElement("name", row.Option.SourceName), new XElement("sr6id", row.Choice.CatalogId),
@@ -126,12 +127,13 @@ public static class Sr6CreationCharacterProjector
                 new XElement("qty", row.Choice.Quantity), new XElement("cost", row.Option.UnitPrice),
                 new XElement("sr6totalcost", row.TotalPrice), new XElement("avail", row.Option.Availability),
                 new XElement("sr6legality", row.Option.Legality), new XElement("equipped", false),
-                new XElement("sr6runtimestatsavailable", false),
+                new XElement("sr6runtimestatsavailable", profile.StatisticsAvailable),
+                Sr6CreationEquipmentProfiles.ToXml(profile),
                 row.Option.Rating is { } rating ? new XElement("rating", rating) : null);
             (kind == "weapon" ? weapons : kind == "armor" ? armor : gear).Add(item);
         }
         Replace(gear); Replace(weapons); Replace(armor);
-        if (selection.Gear is { Items.Count: > 0 }) incomplete.Add("equipment-runtime-stats");
+        if (summary.Equipment.Any(row => !row.StatisticsAvailable)) incomplete.Add("equipment-runtime-stats");
         if (selection.Lifestyle is { } lifestyle)
             Replace(new XElement("lifestyles", new XElement("lifestyle", Identity("lifestyle", "primary"),
                 new XElement("name", lifestyle.Option.Id), new XElement("baselifestyle", lifestyle.Option.Id),
@@ -184,7 +186,8 @@ public static class Sr6CreationCharacterProjector
         }
         string[] unresolved = incomplete.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         projection.Add(new XElement("incomplete", unresolved.Select(id => new XElement("domain", id))));
-        string[] anchors = summary.SourceAnchorIds.Concat(summary.PassiveValues?.SourceAnchorIds ?? []).Distinct(StringComparer.Ordinal).ToArray();
+        string[] anchors = summary.SourceAnchorIds.Concat(summary.PassiveValues?.SourceAnchorIds ?? [])
+            .Concat(summary.Equipment.SelectMany(row => row.SourceAnchorIds)).Distinct(StringComparer.Ordinal).ToArray();
         projection.Add(new XElement("sources", anchors.Select(anchor => new XElement("anchor", anchor))));
         string xml = root.ToString(SaveOptions.DisableFormatting);
         return new(CharacterCreationFoundationOutcomes.Success,
