@@ -32,6 +32,128 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
+    [DataRow("skills")]
+    [DataRow("life-quality-policy")]
+    public void Creation_completion_projection_reuse_detaches_collections_and_avoids_full_reprojection(string kind)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>")!;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        object first = ReadCompletionProjection(context, kind);
+        long coldBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        if (PoisonCompletionProjection(first))
+            Assert.AreNotEqual(expected, System.Text.Json.JsonSerializer.Serialize(first));
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        object second = ReadCompletionProjection(context, kind);
+        long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+            "Reuse must still revalidate live source bytes, not just metadata.");
+        Assert.IsTrue(warmBytes < coldBytes / 2,
+            $"Repeated {kind} projection allocated {warmBytes:N0} bytes versus {coldBytes:N0} on first read.");
+        PoisonCompletionProjection(second);
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)),
+            "Neither the initial result nor a cache hit may expose the private projection.");
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("skills.xml")]
+    [DataRow("weapons.xml")]
+    [DataRow("qualities.xml")]
+    public void Creation_completion_projection_reuse_rejects_source_drift_and_ABA(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "weapons.xml", "qualities.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
+            var context = resolver.TryCreateContext(xml)!;
+            string skills = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "skills"));
+            string policy = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-quality-policy"));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            File.AppendAllText(path, "\n");
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            var fresh = resolver.TryCreateContext(xml)!;
+            Assert.AreEqual(skills, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "skills")));
+            Assert.AreEqual(policy, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-quality-policy")));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static object ReadCompletionProjection(ICharacterSourceDataContext context, string kind)
+    {
+        if (kind == "skills")
+        {
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+            Assert.IsNotNull(catalog);
+            return catalog;
+        }
+        Assert.IsTrue(context.TryResolveCreationLifeModuleQualitiesPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        return policy;
+    }
+
+    [TestMethod]
+    [DataRow("skills", false)]
+    [DataRow("skills", true)]
+    [DataRow("life-quality-policy", false)]
+    [DataRow("life-quality-policy", true)]
+    public async Task Creation_completion_projection_parallel_readers_do_not_share_mutable_results(string kind, bool warm)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>")!;
+        if (warm) ReadCompletionProjection(context, kind);
+        var calls = Enumerable.Range(0, 3).Select(_ => Task.Run(() => ReadCompletionProjection(context, kind))).ToArray();
+        object[] results = await Task.WhenAll(calls);
+        string expected = System.Text.Json.JsonSerializer.Serialize(results[0]);
+        Assert.IsTrue(results.All(result => System.Text.Json.JsonSerializer.Serialize(result) == expected));
+        PoisonCompletionProjection(results[0]);
+        foreach (object result in results.Skip(1))
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(result));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)));
+    }
+
+    private static bool PoisonCompletionProjection(object projection)
+    {
+        bool changed = false;
+        void Poison(IReadOnlyList<string> values)
+        {
+            if (values is System.Collections.IList { IsReadOnly: false } list && list.Count > 0)
+            {
+                list[0] = "caller-poison";
+                changed = true;
+            }
+        }
+        if (projection is CharacterCreationSkillsCatalog catalog)
+        {
+            Poison(catalog.SourceAnchorIds);
+            Poison(catalog.ActiveSkills[0].SourceAnchorIds);
+            Poison(catalog.SkillGroups[0].MemberSkillSourceIds);
+            Poison(catalog.ActiveSkillSourceOrder);
+        }
+        else
+            Poison(((CharacterCreationKarmaQualitiesPolicy)projection).SourceAnchorIds);
+        return changed;
+    }
+
+    [TestMethod]
     public void Canonical_active_skill_source_resolves_exact_saved_source_guid()
     {
         string coreRoot = FindCoreRoot();

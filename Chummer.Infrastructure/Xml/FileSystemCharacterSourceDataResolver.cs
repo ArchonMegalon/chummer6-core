@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -1819,6 +1820,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     {
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
+        private readonly object _completionProjectionSync = new();
+        private JsonElement? _creationSkillsCatalogSnapshot;
+        private JsonElement? _lifeModuleQualitiesPolicySnapshot;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
@@ -3594,8 +3598,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || skillsDigest != _effectiveSkillsInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
                 || !TryHasSelectedCustomDataInputFor(_customDirectories, "skills.xml", out bool customSkills)
-                || customSkills
-                || !TryEnumerateTargets("skills.xml", ["skills"], "skill", out var activeRows)
+                || customSkills)
+                return false;
+            // Enter has revalidated bytes, file identities and directory membership.
+            // Reuse only this context's successful projection, never an admitted
+            // purchase or a caller-owned DTO. JSON freezes every nested collection.
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _creationSkillsCatalogSnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationSkillsCatalog>();
+                if (_sourceInputs.HasSourceDrift) return false;
+                catalog = detached;
+                return catalog is not null;
+            }
+            if (!TryEnumerateTargets("skills.xml", ["skills"], "skill", out var activeRows)
                 || !TryEnumerateTargets("skills.xml", ["knowledgeskills"], "skill", out var knowledgeRows))
                 return false;
             // Reuse the strict source projection, not Priority caps, budgets or
@@ -3614,6 +3631,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             result = result with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(result) };
             if (blockers.Count != 0 || _sourceInputs.HasSourceDrift
                 || !CharacterCreationSkillsCatalogAuthority.IsValid(result)) return false;
+            var frozen = JsonSerializer.SerializeToElement(result);
+            // No IO, source-snapshot lock, or callback under the projection lock.
+            // Concurrent cold calls may build equivalent private snapshots.
+            lock (_completionProjectionSync) { _creationSkillsCatalogSnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
             catalog = result;
             return true;
         }
@@ -3879,14 +3901,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_buildMethod != CharacterCreationBuildMethods.LifeModules
-                || !TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
+            if (_buildMethod != CharacterCreationBuildMethods.LifeModules || _sourceInputs.HasSourceDrift) return false;
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _lifeModuleQualitiesPolicySnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationKarmaQualitiesPolicy>();
+                if (_sourceInputs.HasSourceDrift) return false;
+                policy = detached;
+                return policy is not null;
+            }
+            if (!TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
             var result = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.LifeModulesSchemaV1,
                 source.SettingsProfileId, source.ProfileDigest, source.SourceDigest, source.QualityKarmaLimit,
                 source.MayExceedPositiveQualityLimit, source.MayExceedNegativeQualityLimit, source.MetagenicLimit,
                 source.CostPolicy ?? CharacterCreationQualityCostPolicy.Default, source.SourceAnchorIds, string.Empty);
-            policy = result with { AuthorityDigest = CharacterCreationKarmaQualitiesRules.PolicyDigest(result) };
+            result = result with { AuthorityDigest = CharacterCreationKarmaQualitiesRules.PolicyDigest(result) };
+            var frozen = JsonSerializer.SerializeToElement(result);
+            lock (_completionProjectionSync) { _lifeModuleQualitiesPolicySnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            policy = result;
             return true;
         }
 
