@@ -81,6 +81,7 @@ public sealed record Sr6CreationFoundationState(
     public Sr6CreationContactOptions? ContactOptions { get; init; }
     public IReadOnlyList<Sr6CreationGearOption>? GearOptions { get; init; }
     public IReadOnlyList<Sr6CreationLifestyleOption>? LifestyleOptions { get; init; }
+    public Sr6CreationDraftSummary? DraftSummary { get; init; }
 }
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>

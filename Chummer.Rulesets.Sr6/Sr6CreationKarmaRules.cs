@@ -9,6 +9,8 @@ public static class Sr6CreationKarmaRules
 {
     public const string SourceAnchor = "sr6_core_de_2024:p69,71-72,158";
     public const string SpecializationSourceAnchor = "sr6_core_de_2024:p66,72,94,97";
+    public const int BaseCustomizationKarma = 50;
+    public const int MaximumCarryOver = 5;
 
     public static Sr6CreationKarmaSpecializationOptions? SpecializationOptions(Sr6CreationFoundationPreview foundation)
     {
@@ -37,8 +39,8 @@ public static class Sr6CreationKarmaRules
                 int rating = foundation.Skills.Values.SingleOrDefault(value => value.SkillId == row.SkillId)?.Rating ?? 0;
                 return new Sr6CreationKarmaOption(row.SkillId, rating, row.Maximum - rating, row.Available, row.UnavailableReason);
             }).ToArray();
-        int budget = foundation.Qualities?.CustomizationKarma ?? 50;
-        return new(budget, budget, 2000, 5, attributes, skills);
+        int budget = foundation.Qualities?.CustomizationKarma ?? BaseCustomizationKarma;
+        return new(budget, budget, 2000, MaximumCarryOver, attributes, skills);
     }
 
     public static CharacterCreationFoundationResult<Sr6CreationKarmaPreview> Evaluate(

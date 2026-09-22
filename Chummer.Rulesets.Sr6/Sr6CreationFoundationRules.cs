@@ -64,7 +64,7 @@ public static class Sr6CreationFoundationRules
             saved.Document.AuxiliaryStateDigest, bootstrap.BindingDigest, AuthorityDigest(bootstrap));
         var selected = state.Sr6CreationFoundationDecisions?.LastOrDefault()?.Preview;
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
-        return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod,
+        var loaded = new Sr6CreationFoundationState(binding, bootstrap.BuildMethod,
             pointBuy ? Metatypes().Select(row => row with { AllowedRanks = [] }).ToArray() : Metatypes(),
             pointBuy ? Talents().Select(row => row with { AllowedRanks = [] }).ToArray() : Talents(), selected)
         {
@@ -84,7 +84,8 @@ public static class Sr6CreationFoundationRules
             ContactOptions = selected is null ? null : Sr6CreationContactRules.Options(selected),
             GearOptions = selected is null ? null : Sr6CreationGearRules.Catalog(selected.Selection.MetatypeId),
             LifestyleOptions = selected is null ? null : Sr6CreationLifestyleRules.Catalog()
-        });
+        };
+        return Success(loaded with { DraftSummary = Sr6CreationDraftSummaryRules.Project(loaded) });
     }
 
     public static CharacterCreationFoundationResult<Sr6CreationFoundationPreview> Preview(

@@ -3,7 +3,29 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: basic lifestyle and cash projection — 22 September 2026
+## Current increment: saved draft overview — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy expose a read-only, current-binding summary
+of the revalidated saved ledger. It distinguishes missing choices, prerequisite
+dependencies, saved selections and remaining pools. Optional absent qualities
+are explicitly "none selected": historical empty-quality decisions normalize
+to null, so no review is inferred and no new mandatory choice is invented.
+
+Talent-specific steps are projected by Core. A saved Conjuring-only aspect has
+no spell step. Unused free spell/form entitlements differ from optional Point
+Buy purchase ceilings. Fractional power points retain their exact precision.
+Balances combine resource/Karma cash, equipment and prepaid lifestyle exactly
+once and show projected cash/Karma carry-over and excess without discarding it.
+
+The summary belongs to the current saved revision, not the historical preview
+binding. It does not write workspace bytes, change old decision digests or
+authorize finalization: the SR6 effect/materialization graph and Career entry
+remain unfinished. Life Path and optional Karma still need distinct editors.
+`core-sr6-draft-summary-4.log`: **269 focused Core Creation/codec tests PASS**.
+Earlier failed checks are retained, not counted as passes. No package seal or
+release authority is implied by the source change.
+
+## Historical increment: basic lifestyle and cash projection — 22 September 2026
 
 The owned German 2024 core p59 supplies six basic monthly costs: Street 0,
 Squatter 500, Low 2,000, Middle 5,000, High 10,000 and Luxury 100,000 Nuyen.
