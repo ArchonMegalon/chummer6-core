@@ -203,6 +203,7 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<CharacterCreationFoundationService>());
         services.AddSingleton<IOwnerBoundCharacterCreationLifeModuleFinalizationService,
             OwnerBoundCharacterCreationLifeModuleFinalizationService>();
+        services.AddSingleton<IOwnerBoundLifeModuleBookService, OwnerBoundLifeModuleBookService>();
         services.AddSingleton<ICharacterCreationPrerequisiteService,
             CharacterCreationPrerequisiteService>();
         services.AddSingleton<IOwnerBoundCharacterCreationPrerequisiteService,
