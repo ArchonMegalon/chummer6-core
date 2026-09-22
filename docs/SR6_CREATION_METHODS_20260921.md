@@ -3,7 +3,33 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: combined natural values — 22 September 2026
+## Current increment: passive and derived values — 22 September 2026
+
+The revalidated saved summary now also projects permanent adept attribute and
+skill effects, keeping natural values intact. Noncombat-only Improved Ability
+remains separate from the rating usable in attacks. Activated boosts, spells,
+gear and situational Edge are not assumed active. Purchased armor is not worn.
+
+Core derives physical/stun monitors, overflow capacity, physical initiative
+base/dice, unarmored Defense Rating, defense dice pool and unarmed Attack Rating.
+Each result includes its equation and page anchor. Innate ork/troll Built Tough
+and purchased upgrades use the total once; trolls receive dermal protection.
+Glass Jaw and Will to Live affect the correct monitors. Improved Reflexes and
+permanent Improved Reaction cannot be silently stacked: dependent values are
+null with an explicit conflict until resolved. Combat Paralysis warns about the
+rolled total and first-round restrictions; it does not halve the initiative base.
+
+The owned German 2024 core pp40–41/66/74/76/80/108/124/159–160 was inspected for
+these formulas. No source prose or PDF is committed. This is a read-only saved
+draft projection, not finalized-character persistence or a full runtime effects
+engine. Historical previews, decisions and pending XML stay byte-compatible.
+
+`core-sr6-passive-values-1.log`: **285 focused Core Creation/codec tests PASS**,
+zero failed/skipped. Added coverage spans three methods, five metatypes,
+upgrades, permanent versus activated powers, mixed-use skills, conflicting
+effects, removal, cold reopen, replay and unchanged durable bytes.
+
+## Historical increment: combined natural values — 22 September 2026
 
 The saved overview now projects natural attribute/skill ratings from the
 revalidated pool and Karma decisions. Attribute bases, normal/adjustment spend,

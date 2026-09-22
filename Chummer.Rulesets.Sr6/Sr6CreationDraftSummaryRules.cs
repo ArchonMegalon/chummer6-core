@@ -60,9 +60,10 @@ internal static class Sr6CreationDraftSummaryRules
                 Math.Max(0m, remaining - Sr6CreationGearRules.MaximumCarryOver), remainingKarma,
                 Math.Min(remainingKarma, karmaCap), Math.Max(0, remainingKarma - karmaCap));
         }
+        var natural = Sr6CreationNaturalValuesRules.Project(state);
         return new(state.Binding, steps.AsReadOnly(), balances,
             (saved?.SourceAnchorIds ?? []).Concat(["sr6_core_de_2024:p69-70"]).Distinct(StringComparer.Ordinal).ToArray())
-            { NaturalValues = Sr6CreationNaturalValuesRules.Project(state) };
+            { NaturalValues = natural, PassiveValues = Sr6CreationPassiveValuesRules.Project(state, natural) };
 
         void Add(string id, bool reviewed, bool canOpen, Sr6CreationDraftRemainder[]? remainders = null, string? unselectedStatus = null)
         {

@@ -11,6 +11,7 @@ public sealed record Sr6CreationDraftSummary(
     public bool FinalizationAvailable { get; }
 
     public Sr6CreationNaturalValues? NaturalValues { get; init; }
+    public Sr6CreationPassiveValues? PassiveValues { get; init; }
 }
 
 public sealed record Sr6CreationDraftStep(string Id, string Status, bool CanOpen,
