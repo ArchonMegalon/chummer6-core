@@ -133,10 +133,10 @@ public sealed partial class Sr6CreationFoundationTests
     {
         using var fixture = new Fixture();
         var selection = KarmaSeed("Priority") with { Gear = new([new(Guid.NewGuid(), "lined-coat", 1),
-            new(Guid.NewGuid(), "combat-knife", 1)]) };
+            new(Guid.NewGuid(), "first-aid-kit", 1)]) };
         Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(selection)).Value);
         var summary = fixture.Service.Load(fixture.Stamp, fixture.Id).Value!.DraftSummary!;
-        Assert.IsFalse(summary.Equipment.Single(row => row.CatalogId == "combat-knife").StatisticsAvailable);
+        Assert.IsFalse(summary.Equipment.Single(row => row.CatalogId == "first-aid-kit").StatisticsAvailable);
         var review = fixture.Service.ReviewFinalization(fixture.Stamp, fixture.Binding).Value!;
         CollectionAssert.Contains(review.Blockers.ToArray(), "equipment-runtime-stats");
         foreach (string id in new[] { "ares-red-dog", "aztechnology-tlaloc" })

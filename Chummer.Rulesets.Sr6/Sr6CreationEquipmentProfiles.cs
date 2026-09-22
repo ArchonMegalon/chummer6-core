@@ -5,7 +5,7 @@ namespace Chummer.Rulesets.Sr6;
 
 /// <summary>
 /// Projects the verified purchase ledger without changing its historical bytes.
-/// Values are from the German 2024 Core tables/text pp.265-269, not SR5 data.
+/// Values are from the German 2024 Core tables/text pp.245-269, not SR5 data.
 /// Unlisted items deliberately remain unresolved. Nothing is equipped or activated.
 /// </summary>
 internal static class Sr6CreationEquipmentProfiles
@@ -68,11 +68,15 @@ internal static class Sr6CreationEquipmentProfiles
         // Do not derive device stats from a rating in an unsupported catalog row.
         if (matrix is not null && matrix.DeviceRating != item.Option.Rating)
             throw new InvalidOperationException("SR6 device profile/catalog rating mismatch.");
+        var weapon = Sr6CreationWeaponProfiles.Create(item.Choice.CatalogId);
+        if (weapon is not null) traits.AddRange(weapon.Traits);
         var anchors = new[] { item.Option.SourceAnchorId }.Concat(traits.Select(row => row.SourceAnchorId))
             .Concat(item.Option.CategoryId == "rcc" ? ["sr6_core_de_2024:p268-269"] : [])
+            .Concat(weapon is null ? [] : weapon.Attacks.Select(row => row.SourceAnchorId)
+                .Concat(["sr6_core_de_2024:p97,107,245,247-259"]))
             .Distinct(StringComparer.Ordinal).ToArray();
         return new(item.Choice.Id, item.Choice.CatalogId, item.Option.SourceName, item.Choice.Quantity,
-            armor, matrix, traits.AsReadOnly(), anchors, Sr6CreationFoundationRules.CoreSourceSha256);
+            armor, matrix, traits.AsReadOnly(), anchors, Sr6CreationFoundationRules.CoreSourceSha256) { Weapon = weapon };
     }
 
     private static Sr6CreationMatrixDeviceProfile Commlink(int rating, int data, int firewall, int programs)
@@ -99,6 +103,32 @@ internal static class Sr6CreationEquipmentProfiles
                 ("noisereduction", device.NoiseReduction), ("sharedprogramslots", device.SharedProgramSlots) })
                 if (value is { } known) matrix.Add(new XElement(name, known));
             root.Add(matrix);
+        }
+        if (profile.Weapon is { } weapon)
+        {
+            var value = new XElement("weapon", new XAttribute("scope", "catalog-statistics"),
+                new XElement("ammunitionincluded", false),
+                weapon.MinimumCarryStrength is { } strength ? new XElement("minimumcarrystrength", strength) : null,
+                new XElement("includedaccessories", weapon.IncludedAccessoryIds.Select(id => new XElement("accessory", new XAttribute("id", id)))));
+            foreach (var attack in weapon.Attacks)
+            {
+                var ratings = attack.AttackRatings;
+                value.Add(new XElement("attack", new XAttribute("id", attack.Id), new XAttribute("source", attack.SourceAnchorId),
+                    new XElement("skill", attack.SkillId),
+                    attack.RequiredWeaponSpecialization is { } specialty ? new XElement("requiredweaponspecialization", specialty) : null,
+                    new XElement("damage", new XAttribute("kind", attack.DamageKind), new XAttribute("electrical", attack.Electrical),
+                        attack.DamageValue is { } damage ? new XAttribute("base", damage) : null,
+                        attack.PayloadKind is { } payload ? new XAttribute("payload", payload) : null),
+                    new XElement("attackratings", attack.AttackRatingAttribute is { } attribute ? new XAttribute("addattribute", attribute) : null,
+                        new[] { ("close", ratings.Close), ("near", ratings.Near), ("medium", ratings.Medium), ("far", ratings.Far), ("extreme", ratings.Extreme) }
+                            .Select(pair => new XElement("range", new XAttribute("id", pair.Item1), new XAttribute("available", pair.Item2.HasValue),
+                                pair.Item2 is { } rating ? new XAttribute("base", rating) : null))),
+                    new XElement("firemodes", attack.FireModes.Select(mode => new XElement("mode", mode))),
+                    new XElement("magazineoptions", attack.Magazines.Select(magazine => new XElement("magazine",
+                        new XAttribute("capacity", magazine.Capacity), new XAttribute("feed", magazine.FeedType)))),
+                    attack.MaximumRangeMeters is { } range ? new XElement("maximumrangemeters", range) : null));
+            }
+            root.Add(value);
         }
         root.Add(new XElement("traits", profile.Traits.Select(row => new XElement("trait", new XAttribute("id", row.Id),
             row.Value is { } amount ? new XAttribute("value", amount) : null, new XAttribute("source", row.SourceAnchorId)))));

@@ -161,7 +161,7 @@ public sealed partial class Sr6CreationFoundationTests
     {
         using var fixture = new Fixture();
         var seed = SpellSeed("Priority") with { Skills = new([]), Karma = new([], [], 0),
-            Knowledge = new("German", [], []), Contacts = new([]), Gear = new([new(Guid.NewGuid(), "combat-knife", 1)]),
+            Knowledge = new("German", [], []), Contacts = new([]), Gear = new([new(Guid.NewGuid(), "first-aid-kit", 1)]),
             Lifestyle = new("street", 1), Spells = new(["spell-heal"]) };
         Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(seed)).Value);
         var review = fixture.Service.ReviewFinalization(fixture.Stamp, fixture.Binding).Value!;

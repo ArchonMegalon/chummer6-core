@@ -3,7 +3,37 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: source-backed equipment profiles — 22 September 2026
+## Current increment: source-backed weapon profiles — 22 September 2026
+
+All 82 existing weapon purchase rows now project their printed SR6 statistics
+from the owned German 2024 Core pp245,247–259, with skill/specialization anchors
+at pp97/107. This adds no new purchase rows or historical ledger fields.
+The same Core profiles feed Android and future Windows consumers.
+
+Melee Strength and whip Reaction modifiers remain separate from printed Attack
+Rating and damage. Throwing a knife is a distinct Athletics attack with its
+20 m limit. Unavailable range bands remain null, not zero. Electric Stun damage,
+toxin payloads and ammunition-defined explosive damage stay distinct. Underbarrel
+grenade launchers/shotguns are attacks within the purchased weapon, not extra
+paid or independently owned items. Clip/drum/belt alternatives remain options.
+
+Included accessories and conditional traits are retained without activating
+wireless or double-counting printed ratings. Capacity grants no ammunition;
+no weapon is equipped or fired. This is catalog materialization and Creation
+completion, **not SR6 Career/combat-action qualification**. Medical gear,
+credsticks, formula/tradition gaps and distinct Life Path/optional Karma flows
+remain open. Buying an item still unsupported by the projector blocks completion.
+
+Local Core verification: `core-sr6-weapon-profiles-2.log` **302 PASS**;
+after the final source-anchor/underbarrel-specialization correction,
+`core-sr6-weapon-profiles-3.log` **39 focused profile tests PASS**. Coverage
+includes every existing weapon row, unchanged purchase replay, missing-range
+serialization, ammunition separation, alternate attacks, all three supported
+methods completing with weapons and exact receipt recovery after cold reopen.
+The first build exposed a missing namespace import in the new test file; it is
+retained as a failed run, not counted as green. No package seal/main/Play claim.
+
+## Historical increment: armor/device equipment profiles — 22 September 2026
 
 The read-only draft summary and character projection now retain Core-owned
 equipment statistics for the existing nine armor, six commlink, six cyberdeck
