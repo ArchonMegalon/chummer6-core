@@ -10,12 +10,63 @@ using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
+using Chummer.Infrastructure.Owners;
+using Chummer.Infrastructure.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
 
 public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 {
+    [TestMethod]
+    public void Life_module_finalization_service_is_registered_in_headless_runtime()
+    {
+        var services = new ServiceCollection();
+        services.AddChummerHeadlessCore(FindCoreRoot(), FindCoreRoot());
+        using var provider = services.BuildServiceProvider();
+        Assert.IsInstanceOfType<OwnerBoundCharacterCreationLifeModuleFinalizationService>(
+            provider.GetRequiredService<IOwnerBoundCharacterCreationLifeModuleFinalizationService>());
+    }
+
+    [TestMethod]
+    public void Life_module_finalization_owner_admission_preserves_exact_context_and_rejects_replaced_display()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            var f = LifeCharacterProjectionFixture(directory, "mundane");
+            var store = new FileWorkspaceStore(directory);
+            var owner = new LocalOwnerContextAccessor();
+            using var foreign = new RequestOwnerContextAccessor(new("another-runner-owner"));
+            var returned = new LocalOwnerContextAccessor();
+            var resolver = new FileSystemCharacterSourceDataResolver(CreateOverlays());
+            var files = new XmlCharacterFileQueries(new CharacterFileService());
+            var service = new OwnerBoundCharacterCreationLifeModuleFinalizationService(store, owner, files, resolver, CreateCatalog());
+            var other = new OwnerBoundCharacterCreationLifeModuleFinalizationService(store, foreign, files, resolver, CreateCatalog());
+            var fresh = new OwnerBoundCharacterCreationLifeModuleFinalizationService(store, returned, files, resolver, CreateCatalog());
+            var stamp = owner.Capture();
+            var command = LifeFinalizationCommand(f);
+            var loaded = service.Load(stamp, f.Request.Binding.WorkspaceId);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome, string.Join(", ", loaded.Blockers));
+            Assert.AreEqual(JsonSerializer.Serialize(f.Request.Binding), JsonSerializer.Serialize(loaded.Value!.Binding));
+            Assert.AreEqual(f.Preview.PreviewDigest, service.Preview(stamp, f.Request).Value!.PreviewDigest);
+            Assert.IsNull(other.Load(foreign.Capture(), f.Request.Binding.WorkspaceId).Value);
+            Assert.IsNull(other.Preview(stamp, f.Request).Value);
+            Assert.IsNull(other.Confirm(foreign.Capture(), command).Value);
+            Assert.IsNull(fresh.Confirm(stamp, command).Value, "A matching owner value does not revive a previous lifetime.");
+            CollectionAssert.AreEqual(f.Before, File.ReadAllBytes(WorkspacePath(directory, f.Request.Binding.WorkspaceId)));
+            var committed = service.Confirm(stamp, command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, committed.Outcome, string.Join(", ", committed.Blockers));
+            byte[] after = File.ReadAllBytes(WorkspacePath(directory, f.Request.Binding.WorkspaceId));
+            Assert.IsNull(service.Confirm(returned.Capture(), command).Value);
+            Assert.IsNull(fresh.Confirm(stamp, command).Value);
+            Assert.AreEqual(committed.Value, fresh.Confirm(returned.Capture(), command).Value);
+            CollectionAssert.AreEqual(after, File.ReadAllBytes(WorkspacePath(directory, f.Request.Binding.WorkspaceId)));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [TestMethod]
     [DataRow("mundane")]
     [DataRow(MagicianTalentId)]
