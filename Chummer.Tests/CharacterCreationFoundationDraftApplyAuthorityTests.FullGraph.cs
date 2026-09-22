@@ -115,17 +115,18 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     }
 
     private static (FileWorkspaceStore Store, CharacterWorkspaceId Id, byte[] Before) SeedFullGraph(string directory,
-        bool existingGroupQuality = false)
+        bool existingGroupQuality = false, string? existingQualityXml = null)
     {
         var id = new CharacterWorkspaceId("full-effect-graph");
         FileWorkspaceStore store;
-        if (existingGroupQuality)
+        if (existingGroupQuality || existingQualityXml is not null)
         {
             store = new(directory);
-            string xml = CharacterXml("Elf").Replace("</character>", "<qualities><quality>"
+            string qualityXml = existingQualityXml ?? "<quality>"
                 + "<sourceid>9ac85feb-ae1e-4996-8514-3570d411e1d5</sourceid><name>SINner (National)</name>"
                 + "<guid>00000000-0000-0000-0000-000000000001</guid><extra>Existing nation</extra>"
-                + "<qualitysource>Selected</qualitysource></quality></qualities></character>", StringComparison.Ordinal);
+                + "<qualitysource>Selected</qualitysource></quality>";
+            string xml = CharacterXml("Elf").Replace("</character>", "<qualities>" + qualityXml + "</qualities></character>", StringComparison.Ordinal);
             Assert.IsTrue(store.CreateWorkspaceDocument(id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
             var initial = CreateService(store);
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,

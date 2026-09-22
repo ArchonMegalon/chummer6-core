@@ -338,11 +338,16 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         var writePlan = CharacterCreationFoundationLifeModuleQualityWritePlanner.BuildSequence(
             workspace.Document.RulesetId, workspace.Document.Content, draft, sequence, capturedModules,
             _lifeModulesCatalog.ReadSourceBytes(capturedCatalogDigest), capturedCatalogDigest, skills, qualities, qualityLevels);
+        CharacterCreationLifeModuleMetatypeWritePlanResult? metatypePlan = null;
+        if (writePlan.Plan is { } effects && sourceContext is not null
+            && state.MetatypeOptions.SingleOrDefault(option => option.Label == draft.RequestedMetatype) is { } selectedMetatype)
+            metatypePlan = CharacterCreationLifeModuleMetatypeWritePlanner.Build(workspace, draft, effects, selectedMetatype, sourceContext);
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)
             .Concat(sequence.Blockers)
             .Concat(writePlan.Blockers)
+            .Concat(metatypePlan?.Blockers ?? [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
@@ -362,7 +367,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             PreviewDigest: string.Empty)
         {
             ModuleSequence = sequence,
-            EffectWriteSummary = writePlan.Plan?.Summary
+            EffectWriteSummary = writePlan.Plan?.Summary,
+            MetatypeWriteSummary = metatypePlan?.Plan?.Summary
         };
         preview = preview with
         {
@@ -1064,7 +1070,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         return true;
     }
 
-    private static CharacterCreationLegalOption MapMetatypeOption(
+    internal static CharacterCreationLegalOption MapMetatypeOption(
         CharacterCreationMetatypeOptionProjection option)
     {
         var consequences = new List<CharacterCreationChoiceConsequence>();

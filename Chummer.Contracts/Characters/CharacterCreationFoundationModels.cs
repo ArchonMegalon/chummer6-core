@@ -416,6 +416,9 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleEffectWriteSummary? EffectWriteSummary { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleMetatypeWriteSummary? MetatypeWriteSummary { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(

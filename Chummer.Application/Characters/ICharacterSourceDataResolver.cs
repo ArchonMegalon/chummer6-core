@@ -132,6 +132,15 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Complete racial grants for the selected Life Modules metatype.
+    /// Does not choose a talent, apply a module, or authorize finalization.</summary>
+    bool TryResolveCreationLifeModuleMetatypeSources(string metatypeOptionId,
+        out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+    {
+        metatypeQualities = [];
+        return false;
+    }
+
     /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
     bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
     {

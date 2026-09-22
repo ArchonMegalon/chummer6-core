@@ -4,6 +4,10 @@ using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
+/// <summary>Automatic racial contribution, not a talent choice or permission to finalize.</summary>
+public sealed record CharacterCreationLifeModuleMetatypeWriteSummary(string MetatypeId, string MetatypeName,
+    int MetatypeKarmaCost, int GrantedQualityCount, int ImprovementCount, int GrantedGearCount, string PlanDigest);
+
 /// <summary>
 /// The entire source-revalidated selection, including repeated Real Life modules.
 /// This is a compilation preview, not a write plan or a finalization receipt.

@@ -2500,6 +2500,37 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationLifeModuleMetatypeSources(string metatypeOptionId,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            metatypeQualities = [];
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || !TryResolveCreationMetatypeCatalog(out var metatypes) || !metatypes.IsAuthoritative
+                || metatypes.Options.SingleOrDefault(option => option.OptionId == metatypeOptionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } metatype
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities))
+                return false;
+            var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty)).ToArray();
+            bool needsGear = qualities.Any(row => references.Any(reference => row.Element("name")?.Value == reference.Reference)
+                && row.Element("bonus")?.Elements("addgear").Any() == true);
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear))) return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                references, qualities, gear, qualityDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != references.Length
+                || sources.Where((source, index) => !string.Equals(
+                    XElement.Parse(source.CanonicalSourceXml).Element("category")?.Value,
+                    metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase)).Any()) return false;
+            metatypeQualities = sources;
+            return true;
+        }
+
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {
