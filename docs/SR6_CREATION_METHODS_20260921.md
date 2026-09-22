@@ -34,6 +34,15 @@ specialty acquisition, combined creation limits, case-insensitive duplicates,
 shared budget, malformed/bounded inputs, detached canonical arrays, null-field
 compatibility, save/cold reopen/idempotency and forged-bonus rejection.
 
+The actual Android mystic-adept smoke exposed an old eight-anchor ledger
+shape limit: the new specialty needs nine anchors, or ten with knowledge.
+The same request was reproduced as a failing Core regression before the fix.
+The bounded limit now accommodates the ten supported domain anchors; exact
+SR6 re-evaluation, preview/digest and historical-chain checks are unchanged.
+`core-sr6-specializations-anchor-fix-green.log`: **187 Core tests PASS**,
+including existing-draft specialty save/cold reopen and oversized rehashed
+anchor rejection. Failed emulator save left the old workspace unchanged.
+
 ## Historical increment: customization Karma — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy now share a separate customization-Karma

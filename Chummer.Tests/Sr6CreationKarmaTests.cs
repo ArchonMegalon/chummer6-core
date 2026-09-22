@@ -9,6 +9,55 @@ namespace Chummer.Tests;
 public sealed partial class Sr6CreationFoundationTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_specialty_on_existing_mystic_adept_preserves_all_domain_anchors(bool withKnowledge)
+    {
+        using var fixture = new Fixture("PointBuy");
+        var seed = PointBuy(talent: "mystic-adept") with
+        {
+            PointBuy = new(0, 0, 2, 0),
+            Attributes = new(EmptyAttributes().Allocations.Select(row => row.AttributeId == "Magic"
+                ? row with { AdjustmentPoints = 2 } : row).ToArray()),
+            Skills = new([new("Astral", 1, [])]),
+            TalentAllocation = new(2),
+            Spells = new(["ritual-ward", "spell-heal"]),
+            AdeptPowers = new([new("astral-perception", 1), new("mystic-armor", 2)]),
+            Knowledge = withKnowledge ? new("English", [new(Guid.NewGuid(), "Seattle")], []) : null
+        };
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(seed)).Value);
+        seed = seed with { Karma = new([new("Body", 1), new("Magic", 1)], [new("Astral", 1)], 5) };
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(seed)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        seed = seed with { Karma = seed.Karma! with { Specializations = [new("Astral", "AstralCombat")] } };
+        var request = fixture.Request(seed);
+        var quote = fixture.Preview(seed);
+        Assert.HasCount(withKnowledge ? 10 : 9, quote.SourceAnchorIds);
+        Assert.AreEqual(50, quote.Karma!.KarmaSpent);
+        var committed = fixture.Service.Confirm(fixture.Stamp, request);
+        Assert.IsNotNull(committed.Value, string.Join(",", committed.Blockers));
+        var store = new FileWorkspaceStore(fixture.Directory);
+        var cold = new Sr6CreationFoundationService(store, fixture.Owner);
+        var reopened = cold.Load(fixture.Stamp, fixture.Id).Value!;
+        Assert.AreEqual(quote.PreviewDigest, reopened.Selection!.PreviewDigest);
+        Assert.AreEqual(4L, reopened.Binding.ContentRevision);
+        Assert.AreEqual(4L, reopened.Binding.SavedRevision);
+        Assert.HasCount(3, store.Get(fixture.Id).Value!.Document.AuxiliaryState.Sr6CreationFoundationDecisions!);
+        Assert.AreEqual(before.Document.Content, store.Get(fixture.Id).Value!.Document.Content);
+        Assert.IsTrue(cold.Confirm(fixture.Stamp, request).Value!.Replayed);
+        var saved = store.Get(fixture.Id).Value!;
+        var last = saved.Document.AuxiliaryState.Sr6CreationFoundationDecisions!.Last();
+        var oversized = last.Preview with { SourceAnchorIds = Enumerable.Range(0,
+            Sr6CreationFoundationIntegrity.MaximumSourceAnchors + 1).Select(i => "forged:" + i).ToArray() };
+        oversized = oversized with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(oversized) };
+        var forged = last with { Preview = oversized, Command = last.Command with { PreviewDigest = oversized.PreviewDigest } };
+        forged = forged with { DecisionDigest = Sr6CreationFoundationIntegrity.DecisionDigest(forged) };
+        Assert.IsFalse(Sr6CreationFoundationIntegrity.IsValidLedger(fixture.Id, saved.ContentRevision,
+            saved.Document.AuxiliaryState with { Sr6CreationFoundationDecisions =
+                [.. saved.Document.AuxiliaryState.Sr6CreationFoundationDecisions.Take(2), forged] }));
+    }
+
+    [TestMethod]
     [DataRow("Priority")]
     [DataRow("SumtoTen")]
     [DataRow("PointBuy")]

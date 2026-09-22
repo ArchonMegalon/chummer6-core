@@ -9,6 +9,10 @@ namespace Chummer.Application.Characters;
 public static class Sr6CreationFoundationIntegrity
 {
     public const int MaximumDecisions = 128;
+    // Full mystic-adept draft: foundation + attributes + skills + Karma +
+    // specialty + talent + formulas + powers + power FAQ + knowledge.
+    // This is a shape bound; SR6 still re-evaluates every exact source and digest.
+    public const int MaximumSourceAnchors = 10;
     public static string Digest<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
     public static string PreviewDigest(Sr6CreationFoundationPreview preview) => Digest(preview with { PreviewDigest = string.Empty });
     public static string DecisionDigest(Sr6CreationFoundationDecision decision) => Digest(decision with { DecisionDigest = string.Empty });
@@ -235,7 +239,7 @@ public static class Sr6CreationFoundationIntegrity
                     ? command.Selection.PointBuy is null || preview.PointBuy is null || preview.Budget.MagicResonanceRank is not null
                     : command.Selection.PointBuy is not null || preview.PointBuy is not null || preview.Budget.MagicResonanceRank is not ("A" or "B" or "C" or "D" or "E"))
                 || preview.BaseMagic is < 0 or > 6 || preview.BaseResonance is < 0 or > 6
-                || preview.SourceAnchorIds is not { Count: > 0 and <= 8 }
+                || preview.SourceAnchorIds is not { Count: > 0 and <= MaximumSourceAnchors }
                 || preview.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
                 || !Hash(preview.PreviewDigest) || preview.PreviewDigest != command.PreviewDigest
                 || preview.PreviewDigest != PreviewDigest(preview)
