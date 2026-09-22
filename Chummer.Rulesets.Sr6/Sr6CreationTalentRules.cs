@@ -14,10 +14,12 @@ public static class Sr6CreationTalentRules
         if (foundation.Attributes is null) return null;
         string talent = foundation.Selection.TalentId;
         int magic = Rating(foundation, "Magic");
+        int poolMagic = foundation.Attributes.Values.Single(row => row.AttributeId == "Magic").Value;
+        int karmaPowerPoints = foundation.Karma?.AdditionalPowerPoints ?? 0;
         bool pointBuy = foundation.PointBuy is not null;
         bool adept = talent == "adept", mystic = talent == "mystic-adept";
-        return new(pointBuy && (adept || mystic) ? magic : mystic ? foundation.BaseMagic : 0,
-            !pointBuy && adept ? magic : 0, pointBuy,
+        return new(pointBuy && (adept || mystic) ? poolMagic : mystic ? foundation.BaseMagic : 0,
+            !pointBuy && adept ? magic : karmaPowerPoints, pointBuy,
             pointBuy ? adept ? 4 : mystic ? 8 : 0 : 0, pointBuy ? 2 : 0,
             talent == "aspected-magician");
     }
@@ -35,8 +37,12 @@ public static class Sr6CreationTalentRules
         if (options.RequiresAspect && aspect is not ("Sorcery" or "Conjuring" or "Enchanting"))
             return Fail(Sr6CreationTalentBlockers.AspectRequired);
         int magic = Rating(foundation, "Magic"), resonance = Rating(foundation, "Resonance");
-        int spellBasis = options.UsesCharacterPoints ? magic : foundation.BaseMagic;
-        int formBasis = options.UsesCharacterPoints ? resonance : foundation.BaseResonance;
+        // CP purchases precede customization. Karma raises final ratings, but does
+        // not retroactively increase free grants or the pre-Karma CP purchase caps.
+        int spellBasis = options.UsesCharacterPoints
+            ? foundation.Attributes!.Values.Single(row => row.AttributeId == "Magic").Value : foundation.BaseMagic;
+        int formBasis = options.UsesCharacterPoints
+            ? foundation.Attributes!.Values.Single(row => row.AttributeId == "Resonance").Value : foundation.BaseResonance;
         string talent = foundation.Selection.TalentId;
         if (talent == "mystic-adept") spellBasis -= selection.SelectedPowerPoints;
         int spells = talent is "magician" or "mystic-adept" || (options.RequiresAspect && aspect == "Sorcery")
@@ -62,7 +68,7 @@ public static class Sr6CreationTalentRules
     }
 
     private static int Rating(Sr6CreationFoundationPreview foundation, string id)
-        => foundation.Attributes!.Values.Single(row => row.AttributeId == id).Value;
+        => Sr6CreationKarmaRules.AttributeRating(foundation, id);
 
     private static CharacterCreationFoundationResult<Sr6CreationTalentPreview> Fail(string blocker)
         => new(CharacterCreationFoundationOutcomes.Blocked, null, [blocker]);

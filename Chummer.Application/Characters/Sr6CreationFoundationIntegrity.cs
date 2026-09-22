@@ -42,10 +42,33 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Spells is not null && !TryFreezeSpells(selection.Spells, out spells)) return false;
         Sr6CreationAdeptPowerSelection? powers = null;
         if (selection.AdeptPowers is not null && !TryFreezeAdeptPowers(selection.AdeptPowers, out powers)) return false;
+        Sr6CreationKarmaSelection? karma = null;
+        if (selection.Karma is not null && !TryFreezeKarma(selection.Karma, out karma)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma };
         return true;
+    }
+
+    public static bool TryFreezeKarma(Sr6CreationKarmaSelection? selection, out Sr6CreationKarmaSelection? frozen)
+    {
+        frozen = null;
+        if (selection is not { KarmaForNuyen: >= 0 and <= 1000 }
+            || selection.Attributes is not { Count: <= 11 } || selection.Skills is not { Count: <= 19 }) return false;
+        var attributes = selection.Attributes.ToArray();
+        var skills = selection.Skills.ToArray();
+        if (!Valid(attributes, Sr6CreationAttributeIds.Ordered, false)
+            || !Valid(skills, Sr6CreationSkillIds.Ordered, true)) return false;
+        frozen = new(attributes.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(),
+            skills.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(), selection.KarmaForNuyen);
+        return true;
+
+        static bool Valid(Sr6CreationKarmaIncrease[] rows, IReadOnlyList<string> ids, bool skills)
+            => rows.Length <= ids.Count && rows.All(row => row is not null
+                && ids.Contains(row.Id, StringComparer.Ordinal) && row.Increase is >= 1 and <= 12
+                && (row.FirstExoticSpecialization is null || skills && row.Id == "ExoticWeapons"
+                    && KnowledgeName(row.FirstExoticSpecialization)))
+                && rows.Select(row => row.Id).Distinct(StringComparer.Ordinal).Count() == rows.Length;
     }
 
     public static bool TryFreezeAdeptPowers(Sr6CreationAdeptPowerSelection? selection, out Sr6CreationAdeptPowerSelection? frozen)

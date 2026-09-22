@@ -70,13 +70,14 @@ public static class Sr6CreationFoundationRules
         {
             AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected),
             SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId),
-            KnowledgePointBudget = selected?.Attributes?.Values.Single(row => row.AttributeId == "Logic").Value,
+            KnowledgePointBudget = selected?.Attributes is null ? null : Sr6CreationKarmaRules.AttributeRating(selected, "Logic"),
             PointBuyLimits = pointBuy ? Sr6CreationPointBuyRules.Limits() : null,
             TalentOptions = selected is null ? null : Sr6CreationTalentRules.Options(selected),
             ComplexFormOptions = selected is { Selection.TalentId: "technomancer", TalentAllocation: not null }
                 ? Sr6CreationComplexFormRules.Catalog() : null,
             SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected),
-            AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected)
+            AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected),
+            KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected)
         });
     }
 
@@ -106,6 +107,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.AdeptPowers is { } requestedPowers
             && !Sr6CreationFoundationIntegrity.TryFreezeAdeptPowers(requestedPowers, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationAdeptPowerBlockers.InvalidSelection);
+        if (selection?.Karma is { } requestedKarma
+            && !Sr6CreationFoundationIntegrity.TryFreezeKarma(requestedKarma, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKarmaBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -157,6 +161,13 @@ public static class Sr6CreationFoundationRules
             if (skills.Value is null) return new(skills.Outcome, null, skills.Blockers);
             preview = preview with { Skills = skills.Value,
                 SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationSkillRules.SourceAnchor] };
+        }
+        if (selection.Karma is { } karmaSelection)
+        {
+            var karma = Sr6CreationKarmaRules.Evaluate(preview, karmaSelection);
+            if (karma.Value is null) return new(karma.Outcome, null, karma.Blockers);
+            preview = preview with { Karma = karma.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Concat(karma.Value.SourceAnchorIds).Distinct(StringComparer.Ordinal).ToArray() };
         }
         if (selection.TalentAllocation is { } talentSelection)
         {

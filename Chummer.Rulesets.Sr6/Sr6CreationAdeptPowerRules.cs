@@ -40,7 +40,7 @@ public static class Sr6CreationAdeptPowerRules
         {
             // The German profile excludes Magic-linked skills; Tasking is unavailable to adepts.
             if (id is "Sorcery" or "Conjuring" or "Enchanting" or "Tasking") continue;
-            int natural = foundation.Skills?.Values.SingleOrDefault(row => row.SkillId == id)?.Rating ?? 0;
+            int natural = Sr6CreationKarmaRules.SkillRating(foundation, id);
             int maximum = Math.Min(magic, Math.Min(4, (natural + 1) / 2));
             if (id == "Astral" && !HasAstralPerception(foundation.Selection)) maximum = 0;
             bool combat = id is "CloseCombat" or "ExoticWeapons" or "Firearms";
@@ -53,7 +53,7 @@ public static class Sr6CreationAdeptPowerRules
         Add("improved-perception", "Verbesserte Wahrnehmung", 160, 2, 1);
         foreach (string id in new[] { "Body", "Agility", "Reaction", "Strength" })
         {
-            int natural = foundation.Attributes.Values.Single(row => row.AttributeId == id).Value;
+            int natural = Sr6CreationKarmaRules.AttributeRating(foundation, id);
             Add("improved-attribute-" + id.ToLowerInvariant(), "Verbessertes Körperliches Attribut", 160,
                 4, Math.Min(magic, Math.Min(4, (natural + 1) / 2)), "attribute", id);
         }

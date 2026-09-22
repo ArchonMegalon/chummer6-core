@@ -40,6 +40,9 @@ public sealed record Sr6CreationFoundationSelection(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationAdeptPowerSelection? AdeptPowers { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationKarmaSelection? Karma { get; init; }
 }
 
 public sealed record Sr6CreationFoundationOption(string Id, IReadOnlyList<string> AllowedRanks);
@@ -59,6 +62,7 @@ public sealed record Sr6CreationFoundationState(
     public IReadOnlyList<Sr6CreationComplexFormOption>? ComplexFormOptions { get; init; }
     public IReadOnlyList<Sr6CreationSpellOption>? SpellOptions { get; init; }
     public IReadOnlyList<Sr6CreationAdeptPowerOption>? AdeptPowerOptions { get; init; }
+    public Sr6CreationKarmaOptions? KarmaOptions { get; init; }
 }
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>
@@ -94,6 +98,9 @@ public sealed record Sr6CreationFoundationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationAdeptPowerPreview? AdeptPowers { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationKarmaPreview? Karma { get; init; }
 }
 
 public sealed record Sr6CreationFoundationConfirmRequest(

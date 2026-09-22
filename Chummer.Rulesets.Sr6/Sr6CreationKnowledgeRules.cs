@@ -15,7 +15,7 @@ public static class Sr6CreationKnowledgeRules
             return Fail(Sr6CreationKnowledgeBlockers.InvalidSelection);
         if (foundation.Attributes is not { } attributes)
             return Fail(Sr6CreationKnowledgeBlockers.AttributesRequired);
-        int logic = attributes.Values.Single(row => row.AttributeId == "Logic").Value;
+        int logic = Sr6CreationKarmaRules.AttributeRating(foundation, "Logic");
         var languages = frozen!.Languages.Select(row =>
         {
             int cost = row.Level switch

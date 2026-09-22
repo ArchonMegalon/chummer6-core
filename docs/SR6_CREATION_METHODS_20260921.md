@@ -3,7 +3,41 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: adept-power selections — 22 September 2026
+## Current increment: customization Karma — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy now share a separate customization-Karma
+step after saved attribute/skill pools. The owned German 2024 core pp69/71–72/
+158 and Companion pp30–31 were inspected directly. Core calculates each
+attribute/active-skill increase separately at five times the new rating,
+including acquisition from skill rank zero. The first exotic-weapon subject
+is explicit GM-reviewed text, not a hidden default. Creation caps, talent and
+aspect access remain enforced after all increases, including unchanged ranks.
+
+The base 50 Karma is not CP and does not enlarge the priority-point pools.
+Cash conversion adds 2,000 Nuyen per Karma. Drafts retain all unspent Karma;
+the five-Karma carry-over limit and excess are exposed, not silently discarded.
+Qualities and their modified budgets/conversion rates remain unsupported.
+Knowledge/language purchases, additional specialties/expertise and Karma
+formula purchases are not included in this increment.
+
+Base allocation previews remain intact. Separately evaluated Karma ratings
+drive Logic's free knowledge budget, talent ratings and natural-rating power
+ceilings. Adept/mystic Magic increases grant free power points without charging
+their CP price again. CP purchases precede customization (Companion p31), so
+Karma does not retroactively increase original free formula grants or the CP
+purchase caps. Reduced inputs are fully recalculated; incompatible dependent
+choices block the new draft instead of being dropped.
+
+The nullable selection/preview extension preserves prior canonical decisions.
+Local keyless Docker / .NET10.0.103: **179 Core tests PASS** in
+`core-sr6-karma-1.log`, filter `FullyQualifiedName~Sr6Creation`. New coverage
+includes cumulative costs, all three methods, separate CP/pool accounting,
+creation caps and access restrictions, additional power points, dependent
+knowledge/power limits, malformed/overspent selections, detached canonical
+arrays, cold reopen/replay and rehashed forged-cost rejection. No package seal,
+main merge, active character effects or completed SR6 method is implied.
+
+## Historical increment: adept-power selections — 22 September 2026
 
 Core now offers all 22 core-book power families as 51 explicit purchase options,
 including physical-attribute, sense and improved-skill variants. The owned German
