@@ -7,6 +7,7 @@ namespace Chummer.Rulesets.Sr6;
 public static class Sr6CreationSkillRules
 {
     public const string SourceAnchor = "sr6_core_de_2024:p66-67,94-99";
+    public const int SpecializationDicePoolBonus = 2;
 
     public static IReadOnlyList<Sr6CreationSkillOption> Options(Sr6CreationFoundationPreview foundation, string? aspect = null)
         => Sr6CreationSkillIds.Ordered.Select(id =>

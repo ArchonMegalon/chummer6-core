@@ -3,7 +3,28 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: saved draft overview — 22 September 2026
+## Current increment: combined natural values — 22 September 2026
+
+The saved overview now projects natural attribute/skill ratings from the
+revalidated pool and Karma decisions. Attribute bases, normal/adjustment spend,
+Karma increases and final natural ratings remain separate. Specialties are
+conditional dice bonuses, never rating increases; exotic weapon permissions
+have no specialty bonus, including the first subject purchased with Karma.
+
+Knowledge combines pool and Karma topics by their saved identities. Language
+upgrades replace the same-ID pool language rather than adding a duplicate;
+new languages remain distinct and the native language is unchanged. Missing
+domains stay null rather than inventing allocations. Replacing/removing Karma
+purchases is reflected immediately on the next validated load.
+
+These are unaugmented saved values, not equipment/power effects, final dice
+pools or character finalization. The summary's current binding covers the
+projection; no pending XML, ledger, historic preview or decision bytes change.
+`core-sr6-natural-values-2.log`: **274 focused Core Creation/codec tests PASS**.
+The first compile rejected the new Attribute type name; it was renamed rather
+than suppressing the contract analyzer. No package seal or release claim.
+
+## Historical increment: saved draft overview — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy expose a read-only, current-binding summary
 of the revalidated saved ledger. It distinguishes missing choices, prerequisite

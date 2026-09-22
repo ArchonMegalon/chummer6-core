@@ -22,7 +22,7 @@ public static class Sr6CreationKarmaRules
             bool exotic = row.SkillId == "ExoticWeapons";
             string? reason = row.UnavailableReason ?? (!exotic && existing.Length > 0 ? Sr6CreationKarmaBlockers.SpecializationLimit : null);
             return new Sr6CreationKarmaSpecializationOption(row.SkillId, saved?.Rating ?? 0,
-                existing, exotic ? 0 : 2, reason is null, reason);
+                existing, exotic ? 0 : Sr6CreationSkillRules.SpecializationDicePoolBonus, reason is null, reason);
         }).ToArray();
         return new(5, 1, false, skills, [SpecializationSourceAnchor]);
     }

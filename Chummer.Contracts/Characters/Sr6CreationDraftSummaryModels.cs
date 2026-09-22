@@ -9,6 +9,8 @@ public sealed record Sr6CreationDraftSummary(
 {
     // The draft ledger does not yet materialize a complete SR6 character/effect graph.
     public bool FinalizationAvailable { get; }
+
+    public Sr6CreationNaturalValues? NaturalValues { get; init; }
 }
 
 public sealed record Sr6CreationDraftStep(string Id, string Status, bool CanOpen,
