@@ -13,6 +13,12 @@ public interface ISr6CreationFoundationService
     /// <summary>Materializes the exact saved choices without saving or finalizing the runner.</summary>
     CharacterCreationFoundationResult<Sr6CreationCharacterProjection> ProjectCharacter(OwnerContextStamp owner,
         Sr6CreationFoundationBinding binding);
+    CharacterCreationFoundationResult<Sr6CreationFinalizationReview> ReviewFinalization(OwnerContextStamp owner,
+        Sr6CreationFoundationBinding binding);
+    CharacterCreationFoundationResult<Sr6CreationFinalizationCommit> ConfirmFinalization(OwnerContextStamp owner,
+        Sr6CreationFinalizationRequest request);
+    CharacterCreationFoundationResult<Sr6CreationFinalizationReceipt> LoadFinalization(OwnerContextStamp owner,
+        CharacterWorkspaceId workspaceId);
     CharacterCreationFoundationResult<Sr6CreationFoundationCommit> Confirm(OwnerContextStamp owner,
         Sr6CreationFoundationConfirmRequest request);
 }
@@ -22,4 +28,10 @@ public interface ISr6CreationFoundationAtomicCommitCapability
 {
     CharacterCreationFoundationResult<Sr6CreationFoundationCommit> CommitSr6Foundation(
         OwnerScope owner, Sr6CreationFoundationConfirmRequest request);
+}
+
+public interface ISr6CreationFinalizationAtomicCommitCapability
+{
+    CharacterCreationFoundationResult<Sr6CreationFinalizationCommit> CommitSr6Finalization(
+        OwnerScope owner, Sr6CreationFinalizationRequest request);
 }

@@ -3,7 +3,36 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: character-content projection — 22 September 2026
+## Current increment: atomic SR6 completion — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy now have an edition-owned finalization review
+and explicit atomic commit. The review revalidates every saved decision and
+materializes the exact character; missing mandatory selections, unsupported
+equipment/formula statistics, magical tradition and conflicting effects block
+completion. This is not blanket SR6 creation or Career support.
+
+Unused allocation points and cash/Karma above carry-over limits require a
+separate explicit loss acknowledgement. Core applies the existing SR6 carry-over
+calculation, marks the supported character created and sets the no-implant
+Essence baseline to six (owned German core p40; final steps pp69–70). It retains
+the original XML, decision ledger, exact review and completion receipt in an
+immutable archive. One owner/workspace lease and one atomic file replacement
+advance both content and saved revision. Recovery reads the receipt and never
+repeats an uncertain write. Imported history cannot replay an old operation.
+
+Generic writes cannot inject/remove the archive or reset a finalized runner to
+Creation. Later permitted metadata changes retain the archive. The archive's
+current closed shape intentionally does not admit unrelated SR5 receipt lanes;
+future SR6 Career transactions need their own explicit contract extension.
+
+`core-sr6-finalization-3.log`: **310 focused tests PASS** (Creation/codec/related
+auxiliary-state coverage). `core-sr6-finalization-store-regression-1.log`:
+**152 store/checkpoint/finalizer regression tests PASS**, zero failures/skips.
+New cases cover three methods, loss consent, cold reopen, exact receipt replay,
+pre/post-replace faults, competing commits, owner changes and archive forgery.
+No package seal or Play delivery is implied.
+
+## Historical increment: character-content projection — 22 September 2026
 
 The SR6 service now materializes the fully revalidated saved choices into a
 deterministic character document through an owner- and revision-bound read-only

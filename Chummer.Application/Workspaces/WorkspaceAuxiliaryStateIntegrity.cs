@@ -17,6 +17,7 @@ public static class WorkspaceAuxiliaryStateIntegrity
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state)
     {
+        if (!Sr6CreationFinalizationIntegrity.IsValidArchive(workspaceId, currentContentRevision, state)) return false;
         // Karma finalization was introduced with an exact reconstruction archive;
         // unlike older Priority receipts it has no archive-less legacy form.
         if (state.CharacterCreationFinalizationArchive is null
