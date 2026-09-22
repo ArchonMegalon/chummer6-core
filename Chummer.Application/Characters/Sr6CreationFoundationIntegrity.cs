@@ -59,8 +59,19 @@ public static class Sr6CreationFoundationIntegrity
         var skills = selection.Skills.ToArray();
         if (!Valid(attributes, Sr6CreationAttributeIds.Ordered, false)
             || !Valid(skills, Sr6CreationSkillIds.Ordered, true)) return false;
+        if (selection.Specializations is { Count: > 64 }) return false;
+        var specialties = selection.Specializations?.ToArray();
+        if (specialties is not null && (specialties.Length > 64 || specialties.Any(row => row is null
+                || !Sr6CreationSkillIds.Ordered.Contains(row.SkillId, StringComparer.Ordinal) || !KnowledgeName(row.Subject))
+            || specialties.Select(row => (row.SkillId, Subject: row.Subject.ToUpperInvariant())).Distinct().Count() != specialties.Length))
+            return false;
         frozen = new(attributes.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(),
-            skills.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(), selection.KarmaForNuyen);
+            skills.OrderBy(row => row.Id, StringComparer.Ordinal).ToArray(), selection.KarmaForNuyen)
+        {
+            Specializations = specialties is { Length: > 0 }
+                ? specialties.OrderBy(row => row.SkillId, StringComparer.Ordinal).ThenBy(row => row.Subject, StringComparer.Ordinal).ToArray()
+                : null
+        };
         return true;
 
         static bool Valid(Sr6CreationKarmaIncrease[] rows, IReadOnlyList<string> ids, bool skills)

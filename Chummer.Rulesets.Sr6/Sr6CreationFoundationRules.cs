@@ -77,7 +77,8 @@ public static class Sr6CreationFoundationRules
                 ? Sr6CreationComplexFormRules.Catalog() : null,
             SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected),
             AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected),
-            KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected)
+            KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected),
+            KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected)
         });
     }
 

@@ -12,6 +12,107 @@ public sealed partial class Sr6CreationFoundationTests
     [DataRow("Priority")]
     [DataRow("SumtoTen")]
     [DataRow("PointBuy")]
+    public void Karma_specializations_charge_once_preserve_pools_and_reopen(string method)
+    {
+        using var fixture = new Fixture(method);
+        var seed = KarmaSeed(method) with { Karma = new([], [new("ExoticWeapons", 1, "Whip")], 0)
+            { Specializations = [new("Athletics", "Climbing"), new("ExoticWeapons", "Monowhip")] } };
+        var quote = fixture.Preview(seed);
+        Assert.AreEqual(15, quote.Karma!.KarmaSpent);
+        Assert.AreEqual(1, quote.Skills!.PointsSpent);
+        var specialties = quote.Karma.Specializations!;
+        Assert.HasCount(2, specialties);
+        Assert.AreEqual(2, specialties.Single(row => row.SkillId == "Athletics").DicePoolBonus);
+        Assert.AreEqual(0, specialties.Single(row => row.SkillId == "ExoticWeapons").DicePoolBonus);
+        Assert.IsTrue(specialties.All(row => row.KarmaCost == 5 && row.NeedsGmReview));
+        CollectionAssert.Contains(quote.SourceAnchorIds.ToArray(), Sr6CreationKarmaRules.SpecializationSourceAnchor);
+        var request = fixture.Request(seed);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, request).Value);
+        var store = new FileWorkspaceStore(fixture.Directory);
+        var cold = new Sr6CreationFoundationService(store, fixture.Owner);
+        var loaded = cold.Load(fixture.Stamp, fixture.Id).Value!;
+        Assert.AreEqual(quote.PreviewDigest, loaded.Selection!.PreviewDigest);
+        Assert.IsFalse(loaded.KarmaSpecializationOptions!.ExpertiseAvailable);
+        Assert.AreEqual(5, loaded.KarmaSpecializationOptions.KarmaCost);
+        Assert.IsTrue(cold.Confirm(fixture.Stamp, request).Value!.Replayed);
+        Assert.AreEqual(2L, store.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Karma_specialties_enforce_ratings_access_combined_creation_limit_and_budget()
+    {
+        using var fixture = new Fixture();
+        var seed = KarmaSeed("Priority");
+        Sr6CreationFoundationSelection Buy(string skill, string subject) => seed with
+            { Karma = new([], [], 0) { Specializations = [new(skill, subject)] } };
+        foreach (var bad in new[] {
+            Buy("Firearms", "Pistols"), Buy("Sorcery", "Spells"), Buy("Astral", "Combat"),
+            Buy("Athletics", "Climbing") with { Skills = new([new("Athletics", 1, ["Swimming"])]) },
+            Buy("Athletics", "Climbing") with { Karma = new([], [], 46) { Specializations = [new("Athletics", "Climbing")] } },
+            Buy("Athletics", "Climbing") with { Karma = new([], [], 0) { Specializations = [new("Athletics", "Climbing"), new("Athletics", "Swimming")] } },
+            Buy("ExoticWeapons", "WHIP") with { Skills = new([new("ExoticWeapons", 1, ["Whip"])]) },
+            Buy("ExoticWeapons", "WHIP") with { Karma = new([], [new("ExoticWeapons", 1, "Whip")], 0) { Specializations = [new("ExoticWeapons", "WHIP")] } }
+        }) Assert.IsNull(fixture.Service.Preview(fixture.Stamp, fixture.Binding, bad).Value);
+        var raised = Buy("Firearms", "Pistols") with { Karma = new([], [new("Firearms", 1)], 0)
+            { Specializations = [new("Firearms", "Pistols")] } };
+        Assert.AreEqual(10, fixture.Preview(raised).Karma!.KarmaSpent);
+        var exotic = Buy("ExoticWeapons", "Monowhip") with { Skills = new([new("ExoticWeapons", 1, ["Whip"])]),
+            Karma = new([], [], 0) { Specializations = [new("ExoticWeapons", "Monowhip"), new("ExoticWeapons", "Laser")] } };
+        Assert.AreEqual(10, fixture.Preview(exotic).Karma!.KarmaSpent);
+        Assert.AreEqual(1L, fixture.Store.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Karma_specialty_shape_is_bounded_detached_canonical_and_null_compatible()
+    {
+        using var fixture = new Fixture();
+        var seed = KarmaSeed("Priority");
+        foreach (var rows in new Sr6CreationKarmaSpecialization[][] {
+            [null!], [new("Athletics", "")], [new("Athletics", " Climbing")], [new("Athletics", "x\ny")],
+            [new("Athletics", new string('x', 81))], [new("athletics", "Climbing")], [new("Expertise", "Climbing")],
+            [new("Athletics", "Climbing"), new("Athletics", "CLIMBING")],
+            Enumerable.Range(0, 65).Select(i => new Sr6CreationKarmaSpecialization("ExoticWeapons", "Weapon" + i)).ToArray()
+        }) Assert.IsFalse(Sr6CreationFoundationIntegrity.TryFreezeKarma(new([], [], 0) { Specializations = rows }, out _));
+        var old = fixture.Preview(seed with { Karma = new([], [], 0) });
+        var empty = fixture.Preview(seed with { Karma = new([], [], 0) { Specializations = [] } });
+        Assert.AreEqual(old.PreviewDigest, empty.PreviewDigest);
+        Assert.IsNull(empty.Karma!.Specializations);
+        var purchases = new List<Sr6CreationKarmaSpecialization> { new("Athletics", "Climbing"), new("ExoticWeapons", "Laser") };
+        var selection = seed with { Skills = new([new("Athletics", 1, []), new("ExoticWeapons", 1, ["Whip"])]),
+            Karma = new([], [], 0) { Specializations = purchases } };
+        var quote = fixture.Preview(selection);
+        purchases.Reverse();
+        Assert.AreEqual(quote.PreviewDigest, fixture.Preview(selection).PreviewDigest);
+        purchases.Clear();
+        Assert.HasCount(2, quote.Selection.Karma!.Specializations!);
+        Assert.IsNull(fixture.Service.Preview(fixture.Stamp, fixture.Binding,
+            quote.Selection with { Skills = new([]) }).Value);
+    }
+
+    [TestMethod]
+    public void Rehashed_Karma_specialty_bonus_cannot_be_imported_as_authoritative()
+    {
+        using var fixture = new Fixture();
+        var selection = KarmaSeed("Priority") with { Karma = new([], [], 0) { Specializations = [new("Athletics", "Climbing")] } };
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var request = fixture.Request(selection);
+        Assert.IsTrue(Sr6CreationFoundationRules.TryBuild(saved, request, out var candidate, out var decision));
+        var karma = decision.Preview.Karma!;
+        var forgedQuote = decision.Preview with { Karma = karma with
+            { Specializations = [karma.Specializations!.Single() with { DicePoolBonus = 3 }] } };
+        forgedQuote = forgedQuote with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(forgedQuote) };
+        var forged = decision with { Preview = forgedQuote, Command = request with { PreviewDigest = forgedQuote.PreviewDigest } };
+        forged = forged with { DecisionDigest = Sr6CreationFoundationIntegrity.DecisionDigest(forged) };
+        var state = candidate.AuxiliaryState with { Sr6CreationFoundationDecisions = [forged] };
+        Assert.IsTrue(Sr6CreationFoundationIntegrity.IsValidLedger(fixture.Id, 2, state));
+        Assert.IsNull(Sr6CreationFoundationRules.Load(saved with { ContentRevision = 2, SavedRevision = 2,
+            Document = candidate with { State = candidate.State with { AuxiliaryState = state } } }).Value);
+    }
+
+    [TestMethod]
+    [DataRow("Priority")]
+    [DataRow("SumtoTen")]
+    [DataRow("PointBuy")]
     public void Karma_is_cumulative_separate_from_pools_and_reopens_once(string method)
     {
         using var fixture = new Fixture(method);

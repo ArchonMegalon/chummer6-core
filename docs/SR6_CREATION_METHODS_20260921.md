@@ -3,7 +3,38 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: customization Karma — 22 September 2026
+## Current increment: Karma specializations — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy now permit the allowed five-Karma specialty
+purchase in the same atomic customization step. The owned German 2024 core
+pp66/72/94/97 was inspected directly. Final skill rating must be positive;
+the rank and specialty can be bought together. Normal skills may have only
+one specialty across pool and Karma purchases. Exotic Weapons permits multiple
+different weapon types, without the ordinary +2 dice bonus. Its initial type
+is still free when the skill is acquired, never charged again. Names remain
+bounded player text requiring GM review, not an inferred equipment catalog.
+
+Source correction: expertise is prohibited during creation (p66), and the
+advancement table prohibits Karma-bought spells, rituals and complex forms
+during creation (p72). Earlier lists calling those missing creation features
+were inaccurate. They remain potential Career work, not unfinished Creation
+purchases. Karma knowledge/languages, qualities, equipment and finalization
+remain open. Life Path and optional Karma still need full method flows.
+
+Nullable specialty selection/preview fields preserve historical no-specialty
+decision bytes and authority. New purchases bind their own rule options,
+source anchor, exact cost and bonus into the existing preview. Cold load
+rejects even redigested forged expertise-level bonuses. Partial drafts remain
+partial: no runtime bonuses, finalized runner or release claim follows.
+
+Local keyless Docker/.NET10.0.103: **185 Core tests PASS**, zero failed/skipped,
+`core-sr6-specializations-1.log`, filter `FullyQualifiedName~Sr6Creation`.
+Coverage adds all three methods, separate pool accounting, atomic rank-plus-
+specialty acquisition, combined creation limits, case-insensitive duplicates,
+shared budget, malformed/bounded inputs, detached canonical arrays, null-field
+compatibility, save/cold reopen/idempotency and forged-bonus rejection.
+
+## Historical increment: customization Karma — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy now share a separate customization-Karma
 step after saved attribute/skill pools. The owned German 2024 core pp69/71–72/
