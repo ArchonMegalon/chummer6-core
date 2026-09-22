@@ -14,7 +14,8 @@ public sealed partial class CharacterCreationFoundationService
         CharacterCreationFoundationSkillSourceAuthority? skills,
         CharacterCreationFoundationQualitySourceAuthority? qualities,
         CharacterCreationFoundationQualityLevelSourceAuthority? levels,
-        string sourceContextDigest)
+        string sourceContextDigest,
+        IReadOnlyDictionary<string, string>? qualityInstanceValues)
     {
         var occurrences = new List<CharacterCreationLifeModuleOccurrenceCompilation>();
         var blockers = new List<string>();
@@ -58,6 +59,8 @@ public sealed partial class CharacterCreationFoundationService
         blockers.Add(CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         CharacterCreationLifeModuleQualityLevelResolution[] resolutions = ResolveSequenceQualityLevels(
             occurrences, qualities, levels, blockers);
+        resolutions = CharacterCreationFoundationQualityInstanceResolver.Resolve(
+            resolutions, occurrences, qualities, qualityInstanceValues, blockers);
         var result = new CharacterCreationLifeModuleSequenceCompilation(
             "chummer.character_creation_life_module_sequence.v1", draft.WorkspaceId,
             draft.DraftRevision, draft.DraftDigest, draft.SourceDigest, sourceContextDigest,

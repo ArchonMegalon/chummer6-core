@@ -187,7 +187,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 new CharacterCreationFoundationFinalizationPreviewRequest(
                     request.Binding,
                     request.DraftRevision,
-                    request.DraftDigest));
+                    request.DraftDigest)
+                { QualityInstanceValues = request.QualityInstanceValues });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -332,7 +333,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 qualityLevels);
         CharacterCreationLifeModuleSequenceCompilation sequence = CompileModuleSequence(
             workspace.Document.RulesetId, capturedModules, draft, compilation, skills, qualities,
-            qualityLevels, sourceContextDigest);
+            qualityLevels, sourceContextDigest, request.QualityInstanceValues);
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)

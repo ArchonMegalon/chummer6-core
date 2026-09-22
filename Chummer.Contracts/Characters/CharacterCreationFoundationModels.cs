@@ -231,14 +231,22 @@ public sealed record CharacterCreationFoundationConfirmRequest(
 public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
     CharacterCreationFoundationBinding Binding,
     long DraftRevision,
-    string DraftDigest);
+    string DraftDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? QualityInstanceValues { get; init; }
+}
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
     CharacterCreationFoundationBinding Binding,
     long DraftRevision,
     string DraftDigest,
     string PreviewDigest,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? QualityInstanceValues { get; init; }
+}
 
 /// <summary>
 /// One deterministic compiler instruction derived from the persisted draft and

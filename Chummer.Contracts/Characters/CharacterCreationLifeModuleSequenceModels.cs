@@ -1,4 +1,6 @@
 using Chummer.Contracts.Workspaces;
+using Chummer.Contracts.LifeModules;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -49,4 +51,19 @@ public sealed record CharacterCreationLifeModuleQualityLevelResolution(
     CharacterCreationFoundationEffectTargetBinding Target,
     string QualityLevelsSourceDigest,
     IReadOnlyList<CharacterCreationLifeModuleQualityLevelContribution> Contributions,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>Source-owned selecttext required by the winning quality, not a lower tier.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LifeModuleFollowUpPromptDto? InstancePrompt { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InstanceValue { get; init; }
+
+    /// <summary>Present only when the selected value came from an unconsumed source push.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InstancePushOccurrenceId { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFoundationSelectionPushInstruction? InstancePush { get; init; }
+}
