@@ -177,6 +177,12 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>
     /// Profile-owned contact allowance and group rate for Priority, Sum-to-Ten
     /// and Karma. The historical DTO name does not combine their Karma budgets.

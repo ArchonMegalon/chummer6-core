@@ -11,9 +11,13 @@ public static class CharacterCreationKarmaResourcesRules
         => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(policy with { AuthorityDigest = string.Empty });
 
     public static bool IsValidPolicy(CharacterCreationKarmaResourcesPolicy? policy)
-        => policy is { Schema: CharacterCreationKarmaResourcesPolicy.SchemaV1,
-            FundingExpression.Length: > 0 and <= 2048, MaximumKarmaInvestment: >= 0 and <= int.MaxValue,
+        => IsValidSpendingPolicy(policy, CharacterCreationKarmaResourcesPolicy.SchemaV1);
+
+    public static bool IsValidSpendingPolicy(CharacterCreationKarmaResourcesPolicy? policy, string expectedSchema)
+        => expectedSchema is CharacterCreationKarmaResourcesPolicy.SchemaV1 or CharacterCreationKarmaResourcesPolicy.LifeModulesSchemaV1
+            && policy is { FundingExpression.Length: > 0 and <= 2048, MaximumKarmaInvestment: >= 0 and <= int.MaxValue,
             SourceAnchorIds.Count: > 0 }
+            && policy.Schema == expectedSchema
             && !string.IsNullOrWhiteSpace(policy.SettingsProfileId)
             && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(policy.RawProfileInputsDigest)
             && policy.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))
@@ -29,24 +33,8 @@ public static class CharacterCreationKarmaResourcesRules
             || attributes.Policy.SettingsProfileId != policy.SettingsProfileId
             || attributes.QuoteDigest != CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
                 attributes with { QuoteDigest = string.Empty })) return null;
-        string expression = policy.FundingExpression
-            .Replace("{Karma}", investment.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
-            .Replace("{PriorityNuyen}", "0", StringComparison.Ordinal);
-        foreach (var attribute in attributes.Attributes)
-            expression = expression.Replace("{" + attribute.AttributeId + "Unaug}",
-                    attribute.Current.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
-                .Replace("{" + attribute.AttributeId + "}",
-                    attribute.Current.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
-        expression = expression.Replace(" div ", " / ", StringComparison.Ordinal);
-        int depth = 0;
-        foreach (char character in expression)
-        {
-            if (character == '(' && ++depth > 32 || character == ')' && --depth < 0) return null;
-            if (!char.IsWhiteSpace(character) && character is not (>= '0' and <= '9')
-                && character is not ('(' or ')' or '+' or '-' or '*' or '/' or '.')) return null;
-        }
-        if (depth != 0 || !CharacterGearQuantityRules.TryEvaluateCostExpression(expression, 0, out decimal nuyen)
-            || nuyen < 0) return null;
+        if (!TryFundingAmount(policy.FundingExpression, investment,
+            attributes.Attributes.Select(row => new KeyValuePair<string, int>(row.AttributeId, row.Current)), out decimal nuyen)) return null;
         var blockers = new List<string>();
         if (!attributes.CanSelect) blockers.Add(CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
         if (investment > policy.MaximumKarmaInvestment) blockers.Add(InvestmentLimitExceeded);
@@ -55,6 +43,29 @@ public static class CharacterCreationKarmaResourcesRules
             policy, attributes.QuoteDigest, karmaAvailable, investment, nuyen,
             blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty);
         return result with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(result) };
+    }
+
+    // Both methods spend Karma rather than Priority resource grants. This is
+    // arithmetic only; neither method can use it to authorize the other's quote.
+    internal static bool TryFundingAmount(string expression, decimal investment,
+        IEnumerable<KeyValuePair<string, int>> attributes, out decimal nuyen)
+    {
+        nuyen = 0;
+        if (investment is < 0 or > int.MaxValue || expression is not { Length: > 0 and <= 2048 }) return false;
+        expression = expression.Replace("{Karma}", investment.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("{PriorityNuyen}", "0", StringComparison.Ordinal);
+        foreach (var attribute in attributes)
+            expression = expression.Replace("{" + attribute.Key + "Unaug}", attribute.Value.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                .Replace("{" + attribute.Key + "}", attribute.Value.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        expression = expression.Replace(" div ", " / ", StringComparison.Ordinal);
+        int depth = 0;
+        foreach (char character in expression)
+        {
+            if (character == '(' && ++depth > 32 || character == ')' && --depth < 0) return false;
+            if (!char.IsWhiteSpace(character) && character is not (>= '0' and <= '9')
+                && character is not ('(' or ')' or '+' or '-' or '*' or '/' or '.')) return false;
+        }
+        return depth == 0 && CharacterGearQuantityRules.TryEvaluateCostExpression(expression, 0, out nuyen) && nuyen >= 0;
     }
 
     public static bool IsValid(CharacterCreationKarmaResourcesQuote? quote, CharacterCreationKarmaAttributesQuote? attributes,

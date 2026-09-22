@@ -244,6 +244,9 @@ public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationKarmaSkillsSelection? SkillSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? KarmaResourceInvestment { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
@@ -264,6 +267,9 @@ public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationKarmaSkillsSelection? SkillSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? KarmaResourceInvestment { get; init; }
 }
 
 /// <summary>
@@ -452,6 +458,12 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleSkillsQuote? SkillsQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaResourcesPolicy? ResourcesPolicy { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleResourcesQuote? ResourcesQuote { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(

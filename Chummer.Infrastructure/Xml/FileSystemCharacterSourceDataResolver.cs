@@ -2137,15 +2137,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         public bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+            => TryResolveCreationResourceSpendingPolicy(CharacterCreationBuildMethods.Karma,
+                CharacterCreationKarmaResourcesPolicy.SchemaV1, out policy);
+
+        public bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+            => TryResolveCreationResourceSpendingPolicy(CharacterCreationBuildMethods.LifeModules,
+                CharacterCreationKarmaResourcesPolicy.LifeModulesSchemaV1, out policy);
+
+        private bool TryResolveCreationResourceSpendingPolicy(string method, string schema,
+            out CharacterCreationKarmaResourcesPolicy? policy)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || _buildMethod != method
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
+                || method == CharacterCreationBuildMethods.LifeModules && ReadValue(settings, "buildmethod") != method
                 || !TryReadOptionalStrictBoolean(settings, "unrestrictednuyen", false, out bool unrestricted))
                 return false;
             var maximumNodes = settings.Elements("nuyenmaxbp").Take(2).ToArray();
@@ -2171,12 +2181,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 if (!expression.Contains("{PriorityNuyen}", StringComparison.Ordinal))
                     expression = "(" + expression + ") + {PriorityNuyen}"; // CharacterSettings load shim.
             }
-            var result = new CharacterCreationKarmaResourcesPolicy(CharacterCreationKarmaResourcesPolicy.SchemaV1,
+            var result = new CharacterCreationKarmaResourcesPolicy(schema,
                 _settingsProfileId, _rawProfileInputsDigest, expression, maximum,
                 [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationResourcesSourceAnchors.LegacyTotal,
                     CharacterCreationResourcesSourceAnchors.LegacyMaximumInvestment], string.Empty);
             result = result with { AuthorityDigest = CharacterCreationKarmaResourcesRules.ComputePolicyDigest(result) };
-            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidPolicy(result)) return false;
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidSpendingPolicy(result, schema)) return false;
             policy = result;
             return true;
 

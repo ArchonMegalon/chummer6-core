@@ -189,7 +189,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     request.DraftRevision,
                     request.DraftDigest)
                 { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases,
-                    TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection });
+                    TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection,
+                    KarmaResourceInvestment = request.KarmaResourceInvestment });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -214,10 +215,10 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 preview.FinalizationBlocked);
         }
 
-        // Attributelevel has an isolated, deterministic Quality/Improvement
-        // write plan, but Foundation v1 still lacks every required creation
-        // stage and the full resource/final-validity transaction. This is the
-        // final fail-closed guard: no supported subgraph is ever applied early.
+        // Effects, racial/talent grants, attributes, skills and funding have
+        // source-bound plans, but purchases, carryover and the whole-runner
+        // validity/atomic transaction still need composition. Never apply a
+        // supported subgraph early or mark the unfinished runner as created.
         return Blocked<CharacterCreationFoundationFinalizationReceipt>(
             CharacterCreationFoundationOutcomes.Blocked,
             CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
@@ -358,6 +359,13 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             && talentPlan?.Plan is { } skillTalent && attributes?.Quote is { } skillAttributes && sourceContext is not null)
             skillQuote = CharacterCreationLifeModuleSkillsRules.Evaluate(workspace.Document.Content, skillEffects,
                 skillRacial, skillTalent, skillAttributes, request.SkillSelection, sourceContext);
+        CharacterCreationLifeModuleResourcesQuoteResult? resourceQuote = null;
+        if (writePlan.Plan is { } resourceEffects && metatypePlan?.Plan is { } resourceRacial
+            && talentPlan?.Plan is { } resourceTalent && attributes?.Quote is { } resourceAttributes
+            && skillQuote?.Quote is { } resourceSkills && sourceContext is not null && state.LifeModuleBudget.IsExact)
+            resourceQuote = CharacterCreationLifeModuleResourcesRules.Evaluate(workspace.Document.Content, resourceEffects,
+                resourceRacial, resourceTalent, resourceAttributes, resourceSkills, state.LifeModuleBudget.Total,
+                request.KarmaResourceInvestment, sourceContext);
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
@@ -371,6 +379,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .Concat(talentPlan?.Blockers ?? [])
             .Concat(attributes?.Blockers ?? [])
             .Concat(skillQuote?.Blockers ?? [])
+            .Concat(resourceQuote?.Blockers ?? [])
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -397,7 +406,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             TalentCatalog = talentPlan?.Catalog,
             TalentWriteSummary = talentPlan?.Plan?.Summary,
             SkillsCatalog = skillQuote?.Catalog,
-            SkillsQuote = skillQuote?.Quote
+            SkillsQuote = skillQuote?.Quote,
+            ResourcesPolicy = resourceQuote?.Policy,
+            ResourcesQuote = resourceQuote?.Quote
         };
         preview = preview with
         {
