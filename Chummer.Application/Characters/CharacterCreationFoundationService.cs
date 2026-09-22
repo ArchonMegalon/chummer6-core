@@ -241,7 +241,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 request.Binding.SourceFilterApplied
                     ? request.Binding.EnabledSources
                     : null,
-                request.Binding.SourceFilterApplied);
+                request.Binding.SourceFilterApplied,
+                out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules);
         if (stateResult.Value is not CharacterCreationFoundationState state)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
@@ -329,9 +330,13 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 qualities,
                 sourceContextDigest,
                 qualityLevels);
+        CharacterCreationLifeModuleSequenceCompilation sequence = CompileModuleSequence(
+            workspace.Document.RulesetId, capturedModules, draft, compilation, skills, qualities,
+            qualityLevels, sourceContextDigest);
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)
+            .Concat(sequence.Blockers)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
@@ -348,7 +353,10 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             CanApply: canApply,
             CharacterEffectsApplied: false,
             CharacterCreated: false,
-            PreviewDigest: string.Empty);
+            PreviewDigest: string.Empty)
+        {
+            ModuleSequence = sequence
+        };
         preview = preview with
         {
             PreviewDigest = CharacterCreationFoundationDraftLedgerIntegrity
@@ -617,7 +625,15 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         WorkspaceStoredDocument workspace,
         IReadOnlyCollection<string>? requestedSources,
         bool sourceFilterApplied)
+        => BuildState(workspace, requestedSources, sourceFilterApplied, out _);
+
+    private CharacterCreationFoundationResult<CharacterCreationFoundationState> BuildState(
+        WorkspaceStoredDocument workspace,
+        IReadOnlyCollection<string>? requestedSources,
+        bool sourceFilterApplied,
+        out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules)
     {
+        capturedModules = [];
         CharacterDocument characterDocument = new(workspace.Document.Content);
         CharacterValidationResult validation;
         CharacterFileSummary summary;
@@ -736,6 +752,10 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         {
             blockers.Add(CharacterCreationFoundationBlockers.LifeModuleCatalogAuthorityRequired);
         }
+
+        // Retain the same catalog projection used by the binding and budget.
+        // The public foundation state deliberately exposes nationalities only.
+        capturedModules = modules;
 
         string sourceDigest = Digest(new
         {

@@ -32,10 +32,16 @@ internal static class CharacterCreationFoundationEffectCompiler
         CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority = null,
         CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority = null,
         string sourceContextDigest = "",
-        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevelSourceAuthority = null)
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevelSourceAuthority = null,
+        CharacterCreationLifeModuleDraftEntry? occurrence = null)
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
+
+        // Keep the real parent ledger/revision/digest. A later module is not a
+        // forged nationality ledger with substituted effects and an old hash.
+        var projectedEffects = occurrence?.ProjectedEffects ?? ledger.ProjectedEffects;
+        var requirementEvaluations = occurrence?.RequirementEvaluations ?? ledger.RequirementEvaluations;
 
         string compilerRuntimeDigest = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeCanonicalDigest(new
@@ -43,7 +49,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 Schema = CharacterCreationFoundationSchemas.EffectCompilationV1,
                 RulesetId = rulesetId,
                 CompilerSemantics,
-                ContinuationDraftSemantics = "ordered-later-stages-draft-only-v1",
+                ContinuationDraftSemantics = "ordered-occurrence-inputs-parent-ledger-bound-v2",
                 SupportedEffectKinds = new[]
                 {
                     "attributelevel:v1",
@@ -81,8 +87,8 @@ internal static class CharacterCreationFoundationEffectCompiler
 
         var blockers = new List<string>
         {
-            // A complete sequence is still only a draft. This compiler handles
-            // nationality effects, not the cumulative later-module transaction.
+            // This compiles one occurrence, not the cumulative write transaction.
+            // The sequence compiler separately checks all stages and explicit finish.
             LifeModuleJourneyStageOrders.Required
                 .Where(stage => stage != LifeModuleJourneyStageOrders.Nationality)
                 .All(stage => ledger.AdditionalModules?.Any(entry => entry.StageOrder == stage) == true)
@@ -91,12 +97,11 @@ internal static class CharacterCreationFoundationEffectCompiler
         };
 
         bool effectLedgerMatches = CharacterCreationFoundationDraftLedgerIntegrity
-            .CanonicallyEquals(authoritativeEffects, ledger.ProjectedEffects);
+            .CanonicallyEquals(authoritativeEffects, projectedEffects);
         if (!effectLedgerMatches)
             blockers.Add(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
 
-        CharacterCreationFoundationRequirementInstruction[] requirements = ledger
-            .RequirementEvaluations
+        CharacterCreationFoundationRequirementInstruction[] requirements = requirementEvaluations
             .Select((requirement, index) => CompileRequirement(
                 index,
                 requirement,
@@ -115,7 +120,7 @@ internal static class CharacterCreationFoundationEffectCompiler
         }
 
         int versionEffectCount = version?.Effects.Count ?? 0;
-        CharacterCreationFoundationEffectInstruction[] effects = ledger.ProjectedEffects
+        CharacterCreationFoundationEffectInstruction[] effects = projectedEffects
             .Select((effect, index) => CompileEffect(
                 index,
                 effect,
@@ -134,7 +139,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 qualityLevelSourceAuthority))
             .ToArray();
         CompositeSelectionCompilation composite = CompileCompositeSelections(
-            ledger.ProjectedEffects,
+            projectedEffects,
             effects,
             qualitySourceAuthority,
             ledger.SourceDigest);

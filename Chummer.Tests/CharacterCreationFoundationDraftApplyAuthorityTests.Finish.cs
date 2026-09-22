@@ -76,6 +76,12 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.AreEqual(beforeState.Budget.Used, afterState.Budget.Used);
             Assert.HasCount(beforeState.AdditionalModules.Count, afterState.AdditionalModules);
             byte[] saved = File.ReadAllBytes(WorkspacePath(directory, id));
+            var compiled = SequencePreview(CreateService(store), id);
+            Assert.HasCount(4 + realLifeModules, compiled.ModuleSequence!.Occurrences);
+            Assert.IsTrue(compiled.ModuleSequence.SelectionFinished);
+            Assert.IsFalse(compiled.CanApply, "A complete sequence preview is not yet the character transaction.");
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(WorkspacePath(directory, id)),
+                "Compiling the finished module sequence must preserve all accepted chapters and receipts.");
             store = new FileWorkspaceStore(directory);
             interaction = Interaction();
             Assert.AreEqual(JsonSerializer.Serialize(finished), JsonSerializer.Serialize(interaction.Start(id.Value).Value));

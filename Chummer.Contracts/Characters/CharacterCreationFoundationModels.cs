@@ -380,7 +380,13 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
     bool CanApply,
     bool CharacterEffectsApplied,
     bool CharacterCreated,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    // Historical nationality-only previews remain readable. New finalization
+    // previews additionally bind the complete ordered sequence, not just its root.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleSequenceCompilation? ModuleSequence { get; init; }
+}
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(
     CharacterWorkspaceId WorkspaceId,
