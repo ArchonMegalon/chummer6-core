@@ -10,9 +10,9 @@ public static class Sr6CreationFoundationIntegrity
 {
     public const int MaximumDecisions = 128;
     // Full mystic-adept draft: foundation + attributes + skills + Karma +
-    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ + contacts + gear.
+    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ + contacts + gear + lifestyle.
     // This is a shape bound; SR6 still re-evaluates every exact source and digest.
-    public const int MaximumSourceAnchors = 14;
+    public const int MaximumSourceAnchors = 15;
     public static string Digest<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
     public static string PreviewDigest(Sr6CreationFoundationPreview preview) => Digest(preview with { PreviewDigest = string.Empty });
     public static string DecisionDigest(Sr6CreationFoundationDecision decision) => Digest(decision with { DecisionDigest = string.Empty });
@@ -54,9 +54,19 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Contacts is not null && !TryFreezeContacts(selection.Contacts, out contacts)) return false;
         Sr6CreationGearSelection? gear = null;
         if (selection.Gear is not null && !TryFreezeGear(selection.Gear, out gear)) return false;
+        Sr6CreationLifestyleSelection? lifestyle = null;
+        if (selection.Lifestyle is not null && !TryFreezeLifestyle(selection.Lifestyle, out lifestyle)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities, Contacts = contacts, Gear = gear };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities, Contacts = contacts, Gear = gear, Lifestyle = lifestyle };
+        return true;
+    }
+
+    public static bool TryFreezeLifestyle(Sr6CreationLifestyleSelection? selection, out Sr6CreationLifestyleSelection? frozen)
+    {
+        frozen = null;
+        if (selection is null || !KnowledgeName(selection.LifestyleId) || selection.Months < 1) return false;
+        frozen = selection with { };
         return true;
     }
 

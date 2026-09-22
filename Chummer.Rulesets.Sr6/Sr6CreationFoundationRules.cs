@@ -82,7 +82,8 @@ public static class Sr6CreationFoundationRules
             KarmaKnowledgeOptions = selected is null ? null : Sr6CreationKarmaKnowledgeRules.Options(selected),
             QualityOptions = selected is null ? null : Sr6CreationQualityRules.Options(selected),
             ContactOptions = selected is null ? null : Sr6CreationContactRules.Options(selected),
-            GearOptions = selected is null ? null : Sr6CreationGearRules.Catalog(selected.Selection.MetatypeId)
+            GearOptions = selected is null ? null : Sr6CreationGearRules.Catalog(selected.Selection.MetatypeId),
+            LifestyleOptions = selected is null ? null : Sr6CreationLifestyleRules.Catalog()
         });
     }
 
@@ -124,6 +125,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.Gear is { } requestedGear
             && !Sr6CreationFoundationIntegrity.TryFreezeGear(requestedGear, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationGearBlockers.InvalidSelection);
+        if (selection?.Lifestyle is { } requestedLifestyle
+            && !Sr6CreationFoundationIntegrity.TryFreezeLifestyle(requestedLifestyle, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationLifestyleBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -261,6 +265,13 @@ public static class Sr6CreationFoundationRules
             if (gear.Value is null) return new(gear.Outcome, null, gear.Blockers);
             preview = preview with { Gear = gear.Value,
                 SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationGearRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
+        }
+        if (selection.Lifestyle is { } lifestyleSelection)
+        {
+            var lifestyle = Sr6CreationLifestyleRules.Evaluate(preview, lifestyleSelection);
+            if (lifestyle.Value is null) return new(lifestyle.Outcome, null, lifestyle.Blockers);
+            preview = preview with { Lifestyle = lifestyle.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationLifestyleRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
         }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }

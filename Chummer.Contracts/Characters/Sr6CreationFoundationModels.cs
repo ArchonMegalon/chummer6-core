@@ -52,6 +52,9 @@ public sealed record Sr6CreationFoundationSelection(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationGearSelection? Gear { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationLifestyleSelection? Lifestyle { get; init; }
 }
 
 public sealed record Sr6CreationFoundationOption(string Id, IReadOnlyList<string> AllowedRanks);
@@ -77,6 +80,7 @@ public sealed record Sr6CreationFoundationState(
     public IReadOnlyList<Sr6CreationQualityOption>? QualityOptions { get; init; }
     public Sr6CreationContactOptions? ContactOptions { get; init; }
     public IReadOnlyList<Sr6CreationGearOption>? GearOptions { get; init; }
+    public IReadOnlyList<Sr6CreationLifestyleOption>? LifestyleOptions { get; init; }
 }
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>
@@ -124,6 +128,9 @@ public sealed record Sr6CreationFoundationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationGearPreview? Gear { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationLifestylePreview? Lifestyle { get; init; }
 }
 
 public sealed record Sr6CreationFoundationConfirmRequest(

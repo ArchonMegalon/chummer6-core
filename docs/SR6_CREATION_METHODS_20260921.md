@@ -3,7 +3,30 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: equipment basket — 22 September 2026
+## Current increment: basic lifestyle and cash projection — 22 September 2026
+
+The owned German 2024 core p59 supplies six basic monthly costs: Street 0,
+Squatter 500, Low 2,000, Middle 5,000, High 10,000 and Luxury 100,000 Nuyen.
+Whole-month prepayment is not restricted to six months. One basic lifestyle
+can be explicitly saved/replaced for Priority, Sum-to-Ten and Point Buy.
+This is neither a permanent/custom lifestyle nor SIN-linked taxation.
+
+Lifestyle is evaluated after the gear basket. Its preview contains the combined
+resource/Karma-cash budget, gear cost, prepaid cost and remaining cash. Per p70,
+projected starting cash is the unspent balance capped at 5,000 Nuyen, not an SR5
+dice roll. Excess is shown, never discarded by this draft operation. Changes
+to gear, resources, Karma or prepaid months re-evaluate the combined budget.
+The original gear preview remains explicitly gear-only; consumers with a
+lifestyle must use the lifestyle preview's combined balance.
+
+Nullable fields preserve old decisions and gear authority bytes. Confirm and
+cold reopen re-evaluate exact source/prices; forged prices remain rejected even
+after rehashing. The full mixed-domain history now admits fifteen source anchors.
+`core-sr6-lifestyle-1.log`: **261 focused Core Creation/codec tests PASS**.
+Finalization, recurring Career payments, custom lifestyles and remaining build
+methods are not supplied by this increment. No package seal or Play release.
+
+## Historical increment: equipment basket — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy now evaluate a separate Nuyen purchase
 basket. The owned German 2024 core pp69–70/244/247 supplies availability ≤7,
