@@ -10,9 +10,9 @@ public static class Sr6CreationFoundationIntegrity
 {
     public const int MaximumDecisions = 128;
     // Full mystic-adept draft: foundation + attributes + skills + Karma +
-    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ + contacts.
+    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ + contacts + gear.
     // This is a shape bound; SR6 still re-evaluates every exact source and digest.
-    public const int MaximumSourceAnchors = 13;
+    public const int MaximumSourceAnchors = 14;
     public static string Digest<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
     public static string PreviewDigest(Sr6CreationFoundationPreview preview) => Digest(preview with { PreviewDigest = string.Empty });
     public static string DecisionDigest(Sr6CreationFoundationDecision decision) => Digest(decision with { DecisionDigest = string.Empty });
@@ -52,9 +52,11 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Qualities is not null && !TryFreezeQualities(selection.Qualities, out qualities)) return false;
         Sr6CreationContactSelection? contacts = null;
         if (selection.Contacts is not null && !TryFreezeContacts(selection.Contacts, out contacts)) return false;
+        Sr6CreationGearSelection? gear = null;
+        if (selection.Gear is not null && !TryFreezeGear(selection.Gear, out gear)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities, Contacts = contacts };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities, Contacts = contacts, Gear = gear };
         return true;
     }
 
@@ -67,6 +69,18 @@ public static class Sr6CreationFoundationIntegrity
         if (rows.Length > 64 || rows.Any(row => row is null || row.Id == Guid.Empty
                 || !KnowledgeName(row.Name) || row.Role is not null && !KnowledgeName(row.Role)
                 || row.Connection is < 1 or > 12 || row.Loyalty is < 1 or > 12)
+            || rows.Select(row => row.Id).Distinct().Count() != rows.Length) return false;
+        frozen = new(rows.OrderBy(row => row.Id).ToArray());
+        return true;
+    }
+
+    public static bool TryFreezeGear(Sr6CreationGearSelection? selection, out Sr6CreationGearSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.Items is not { Count: <= Sr6CreationGearLimits.MaximumItems }) return false;
+        var rows = selection.Items.ToArray();
+        if (rows.Length > Sr6CreationGearLimits.MaximumItems || rows.Any(row => row is null || row.Id == Guid.Empty
+                || !KnowledgeName(row.CatalogId) || row.Quantity is < 1 or > Sr6CreationGearLimits.MaximumQuantity)
             || rows.Select(row => row.Id).Distinct().Count() != rows.Length) return false;
         frozen = new(rows.OrderBy(row => row.Id).ToArray());
         return true;

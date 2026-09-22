@@ -81,7 +81,8 @@ public static class Sr6CreationFoundationRules
             KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected),
             KarmaKnowledgeOptions = selected is null ? null : Sr6CreationKarmaKnowledgeRules.Options(selected),
             QualityOptions = selected is null ? null : Sr6CreationQualityRules.Options(selected),
-            ContactOptions = selected is null ? null : Sr6CreationContactRules.Options(selected)
+            ContactOptions = selected is null ? null : Sr6CreationContactRules.Options(selected),
+            GearOptions = selected is null ? null : Sr6CreationGearRules.Catalog(selected.Selection.MetatypeId)
         });
     }
 
@@ -120,6 +121,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.Contacts is { } requestedContacts
             && !Sr6CreationFoundationIntegrity.TryFreezeContacts(requestedContacts, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationContactBlockers.InvalidSelection);
+        if (selection?.Gear is { } requestedGear
+            && !Sr6CreationFoundationIntegrity.TryFreezeGear(requestedGear, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationGearBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -250,6 +254,13 @@ public static class Sr6CreationFoundationRules
             if (contacts.Value is null) return new(contacts.Outcome, null, contacts.Blockers);
             preview = preview with { Contacts = contacts.Value,
                 SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationContactRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
+        }
+        if (selection.Gear is { } gearSelection)
+        {
+            var gear = Sr6CreationGearRules.Evaluate(preview, gearSelection);
+            if (gear.Value is null) return new(gear.Outcome, null, gear.Blockers);
+            preview = preview with { Gear = gear.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationGearRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
         }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }

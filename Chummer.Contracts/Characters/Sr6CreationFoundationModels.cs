@@ -49,6 +49,9 @@ public sealed record Sr6CreationFoundationSelection(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationContactSelection? Contacts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationGearSelection? Gear { get; init; }
 }
 
 public sealed record Sr6CreationFoundationOption(string Id, IReadOnlyList<string> AllowedRanks);
@@ -73,6 +76,7 @@ public sealed record Sr6CreationFoundationState(
     public Sr6CreationKarmaKnowledgeOptions? KarmaKnowledgeOptions { get; init; }
     public IReadOnlyList<Sr6CreationQualityOption>? QualityOptions { get; init; }
     public Sr6CreationContactOptions? ContactOptions { get; init; }
+    public IReadOnlyList<Sr6CreationGearOption>? GearOptions { get; init; }
 }
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>
@@ -117,6 +121,9 @@ public sealed record Sr6CreationFoundationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationContactPreview? Contacts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationGearPreview? Gear { get; init; }
 }
 
 public sealed record Sr6CreationFoundationConfirmRequest(

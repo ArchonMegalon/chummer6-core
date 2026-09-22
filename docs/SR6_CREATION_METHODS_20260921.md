@@ -3,7 +3,38 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: contacts — 22 September 2026
+## Current increment: equipment basket — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy now evaluate a separate Nuyen purchase
+basket. The owned German 2024 core pp69–70/244/247 supplies availability ≤7,
+the 5,000¥ cash carry-over ceiling and SR6 size pricing: trolls +10% on all
+equipment, dwarfs +10% on fitted armor but not weapons or electronics. Prices
+use decimal Nuyen; no rounding to whole Nuyen and no SR5 doubling. Resource
+cash includes admitted customization-Karma conversion without spending CP or
+charging Karma again. Reducing resources below saved purchases blocks.
+
+A deliberately partial catalogue has 148 item/rating options from pp249–259,
+266, 268–269, 273 and 283: basic weapons, armor, commlinks, decks, RCCs, empty
+credsticks and medical gear. Two RCCs above availability seven remain visible
+but unavailable. Licensed/illegal flags require GM review, not an invented
+creation ban or an automatic license grant. Ammunition, accessories, bodytech,
+SIN/license assignments, vehicles and lifestyles remain outside this basket.
+No rulebook prose or PDF is distributed, and saved purchases do not yet apply
+runtime equipment effects or finalize the runner.
+
+Stable row IDs and positive bounded integer quantities support explicit
+add/edit/remove. Costs, sources, budget/carry-over and legality warnings are
+Core-owned. Every confirmation and cold load re-evaluates the exact catalogue,
+metatype pricing and cash. Nullable absent fields preserve old decision bytes.
+The complete mixed-domain draft now uses fourteen source anchors.
+
+`core-sr6-gear-1.log`: **254 focused Core Creation/codec tests PASS**. Coverage
+includes three methods, five metatypes, decimal prices, independent pools,
+availability/budget negatives, hostile quantities/IDs, exact cold replay,
+fourteen-anchor history and rehashed price forgery rejection. This is draft
+equipment, not complete SR6 creation, a package seal or a Play release.
+
+## Historical increment: contacts — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy have a separate free contact pool. The owned
 German 2024 core pp52–53/70 supplies Charisma × 6, Connection + Loyalty cost,
