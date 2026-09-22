@@ -190,7 +190,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     request.DraftDigest)
                 { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases,
                     TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection,
-                    KarmaResourceInvestment = request.KarmaResourceInvestment, GearSelection = request.GearSelection });
+                    KarmaResourceInvestment = request.KarmaResourceInvestment, GearSelection = request.GearSelection,
+                    LifestyleSelection = request.LifestyleSelection, StartingLifestyleId = request.StartingLifestyleId });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -373,6 +374,14 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             && sourceContext is not null && state.LifeModuleBudget.IsExact)
             gearQuote = CharacterCreationLifeModuleGearRules.Evaluate(workspace.Document.Content, gearEffects, gearRacial,
                 gearTalent, gearAttributes, gearSkills, gearResources, state.LifeModuleBudget.Total, request.GearSelection, sourceContext);
+        CharacterCreationLifeModuleLifestylesQuoteResult? lifestyles = null;
+        if (writePlan.Plan is { } lifestyleEffects && metatypePlan?.Plan is { } lifestyleRacial
+            && talentPlan?.Plan is { } lifestyleTalent && attributes?.Quote is { } lifestyleAttributes
+            && skillQuote?.Quote is { } lifestyleSkills && resourceQuote?.Quote is { } lifestyleResources
+            && gearQuote?.Quote is { } lifestyleGear && sourceContext is not null && state.LifeModuleBudget.IsExact)
+            lifestyles = CharacterCreationLifeModuleLifestylesRules.Evaluate(workspace.Document.Content, lifestyleEffects,
+                lifestyleRacial, lifestyleTalent, lifestyleAttributes, lifestyleSkills, lifestyleResources, lifestyleGear,
+                state.LifeModuleBudget.Total, request.LifestyleSelection, request.StartingLifestyleId, sourceContext);
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
@@ -388,6 +397,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .Concat(skillQuote?.Blockers ?? [])
             .Concat(resourceQuote?.Blockers ?? [])
             .Concat(gearQuote?.Blockers ?? [])
+            .Concat(lifestyles?.Blockers ?? [])
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -418,7 +428,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             ResourcesPolicy = resourceQuote?.Policy,
             ResourcesQuote = resourceQuote?.Quote,
             GearAuthority = gearQuote?.Authority,
-            GearQuote = gearQuote?.Quote
+            GearQuote = gearQuote?.Quote,
+            LifestylesAuthority = lifestyles?.Authority,
+            LifestylesQuote = lifestyles?.Quote
         };
         preview = preview with
         {

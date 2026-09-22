@@ -250,6 +250,12 @@ public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationGearSelection>? GearSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifestyleConfiguration>? LifestyleSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? StartingLifestyleId { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
@@ -276,6 +282,12 @@ public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationGearSelection>? GearSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifestyleConfiguration>? LifestyleSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? StartingLifestyleId { get; init; }
 }
 
 /// <summary>
@@ -476,6 +488,12 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleGearQuote? GearQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestylesAuthority? LifestylesAuthority { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleLifestylesQuote? LifestylesQuote { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(

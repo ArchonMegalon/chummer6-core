@@ -4149,7 +4149,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || (!CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
-                    && _buildMethod != CharacterCreationBuildMethods.Karma)
+                    && _buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules))
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || !TryResolveTarget(
