@@ -3,7 +3,7 @@ using Chummer.Contracts.Characters;
 
 namespace Chummer.Rulesets.Sr6;
 
-/// <summary>Priority-point skills before Karma and qualities. Free-text specialties require GM review.</summary>
+/// <summary>Pool skills with admitted quality caps, before Karma. Free-text specialties require GM review.</summary>
 public static class Sr6CreationSkillRules
 {
     public const string SourceAnchor = "sr6_core_de_2024:p66-67,94-99";
@@ -22,7 +22,8 @@ public static class Sr6CreationSkillRules
                 "Sorcery" or "Conjuring" or "Enchanting" when talent is not ("magician" or "aspected-magician" or "mystic-adept") => Sr6CreationSkillBlockers.SkillUnavailable,
                 _ => null
             };
-            return new Sr6CreationSkillOption(id, Sr6SkillProvider.StartingMaximum, reason is null, reason);
+            return new Sr6CreationSkillOption(id,
+                Sr6SkillProvider.StartingMaximum + Sr6CreationQualityRules.SkillMaximumBonus(foundation, id), reason is null, reason);
         }).ToArray();
 
     public static CharacterCreationFoundationResult<Sr6CreationSkillPreview> Evaluate(
@@ -38,6 +39,7 @@ public static class Sr6CreationSkillRules
         foreach (var row in frozen.Allocations)
         {
             var option = options.Single(option => option.SkillId == row.SkillId);
+            if (row.Rating > option.Maximum) return Fail(Sr6CreationSkillBlockers.InvalidAllocation);
             if (row.Rating > 0 && !option.Available) return Fail(option.UnavailableReason!);
             if (row.Rating == option.Maximum) maximumCount++;
             bool exotic = row.SkillId == "ExoticWeapons";

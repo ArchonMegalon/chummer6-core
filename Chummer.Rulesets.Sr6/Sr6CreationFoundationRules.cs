@@ -79,7 +79,8 @@ public static class Sr6CreationFoundationRules
             AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected),
             KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected),
             KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected),
-            KarmaKnowledgeOptions = selected is null ? null : Sr6CreationKarmaKnowledgeRules.Options(selected)
+            KarmaKnowledgeOptions = selected is null ? null : Sr6CreationKarmaKnowledgeRules.Options(selected),
+            QualityOptions = selected is null ? null : Sr6CreationQualityRules.Options(selected)
         });
     }
 
@@ -112,6 +113,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.Karma is { } requestedKarma
             && !Sr6CreationFoundationIntegrity.TryFreezeKarma(requestedKarma, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKarmaBlockers.InvalidSelection);
+        if (selection?.Qualities is { } requestedQualities
+            && !Sr6CreationFoundationIntegrity.TryFreezeQualities(requestedQualities, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationQualityBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -148,6 +152,13 @@ public static class Sr6CreationFoundationRules
             int resonance = selection.TalentId == "technomancer" ? baseRating : 0;
             string[] anchors = companion ? [CoreSourceAnchor, "sr6_schattenkompendium_2022:p28"] : [CoreSourceAnchor];
             preview = new Sr6CreationFoundationPreview(binding, selection, priorities.Budget, magic, resonance, anchors, string.Empty);
+        }
+        if (selection.Qualities is { } qualitySelection)
+        {
+            var qualities = Sr6CreationQualityRules.Evaluate(preview, qualitySelection);
+            if (qualities.Value is null) return new(qualities.Outcome, null, qualities.Blockers);
+            preview = preview with { Qualities = qualities.Value,
+                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationQualityRules.SourceAnchor] };
         }
         if (selection.Attributes is { } allocation)
         {

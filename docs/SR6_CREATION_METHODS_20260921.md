@@ -3,7 +3,40 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: Karma knowledge and languages — 22 September 2026
+## Current increment: selected qualities — 22 September 2026
+
+Priority, Sum-to-Ten and Point Buy now evaluate an explicit quality selection
+before attribute/skill pools and customization Karma. The owned German 2024
+core pp66/68/69/74–81 provides costs, limits and prerequisites. A partial
+catalogue supplies 39 fixed-price advantages/disadvantages, eight physical/
+mental Exceptional Attribute targets and 19 Aptitude targets. Costs and source
+anchors are Core-owned; no rulebook prose is shipped. This lane admits one
+Aptitude family and one Exceptional purchase per attribute. Rated qualities,
+other parameterized families, Indebted conversion and Bilingual remain absent.
+
+At most six selected qualities and a net bonus of at most 20 Karma are admitted.
+The separate 50-Karma base budget is adjusted by quality costs/bonuses, never
+by spending CP. Exceptional Attribute/Aptitude raise caps, not current values.
+The resulting pool/Karma limits are re-evaluated; removing a prerequisite or
+bonus cannot drop existing purchases silently. Metatype/talent restrictions
+and Blandness/Distinctive Style conflict are checked. Innate metatype traits
+stay free and outside this selection; dwarf Toxin Resistance cannot be rebought.
+
+Null/empty selections preserve historical no-quality decision bytes. Every
+preview, confirmation and cold load re-evaluates costs and caps, including
+rehashed forged projections. The bounded source list now accommodates all
+eleven supported domain anchors without relaxing exact authority validation.
+These are pending draft choices, not automated situational effects or a
+finalized runner.
+
+Local keyless Docker/.NET10.0.103: **216 focused Core tests PASS** in
+`core-sr6-qualities-2.log` (SR6 Creation plus workspace codec); **three mixed-domain
+save/reopen cases PASS** in `core-sr6-qualities-combined.log`, including the new
+eleven-anchor case. Android integration is recorded in its foundation handoff.
+Equipment, further qualities, finalization/Career entry, and complete Life Path/
+optional Karma method flows remain open. No package seal or Play claim follows.
+
+## Historical increment: Karma knowledge and languages — 22 September 2026
 
 The same customization step now buys additional unrated knowledge (3 Karma)
 and language levels (3 Karma per additional level), using the owned German

@@ -3,7 +3,7 @@ using Chummer.Contracts.Characters;
 
 namespace Chummer.Rulesets.Sr6;
 
-/// <summary>Standard Priority/Sum-to-Ten allocation before qualities, Karma and augmentation.</summary>
+/// <summary>Pool allocation with admitted quality caps, before Karma and augmentation.</summary>
 public static class Sr6CreationAttributeRules
 {
     public const string SourceAnchor = "sr6_core_de_2024:p65-67";
@@ -20,7 +20,8 @@ public static class Sr6CreationAttributeRules
             }
             var range = metatypes.GetAttributeRange(foundation.Selection.MetatypeId, id);
             // The German printing explicitly includes reduced ranges (e.g. dwarf Reaction).
-            return new Sr6CreationAttributeOption(id, range.Minimum, range.Maximum, id != "Edge",
+            return new Sr6CreationAttributeOption(id, range.Minimum,
+                range.Maximum + Sr6CreationQualityRules.AttributeMaximumBonus(foundation, id), id != "Edge",
                 id == "Edge" || (foundation.PointBuy is not null ? range.Maximum > 6 : range.Minimum != 1 || range.Maximum != 6));
         }).ToArray();
     }

@@ -9,9 +9,10 @@ namespace Chummer.Tests;
 public sealed partial class Sr6CreationFoundationTests
 {
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void Karma_specialty_on_existing_mystic_adept_preserves_all_domain_anchors(bool withKnowledge)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Karma_specialty_on_existing_mystic_adept_preserves_all_domain_anchors(bool withKnowledge, bool withQualities)
     {
         using var fixture = new Fixture("PointBuy");
         var seed = PointBuy(talent: "mystic-adept") with
@@ -33,10 +34,12 @@ public sealed partial class Sr6CreationFoundationTests
         if (withKnowledge)
             seed = seed with { Karma = seed.Karma with { KarmaForNuyen = 2,
                 Knowledge = new([new(Guid.NewGuid(), "Magic")], []) } };
+        if (withQualities) seed = seed with { Qualities = new(["analytical-mind", "ar-vertigo"]) };
         var request = fixture.Request(seed);
         var quote = fixture.Preview(seed);
-        Assert.HasCount(withKnowledge ? 10 : 9, quote.SourceAnchorIds);
+        Assert.HasCount((withKnowledge ? 10 : 9) + (withQualities ? 1 : 0), quote.SourceAnchorIds);
         Assert.AreEqual(50, quote.Karma!.KarmaSpent);
+        Assert.AreEqual(withQualities ? 57 : 50, quote.Karma.KarmaBudget);
         var committed = fixture.Service.Confirm(fixture.Stamp, request);
         Assert.IsNotNull(committed.Value, string.Join(",", committed.Blockers));
         var store = new FileWorkspaceStore(fixture.Directory);

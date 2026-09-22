@@ -100,7 +100,7 @@ public sealed partial class Sr6CreationFoundationTests
     {
         var invalid = new Sr6CreationSkillSelection[]
         {
-            new(null!), new([new("Pistols", 1, [])]), new([new("Firearms", 7, [])]),
+            new(null!), new([new("Pistols", 1, [])]), new([new("Firearms", 8, [])]),
             new([new("Firearms", -1, [])]), new([new("Firearms", 1, null!)]),
             new([new("Firearms", 1, [" "])]), new([new("Firearms", 1, ["Pistols\n"])]),
             new([new("Firearms", 1, [new string('x', 81)])]),
@@ -110,6 +110,10 @@ public sealed partial class Sr6CreationFoundationTests
         foreach (var selection in invalid)
             Assert.IsFalse(Sr6CreationFoundationIntegrity.TryFreezeSkills(selection, out _));
         using var fixture = new Fixture();
+        // Seven is a valid shape, but requires a Core-issued Aptitude cap.
+        Assert.IsTrue(Sr6CreationFoundationIntegrity.TryFreezeSkills(new([new("Firearms", 7, [])]), out _));
+        Assert.IsNull(fixture.Service.Preview(fixture.Stamp, fixture.Binding,
+            Selection() with { Skills = new([new("Firearms", 7, [])]) }).Value);
         var malformed = fixture.Service.Preview(fixture.Stamp, fixture.Binding, Selection() with { Skills = invalid[0] });
         CollectionAssert.Contains(malformed.Blockers.ToArray(), Sr6CreationSkillBlockers.InvalidAllocation);
         string[] names = ["Whip", "Net"];

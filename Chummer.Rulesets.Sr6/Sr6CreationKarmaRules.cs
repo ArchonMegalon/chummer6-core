@@ -4,7 +4,7 @@ using Chummer.Contracts.Characters;
 namespace Chummer.Rulesets.Sr6;
 
 /// <summary>Customization after pool allocation. Keeps pool costs and Karma costs separate.
-/// No qualities, Karma spell/form purchases, expertise, or equipment effects are inferred.</summary>
+/// Quality costs come from their evaluated preview. No Karma formulas, expertise or equipment effects are inferred.</summary>
 public static class Sr6CreationKarmaRules
 {
     public const string SourceAnchor = "sr6_core_de_2024:p69,71-72,158";
@@ -37,7 +37,8 @@ public static class Sr6CreationKarmaRules
                 int rating = foundation.Skills.Values.SingleOrDefault(value => value.SkillId == row.SkillId)?.Rating ?? 0;
                 return new Sr6CreationKarmaOption(row.SkillId, rating, row.Maximum - rating, row.Available, row.UnavailableReason);
             }).ToArray();
-        return new(50, 50, 2000, 5, attributes, skills);
+        int budget = foundation.Qualities?.CustomizationKarma ?? 50;
+        return new(budget, budget, 2000, 5, attributes, skills);
     }
 
     public static CharacterCreationFoundationResult<Sr6CreationKarmaPreview> Evaluate(
@@ -70,7 +71,7 @@ public static class Sr6CreationKarmaRules
             && (attributes.SingleOrDefault(value => value.Id == row.AttributeId)?.Rating ?? row.Value) == row.Maximum) > 1)
             return Fail(Sr6CreationAttributeBlockers.MaximumCountExceeded);
         if (options.Skills.Count(row => (skills.SingleOrDefault(value => value.Id == row.Id)?.Rating ?? row.BaseRating)
-            == Sr6SkillProvider.StartingMaximum) > 1) return Fail(Sr6CreationSkillBlockers.MaximumCountExceeded);
+            == row.BaseRating + row.MaximumIncrease) > 1) return Fail(Sr6CreationSkillBlockers.MaximumCountExceeded);
         var specialties = new List<Sr6CreationKarmaSpecializationValue>();
         var specialtyOptions = SpecializationOptions(foundation)!;
         foreach (var purchase in frozen.Specializations ?? [])

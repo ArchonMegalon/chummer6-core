@@ -10,9 +10,9 @@ public static class Sr6CreationFoundationIntegrity
 {
     public const int MaximumDecisions = 128;
     // Full mystic-adept draft: foundation + attributes + skills + Karma +
-    // specialty + talent + formulas + powers + power FAQ + knowledge.
+    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities.
     // This is a shape bound; SR6 still re-evaluates every exact source and digest.
-    public const int MaximumSourceAnchors = 10;
+    public const int MaximumSourceAnchors = 11;
     public static string Digest<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
     public static string PreviewDigest(Sr6CreationFoundationPreview preview) => Digest(preview with { PreviewDigest = string.Empty });
     public static string DecisionDigest(Sr6CreationFoundationDecision decision) => Digest(decision with { DecisionDigest = string.Empty });
@@ -48,9 +48,23 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.AdeptPowers is not null && !TryFreezeAdeptPowers(selection.AdeptPowers, out powers)) return false;
         Sr6CreationKarmaSelection? karma = null;
         if (selection.Karma is not null && !TryFreezeKarma(selection.Karma, out karma)) return false;
+        Sr6CreationQualitySelection? qualities = null;
+        if (selection.Qualities is not null && !TryFreezeQualities(selection.Qualities, out qualities)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities };
+        return true;
+    }
+
+    public static bool TryFreezeQualities(Sr6CreationQualitySelection? selection, out Sr6CreationQualitySelection? frozen)
+    {
+        frozen = null;
+        if (selection?.OptionIds is not { Count: <= 6 }) return false;
+        string[] ids = selection.OptionIds.ToArray();
+        if (ids.Length > 6 || ids.Any(id => string.IsNullOrEmpty(id) || id.Length > 80
+                || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
+            || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length) return false;
+        frozen = ids.Length == 0 ? null : new(ids.Order(StringComparer.Ordinal).ToArray());
         return true;
     }
 
@@ -182,7 +196,7 @@ public static class Sr6CreationFoundationIntegrity
         var rows = selection.Allocations.ToArray();
         if (rows.Length > 19 || rows.Any(row => row is null
             || !Sr6CreationSkillIds.Ordered.Contains(row.SkillId, StringComparer.Ordinal)
-            || row.Rating is < 0 or > 6 || row.Specializations is not { Count: <= 12 })
+            || row.Rating is < 0 or > 7 || row.Specializations is not { Count: <= 12 })
             || rows.Select(row => row.SkillId).Distinct(StringComparer.Ordinal).Count() != rows.Length) return false;
         var copies = new List<Sr6CreationSkillSpend>();
         foreach (var row in rows)
