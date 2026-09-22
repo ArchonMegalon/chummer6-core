@@ -243,20 +243,6 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
     private static CharacterCreationFoundationSequenceWritePlanResult Failure(string blocker) => new(null, [blocker]);
 }
 
-internal sealed record CharacterCreationFoundationSequenceModuleOwner(string OccurrenceId, string SourceId, string QualityId, int KarmaCost);
-internal sealed record CharacterCreationFoundationSequencePushDisposition(string OccurrenceId, string EffectId,
-    string InstructionDigest, string Group, string Disposition);
-internal sealed record CharacterCreationFoundationSequenceWritePlan(string Semantics, CharacterWorkspaceId WorkspaceId,
-    long DraftRevision, string DraftDigest, string RawCharacterXmlDigest, string CompilationDigest, string SourceDigest,
-    string SourceContextDigest, string CatalogRawXmlDigest, IReadOnlyList<CharacterCreationFoundationSequenceModuleOwner> ModuleOwners,
-    IReadOnlyList<string> QualityXml, IReadOnlyList<string> ImprovementXml,
-    IReadOnlyList<CharacterCreationFoundationSequencePushDisposition> PushDispositions,
-    int DependentQualityCount, int GroupQualityCount, decimal ModuleKarmaCost, string PlanDigest)
-{
-    [System.Text.Json.Serialization.JsonIgnore]
-    public CharacterCreationLifeModuleEffectWriteSummary Summary => new(ModuleOwners.Count, ImprovementXml.Count,
-        DependentQualityCount, GroupQualityCount, ModuleKarmaCost, PlanDigest);
-}
 internal sealed record CharacterCreationFoundationSequenceWritePlanResult(CharacterCreationFoundationSequenceWritePlan? Plan,
     IReadOnlyList<string> Blockers)
 {

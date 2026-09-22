@@ -135,16 +135,5 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
     private static CharacterCreationLifeModuleMetatypeWritePlanResult Failed(string blocker) => new(null, [blocker]);
 }
 
-internal sealed record CharacterCreationLifeModuleMetatypeWritePlan(string Semantics, string DraftDigest,
-    string EffectPlanDigest, CharacterCreationMetatypeOptionProjection Metatype,
-    CharacterCreationMetatypeSourceContextAuthority SourceContext,
-    IReadOnlyList<CharacterCreationTalentQualitySource> Sources, IReadOnlyList<string> QualityXml,
-    IReadOnlyList<string> ImprovementXml, IReadOnlyList<string> GearXml, IReadOnlyList<string> Flags, string PlanDigest)
-{
-    [System.Text.Json.Serialization.JsonIgnore]
-    public CharacterCreationLifeModuleMetatypeWriteSummary Summary => new(Metatype.OptionId, Metatype.Label,
-        Metatype.KarmaCost, QualityXml.Count, ImprovementXml.Count, GearXml.Count, PlanDigest);
-}
-
 internal sealed record CharacterCreationLifeModuleMetatypeWritePlanResult(CharacterCreationLifeModuleMetatypeWritePlan? Plan,
     IReadOnlyList<string> Blockers);

@@ -147,18 +147,5 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
         => new(catalog, null, [blocker]);
 }
 
-internal sealed record CharacterCreationLifeModuleTalentWritePlan(string Semantics,
-    string EffectPlanDigest, string MetatypePlanDigest, CharacterCreationLifeModuleTalentCatalog Catalog,
-    CharacterCreationLifeModuleTalentSelection Selection, CharacterCreationKarmaTalentOption Talent,
-    CharacterCreationTalentQualitySource? Source, IReadOnlyList<string> QualityXml,
-    IReadOnlyList<string> ImprovementXml, IReadOnlyList<string> GearXml, IReadOnlyList<string> Flags, string PlanDigest)
-{
-    [System.Text.Json.Serialization.JsonIgnore]
-    public CharacterCreationLifeModuleTalentWriteSummary Summary => new(Selection, Talent.Name, Talent.KarmaCost,
-        Talent.EnabledAttribute, QualityXml.Count, ImprovementXml.Count, GearXml.Count, Flags,
-        Catalog.SourceAnchorIds.Concat(Talent.SourceAnchorIds).Concat(Source?.SourceAnchorIds ?? [])
-            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), PlanDigest);
-}
-
 internal sealed record CharacterCreationLifeModuleTalentWritePlanResult(CharacterCreationLifeModuleTalentCatalog? Catalog,
     CharacterCreationLifeModuleTalentWritePlan? Plan, IReadOnlyList<string> Blockers);

@@ -182,55 +182,23 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 CharacterCreationFoundationBlockers.ExplicitConfirmationRequired);
         }
 
-        CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
-            evaluation = EvaluateFinalization(
-                new CharacterCreationFoundationFinalizationPreviewRequest(
-                    request.Binding,
-                    request.DraftRevision,
-                    request.DraftDigest)
-                { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases,
-                    TalentSelection = request.TalentSelection, SkillSelection = request.SkillSelection,
-                    KarmaResourceInvestment = request.KarmaResourceInvestment, GearSelection = request.GearSelection,
-                    LifestyleSelection = request.LifestyleSelection, StartingLifestyleId = request.StartingLifestyleId,
-                    ContactSelection = request.ContactSelection, StartingNuyenDiceTotal = request.StartingNuyenDiceTotal,
-                    MagicSelection = request.MagicSelection });
-        if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
-        {
-            return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
-                evaluation.Outcome,
-                null,
-                evaluation.Blockers);
-        }
-        if (!DigestEquals(preview.PreviewDigest, request.PreviewDigest))
-        {
-            return Blocked<CharacterCreationFoundationFinalizationReceipt>(
-                CharacterCreationFoundationOutcomes.Conflict,
-                CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
-        }
-        if (!preview.CanConfirm
-            || !preview.CanApply
-            || !preview.Compilation.IsCompleteLedgerSupported
-            || preview.FinalizationBlocked.Count > 0)
-        {
-            return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
-                CharacterCreationFoundationOutcomes.Blocked,
-                null,
-                preview.FinalizationBlocked);
-        }
-
-        // Effects, racial/talent grants, attributes, skills and funding have
-        // source-bound plans, including gear/lifestyles, contacts, awakened
-        // purchases and carryover. Whole-runner validity/atomic persistence still
-        // need composition. Never apply a supported subgraph early or mark the
-        // unfinished runner as created.
-        return Blocked<CharacterCreationFoundationFinalizationReceipt>(
-            CharacterCreationFoundationOutcomes.Blocked,
-            CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
+        // Recovery is checked under the same owner/path lease before reading
+        // current sources: a committed command must never be applied twice.
+        return _workspaceStore is ICharacterCreationLifeModuleFinalizationAtomicCommitCapability capability
+            ? capability.CommitLifeModuleFinalization(request, _sourceDataResolver, _lifeModulesCatalog, _characterFileQueries)
+            : Blocked<CharacterCreationFoundationFinalizationReceipt>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationFinalizationBlockers.AtomicPersistenceRequired);
     }
 
     private CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
         EvaluateFinalization(CharacterCreationFoundationFinalizationPreviewRequest request)
+        => PrepareFinalization(request, out _);
+
+    internal CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+        PrepareFinalization(CharacterCreationFoundationFinalizationPreviewRequest request,
+            out CharacterCreationLifeModuleFinalizationAuthority? prepared)
     {
+        prepared = null;
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationFoundationFinalizationPreview>(read);
@@ -250,7 +218,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     : null,
                 request.Binding.SourceFilterApplied,
                 out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
-                out string capturedCatalogDigest);
+                out string capturedCatalogDigest, requireDraftPersistence: false);
         if (stateResult.Value is not CharacterCreationFoundationState state)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
@@ -412,6 +380,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 finalEffects, finalRacial, finalTalent, finalAttributes, finalSkills, finalResources, finalGear,
                 finalLifestyles, finalContacts, finalMagic, state.LifeModuleBudget.Total, request.StartingNuyenDiceTotal, sourceContext);
         CharacterCreationFinalizationPlan? characterPlan = null;
+        CharacterCreationLifeModuleCharacterParts? preparedParts = null;
         bool characterProjectionFailed = false;
         if (finalBudget?.Quote is { } finances && writePlan.Plan is { } appliedEffects && metatypePlan?.Plan is { } appliedRacial
             && talentPlan?.Plan is { } appliedTalent && attributes?.Quote is { } appliedAttributes
@@ -434,6 +403,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     finances.KarmaCarried, appliedResources.NuyenFromKarma, finances.CareerNuyen, anchors,
                     projected.RawCharacterXmlDigest, string.Empty);
                 characterPlan = characterPlan with { PlanDigest = CharacterCreationFinalizationDigest.Compute(characterPlan) };
+                preparedParts = parts;
             }
             else characterProjectionFailed = true;
         }
@@ -444,8 +414,11 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 + (resourceQuote?.QualityCosts?.KarmaAdjustmentAfterTalent ?? 0) > state.LifeModuleBudget.Total;
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
-            .Concat(compilation.Blockers)
-            .Concat(sequence.Blockers)
+            // The whole-sequence planner independently replays every occurrence,
+            // accounts for superseded pushtext/quality tiers and rejects all
+            // unresolved effects. An isolated compiler cannot grant that authority.
+            .Concat(writePlan.IsReady ? [] : compilation.Blockers)
+            .Concat(writePlan.IsReady ? [] : sequence.Blockers)
             .Concat(writePlan.Blockers)
             .Concat(metatypePlan?.Blockers ?? [])
             .Concat(talentPlan?.Blockers ?? [])
@@ -463,7 +436,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
         bool canApply = !state.CharacterCreated
-                        && compilation.IsCompleteLedgerSupported
+                        && characterPlan is not null
+                        && preparedParts is not null
                         && blockers.Length == 0;
         var preview = new CharacterCreationFoundationFinalizationPreview(
             Schema: CharacterCreationFoundationSchemas.FinalizationPreviewV1,
@@ -506,6 +480,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             PreviewDigest = CharacterCreationFoundationDraftLedgerIntegrity
                 .ComputeCanonicalDigest(preview with { PreviewDigest = string.Empty })
         };
+        if (canApply) prepared = new(workspace.Document.Content, request, preview, preparedParts!);
         return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
             blockers.Length == 0
                 ? CharacterCreationFoundationOutcomes.Success
@@ -776,7 +751,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         IReadOnlyCollection<string>? requestedSources,
         bool sourceFilterApplied,
         out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
-        out string capturedCatalogDigest)
+        out string capturedCatalogDigest,
+        bool requireDraftPersistence = true)
     {
         capturedModules = [];
         capturedCatalogDigest = string.Empty;
@@ -813,7 +789,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         }
 
         var blockers = new List<string>();
-        if (_applyAuthority is not ICharacterCreationFoundationDraftPersistenceCapability
+        if (requireDraftPersistence && _applyAuthority is not ICharacterCreationFoundationDraftPersistenceCapability
             {
                 CanPersistFoundationDrafts: true
             })

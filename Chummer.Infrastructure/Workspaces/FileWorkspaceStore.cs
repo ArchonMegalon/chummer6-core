@@ -22,6 +22,7 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCreationBootstrapAtomicCreateCapability,
     ICharacterCareerReputationAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
     ISr6CreationFoundationAtomicCommitCapability, ISr6CreationFinalizationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;

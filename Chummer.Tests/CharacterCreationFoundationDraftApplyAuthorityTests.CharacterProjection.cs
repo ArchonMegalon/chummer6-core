@@ -63,7 +63,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.AreEqual(candidate.RawCharacterXmlDigest, f.Preview.FinalizationPlan!.ExpectedResultRawCharacterXmlDigest);
             Assert.AreEqual(candidate.ComponentsDigest, f.Preview.FinalizationPlan.Binding.AuthorityDigest);
             Assert.AreEqual(JsonSerializer.Serialize(candidate.Deltas), JsonSerializer.Serialize(f.Preview.FinalizationPlan.OrderedDeltas));
-            Assert.IsFalse(f.Preview.CanApply, "Projection is not atomic finalization authority.");
+            Assert.IsTrue(f.Preview.CanApply, string.Join(", ", f.Preview.FinalizationBlocked));
             var reopened = CreateService(new FileWorkspaceStore(directory)).PreviewFinalization(f.Request).Value!;
             Assert.AreEqual(JsonSerializer.Serialize(f.Preview.FinalizationPlan), JsonSerializer.Serialize(reopened.FinalizationPlan));
             CollectionAssert.AreEqual(f.Before, File.ReadAllBytes(WorkspacePath(directory, f.Request.Binding.WorkspaceId)));
@@ -122,9 +122,9 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     }
 
     private static LifeCharacterProjectionBinding LifeCharacterProjectionFixture(string directory, string talentId,
-        string? pendingXmlTail = null, bool expectProjection = true)
+        string? pendingXmlTail = null, bool expectProjection = true, bool withOrigin = false)
     {
-        var fixture = SeedFullGraph(directory, pendingXmlTail: pendingXmlTail);
+        var fixture = withOrigin ? SeedFullOriginGraph(directory) : SeedFullGraph(directory, pendingXmlTail: pendingXmlTail);
         var (effects, baseline) = BuildFullGraph(fixture.Store, fixture.Id);
         var service = CreateService(fixture.Store);
         var prompt = baseline.ModuleSequence!.QualityLevels.Single().InstancePrompt!;

@@ -46,7 +46,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.AreEqual(80m, preview.FinalizationBudget.CareerNuyen);
             Assert.AreEqual(0m, preview.ResourcesQuote!.NuyenFromKarma);
             Assert.AreEqual(0m, preview.LifestylesQuote!.Budget.Remaining);
-            Assert.IsFalse(preview.CanApply, "Finances alone do not authorize the atomic Career transition.");
+            Assert.IsTrue(preview.CanApply, "The complete source-replayed runner has an atomic finalization path.");
             var confirm = new CharacterCreationFoundationFinalizationConfirmRequest(request.Binding, request.DraftRevision,
                 request.DraftDigest, preview.PreviewDigest, true)
             {
@@ -62,7 +62,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                     CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
             CollectionAssert.Contains(service.ConfirmFinalization(confirm with { MagicSelection = null }).Blockers.ToArray(),
                 CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
-            Assert.IsFalse(service.ConfirmFinalization(confirm).Blockers.Contains(CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch));
+            Assert.IsNotNull(preview.FinalizationPlan);
             var reopened = CreateService(new FileWorkspaceStore(directory)).PreviewFinalization(request).Value!;
             Assert.AreEqual(JsonSerializer.Serialize(preview.FinalizationBudget), JsonSerializer.Serialize(reopened.FinalizationBudget));
             Assert.AreEqual(preview.PreviewDigest, reopened.PreviewDigest);

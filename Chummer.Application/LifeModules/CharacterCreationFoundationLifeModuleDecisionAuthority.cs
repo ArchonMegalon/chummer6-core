@@ -56,17 +56,21 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return FromRead<LifeModuleDecisionAuthorityStep>(read);
 
-        IReadOnlyList<LifeModuleDecisionAcceptance>? acceptances = workspace.Document
-            .AuxiliaryState.LifeModuleDecisionAcceptances;
+        if (!CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(workspace, out var history, out long historyRevision))
+            return Invalid<LifeModuleDecisionAuthorityStep>();
+        bool archived = workspace.Document.AuxiliaryState.CharacterCreationFinalizationArchive is not null;
+        IReadOnlyList<LifeModuleDecisionAcceptance>? acceptances = history.LifeModuleDecisionAcceptances;
         if (acceptances is { Count: > 0 })
         {
             if (!LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
                     id,
-                    workspace.ContentRevision,
+                    historyRevision,
                     acceptances))
                 return Invalid<LifeModuleDecisionAuthorityStep>();
             LifeModuleDecisionAuthorityStep stored = acceptances[^1].NextStep;
-            if (stored.WorkspaceRevision != workspace.ContentRevision)
+            // A finished book retains its accepted Creation revision. It is a
+            // read-only historical projection, never a fresh Career mutation.
+            if (stored.WorkspaceRevision != historyRevision || archived && !stored.IsTerminal)
                 return Blocked<LifeModuleDecisionAuthorityStep>(LifeModuleOriginDossierOutcomes.Conflict,
                     LifeModuleOriginDossierBlockers.WorkspaceStale);
             if (!stored.IsTerminal && _foundation is CharacterCreationFoundationService concrete)
@@ -78,6 +82,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             }
             return Success(stored);
         }
+        if (archived) return Missing<LifeModuleDecisionAuthorityStep>();
 
         CharacterCreationFoundationResult<CharacterCreationFoundationState> loaded =
             _foundation.Load(new CharacterCreationFoundationLoadRequest(id));
@@ -107,13 +112,14 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         WorkspaceStoreReadResult read = _workspaceStore.Get(id);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return FromRead<LifeModuleDecisionAcceptance>(read);
-        IReadOnlyList<LifeModuleDecisionAcceptance>? ledger = workspace.Document
-            .AuxiliaryState.LifeModuleDecisionAcceptances;
+        if (!CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(workspace, out var history, out long historyRevision))
+            return Invalid<LifeModuleDecisionAcceptance>();
+        IReadOnlyList<LifeModuleDecisionAcceptance>? ledger = history.LifeModuleDecisionAcceptances;
         if (ledger is null || ledger.Count == 0)
             return Missing<LifeModuleDecisionAcceptance>();
         if (!LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
                 id,
-                workspace.ContentRevision,
+                historyRevision,
                 ledger))
             return Invalid<LifeModuleDecisionAcceptance>();
         LifeModuleDecisionAcceptance[] matches = ledger.Where(candidate =>
@@ -137,10 +143,12 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         var read = _workspaceStore.Get(id);
         if (!read.Success || read.Value is not { } workspace)
             return FromRead<IReadOnlyList<LifeModuleDecisionAcceptance>>(read);
-        var ledger = workspace.Document.AuxiliaryState.LifeModuleDecisionAcceptances;
+        if (!CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(workspace, out var history, out long historyRevision))
+            return Invalid<IReadOnlyList<LifeModuleDecisionAcceptance>>();
+        var ledger = history.LifeModuleDecisionAcceptances;
         if (ledger is not { Count: > 0 })
             return Missing<IReadOnlyList<LifeModuleDecisionAcceptance>>();
-        return LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, workspace.ContentRevision, ledger)
+        return LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, historyRevision, ledger)
             ? Success<IReadOnlyList<LifeModuleDecisionAcceptance>>(ledger)
             : Invalid<IReadOnlyList<LifeModuleDecisionAcceptance>>();
     }
@@ -494,11 +502,10 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 LifeModuleFollowUpPromptDto[] prompts = module.FollowUps
                     .Concat(version?.FollowUps ?? [])
                     .ToArray();
-                if (!module.IsEnabled
-                    || module.AuthorityBlockers.Count != 0
-                    || version is { IsEnabled: false }
-                    || version?.AuthorityBlockers.Count > 0
-                    || !LifeModuleDecisionInputIntegrity.ValidForms(prompts.Length == 0 ? null : prompts))
+                // Catalog flags cannot evaluate character requirements. Let
+                // Foundation resolve them for this exact metatype and reject
+                // only its evaluated authority, not the unbound catalog row.
+                if (!LifeModuleDecisionInputIntegrity.ValidForms(prompts.Length == 0 ? null : prompts))
                     continue;
                 var selection = new CharacterCreationFoundationSelection(
                     module.ModuleId,
@@ -511,7 +518,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                         new Dictionary<string, string>(StringComparer.Ordinal)));
                 if (projected.Value is not { } preview
                     || preview.AuthorityBlockers.Any(blocker => blocker != CharacterCreationFoundationBlockers.LifeModuleFollowUpRequired)
-                    || preview.Nationality is null
+                    || preview.Nationality is not { IsEnabled: true }
+                    || version is not null && preview.NationalityVersion is not { IsEnabled: true }
                     || !preview.Nationality.KarmaIsExact
                     || !preview.LifeModuleBudgetBefore.IsExact
                     || !preview.LifeModuleBudgetAfter.IsExact

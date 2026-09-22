@@ -18,11 +18,11 @@ public static class WorkspaceAuxiliaryStateIntegrity
         WorkspaceDocumentAuxiliaryState state)
     {
         if (!Sr6CreationFinalizationIntegrity.IsValidArchive(workspaceId, currentContentRevision, state)) return false;
-        // Karma finalization was introduced with an exact reconstruction archive;
-        // unlike older Priority receipts it has no archive-less legacy form.
+        // Karma and Life Modules finalization require reconstruction archives;
+        // unlike older Priority receipts they have no archive-less legacy form.
         if (state.CharacterCreationFinalizationArchive is null
             && state.CharacterCreationFinalizationReceipts?.Any(entry =>
-                entry?.Receipt?.BuildMethod == CharacterCreationBuildMethods.Karma) == true)
+                entry?.Receipt?.BuildMethod is CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules) == true)
             return false;
         if (state.CharacterCreationFinalizationArchive is { } archive
             && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(

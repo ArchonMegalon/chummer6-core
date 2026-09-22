@@ -1,4 +1,5 @@
 using Chummer.Application.Owners;
+using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Characters;
@@ -11,7 +12,8 @@ namespace Chummer.Application.Characters;
 internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
     CharacterWorkspaceId workspaceId) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
-    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ICharacterCreationLifeModuleFinalizationAtomicCommitCapability
 {
     private bool IsActive
     {
@@ -21,6 +23,20 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
             catch (ObjectDisposedException) { return false; }
         }
     }
+
+    public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> CommitLifeModuleFinalization(
+        CharacterCreationFoundationFinalizationConfirmRequest request, ICharacterSourceDataResolver resolver,
+        ILifeModulesCatalogService catalog, ICharacterFileQueries characterFiles)
+        => IsActive && request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationLifeModuleFinalizationAtomicCommitCapability capability
+            ? capability.CommitLifeModuleFinalization(owner.Owner, request, resolver, catalog, characterFiles)
+            : CharacterCreationLifeModuleFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+
+    public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> CommitLifeModuleFinalization(
+        OwnerScope requestedOwner, CharacterCreationFoundationFinalizationConfirmRequest request, ICharacterSourceDataResolver resolver,
+        ILifeModulesCatalogService catalog, ICharacterFileQueries characterFiles)
+        => requestedOwner == owner.Owner ? CommitLifeModuleFinalization(request, resolver, catalog, characterFiles)
+            : CharacterCreationLifeModuleFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
 
     public bool SupportsWorkspaceAuxiliaryStateAtomicCommit => IsActive
         && (owner.Owner.IsLocalSingleUser

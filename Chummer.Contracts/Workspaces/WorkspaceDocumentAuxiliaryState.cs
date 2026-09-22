@@ -106,6 +106,9 @@ public sealed record CharacterCreationFinalizationArchive(
     CharacterCreationKarmaFinalizationAuthority? KarmaAuthority = null)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleFinalizationAuthority? LifeModuleAuthority { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationFinalizationStartingCash? StartingCash { get; init; }
 }
 

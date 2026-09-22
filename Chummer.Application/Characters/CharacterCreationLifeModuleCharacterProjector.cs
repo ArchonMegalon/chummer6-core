@@ -260,14 +260,5 @@ internal static class CharacterCreationLifeModuleCharacterProjector
     private static string Number(decimal value) => value.ToString(CultureInfo.InvariantCulture);
 }
 
-internal sealed record CharacterCreationLifeModuleCharacterParts(CharacterCreationFoundationSequenceWritePlan Effects,
-    CharacterCreationLifeModuleMetatypeWritePlan Racial, CharacterCreationLifeModuleTalentWritePlan Talent,
-    CharacterCreationLifeModuleAttributeQuote Attributes, CharacterCreationSkillsCatalog SkillsCatalog,
-    CharacterCreationLifeModuleSkillsQuote Skills, CharacterCreationLifeModuleResourcesQuote Resources,
-    CharacterCreationGearAuthority GearAuthority, CharacterCreationLifeModuleGearQuote Gear,
-    CharacterCreationLifestylesAuthority LifestylesAuthority, CharacterCreationLifeModuleLifestylesQuote Lifestyles,
-    CharacterCreationLifeModuleContactsQuote Contacts, CharacterCreationLifeModuleMagicCatalog MagicCatalog,
-    CharacterCreationLifeModuleMagicQuote Magic, CharacterCreationLifeModuleFinalizationBudgetQuote Finances);
-
 internal sealed record CharacterCreationLifeModuleCharacterProjection(string CharacterXml, string RawCharacterXmlDigest,
     string ComponentsDigest, IReadOnlyList<CharacterCreationFinalizationDelta> Deltas);

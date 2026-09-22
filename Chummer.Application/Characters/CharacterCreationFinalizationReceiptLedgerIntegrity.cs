@@ -31,6 +31,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && receipts is { Count: 1 }
                && IsValidLedger(workspaceId, currentContentRevision, receipts)
                && CharacterCreationKarmaFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
+               && CharacterCreationLifeModuleFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
                && IsValidStartingCashArchive(archive, receipts[0].Receipt)
                && string.Equals(archive.State.ComputeDigest(),
                    receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
