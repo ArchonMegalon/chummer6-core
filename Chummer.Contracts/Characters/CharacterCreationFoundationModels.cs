@@ -413,6 +413,9 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
     // previews additionally bind the complete ordered sequence, not just its root.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleSequenceCompilation? ModuleSequence { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleEffectWriteSummary? EffectWriteSummary { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(

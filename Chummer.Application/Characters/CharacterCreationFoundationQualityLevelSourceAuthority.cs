@@ -23,6 +23,9 @@ internal sealed class CharacterCreationFoundationQualityLevelSourceAuthority
 
     public string SourceDigest { get; }
 
+    internal IReadOnlyList<string> GetQualityNames(string group) =>
+        _groups.TryGetValue(group, out var levels) ? levels.Values.ToArray() : [];
+
     public static bool TryCreate(string? xml, string? digest,
         out CharacterCreationFoundationQualityLevelSourceAuthority? authority)
     {

@@ -89,7 +89,7 @@ public sealed partial class CharacterCreationFoundationService
         }
     }
 
-    private static CharacterCreationLifeModuleQualityLevelResolution[] ResolveSequenceQualityLevels(
+    internal static CharacterCreationLifeModuleQualityLevelResolution[] ResolveSequenceQualityLevels(
         IReadOnlyList<CharacterCreationLifeModuleOccurrenceCompilation> occurrences,
         CharacterCreationFoundationQualitySourceAuthority? qualities,
         CharacterCreationFoundationQualityLevelSourceAuthority? levels,

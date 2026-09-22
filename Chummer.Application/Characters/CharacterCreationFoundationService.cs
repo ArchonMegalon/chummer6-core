@@ -243,7 +243,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     ? request.Binding.EnabledSources
                     : null,
                 request.Binding.SourceFilterApplied,
-                out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules);
+                out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
+                out string capturedCatalogDigest);
         if (stateResult.Value is not CharacterCreationFoundationState state)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
@@ -334,10 +335,14 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         CharacterCreationLifeModuleSequenceCompilation sequence = CompileModuleSequence(
             workspace.Document.RulesetId, capturedModules, draft, compilation, skills, qualities,
             qualityLevels, sourceContextDigest, request.QualityInstanceValues);
+        var writePlan = CharacterCreationFoundationLifeModuleQualityWritePlanner.BuildSequence(
+            workspace.Document.RulesetId, workspace.Document.Content, draft, sequence, capturedModules,
+            _lifeModulesCatalog.ReadSourceBytes(capturedCatalogDigest), capturedCatalogDigest, skills, qualities, qualityLevels);
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)
             .Concat(sequence.Blockers)
+            .Concat(writePlan.Blockers)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
@@ -356,7 +361,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             CharacterCreated: false,
             PreviewDigest: string.Empty)
         {
-            ModuleSequence = sequence
+            ModuleSequence = sequence,
+            EffectWriteSummary = writePlan.Plan?.Summary
         };
         preview = preview with
         {
@@ -626,15 +632,17 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         WorkspaceStoredDocument workspace,
         IReadOnlyCollection<string>? requestedSources,
         bool sourceFilterApplied)
-        => BuildState(workspace, requestedSources, sourceFilterApplied, out _);
+        => BuildState(workspace, requestedSources, sourceFilterApplied, out _, out _);
 
     private CharacterCreationFoundationResult<CharacterCreationFoundationState> BuildState(
         WorkspaceStoredDocument workspace,
         IReadOnlyCollection<string>? requestedSources,
         bool sourceFilterApplied,
-        out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules)
+        out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
+        out string capturedCatalogDigest)
     {
         capturedModules = [];
+        capturedCatalogDigest = string.Empty;
         CharacterDocument characterDocument = new(workspace.Document.Content);
         CharacterValidationResult validation;
         CharacterFileSummary summary;
@@ -757,6 +765,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         // Retain the same catalog projection used by the binding and budget.
         // The public foundation state deliberately exposes nationalities only.
         capturedModules = modules;
+        capturedCatalogDigest = catalogAuthority?.RawXmlDigest ?? string.Empty;
 
         string sourceDigest = Digest(new
         {

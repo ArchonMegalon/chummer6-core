@@ -16,7 +16,7 @@ namespace Chummer.Application.Characters;
 /// workspace. The caller must supply the exact effective source node produced
 /// by the authoritative VERSION-over-MODULE resolver and its raw-input digest.
 /// </summary>
-internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
+internal static partial class CharacterCreationFoundationLifeModuleQualityWritePlanner
 {
     private const string PlanSchema =
         "chummer.character_creation_foundation_lifemodule_quality_write_plan.v3";
@@ -438,7 +438,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority,
         string ownerQualityId,
         string ownerFriendlyName,
-        string defaultNotesColor)
+        string defaultNotesColor,
+        IReadOnlySet<string>? sequencePushes = null)
     {
         var improvements = new List<XElement>();
         var dependentQualityElements = new List<XElement>();
@@ -448,6 +449,12 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
 
         foreach (CharacterCreationFoundationEffectInstruction instruction in compilation.Effects)
         {
+            if (instruction.EffectKind == "qualitylevel" && sequencePushes is not null)
+            {
+                improvements.Add(CreateLegacyImprovement(instruction.Parameters["@group"], ownerQualityId,
+                    "QualityLevel", instruction.TargetId, defaultNotesColor));
+                continue;
+            }
             if (instruction.EffectKind is "attributelevel" or "skilllevel" or "skillgrouplevel"
                 or "knowledgeskilllevel")
             {
@@ -631,7 +638,10 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         if (dependentCount != compilation.DependentQualities.Count
             || usedConsumerIds.Count != compilation.SelectionConsumers.Count
             || usedBindingDigests.Count != compilation.SelectionBindings.Count
-            || compilation.SelectionPushes.Count != compilation.SelectionBindings.Count)
+            || compilation.SelectionPushes.Count != compilation.SelectionBindings.Count + (sequencePushes?.Count ?? 0)
+            || (sequencePushes is not null && sequencePushes.Any(id =>
+                compilation.SelectionPushes.Count(push => push.EffectId == id) != 1
+                || compilation.SelectionBindings.Any(binding => binding.PushEffectId == id))))
         {
             return null;
         }
@@ -646,7 +656,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         string qualityId,
         string extra,
         string ownerFriendlyName,
-        string defaultNotesColor)
+        string defaultNotesColor,
+        bool qualityLevel = false)
     {
         string sourceId = ReadRequired(source, "id");
         string name = ReadRequired(source, "name");
@@ -658,6 +669,7 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             || category is not ("Positive" or "Negative")
             || !TryReadBoolean(source, "implemented", defaultValue: true, out bool implemented)
             || !TryReadBoolean(source, "contributetobp", defaultValue: true, out bool contributeToBp)
+            || !TryReadBoolean(source, "contributetolimit", defaultValue: true, out bool contributeToLimit)
             || !TryReadBoolean(source, "stagedpurchase", defaultValue: false, out bool stagedPurchase)
             || !TryReadBoolean(source, "doublecareer", defaultValue: true, out bool doubleCareer)
             || !TryReadBoolean(source, "canbuywithspellpoints", defaultValue: false, out bool spellPoints)
@@ -688,17 +700,17 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             new XElement("extra", extra),
             // An addquality without contributetobp="True" is made free by the
             // handler, which zeroes BP and excludes it from the quality limit.
-            new XElement("bp", "0"),
+            new XElement("bp", qualityLevel ? ReadRequired(source, "karma") : "0"),
             new XElement("implemented", LegacyBoolean(implemented)),
             new XElement("contributetobp", LegacyBoolean(contributeToBp)),
-            new XElement("contributetolimit", "False"),
+            new XElement("contributetolimit", qualityLevel ? LegacyBoolean(contributeToLimit) : "False"),
             new XElement("stagedpurchase", LegacyBoolean(stagedPurchase)),
             new XElement("doublecareer", LegacyBoolean(doubleCareer)),
             new XElement("canbuywithspellpoints", LegacyBoolean(spellPoints)),
             new XElement("metagenic", LegacyBoolean(metagenic)),
             new XElement("print", LegacyBoolean(print)),
             new XElement("qualitytype", category),
-            new XElement("qualitysource", "Improvement"),
+            new XElement("qualitysource", qualityLevel ? "QualityLevelImprovement" : "Improvement"),
             new XElement("mutant", LegacyBoolean(source.Element("mutant") is not null)),
             new XElement("source", sourceBook),
             new XElement("page", page),

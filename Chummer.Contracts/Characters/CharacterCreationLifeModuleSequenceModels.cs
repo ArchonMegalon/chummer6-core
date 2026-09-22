@@ -67,3 +67,12 @@ public sealed record CharacterCreationLifeModuleQualityLevelResolution(
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationFoundationSelectionPushInstruction? InstancePush { get; init; }
 }
+
+/// <summary>Summary of a complete headless effect plan, not permission to persist it or enter Career.</summary>
+public sealed record CharacterCreationLifeModuleEffectWriteSummary(
+    int ModuleCount,
+    int ImprovementCount,
+    int DependentQualityCount,
+    int GroupQualityCount,
+    decimal ModuleKarmaCost,
+    string PlanDigest);

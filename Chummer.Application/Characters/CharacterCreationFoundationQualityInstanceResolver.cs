@@ -96,7 +96,7 @@ internal static class CharacterCreationFoundationQualityInstanceResolver
         return results.ToArray();
     }
 
-    private static bool TryInspectSelection(XElement definition, out bool needsText)
+    internal static bool TryInspectSelection(XElement definition, out bool needsText)
     {
         needsText = false;
         XElement[] selections = definition.Element("bonus")?.Elements("selecttext").ToArray() ?? [];
