@@ -2271,7 +2271,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
-                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.LifeModules)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
@@ -2318,6 +2318,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
         }
 
+        public bool TryResolveCreationLifeModuleStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+        {
+            source = null;
+            return _buildMethod == CharacterCreationBuildMethods.LifeModules
+                && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
+        }
+
         private bool TryResolveCreationStartingNuyenCore(Guid? lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
@@ -2325,7 +2332,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
             if (_sourceInputs.HasSourceDrift || lifestyleSourceId == Guid.Empty
                 || _buildMethod is not (CharacterCreationBuildMethods.Karma
-                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.LifeModules)
                 || lifestyles.Length > 1 || lifestyles.Length == 1
                     && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
                 || string.IsNullOrWhiteSpace(_settingsProfileId)

@@ -209,7 +209,7 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
-    /// Profile-owned completion limits shared by Priority, Sum-to-Ten and Karma.
+    /// Profile-owned completion limits shared by Priority, Sum-to-Ten, Karma and Life Modules.
     /// The historical policy DTO name does not authorize mixing creation budgets.
     /// </summary>
     bool TryResolveCreationCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
@@ -249,6 +249,13 @@ public interface ICharacterSourceDataContext
     /// callers must bind it to the saved lifestyle quote before finalization.
     /// </summary>
     bool TryResolveCreationKarmaStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
+    /// <summary>Life Modules selected source; callers must prove pending lifestyle ownership.</summary>
+    bool TryResolveCreationLifeModuleStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
     {
         source = null;
         return false;

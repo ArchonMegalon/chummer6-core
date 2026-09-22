@@ -259,6 +259,9 @@ public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationKarmaContactSelection>? ContactSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? StartingNuyenDiceTotal { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
@@ -294,6 +297,9 @@ public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationKarmaContactSelection>? ContactSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? StartingNuyenDiceTotal { get; init; }
 }
 
 /// <summary>
@@ -507,6 +513,15 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleContactsQuote? ContactsQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingNuyenSource? StartingCashSource { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleFinalizationBudgetQuote? FinalizationBudget { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(
