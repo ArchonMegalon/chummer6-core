@@ -232,6 +232,8 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             => inner.TryResolveCreationSkillsCatalog(out catalog);
         public bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
             => inner.TryResolveCreationLifeModuleSkillsPolicy(out policy);
+        public bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+            => inner.TryResolveCreationLifeModuleQualitiesPolicy(out policy);
         public bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
             => inner.TryResolveCreationLifeModuleResourcesPolicy(out policy);
         public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority)

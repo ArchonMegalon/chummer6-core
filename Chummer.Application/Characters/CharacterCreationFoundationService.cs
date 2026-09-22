@@ -385,7 +385,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
             && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
-                + (talentPlan?.Plan?.Talent.KarmaCost ?? 0) + (skillQuote?.Quote?.KarmaUsed ?? 0) > state.LifeModuleBudget.Total;
+                + (talentPlan?.Plan?.Talent.KarmaCost ?? 0) + (skillQuote?.Quote?.KarmaUsed ?? 0)
+                + (resourceQuote?.QualityCosts?.KarmaAdjustmentAfterTalent ?? 0) > state.LifeModuleBudget.Total;
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)
@@ -427,6 +428,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             SkillsQuote = skillQuote?.Quote,
             ResourcesPolicy = resourceQuote?.Policy,
             ResourcesQuote = resourceQuote?.Quote,
+            QualityCosts = resourceQuote?.QualityCosts,
             GearAuthority = gearQuote?.Authority,
             GearQuote = gearQuote?.Quote,
             LifestylesAuthority = lifestyles?.Authority,

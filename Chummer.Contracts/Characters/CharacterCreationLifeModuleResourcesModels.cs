@@ -6,6 +6,7 @@ public sealed record CharacterCreationLifeModuleResourcesQuote(
     CharacterCreationKarmaResourcesPolicy Policy,
     string EffectPlanDigest, string MetatypePlanDigest, string TalentPlanDigest,
     string AttributeQuoteDigest, string SkillsQuoteDigest,
+    CharacterCreationLifeModuleQualityCostsQuote QualityCosts,
     decimal TotalKarma, decimal KarmaBeforeResources, decimal KarmaInvestment,
     decimal NuyenFromKarma, decimal KarmaAfterResources,
     IReadOnlyList<string> Blockers, string QuoteDigest)

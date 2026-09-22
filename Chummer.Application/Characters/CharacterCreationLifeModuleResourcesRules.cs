@@ -14,14 +14,18 @@ internal static class CharacterCreationLifeModuleResourcesRules
         {
             if (!context.TryResolveCreationLifeModuleResourcesPolicy(out var policy) || policy is null)
                 return Failed(CharacterCreationResourcesBlockers.AuthorityUnavailable);
+            if (!context.TryResolveCreationLifeModuleQualitiesPolicy(out var qualityPolicy) || qualityPolicy is null)
+                return Failed(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
             var currentSkills = CharacterCreationLifeModuleSkillsRules.Evaluate(characterXml, effects, racial, talent,
                 attributes, skills.Selection, context);
             if (currentSkills.Quote is null
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(skills, currentSkills.Quote))
                 return Failed(CharacterCreationFoundationBlockers.SourceDigestConflict);
-            var result = Quote(effects, racial, talent, attributes, skills, policy, totalKarma, investment);
+            var result = Quote(effects, racial, talent, attributes, skills, policy, qualityPolicy, totalKarma, investment);
             if (!context.TryResolveCreationLifeModuleResourcesPolicy(out var finalPolicy)
-                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(policy, finalPolicy))
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(policy, finalPolicy)
+                || !context.TryResolveCreationLifeModuleQualitiesPolicy(out var finalQualityPolicy)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(qualityPolicy, finalQualityPolicy))
                 return Failed(CharacterCreationFoundationBlockers.SourceDigestConflict);
             return result;
         }
@@ -35,7 +39,7 @@ internal static class CharacterCreationLifeModuleResourcesRules
         CharacterCreationFoundationSequenceWritePlan effects, CharacterCreationLifeModuleMetatypeWritePlan racial,
         CharacterCreationLifeModuleTalentWritePlan talent, CharacterCreationLifeModuleAttributeQuote attributes,
         CharacterCreationLifeModuleSkillsQuote skills, CharacterCreationKarmaResourcesPolicy policy,
-        decimal totalKarma, decimal? investment)
+        CharacterCreationKarmaQualitiesPolicy qualityPolicy, decimal totalKarma, decimal? investment)
     {
         try
         {
@@ -58,21 +62,26 @@ internal static class CharacterCreationLifeModuleResourcesRules
                 || skills.Policy.SettingsProfileId != policy.SettingsProfileId || skills.Policy.RawProfileInputsDigest != policy.RawProfileInputsDigest
                 || attributes.Policy.SettingsProfileId != policy.SettingsProfileId || attributes.Policy.RawProfileInputsDigest != policy.RawProfileInputsDigest)
                 return Failed(CharacterCreationResourcesBlockers.AuthorityUnavailable);
+            var qualityCosts = CharacterCreationLifeModuleQualityCostsRules.Quote(effects, racial, talent, qualityPolicy);
+            if (qualityCosts is null || qualityPolicy.SettingsProfileId != policy.SettingsProfileId
+                || qualityPolicy.RawProfileInputsDigest != policy.RawProfileInputsDigest)
+                return Failed(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
             if (!investment.HasValue)
-                return new(policy, null, [CharacterCreationLifeModuleResourcesQuote.SelectionRequired]);
+                return new(policy, null, [.. qualityCosts.Blockers, CharacterCreationLifeModuleResourcesQuote.SelectionRequired])
+                    { QualityCosts = qualityCosts };
             if (!CharacterCreationKarmaResourcesRules.TryFundingAmount(policy.FundingExpression, investment.Value,
                 attributes.Attributes.ToDictionary(row => row.AttributeId, row => row.Current), out decimal nuyen))
                 return new(policy, null, [CharacterCreationLifeModuleResourcesQuote.InvestmentInvalid]);
             decimal available = checked(totalKarma - effects.ModuleKarmaCost - racial.Metatype.KarmaCost
-                - talent.Talent.KarmaCost - attributes.KarmaUsed - skills.KarmaUsed);
-            var blockers = new HashSet<string>(attributes.Blockers.Concat(skills.Blockers), StringComparer.Ordinal);
+                - talent.Talent.KarmaCost - attributes.KarmaUsed - skills.KarmaUsed - qualityCosts.KarmaAdjustmentAfterTalent);
+            var blockers = new HashSet<string>(attributes.Blockers.Concat(skills.Blockers).Concat(qualityCosts.Blockers), StringComparer.Ordinal);
             if (investment.Value > policy.MaximumKarmaInvestment)
                 blockers.Add(CharacterCreationKarmaResourcesRules.InvestmentLimitExceeded);
             if (investment.Value > available) blockers.Add(CharacterCreationAttributesBlockers.GlobalKarmaExceeded);
             var result = new CharacterCreationLifeModuleResourcesQuote(policy, effects.PlanDigest, racial.PlanDigest,
-                talent.PlanDigest, attributes.QuoteDigest, skills.QuoteDigest, totalKarma, available, investment.Value,
+                talent.PlanDigest, attributes.QuoteDigest, skills.QuoteDigest, qualityCosts, totalKarma, available, investment.Value,
                 nuyen, checked(available - investment.Value), blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty);
-            return new(policy, result with { QuoteDigest = Hash(result) }, result.Blockers);
+            return new(policy, result with { QuoteDigest = Hash(result) }, result.Blockers) { QualityCosts = qualityCosts };
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
         { return Failed(CharacterCreationLifeModuleResourcesQuote.InvestmentInvalid); }
@@ -83,4 +92,7 @@ internal static class CharacterCreationLifeModuleResourcesRules
 }
 
 internal sealed record CharacterCreationLifeModuleResourcesQuoteResult(CharacterCreationKarmaResourcesPolicy? Policy,
-    CharacterCreationLifeModuleResourcesQuote? Quote, IReadOnlyList<string> Blockers);
+    CharacterCreationLifeModuleResourcesQuote? Quote, IReadOnlyList<string> Blockers)
+{
+    public CharacterCreationLifeModuleQualityCostsQuote? QualityCosts { get; init; }
+}

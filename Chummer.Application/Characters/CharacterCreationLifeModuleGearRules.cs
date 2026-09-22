@@ -30,7 +30,9 @@ internal static class CharacterCreationLifeModuleGearRules
             if (!context.TryResolveCreationGearAuthority(out var finalAuthority)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(authority, finalAuthority)
                 || !context.TryResolveCreationLifeModuleResourcesPolicy(out var finalPolicy)
-                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resources.Policy, finalPolicy))
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resources.Policy, finalPolicy)
+                || !context.TryResolveCreationLifeModuleQualitiesPolicy(out var finalQualityPolicy)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resources.QualityCosts.Policy, finalQualityPolicy))
                 return Failed(CharacterCreationFoundationBlockers.SourceDigestConflict);
             return result;
         }

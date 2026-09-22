@@ -482,6 +482,7 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleResourcesQuote? ResourcesQuote { get; init; }
+    public CharacterCreationLifeModuleQualityCostsQuote? QualityCosts { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationGearAuthority? GearAuthority { get; init; }

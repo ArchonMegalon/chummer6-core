@@ -11,6 +11,36 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationQualitiesRulesTests
 {
     [TestMethod]
+    public void Free_quality_allowances_are_rounded_after_summing_and_before_caps()
+    {
+        CharacterCreationQualityCostItem[] items = [new(20, true, true, false), new(-20, true, true, false),
+            new(3, false, true, false), new(-3, false, true, false)];
+        Assert.IsTrue(CharacterCreationQualityCostRules.TryCalculate(new(2, true, true), 25, items, 3,
+            0.2m + 0.3m, -0.2m - 0.3m, out var result));
+        Assert.AreEqual(59, result.PositiveLimitKarma); // 40+3-1=42; +17 excess.
+        Assert.AreEqual(65, result.PositiveKarmaSpent); // Exempt six added afterwards.
+        Assert.AreEqual(25, result.NegativeLimitKarma);
+        Assert.AreEqual(31, result.NegativeKarmaGranted);
+        Assert.AreEqual(34, result.NetKarmaSpent);
+        Assert.IsTrue(CharacterCreationQualityCostRules.TryCalculate(new(2, false, false), 25,
+            [new(-5, true, true, false)], 0, 0m, -0.6m, out var fractional));
+        Assert.AreEqual(9, fractional.NegativeLimitKarma); // Unscaled allowance rounds to -1.
+        Assert.AreEqual(8, fractional.NegativeKarmaGranted); // -1.2 rounds to -2, not -1.
+        Assert.IsFalse(CharacterCreationQualityCostRules.TryCalculate(new(2, false, false), 25,
+            [], 0, decimal.MaxValue, 0m, out _));
+    }
+
+    [TestMethod]
+    public void Free_quality_offsets_preserve_signed_costs_instead_of_clamping_leftovers()
+    {
+        Assert.IsTrue(CharacterCreationQualityCostRules.TryCalculate(new(1, false, false), 25,
+            [], 0, 5m, -10m, out var result));
+        Assert.AreEqual(-5, result.PositiveKarmaSpent);
+        Assert.AreEqual(-10, result.NegativeKarmaGranted);
+        Assert.AreEqual(5, result.NetKarmaSpent);
+    }
+
+    [TestMethod]
     public void Contact_points_round_every_fraction_away_from_zero_and_reject_overflow()
     {
         foreach (var (discount, minimum, expected) in new[] { (0.1m, 0m, 5), (-0.9m, 0m, 4), (-4m, 0.1m, 3), (0m, 0m, 4) })

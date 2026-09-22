@@ -183,6 +183,14 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Costs for the cumulative pending Life Modules quality graph,
+    /// not a catalog granting permission to purchase Karma-method qualities.</summary>
+    bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>
     /// Profile-owned contact allowance and group rate for Priority, Sum-to-Ten
     /// and Karma. The historical DTO name does not combine their Karma budgets.

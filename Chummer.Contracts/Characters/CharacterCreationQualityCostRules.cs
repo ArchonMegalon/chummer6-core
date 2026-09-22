@@ -54,6 +54,22 @@ public static class CharacterCreationQualityCostRules
         IReadOnlyList<CharacterCreationQualityCostItem> items,
         int groupContactKarma,
         out CharacterCreationQualityCostTotals totals)
+        => TryCalculate(policy, qualityKarmaLimit, items, groupContactKarma, 0m, 0m, out totals);
+
+    /// <summary>
+    /// Already-admitted free-quality improvements are summed before rounding.
+    /// Mirrors the async creation path: negative rebate scales the free value by
+    /// KarmaQuality, while NegativeQualityLimitKarma uses its unscaled value.
+    /// StandardRound rounds every fraction away from zero, not just midpoints.
+    /// </summary>
+    public static bool TryCalculate(
+        CharacterCreationQualityCostPolicy policy,
+        int qualityKarmaLimit,
+        IReadOnlyList<CharacterCreationQualityCostItem> items,
+        int groupContactKarma,
+        decimal freePositiveQualities,
+        decimal freeNegativeQualities,
+        out CharacterCreationQualityCostTotals totals)
     {
         totals = new(0, 0, 0, 0, 0, 0, 0);
         if (policy is null || policy.KarmaMultiplier < 0 || qualityKarmaLimit < 0
@@ -103,6 +119,12 @@ public static class CharacterCreationQualityCostRules
                 negativeCapped *= policy.KarmaMultiplier;
                 positiveLimit += groupContactKarma;
                 positiveCapped += groupContactKarma;
+                long positiveAllowance = RoundAway(freePositiveQualities * policy.KarmaMultiplier);
+                positiveLimit -= positiveAllowance;
+                positiveCapped -= positiveAllowance;
+                negativeLimit += RoundAway(freeNegativeQualities);
+                negativeCapped += RoundAway(freeNegativeQualities * policy.KarmaMultiplier);
+                metagenicNegative += RoundAway(freeNegativeQualities);
                 if (policy.DoublePositiveExcess)
                 {
                     positiveLimit += Math.Max(0, positiveLimit - qualityKarmaLimit);
@@ -127,4 +149,7 @@ public static class CharacterCreationQualityCostRules
             return false;
         }
     }
+
+    private static long RoundAway(decimal value)
+        => checked((long)(value < 0 ? decimal.Floor(value) : decimal.Ceiling(value)));
 }

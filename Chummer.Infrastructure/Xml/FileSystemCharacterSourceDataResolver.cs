@@ -3837,6 +3837,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return CharacterCreationKarmaQualitiesRules.IsValidCatalog(catalog);
         }
 
+        public bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+        {
+            policy = null;
+            if (_buildMethod != CharacterCreationBuildMethods.LifeModules
+                || !TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
+            var result = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.LifeModulesSchemaV1,
+                source.SettingsProfileId, source.ProfileDigest, source.SourceDigest, source.QualityKarmaLimit,
+                source.MayExceedPositiveQualityLimit, source.MayExceedNegativeQualityLimit, source.MetagenicLimit,
+                source.CostPolicy ?? CharacterCreationQualityCostPolicy.Default, source.SourceAnchorIds, string.Empty);
+            policy = result with { AuthorityDigest = CharacterCreationKarmaQualitiesRules.PolicyDigest(result) };
+            return true;
+        }
+
         // Shared source parsing only. Each public entry retains its own build-method
         // guard and contract; this never creates a Priority prerequisite for Karma.
         private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority)
@@ -3845,7 +3858,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             authority = CharacterCreationQualitiesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _buildMethod is not (CharacterCreationBuildMethods.Priority
-                    or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.Karma)
+                    or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
                     "qualities.xml",

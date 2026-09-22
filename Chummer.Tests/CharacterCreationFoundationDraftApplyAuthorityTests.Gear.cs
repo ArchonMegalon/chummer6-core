@@ -157,6 +157,8 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     [DataRow("gear")]
     [DataRow("funding")]
     [DataRow("forged-budget")]
+    [DataRow("forged-quality-cost")]
+    [DataRow("quality-source")]
     [DataRow("existing-inventory")]
     public void Life_module_gear_rechecks_source_and_recalculates_funding_before_admission(string fault)
     {
@@ -182,11 +184,20 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             funding = funding with { NuyenFromKarma = 999999m };
             funding = funding with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(funding with { QuoteDigest = string.Empty }) };
         }
+        if (fault == "forged-quality-cost")
+        {
+            var quality = funding.QualityCosts with { KarmaAdjustmentAfterTalent = -999m, QuoteDigest = string.Empty };
+            quality = quality with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quality) };
+            funding = funding with { QualityCosts = quality, KarmaBeforeResources = funding.KarmaBeforeResources + 999m,
+                KarmaAfterResources = funding.KarmaAfterResources + 999m, QuoteDigest = string.Empty };
+            funding = funding with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(funding) };
+        }
         var changing = new GearDriftContext(context, fault);
         var result = CharacterCreationLifeModuleGearRules.Evaluate(xml, fixture.Effects, fixture.Racial,
             fixture.Talent, fixture.Attributes, skills, funding, 1000m, [], changing);
         if (fault == "gear") Assert.AreEqual(2, changing.GearReads);
         if (fault == "funding") Assert.AreEqual(3, changing.FundingReads, "The final resource reread must detect drift after basket projection.");
+        if (fault == "quality-source") Assert.AreEqual(3, changing.QualityReads, "Quality policy must remain unchanged through basket projection.");
         Assert.IsNull(result.Quote, fault);
         CollectionAssert.Contains(result.Blockers.ToArray(), fault == "existing-inventory"
             ? CharacterCreationFoundationBlockers.PendingDraftConflict : CharacterCreationFoundationBlockers.SourceDigestConflict);
@@ -203,6 +214,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     {
         internal int GearReads { get; private set; }
         internal int FundingReads { get; private set; }
+        internal int QualityReads { get; private set; }
         public bool TryResolveCyberwareGradeDeviceRating(string sourceId, string grade, out int rating)
             => inner.TryResolveCyberwareGradeDeviceRating(sourceId, grade, out rating);
         public bool TryResolveVehicleModBonuses(string sourceId, string grade, out CharacterVehicleModSourceBonuses bonuses)
@@ -211,6 +223,13 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             => inner.TryResolveCreationSkillsCatalog(out catalog);
         public bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
             => inner.TryResolveCreationLifeModuleSkillsPolicy(out policy);
+        public bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+        {
+            bool found = inner.TryResolveCreationLifeModuleQualitiesPolicy(out policy);
+            if (++QualityReads == 3 && fault == "quality-source" && policy is not null)
+                policy = SealQualityPolicy(policy with { Costs = new(3, false, false) });
+            return found;
+        }
         public bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
         {
             bool found = inner.TryResolveCreationLifeModuleResourcesPolicy(out policy);

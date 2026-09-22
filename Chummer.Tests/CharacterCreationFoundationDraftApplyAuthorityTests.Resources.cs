@@ -40,7 +40,12 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.AreEqual(2000m, quote.NuyenFromKarma);
             Assert.AreEqual(quote.TotalKarma - preview.EffectWriteSummary!.ModuleKarmaCost
                 - preview.MetatypeWriteSummary!.MetatypeKarmaCost - preview.TalentWriteSummary!.KarmaCost
-                - preview.AttributeQuote!.KarmaUsed - preview.SkillsQuote!.KarmaUsed, quote.KarmaBeforeResources);
+                - preview.AttributeQuote!.KarmaUsed - preview.SkillsQuote!.KarmaUsed
+                - quote.QualityCosts.KarmaAdjustmentAfterTalent, quote.KarmaBeforeResources);
+            Assert.AreEqual(quote.QualityCosts, preview.QualityCosts);
+            Assert.AreEqual(-15, quote.QualityCosts.Lines.Single(row => row.Name == "SINner (Corporate Limited)").SourceKarma);
+            Assert.AreEqual(-20m, quote.QualityCosts.FreeNegativeQualities, "Nationality and Arcology offsets both survive tier resolution.");
+            Assert.AreEqual(5m, quote.QualityCosts.KarmaAdjustmentAfterTalent);
             Assert.AreEqual(quote.KarmaBeforeResources - 1m, quote.KarmaAfterResources);
             Assert.AreEqual(preview.SkillsQuote.QuoteDigest, quote.SkillsQuoteDigest);
             Assert.AreEqual(CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote with { QuoteDigest = string.Empty }), quote.QuoteDigest);
@@ -125,7 +130,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         var skills = valid.Quote(new([new(native.SourceSkillId, native.Kind, 0, IsNativeLanguage: true)], [])).Quote!;
         if (fault == "skill-digest") skills = skills with { KarmaUsed = 999m };
         var result = CharacterCreationLifeModuleResourcesRules.Quote(fixture.Effects, fixture.Racial, fixture.Talent,
-            fixture.Attributes, skills, policy, fault == "fractional-budget" ? 999.5m : 1000m, investment);
+            fixture.Attributes, skills, policy, LifeQualityPolicy(fixture), fault == "fractional-budget" ? 999.5m : 1000m, investment);
         Assert.IsNull(result.Quote, fault);
         Assert.IsNotEmpty(result.Blockers, fault);
     }
@@ -176,7 +181,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         var native = fixture.Catalog.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
         var skills = fixture.Quote(new([new(native.SourceSkillId, native.Kind, 0, IsNativeLanguage: true)], [])).Quote!;
         return CharacterCreationLifeModuleResourcesRules.Quote(fixture.Effects, fixture.Racial, fixture.Talent,
-            fixture.Attributes, skills, policy, total, investment);
+            fixture.Attributes, skills, policy, LifeQualityPolicy(fixture), total, investment);
     }
 
     private sealed class ResourceDriftContext(ICharacterSourceDataContext inner) : ICharacterSourceDataContext
@@ -191,6 +196,8 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             => inner.TryResolveCreationSkillsCatalog(out catalog);
         public bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
             => inner.TryResolveCreationLifeModuleSkillsPolicy(out policy);
+        public bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+            => inner.TryResolveCreationLifeModuleQualitiesPolicy(out policy);
         public bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
         {
             bool found = inner.TryResolveCreationLifeModuleResourcesPolicy(out policy);
