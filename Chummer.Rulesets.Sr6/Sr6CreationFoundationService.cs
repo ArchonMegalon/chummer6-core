@@ -36,6 +36,25 @@ public sealed class Sr6CreationFoundationService(IWorkspaceStore store, IOwnerCo
         }
     }
 
+    public CharacterCreationFoundationResult<Sr6CreationCharacterProjection> ProjectCharacter(OwnerContextStamp owner,
+        Sr6CreationFoundationBinding binding)
+    {
+        if (!TryAcquire(owner, out var lease))
+            return Sr6CreationFoundationRules.Blocked<Sr6CreationCharacterProjection>(Sr6CreationFoundationBlockers.WorkspaceUnavailable);
+        using (lease)
+        {
+            if (!Sr6CreationFoundationIntegrity.ValidBinding(binding))
+                return Sr6CreationFoundationRules.Blocked<Sr6CreationCharacterProjection>(Sr6CreationFoundationBlockers.StaleBinding);
+            var read = owner.Owner.IsLocalSingleUser ? store.Get(binding.WorkspaceId) : store.Get(owner.Owner, binding.WorkspaceId);
+            if (!read.Success || read.Value is not { } saved)
+                return Sr6CreationFoundationRules.Blocked<Sr6CreationCharacterProjection>(Sr6CreationFoundationBlockers.StaleBinding);
+            var result = Sr6CreationCharacterProjector.Project(saved);
+            return result.Value is { } projection && projection.Binding != binding
+                ? Sr6CreationFoundationRules.Blocked<Sr6CreationCharacterProjection>(Sr6CreationFoundationBlockers.StaleBinding)
+                : result;
+        }
+    }
+
     public CharacterCreationFoundationResult<Sr6CreationFoundationCommit> Confirm(OwnerContextStamp owner,
         Sr6CreationFoundationConfirmRequest request)
     {

@@ -3,7 +3,40 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: passive and derived values — 22 September 2026
+## Current increment: character-content projection — 22 September 2026
+
+The SR6 service now materializes the fully revalidated saved choices into a
+deterministic character document through an owner- and revision-bound read-only
+entry point. Priority, Sum-to-Ten and Point Buy retain their own saved budgets.
+Natural attributes, pool/Karma skills, specialty permissions, combined languages,
+qualities, contacts, equipment purchases, lifestyle, powers and formula identities
+are represented without consulting SR5 sources. Saved IDs remain stable; generated
+IDs are workspace/domain-bound and deterministic across cold loads and locales.
+
+Natural and permanent effects remain separate. Known monitor sizes come from
+the existing Core calculation, not a new projector formula. Overflow capacity
+is not written as current damage. Equipment remains unequipped and explicitly
+lacks runtime stats; formula identities do not invent drain, range or effects.
+Conflicting passive values stay unresolved, not zero. Karma/Nuyen carry-over
+caps are shown separately without discarding the full remaining balances.
+
+The returned document is **an uncreated materialized draft**, not a write plan,
+exported completed runner or Career-entry receipt. The bootstrap attestation is
+removed from this copy because it binds the original pending XML. Store bytes,
+history and revisions remain unchanged. Missing selections, runtime-stat gaps,
+magical tradition and the finalization transaction remain explicit. An atomic
+terminal transaction must still archive the exact draft history, review lost
+balances and commit the reviewed character before native SR6 completion exists.
+
+`core-sr6-character-projection-3.log`: **292 focused Core Creation/codec tests
+PASS**, zero failed/skipped. New tests cover all three methods, shared section
+reading, decimal costs, IDs, natural/passive separation, cold/culture-independent
+reads, owner/stale-binding rejection and rehashed historical price forgery.
+The first focused run caught an incorrect test expectation for Mystic Armor
+(the catalog uses 0.25 PP, not 0.5); no rule cost was changed to make it pass.
+No package seal, Android release artifact or Play change is implied.
+
+## Historical increment: passive and derived values — 22 September 2026
 
 The revalidated saved summary now also projects permanent adept attribute and
 skill effects, keeping natural values intact. Noncombat-only Improved Ability

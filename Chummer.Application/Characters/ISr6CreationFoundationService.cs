@@ -10,6 +10,9 @@ public interface ISr6CreationFoundationService
     CharacterCreationFoundationResult<Sr6CreationFoundationState> Load(OwnerContextStamp owner, CharacterWorkspaceId workspaceId);
     CharacterCreationFoundationResult<Sr6CreationFoundationPreview> Preview(OwnerContextStamp owner,
         Sr6CreationFoundationBinding binding, Sr6CreationFoundationSelection selection);
+    /// <summary>Materializes the exact saved choices without saving or finalizing the runner.</summary>
+    CharacterCreationFoundationResult<Sr6CreationCharacterProjection> ProjectCharacter(OwnerContextStamp owner,
+        Sr6CreationFoundationBinding binding);
     CharacterCreationFoundationResult<Sr6CreationFoundationCommit> Confirm(OwnerContextStamp owner,
         Sr6CreationFoundationConfirmRequest request);
 }
