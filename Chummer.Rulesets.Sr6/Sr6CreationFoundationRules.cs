@@ -158,7 +158,7 @@ public static class Sr6CreationFoundationRules
             var qualities = Sr6CreationQualityRules.Evaluate(preview, qualitySelection);
             if (qualities.Value is null) return new(qualities.Outcome, null, qualities.Blockers);
             preview = preview with { Qualities = qualities.Value,
-                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationQualityRules.SourceAnchor] };
+                SourceAnchorIds = preview.SourceAnchorIds.Concat(qualities.Value.SourceAnchorIds).Distinct(StringComparer.Ordinal).ToArray() };
         }
         if (selection.Attributes is { } allocation)
         {
@@ -182,6 +182,8 @@ public static class Sr6CreationFoundationRules
             preview = preview with { Karma = karma.Value,
                 SourceAnchorIds = preview.SourceAnchorIds.Concat(karma.Value.SourceAnchorIds).Distinct(StringComparer.Ordinal).ToArray() };
         }
+        if (Sr6CreationQualityRules.ValidateDependentRatings(preview) is { } qualityBlocker)
+            return Blocked<Sr6CreationFoundationPreview>(qualityBlocker);
         if (selection.TalentAllocation is { } talentSelection)
         {
             var talent = Sr6CreationTalentRules.Evaluate(preview, talentSelection);

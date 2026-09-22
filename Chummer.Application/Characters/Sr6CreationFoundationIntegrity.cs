@@ -10,9 +10,9 @@ public static class Sr6CreationFoundationIntegrity
 {
     public const int MaximumDecisions = 128;
     // Full mystic-adept draft: foundation + attributes + skills + Karma +
-    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities.
+    // specialty + talent + formulas + powers + power FAQ + knowledge + qualities + racial-upgrade FAQ.
     // This is a shape bound; SR6 still re-evaluates every exact source and digest.
-    public const int MaximumSourceAnchors = 11;
+    public const int MaximumSourceAnchors = 12;
     public static string Digest<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
     public static string PreviewDigest(Sr6CreationFoundationPreview preview) => Digest(preview with { PreviewDigest = string.Empty });
     public static string DecisionDigest(Sr6CreationFoundationDecision decision) => Digest(decision with { DecisionDigest = string.Empty });

@@ -7,6 +7,7 @@ namespace Chummer.Rulesets.Sr6;
 public static class Sr6CreationQualityRules
 {
     public const string SourceAnchor = "sr6_core_de_2024:p68-81";
+    public const string MetatypeUpgradeSourceAnchor = "sr6_official_faq:racial-quality-upgrades";
 
     public static IReadOnlyList<Sr6CreationQualityOption> Options(Sr6CreationFoundationPreview foundation)
     {
@@ -57,6 +58,14 @@ public static class Sr6CreationQualityRules
                 12, "sr6_core_de_2024:p74", AttributeId: id));
         foreach (string id in Sr6CreationSkillIds.Ordered)
             values.Add(new("aptitude-" + id, "Talentiert", "aptitude", 12, "sr6_core_de_2024:p76", SkillId: id));
+        AddLevels("focused-concentration", "Erhöhte Konzentrationsfähigkeit", 3, 12, 74);
+        int builtToughInnate = foundation.Selection.MetatypeId switch { "ork" => 1, "troll" => 2, _ => 0 };
+        AddLevels("built-tough", "Robust Gebaut", 4, 4, 76, builtToughInnate);
+        AddLevels("will-to-live", "Überlebenswille", 3, 8, 76);
+        // Ten is the largest purchasable reduction under supported natural creation
+        // caps (Willpower <= 8). The actual final Willpower is checked after Karma.
+        AddLevels("glass-jaw", "Glaskinn", 10, -4, 80);
+        AddLevels("dependents", "Verpflichtungen", 3, -4, 81);
         return values.Select(row =>
         {
             bool allowed = row.Id switch
@@ -71,6 +80,13 @@ public static class Sr6CreationQualityRules
             };
             return row with { Available = allowed, UnavailableReason = allowed ? null : Sr6CreationQualityBlockers.Unavailable };
         }).ToArray();
+
+        void AddLevels(string family, string name, int maximum, int cost, int page, int innate = 0)
+        {
+            for (int rating = innate + 1; rating <= maximum; rating++)
+                values.Add(new(family + "-" + rating, name, family, (rating - innate) * cost,
+                    "sr6_core_de_2024:p" + page) { Rating = new(rating, innate, rating - innate, cost) });
+        }
     }
 
     public static CharacterCreationFoundationResult<Sr6CreationQualityPreview> Evaluate(
@@ -104,8 +120,26 @@ public static class Sr6CreationQualityRules
             foundation.Binding.AuthorityDigest, foundation.Selection.MetatypeId, foundation.Selection.TalentId,
             Values = values, MaximumChoices = 6, MaximumNetBonus = 20, BaseCustomizationKarma = 50
         });
+        bool metatypeUpgrade = values.Any(row => row.Rating is { Innate: > 0 });
+        if (metatypeUpgrade)
+            authority = Sr6CreationFoundationIntegrity.Digest(new
+            {
+                Schema = "chummer.sr6.creation-quality-upgrade.v1", PurchaseAuthority = authority,
+                MetatypeUpgradeSourceAnchor, EachUpgradeCountsAsOneChoice = true, ChargeOnlyAddedLevels = true
+            });
         return new(CharacterCreationFoundationOutcomes.Success, new(values.ToArray(), cost, bonus, net,
-            50 + net, 6, 20, authority, [SourceAnchor]), []);
+            50 + net, 6, 20, authority, metatypeUpgrade ? [SourceAnchor, MetatypeUpgradeSourceAnchor] : [SourceAnchor]), []);
+    }
+
+    /// <summary>Run after pool and Karma evaluation, never against client-provided ratings.</summary>
+    public static string? ValidateDependentRatings(Sr6CreationFoundationPreview foundation)
+    {
+        var glassJaw = foundation.Qualities?.Values.SingleOrDefault(row => row.FamilyId == "glass-jaw");
+        if (glassJaw?.Rating is not { } rating) return null;
+        if (foundation.Attributes is null) return Sr6CreationQualityBlockers.AttributesRequired;
+        int willpower = Sr6CreationKarmaRules.AttributeRating(foundation, "Willpower");
+        int stunBoxes = new Sr6DerivedStatsProvider().StunConditionMonitor(willpower);
+        return stunBoxes - rating.Total < 2 ? Sr6CreationQualityBlockers.RatingUnavailable : null;
     }
 
     public static int AttributeMaximumBonus(Sr6CreationFoundationPreview foundation, string id)

@@ -3,7 +3,39 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: selected qualities — 22 September 2026
+## Current increment: rated qualities — 22 September 2026
+
+Five rated families extend the existing catalogue: Focused Concentration
+(1–3, 12 Karma/level), Built Tough (1–4, 4/level), Will to Live (1–3, 8/level),
+Glass Jaw (4 bonus Karma/level) and Dependents (1–3, 4 bonus/level). These costs
+and limits come from the owned German 2024 core pp74/76/80–81. Source names
+remain German; no rulebook prose is distributed. The catalogue now has 89
+human, 88 ork or 87 troll variants, including the earlier fixed/targeted choices.
+
+Built Tough charges only above the ork's one or troll's two innate levels.
+An upgrade occupies one of the six selections, as clarified by the
+[official racial-quality FAQ](https://shadowrunsixthworld.com/shadowrun-sixth-world-faq/).
+The saved preview binds total/innate/purchased levels, per-level cost and the
+additional FAQ anchor. One family cannot be selected twice. Glass Jaw uses
+the final Core-evaluated Willpower after pool and Karma purchases; a selection
+leaving fewer than two stun boxes is rejected. Ten is the largest selectable
+reduction under the currently supported natural creation caps, not a claimed
+rulebook maximum. Removing a prerequisite or bonus cannot discard purchases.
+
+Nullable rating metadata is omitted for older nonrated choices, preserving
+their historical decision bytes. The exact-source bound is now twelve for
+the complete combined-domain draft, including the racial-upgrade FAQ; exact
+rule/digest re-evaluation is unchanged. Forged free levels and purchase deltas
+are rejected even when the enclosing ledger has been rehashed.
+
+`core-sr6-rated-qualities-1.log`: **234 focused Core Creation/codec tests PASS**.
+Coverage includes three methods, all metatypes' paid/free Built Tough levels,
+six-choice replacement history, dependent bonus removal, final-Willpower
+monitor limits, rehashed forgery and twelve-anchor save/cold reopen. Further
+parameterized choices, equipment and finalization remain open. These remain
+pending draft selections, not automatic in-play effects or a package/release.
+
+## Historical increment: selected qualities — 22 September 2026
 
 Priority, Sum-to-Ten and Point Buy now evaluate an explicit quality selection
 before attribute/skill pools and customization Karma. The owned German 2024
