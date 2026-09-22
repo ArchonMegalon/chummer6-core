@@ -98,6 +98,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     [DataRow("effect-digest")]
     [DataRow("cost-modifier")]
     [DataRow("conditional-grant")]
+    [DataRow("unique-grant")]
     public void Life_module_attributes_reject_unresolved_or_changed_inputs(string fault)
     {
         var fixture = AttributeMathFixture(1, "CHA");
@@ -125,10 +126,11 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             policy = policy with { AuthorityDigest = CharacterCreationAttributePolicyAuthority.ComputeDigest(policy) };
         }
         if (fault == "effect-digest") effects = effects with { ImprovementXml = [] };
-        if (fault is "cost-modifier" or "conditional-grant")
+        if (fault is "cost-modifier" or "conditional-grant" or "unique-grant")
         {
             var xml = XElement.Parse(effects.ImprovementXml.Single());
             if (fault == "cost-modifier") xml.Element("improvementttype")!.Value = "AttributeKarmaCostMultiplier";
+            else if (fault == "unique-grant") xml.Add(new XElement("unique", "group0"));
             else xml.Element("condition")!.Value = "create";
             effects = effects with { ImprovementXml = [xml.ToString(SaveOptions.DisableFormatting)] };
             (effects, racial) = SealAttributeMathPlans(effects, racial);

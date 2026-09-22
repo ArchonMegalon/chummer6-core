@@ -188,7 +188,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     request.Binding,
                     request.DraftRevision,
                     request.DraftDigest)
-                { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases });
+                { QualityInstanceValues = request.QualityInstanceValues, AttributePurchases = request.AttributePurchases,
+                    TalentSelection = request.TalentSelection });
         if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
@@ -342,21 +343,27 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         if (writePlan.Plan is { } effects && sourceContext is not null
             && state.MetatypeOptions.SingleOrDefault(option => option.Label == draft.RequestedMetatype) is { } selectedMetatype)
             metatypePlan = CharacterCreationLifeModuleMetatypeWritePlanner.Build(workspace, draft, effects, selectedMetatype, sourceContext);
+        CharacterCreationLifeModuleTalentWritePlanResult? talentPlan = null;
+        if (writePlan.Plan is { } talentEffects && metatypePlan?.Plan is { } talentRacial && sourceContext is not null)
+            talentPlan = CharacterCreationLifeModuleTalentWritePlanner.Build(workspace.Document.Content,
+                talentEffects, talentRacial, request.TalentSelection, sourceContext);
         CharacterCreationLifeModuleAttributeQuoteResult? attributes = null;
         if (writePlan.Plan is { } attributeEffects && metatypePlan?.Plan is { } racial && sourceContext is not null)
             attributes = sourceContext.TryResolveCreationAttributePolicy(out var attributePolicy) && attributePolicy is not null
                 ? CharacterCreationLifeModuleAttributeRules.Evaluate(workspace.Document.Content, attributeEffects, racial,
-                    attributePolicy, request.AttributePurchases)
+                    attributePolicy, request.AttributePurchases, talentPlan?.Plan)
                 : new(null, [CharacterCreationAttributesBlockers.AuthorityUnavailable]);
         bool attributeBudgetExceeded = attributes?.Quote is { } attributeQuote && writePlan.Plan is { } budgetEffects
             && metatypePlan?.Plan is { } budgetRacial && state.LifeModuleBudget.IsExact
-            && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost > state.LifeModuleBudget.Total;
+            && attributeQuote.KarmaUsed + budgetEffects.ModuleKarmaCost + budgetRacial.Metatype.KarmaCost
+                + (talentPlan?.Plan?.Talent.KarmaCost ?? 0) > state.LifeModuleBudget.Total;
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)
             .Concat(sequence.Blockers)
             .Concat(writePlan.Blockers)
             .Concat(metatypePlan?.Blockers ?? [])
+            .Concat(talentPlan?.Blockers ?? [])
             .Concat(attributes?.Blockers ?? [])
             .Concat(attributeBudgetExceeded ? [CharacterCreationAttributesBlockers.GlobalKarmaExceeded] : Array.Empty<string>())
             .Distinct(StringComparer.Ordinal)
@@ -380,7 +387,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             ModuleSequence = sequence,
             EffectWriteSummary = writePlan.Plan?.Summary,
             MetatypeWriteSummary = metatypePlan?.Plan?.Summary,
-            AttributeQuote = attributes?.Quote
+            AttributeQuote = attributes?.Quote,
+            TalentCatalog = talentPlan?.Catalog,
+            TalentWriteSummary = talentPlan?.Plan?.Summary
         };
         preview = preview with
         {

@@ -2531,6 +2531,79 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationLifeModuleTalents(out CharacterCreationLifeModuleTalentCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || ReadValue(settings, "buildmethod") != CharacterCreationBuildMethods.LifeModules
+                || !TryReadKarmaCost(settings, "karmaquality", out int multiplier) || multiplier <= 0
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var rows)
+                || _character.Element("qualityrestriction") is not null
+                || _character.Element("qualities")?.Elements("quality").Any() == true)
+                return false;
+            string profileAnchor = $"settings.xml#setting:{_settingsProfileId}";
+            var options = new List<CharacterCreationKarmaTalentOption>
+            {
+                CharacterCreationKarmaTalentAuthority.Mundane(profileAnchor)
+            };
+            var unlocks = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+                { [CharacterCreationKarmaTalentCatalog.MundaneOptionId] = [] };
+            foreach (var row in rows.Where(item => item.Element("onlyprioritygiven") is not null
+                && item.Element("bonus")?.Elements("enableattribute").Any() == true))
+            {
+                // Match the quality/gear resolver's normalized node representation;
+                // the effective file digest still binds the original source bytes.
+                var canonical = XElement.Parse(row.ToString(SaveOptions.DisableFormatting), LoadOptions.None);
+                var option = CharacterCreationKarmaTalentAuthority.Project(canonical, multiplier,
+                    _enabledSourcebooks.Contains(ReadValue(row, "source")));
+                if (option is null) return false;
+                if (!CharacterCreationLifeModuleTalentAuthority.TryProjectUnlockChoices(option, out var choices))
+                    option = option with { IsEnabled = false,
+                        Blockers = option.Blockers.Append(CharacterCreationKarmaTalentCatalog.UnsupportedSource).Distinct(StringComparer.Ordinal).ToArray() };
+                unlocks[option.OptionId] = choices;
+                options.Add(option);
+            }
+            if (_sourceInputs.HasSourceDrift || options.GroupBy(option => option.OptionId,
+                StringComparer.Ordinal).Any(group => group.Count() != 1)) return false;
+            var result = new CharacterCreationLifeModuleTalentCatalog(
+                CharacterCreationLifeModuleTalentCatalog.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                qualityDigest, multiplier, options.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray(), unlocks,
+                [profileAnchor, "qualities.xml"], string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationLifeModuleTalentAuthority.ComputeDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleTalentSource(string optionId, out CharacterCreationTalentQualitySource? source)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            source = null;
+            if (!TryResolveCreationLifeModuleTalents(out var catalog) || catalog is null
+                || catalog.Options.SingleOrDefault(option => option.OptionId == optionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } talent) return false;
+            if (optionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId) return !_sourceInputs.HasSourceDrift;
+            if (!TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities)) return false;
+            bool needsGear = XElement.Parse(talent.SourceNodeXml).Element("bonus")?.Elements("addgear").Any() == true;
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear))) return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                [(Reference: optionId, Selection: string.Empty)], qualities, gear, catalog.SourceInputsDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != 1
+                || sources[0].CanonicalSourceXml != talent.SourceNodeXml) return false;
+            source = sources[0];
+            return true;
+        }
+
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {

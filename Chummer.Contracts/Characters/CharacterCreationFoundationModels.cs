@@ -238,6 +238,9 @@ public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? AttributePurchases { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentSelection? TalentSelection { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
@@ -252,6 +255,9 @@ public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? AttributePurchases { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentSelection? TalentSelection { get; init; }
 }
 
 /// <summary>
@@ -428,6 +434,12 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleAttributeQuote? AttributeQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentCatalog? TalentCatalog { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentWriteSummary? TalentWriteSummary { get; init; }
 }
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(

@@ -8,7 +8,7 @@ namespace Chummer.Application.Characters;
 /// <summary>
 /// Foundation-only attribute projection. Module levels remain Improvements;
 /// only explicit purchases become paid Karma levels. Does not write XML or
-/// silently choose Mundane. Talent/awakened attributes are a separate domain.
+/// silently choose Mundane. Awakened attributes require an explicit bound talent plan.
 /// </summary>
 internal static class CharacterCreationLifeModuleAttributeRules
 {
@@ -16,7 +16,8 @@ internal static class CharacterCreationLifeModuleAttributeRules
 
     internal static CharacterCreationLifeModuleAttributeQuoteResult Evaluate(string characterXml,
         CharacterCreationFoundationSequenceWritePlan effects, CharacterCreationLifeModuleMetatypeWritePlan racial,
-        CharacterCreationAttributePolicy policy, IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? purchases)
+        CharacterCreationAttributePolicy policy, IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? purchases,
+        CharacterCreationLifeModuleTalentWritePlan? talent = null)
     {
         try
         {
@@ -36,8 +37,15 @@ internal static class CharacterCreationLifeModuleAttributeRules
                     || item.AugmentedMaximum < item.Maximum)
                 || Attributes.Any(id => !racial.Metatype.Attributes.Any(item => item.AttributeId == id)))
                 return Failed(CharacterCreationAttributesBlockers.AuthorityUnavailable);
-            if (purchases is { Count: > 9 } || purchases?.Any(item => item is null || item.KarmaLevels < 0
-                    || !Attributes.Contains(item.AttributeId, StringComparer.Ordinal)) == true
+            if (talent is not null && (talent.PlanDigest != CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(talent with { PlanDigest = string.Empty })
+                || talent.EffectPlanDigest != effects.PlanDigest || talent.MetatypePlanDigest != racial.PlanDigest
+                || talent.Catalog.SettingsProfileId != policy.SettingsProfileId
+                || talent.Catalog.RawProfileInputsDigest != policy.RawProfileInputsDigest
+                || talent.Talent.EnabledAttribute is not (null or "MAG" or "RES")))
+                return Failed(CharacterCreationAttributesBlockers.AuthorityUnavailable);
+            string[] attributes = talent?.Talent.EnabledAttribute is { } enabled ? [.. Attributes, enabled] : Attributes;
+            if (purchases is { Count: > 10 } || purchases?.Any(item => item is null || item.KarmaLevels < 0
+                    || !attributes.Contains(item.AttributeId, StringComparer.Ordinal)) == true
                 || (purchases is not null && purchases.Select(item => item.AttributeId).Distinct(StringComparer.Ordinal).Count() != purchases.Count))
                 return Failed(CharacterCreationAttributesBlockers.AllocationInvalid);
             var requested = purchases?.ToArray() ?? [];
@@ -52,19 +60,28 @@ internal static class CharacterCreationLifeModuleAttributeRules
                     item.Elements().Where(value => value.Name.LocalName is "base" or "karma").Any(value =>
                         !int.TryParse(value.Value, NumberStyles.None, CultureInfo.InvariantCulture, out int points) || points != 0)))
                 return Failed(CharacterCreationAttributesBlockers.LegacyAttributeStateRequiresImport);
-            var levels = Attributes.ToDictionary(id => id, _ => 0L, StringComparer.Ordinal);
-            foreach (string xml in effects.ImprovementXml.Concat(racial.ImprovementXml))
+            var levels = attributes.ToDictionary(id => id, _ => 0L, StringComparer.Ordinal);
+            foreach (string xml in effects.ImprovementXml.Concat(racial.ImprovementXml).Concat(talent?.ImprovementXml ?? []))
             {
                 var improvement = XElement.Parse(xml);
                 string type = improvement.Element("improvementttype")?.Value ?? string.Empty;
                 if (type != "Attributelevel")
                 {
+                    if (type == "Attribute" && talent?.Talent.EnabledAttribute is { } active
+                        && improvement.Element("improvedname")?.Value == active
+                        && improvement.Element("unique")?.Value == "enableattribute"
+                        && improvement.Element("val")?.Value == "0" && improvement.Element("rating")?.Value == "0"
+                        && improvement.Element("min")?.Value == "0" && improvement.Element("max")?.Value == "0"
+                        && improvement.Element("aug")?.Value == "0" && improvement.Element("augmax")?.Value == "0"
+                        && improvement.Element("enabled")?.Value == "1" && string.IsNullOrEmpty(improvement.Element("condition")?.Value))
+                        continue;
                     if (!IsAttributeIndependent(type)) return Failed(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                     continue;
                 }
                 string id = improvement.Element("improvedname")?.Value ?? string.Empty;
                 if (!levels.ContainsKey(id) || improvement.Element("enabled")?.Value != "1"
                     || !string.IsNullOrEmpty(improvement.Element("condition")?.Value)
+                    || !string.IsNullOrEmpty(improvement.Element("unique")?.Value)
                     || !string.IsNullOrEmpty(improvement.Element("uniquename")?.Value)
                     || !int.TryParse(improvement.Element("val")?.Value, NumberStyles.AllowLeadingSign,
                         CultureInfo.InvariantCulture, out int value))
@@ -73,7 +90,7 @@ internal static class CharacterCreationLifeModuleAttributeRules
             }
             var rows = new List<CharacterCreationLifeModuleAttributeValue>();
             var blockers = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string id in Attributes)
+            foreach (string id in attributes)
             {
                 var range = racial.Metatype.Attributes.Single(item => item.AttributeId == id);
                 int bought = requested.SingleOrDefault(item => item.AttributeId == id)?.KarmaLevels ?? 0;
@@ -81,11 +98,12 @@ internal static class CharacterCreationLifeModuleAttributeRules
                 // Legacy Attribute.FreeBase / TotalBase: sum grants, clamp to
                 // the metatype span, then apply the minimum floor. Do not clamp
                 // each occurrence separately or charge its levels a second time.
-                int minimum = Math.Max(range.Minimum, id == "EDG" || range.Maximum == 0 ? 0 : 1);
+                bool special = id is "EDG" or "MAG" or "RES";
+                int minimum = Math.Max(range.Minimum, special || range.Maximum == 0 ? 0 : 1);
                 int baseline = checked((int)Math.Max((long)range.Minimum + free, minimum));
                 int current = checked(baseline + bought);
                 int costBase = policy.AlternateMetatypeAttributeKarma
-                    ? checked((int)Math.Max((long)free + 1, id == "EDG" || range.Maximum == 0 ? 0 : 1))
+                    ? checked((int)Math.Max((long)free + 1, special || range.Maximum == 0 ? 0 : 1))
                     : baseline;
                 // There are no Priority allocations: ReverseAttributePriorityOrder
                 // cannot change this base. Shared triangular arithmetic is exact.
@@ -96,13 +114,15 @@ internal static class CharacterCreationLifeModuleAttributeRules
                 // in the bound effect plan; do not guess a module path from a
                 // version's source ID.
                 string[] anchors = racial.Metatype.SourceAnchorIds.Concat(policy.SourceAnchorIds)
+                    .Concat(id == talent?.Talent.EnabledAttribute ? talent.Summary.SourceAnchorIds : [])
                     .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
                 rows.Add(new(id, range.Minimum, range.Maximum, levels[id], free, bought, current, cost, anchors));
             }
-            if (rows.Count(row => row.AttributeId != "EDG" && row.Current == row.Maximum) > policy.MaxNumberMaxAttributesCreate)
+            if (rows.Count(row => row.AttributeId is not ("EDG" or "MAG" or "RES") && row.Current == row.Maximum) > policy.MaxNumberMaxAttributesCreate)
                 blockers.Add(CharacterCreationAttributesBlockers.MaximumAttributeCountExceeded);
             var quote = new CharacterCreationLifeModuleAttributeQuote(policy, effects.PlanDigest, racial.PlanDigest,
-                rows.ToArray(), rows.Sum(row => (decimal)row.KarmaCost), blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty);
+                rows.ToArray(), rows.Sum(row => (decimal)row.KarmaCost), blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty)
+                { TalentPlanDigest = talent?.PlanDigest };
             quote = quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
             return new(quote, quote.Blockers);
         }
@@ -122,7 +142,8 @@ internal static class CharacterCreationLifeModuleAttributeRules
         or "SkillCategorySpecializationKarmaCostMultiplier" or "SkillGroupCategoryKarmaCostMultiplier"
         or "SkillCategoryPointCostMultiplier" or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "Skill"
         or "PathogenContactResist" or "PathogenIngestionResist" or "PathogenInhalationResist" or "PathogenInjectionResist"
-        or "ToxinContactResist" or "ToxinIngestionResist" or "ToxinInhalationResist" or "ToxinInjectionResist";
+        or "ToxinContactResist" or "ToxinIngestionResist" or "ToxinInhalationResist" or "ToxinInjectionResist"
+        or "SpecialTab" or "SpecialSkills" or "BlockSpellDescriptor" or "LimitSpellCategory";
 
     private static CharacterCreationLifeModuleAttributeQuoteResult Failed(string blocker) => new(null, [blocker]);
 }

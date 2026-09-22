@@ -8,10 +8,14 @@ public sealed record CharacterCreationLifeModuleAttributeValue(string AttributeI
     IReadOnlyList<string> SourceAnchorIds);
 
 /// <summary>
-/// Source-bound normal attributes and Edge after module grants and proposed purchases.
-/// Not a talent choice, awakened-attribute quote, whole-character budget or write permission.
+/// Source-bound attributes after module grants and proposed purchases. Magic or
+/// Resonance requires an exact explicit talent plan; no whole-character budget or write permission.
 /// </summary>
 public sealed record CharacterCreationLifeModuleAttributeQuote(CharacterCreationAttributePolicy Policy,
     string EffectPlanDigest, string MetatypePlanDigest,
     IReadOnlyList<CharacterCreationLifeModuleAttributeValue> Attributes, decimal KarmaUsed,
-    IReadOnlyList<string> Blockers, string QuoteDigest);
+    IReadOnlyList<string> Blockers, string QuoteDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TalentPlanDigest { get; init; }
+}

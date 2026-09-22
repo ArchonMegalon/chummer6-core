@@ -141,6 +141,21 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Purchased talents for an exact Life Modules profile, without Priority grants.</summary>
+    bool TryResolveCreationLifeModuleTalents(out CharacterCreationLifeModuleTalentCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
+    /// <summary>Complete selected talent payload, including any source-owned free gear.
+    /// Mundane succeeds with a null source; failure must not be interpreted as Mundane.</summary>
+    bool TryResolveCreationLifeModuleTalentSource(string optionId, out CharacterCreationTalentQualitySource? source)
+    {
+        source = null;
+        return false;
+    }
+
     /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
     bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
     {
