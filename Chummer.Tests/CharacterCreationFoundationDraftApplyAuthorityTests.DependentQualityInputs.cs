@@ -35,7 +35,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             CollectionAssert.Contains(preview.FinalizationBlocked.ToArray(),
                 CharacterCreationFoundationBlockers.FinalizationPromptRequired,
                 "Rank and Code of Honor each need player text; answering the SIN must not leave only an opaque unsupported-effect blocker.");
-            var instances = preview.ModuleSequence!.DependentQualityInstances;
+            var instances = preview.ModuleSequence!.DependentQualityInstances!;
             Assert.HasCount(2, instances);
             CollectionAssert.AreEquivalent(new[] { "Rank (Neither Military nor Law Enforcement) I", "Code of Honor" },
                 instances.Select(row => row.InstancePrompt.Label).ToArray());
@@ -85,7 +85,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             foreach (string tamper in new[] { "occurrence", "consumer", "prompt", "removed" })
             {
                 var sequence = answered.ModuleSequence!;
-                var altered = sequence.DependentQualityInstances.ToArray();
+                var altered = sequence.DependentQualityInstances!.ToArray();
                 altered[0] = tamper switch
                 {
                     "occurrence" => altered[0] with { OccurrenceId = sequence.Occurrences[0].OccurrenceId },
@@ -99,6 +99,25 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 Assert.IsNull(BuildDependentQualityPlan(store, id, sequence).Plan, "Rehashed " + tamper + " selection was trusted.");
             }
             CollectionAssert.AreEqual(before, File.ReadAllBytes(WorkspacePath(directory, id)));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [TestMethod]
+    public void Sequence_without_dependent_inputs_preserves_the_historical_serialized_shape()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            var id = new CharacterWorkspaceId("historical-sequence-shape");
+            var preview = SequencePreview(CreateService(SeedJourney(directory, id)), id);
+            Assert.IsNull(preview.ModuleSequence!.DependentQualityInstances);
+            string json = JsonSerializer.Serialize(preview);
+            Assert.IsFalse(json.Contains("DependentQualityInstances", StringComparison.Ordinal),
+                "A new empty field changes canonical digests of already-saved finalization previews.");
+            var reopened = JsonSerializer.Deserialize<CharacterCreationFoundationFinalizationPreview>(json)!;
+            Assert.AreEqual(json, JsonSerializer.Serialize(reopened));
+            Assert.AreEqual(preview.PreviewDigest, reopened.PreviewDigest);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }

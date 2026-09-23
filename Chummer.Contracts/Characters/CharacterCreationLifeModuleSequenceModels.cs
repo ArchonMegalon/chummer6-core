@@ -26,7 +26,8 @@ public sealed record CharacterCreationLifeModuleSequenceCompilation(
     string CompilationDigest)
 {
     /// <summary>Player inputs for source-owned dependent selecttext not supplied by a source push.</summary>
-    public IReadOnlyList<CharacterCreationLifeModuleDependentQualityInstance> DependentQualityInstances { get; init; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleDependentQualityInstance>? DependentQualityInstances { get; init; }
 }
 
 /// <summary>An occurrence-bound player answer, never a fabricated source selection push.</summary>

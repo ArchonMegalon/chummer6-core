@@ -66,7 +66,7 @@ public sealed partial class CharacterCreationFoundationService
             draft.DraftRevision, draft.DraftDigest, draft.SourceDigest, sourceContextDigest,
             draft.ModuleSelectionFinished, occurrences.ToArray(), resolutions,
             blockers.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty)
-        { DependentQualityInstances = dependentInstances };
+        { DependentQualityInstances = dependentInstances.Length == 0 ? null : dependentInstances };
         return result with
         {
             CompilationDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(result)
