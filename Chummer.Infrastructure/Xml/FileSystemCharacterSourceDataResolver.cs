@@ -1823,6 +1823,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly object _completionProjectionSync = new();
         private JsonElement? _creationSkillsCatalogSnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
+        private JsonElement? _creationGearAuthoritySnapshot;
+        private JsonElement? _lifeModuleMagicCatalogSnapshot;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
@@ -2442,13 +2444,31 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             catalog = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
-                || !TryResolveCreationLifeModuleTalents(out var talents) || talents is null
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules)
+                return false;
+            // The source scope validates all previously captured inputs, including
+            // settings, custom overlays, talents and every magic catalog. Only the
+            // immutable-context projection is reusable, never a purchase or quote.
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _lifeModuleMagicCatalogSnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationLifeModuleMagicCatalog>();
+                if (_sourceInputs.HasSourceDrift) return false;
+                catalog = detached;
+                return catalog is not null;
+            }
+            if (!TryResolveCreationLifeModuleTalents(out var talents) || talents is null
                 || !TryResolveMagicPurchaseInputs(out var policy, out string customDigest, out var slices, out var anchors)) return false;
             var result = new CharacterCreationLifeModuleMagicCatalog(_settingsProfileId, _rawProfileInputsDigest,
                 customDigest, policy!, talents, slices,
                 anchors.Concat(talents.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
-            catalog = result with { AuthorityDigest = CharacterCreationLifeModuleMagicRules.ComputeCatalogDigest(result) };
+            result = result with { AuthorityDigest = CharacterCreationLifeModuleMagicRules.ComputeCatalogDigest(result) };
+            if (_sourceInputs.HasSourceDrift) return false;
+            var frozen = JsonSerializer.SerializeToElement(result);
+            lock (_completionProjectionSync) { _lifeModuleMagicCatalogSnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            catalog = result;
             return true;
         }
 
@@ -3117,11 +3137,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || maximumAvailability < 0
                 || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
                 || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string sourceDigest)
-                || !TryEnumerateTargets(
-                    "gear.xml",
-                    ["gears"],
-                    "gear",
-                    out XElement[] rows)
                 || !TryHasSelectedCustomDataInputFor(
                     _customDirectories,
                     "gear.xml",
@@ -3129,6 +3144,22 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 return false;
             }
+
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _creationGearAuthoritySnapshot; }
+            if (!_sourceInputs.HasSourceDrift && cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationGearAuthority>();
+                if (!_sourceInputs.HasSourceDrift && detached is not null)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+            // Preserve the existing non-authoritative diagnostic projection on
+            // drift. It must not turn into a successful cache hit.
+            if (!TryEnumerateTargets("gear.xml", ["gears"], "gear", out XElement[] rows))
+                return false;
 
             var options = new List<CharacterCreationGearCatalogOption>();
             var identities = new HashSet<Guid>();
@@ -3304,6 +3335,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(candidateAuthority)
             };
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                var frozen = JsonSerializer.SerializeToElement(authority);
+                lock (_completionProjectionSync) { _creationGearAuthoritySnapshot = frozen; }
+            }
             return true;
         }
 

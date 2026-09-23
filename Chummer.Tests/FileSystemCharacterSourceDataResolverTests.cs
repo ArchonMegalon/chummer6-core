@@ -34,6 +34,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [TestMethod]
     [DataRow("skills")]
     [DataRow("life-quality-policy")]
+    [DataRow("gear")]
+    [DataRow("life-magic")]
     public void Creation_completion_projection_reuse_detaches_collections_and_avoids_full_reprojection(string kind)
     {
         string root = FindCoreRoot();
@@ -66,31 +68,46 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("skills.xml")]
     [DataRow("weapons.xml")]
     [DataRow("qualities.xml")]
+    [DataRow("gear.xml")]
+    [DataRow("traditions.xml")]
+    [DataRow("streams.xml")]
+    [DataRow("powers.xml")]
+    [DataRow("spells.xml")]
+    [DataRow("complexforms.xml")]
     public void Creation_completion_projection_reuse_rejects_source_drift_and_ABA(string fileName)
     {
         string root = CreateTempDirectory();
         try
         {
-            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "weapons.xml", "qualities.xml");
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "weapons.xml", "qualities.xml",
+                "gear.xml", "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml");
             var resolver = new FileSystemCharacterSourceDataResolver(
                 new FileSystemContentOverlayCatalogService(root, root, null));
             string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
             var context = resolver.TryCreateContext(xml)!;
             string skills = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "skills"));
             string policy = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-quality-policy"));
+            string gear = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "gear"));
+            string magic = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-magic"));
             string path = Path.Combine(root, "data", fileName);
             byte[] original = File.ReadAllBytes(path);
             DateTime timestamp = File.GetLastWriteTimeUtc(path);
             File.AppendAllText(path, "\n");
             Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationGearAuthority(out var driftedGear) && driftedGear.IsAuthoritative);
             File.WriteAllBytes(path, original);
             File.SetLastWriteTimeUtc(path, timestamp);
             Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationGearAuthority(out var restoredGear) && restoredGear.IsAuthoritative);
             var fresh = resolver.TryCreateContext(xml)!;
             Assert.AreEqual(skills, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "skills")));
             Assert.AreEqual(policy, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-quality-policy")));
+            Assert.AreEqual(gear, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "gear")));
+            Assert.AreEqual(magic, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-magic")));
         }
         finally { DeleteTempDirectory(root); }
     }
@@ -103,6 +120,18 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsNotNull(catalog);
             return catalog;
         }
+        if (kind == "gear")
+        {
+            Assert.IsTrue(context.TryResolveCreationGearAuthority(out var gear));
+            Assert.IsTrue(gear.IsAuthoritative);
+            return gear;
+        }
+        if (kind == "life-magic")
+        {
+            Assert.IsTrue(context.TryResolveCreationLifeModuleMagicCatalog(out var magic));
+            Assert.IsNotNull(magic);
+            return magic;
+        }
         Assert.IsTrue(context.TryResolveCreationLifeModuleQualitiesPolicy(out var policy));
         Assert.IsNotNull(policy);
         return policy;
@@ -113,6 +142,10 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("skills", true)]
     [DataRow("life-quality-policy", false)]
     [DataRow("life-quality-policy", true)]
+    [DataRow("gear", false)]
+    [DataRow("gear", true)]
+    [DataRow("life-magic", false)]
+    [DataRow("life-magic", true)]
     public async Task Creation_completion_projection_parallel_readers_do_not_share_mutable_results(string kind, bool warm)
     {
         string root = FindCoreRoot();
@@ -147,6 +180,20 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Poison(catalog.ActiveSkills[0].SourceAnchorIds);
             Poison(catalog.SkillGroups[0].MemberSkillSourceIds);
             Poison(catalog.ActiveSkillSourceOrder);
+        }
+        else if (projection is CharacterCreationGearAuthority gear)
+        {
+            Poison(gear.SourceAnchorIds);
+            Poison(gear.Options[0].SourceAnchorIds);
+            Poison(gear.Options.First(option => option.Blockers.Count > 0).Blockers);
+        }
+        else if (projection is CharacterCreationLifeModuleMagicCatalog magic)
+        {
+            Poison(magic.SourceAnchorIds);
+            Poison(magic.Policy.SourceAnchorIds);
+            Poison(magic.Talents.SourceAnchorIds);
+            Poison(magic.Talents.SkillUnlockChoices.Values.First(values => values.Count > 0));
+            Poison(magic.Catalogs.SelectMany(slice => slice.Options).First().SourceAnchorIds);
         }
         else
             Poison(((CharacterCreationKarmaQualitiesPolicy)projection).SourceAnchorIds);
