@@ -625,9 +625,12 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                 || !string.Equals(element.Name.LocalName, "addqualities", StringComparison.Ordinal)
                 || element.HasAttributes
                 || children.Length == 0
+                // Source annotations (including commented-out grants in Street Kid)
+                // are not executable children. Keep them in RawXml/digests, but
+                // validate and resolve only the actual addquality elements.
                 || element.Nodes().Any(node => node is XText text
                     ? !string.IsNullOrWhiteSpace(text.Value)
-                    : node is not XElement)
+                    : node is not XElement and not XComment)
                 || children.Any(child => child.Name.NamespaceName.Length != 0
                     || !string.Equals(child.Name.LocalName, "addquality", StringComparison.Ordinal)
                     || child.HasAttributes
