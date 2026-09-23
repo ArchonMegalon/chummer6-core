@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("b6b9dacd802168ea52e8b31c51be113a8b6f7595", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shb6b9dacd80216", runtime.PACKAGE_VERSION)
+        self.assertEqual("524b2f42b0626b7bf85c88eb00ab988628a23f78", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh524b2f42b0626", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
