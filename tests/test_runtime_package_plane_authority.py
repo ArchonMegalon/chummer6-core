@@ -54,8 +54,40 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("d1c6e3d22360ce61fd32ed58cb571ac2b50b070d", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shd1c6e3d22360c", runtime.PACKAGE_VERSION)
+        self.assertEqual("b6b9dacd802168ea52e8b31c51be113a8b6f7595", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shb6b9dacd80216", runtime.PACKAGE_VERSION)
+
+    def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
+        for field, value in (
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
+                                "commit": "d1c6e3d22360ce61fd32ed58cb571ac2b50b070d"}),
+            ("package_version", "0.0.0-packageplane.candidate.shd1c6e3d22360c"),
+        ):
+            altered = copy.deepcopy(self.lock)
+            altered[field] = value
+            with self.subTest(field=field), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_life_module_completion_book_and_sr6_apis_are_in_package_consumer(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        for name in (
+            "IOwnerBoundCharacterCreationLifeModuleFinalizationService",
+            "CharacterCreationFoundationFinalizationConfirmRequest",
+            "IOwnerBoundLifeModuleBookService", "OriginStoryArcSeed",
+            "ISr6CreationFoundationService", "Sr6CreationFinalizationReview",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, script)
+        for member in (
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationLifeModuleFinalizationService.cs",
+            "Chummer.Application/LifeModules/OwnerBoundLifeModuleBookService.cs",
+            "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.LifeModuleFinalization.cs",
+            "Chummer.Tests/CharacterCreationFoundationDraftApplyAuthorityTests.OperationScope.cs",
+            "Chummer.Tests/CharacterCreationFoundationDraftApplyAuthorityTests.QualityComments.cs",
+            "Chummer.Rulesets.Sr6/Sr6CreationFoundationService.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
     def test_pending_reopen_only_authority_cannot_stand_in_for_karma_completion(self) -> None:
         for field, value in (
