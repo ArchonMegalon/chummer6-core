@@ -32,8 +32,13 @@ public sealed class OwnerBoundCharacterCreationLifeModuleFinalizationService(
             return new(CharacterCreationFoundationOutcomes.Blocked, null, [CharacterCreationFinalizationBlockers.WorkspaceUnavailable]);
         using (lease)
         {
+            // Share parsed inputs only for this admitted synchronous operation.
+            // Reuse still rechecks live bytes/catalog identity, including the
+            // post-flush evaluation immediately before the atomic replacement.
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, id);
-            return action(new(view, characterFiles, sourceResolver, catalog,
+            return action(new(view, characterFiles, sourceScope ?? sourceResolver, catalog,
                 new CharacterCreationFoundationDraftApplyAuthority(view)));
         }
     }
