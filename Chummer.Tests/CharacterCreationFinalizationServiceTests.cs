@@ -135,6 +135,7 @@ public sealed class CharacterCreationFinalizationServiceTests
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     [DataRow(CharacterCreationBuildMethods.Karma)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules)]
     public void Default_starting_cash_terms_are_source_owned_and_read_only_for_supported_methods(string method)
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(method);
@@ -161,6 +162,7 @@ public sealed class CharacterCreationFinalizationServiceTests
     [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules)]
     public void Default_starting_cash_never_substitutes_for_an_existing_or_malformed_lifestyle(string method)
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(method);
@@ -180,11 +182,12 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
-    public void Default_starting_cash_does_not_enable_unimplemented_life_modules_completion()
+    public void Default_starting_cash_does_not_admit_life_modules_through_the_karma_only_resolver()
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.LifeModules);
         var source = context.Resolver.TryCreateContext(context.Store.Get(context.WorkspaceId).Value!.Document.Content)!;
-        Assert.IsFalse(source.TryResolveCreationDefaultStartingNuyen(out var cash));
+        Assert.IsTrue(source.TryResolveCreationDefaultStartingNuyen(out _));
+        Assert.IsFalse(source.TryResolveCreationKarmaDefaultStartingNuyen(out var cash));
         Assert.IsNull(cash);
     }
 
