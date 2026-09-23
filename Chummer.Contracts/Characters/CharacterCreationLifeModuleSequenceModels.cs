@@ -23,7 +23,18 @@ public sealed record CharacterCreationLifeModuleSequenceCompilation(
     IReadOnlyList<CharacterCreationLifeModuleOccurrenceCompilation> Occurrences,
     IReadOnlyList<CharacterCreationLifeModuleQualityLevelResolution> QualityLevels,
     IReadOnlyList<string> Blockers,
-    string CompilationDigest);
+    string CompilationDigest)
+{
+    /// <summary>Player inputs for source-owned dependent selecttext not supplied by a source push.</summary>
+    public IReadOnlyList<CharacterCreationLifeModuleDependentQualityInstance> DependentQualityInstances { get; init; } = [];
+}
+
+/// <summary>An occurrence-bound player answer, never a fabricated source selection push.</summary>
+public sealed record CharacterCreationLifeModuleDependentQualityInstance(
+    string OccurrenceId,
+    string ConsumerId,
+    LifeModuleFollowUpPromptDto InstancePrompt,
+    string? InstanceValue);
 
 /// <summary>
 /// Effect/consumer IDs inside Compilation are local to this occurrence. They

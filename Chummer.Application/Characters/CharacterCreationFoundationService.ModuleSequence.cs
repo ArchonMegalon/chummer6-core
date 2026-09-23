@@ -60,12 +60,13 @@ public sealed partial class CharacterCreationFoundationService
         CharacterCreationLifeModuleQualityLevelResolution[] resolutions = ResolveSequenceQualityLevels(
             occurrences, qualities, levels, blockers);
         resolutions = CharacterCreationFoundationQualityInstanceResolver.Resolve(
-            resolutions, occurrences, qualities, qualityInstanceValues, blockers);
+            resolutions, occurrences, qualities, qualityInstanceValues, blockers, out var dependentInstances);
         var result = new CharacterCreationLifeModuleSequenceCompilation(
             "chummer.character_creation_life_module_sequence.v1", draft.WorkspaceId,
             draft.DraftRevision, draft.DraftDigest, draft.SourceDigest, sourceContextDigest,
             draft.ModuleSelectionFinished, occurrences.ToArray(), resolutions,
-            blockers.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
+            blockers.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty)
+        { DependentQualityInstances = dependentInstances };
         return result with
         {
             CompilationDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(result)

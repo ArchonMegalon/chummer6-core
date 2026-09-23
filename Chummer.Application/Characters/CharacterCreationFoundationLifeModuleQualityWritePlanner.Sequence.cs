@@ -53,9 +53,14 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
 
             var expectedLevels = CharacterCreationFoundationService.ResolveSequenceQualityLevels(sequence.Occurrences, qualities, levels, blockers);
             var selections = sequence.QualityLevels.Where(level => level.InstancePrompt is not null && level.InstanceValue is not null)
-                .ToDictionary(level => level.InstancePrompt!.PromptId, level => level.InstanceValue!, StringComparer.Ordinal);
-            var resolved = CharacterCreationFoundationQualityInstanceResolver.Resolve(expectedLevels, sequence.Occurrences, qualities, selections, blockers);
-            if (blockers.Count != 0 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resolved, sequence.QualityLevels))
+                .Select(level => new KeyValuePair<string, string>(level.InstancePrompt!.PromptId, level.InstanceValue!))
+                .Concat(sequence.DependentQualityInstances.Where(row => row.InstanceValue is not null)
+                    .Select(row => new KeyValuePair<string, string>(row.InstancePrompt.PromptId, row.InstanceValue!)))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            var resolved = CharacterCreationFoundationQualityInstanceResolver.Resolve(expectedLevels, sequence.Occurrences, qualities,
+                selections, blockers, out var dependentInstances);
+            if (blockers.Count != 0 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resolved, sequence.QualityLevels)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(dependentInstances, sequence.DependentQualityInstances))
                 return Failure(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
 
             var qualityXml = new List<string>();
@@ -100,8 +105,10 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                 string ownerId = SequenceQualityId(new { draft.WorkspaceId, draft.DraftDigest, sequence.CompilationDigest, occurrence.OccurrenceId });
                 var reserved = ResolveSequencePushes(occurrence, sequence.QualityLevels, dispositions);
                 if (reserved is null) return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+                var dependentSelections = dependentInstances.Where(row => row.OccurrenceId == occurrence.OccurrenceId)
+                    .ToDictionary(row => row.ConsumerId, row => row.InstanceValue!, StringComparer.Ordinal);
                 var graph = CreateCompositeWriteGraph(draft.WorkspaceId, draft, compiled, qualities,
-                    ownerId, definition.Name, defaultNotesColor, reserved);
+                    ownerId, definition.Name, defaultNotesColor, reserved, dependentSelections);
                 if (graph is null) return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                 qualityXml.Add(CreateQuality(effective, definition, ownerId, defaultNotesColor).ToString(SaveOptions.DisableFormatting));
                 qualityXml.AddRange(graph.DependentQualities.Select(node => node.ToString(SaveOptions.DisableFormatting)));

@@ -18,6 +18,14 @@ internal static class CharacterCreationFoundationQualityInstanceResolver
         IReadOnlyList<CharacterCreationLifeModuleOccurrenceCompilation> occurrences,
         CharacterCreationFoundationQualitySourceAuthority? qualities,
         IReadOnlyDictionary<string, string>? requestedValues, ICollection<string> blockers)
+        => Resolve(levels, occurrences, qualities, requestedValues, blockers, out _);
+
+    public static CharacterCreationLifeModuleQualityLevelResolution[] Resolve(
+        IReadOnlyList<CharacterCreationLifeModuleQualityLevelResolution> levels,
+        IReadOnlyList<CharacterCreationLifeModuleOccurrenceCompilation> occurrences,
+        CharacterCreationFoundationQualitySourceAuthority? qualities,
+        IReadOnlyDictionary<string, string>? requestedValues, ICollection<string> blockers,
+        out CharacterCreationLifeModuleDependentQualityInstance[] dependentInstances)
     {
         requestedValues ??= new Dictionary<string, string>(StringComparer.Ordinal);
         bool valuesValid = LifeModuleDecisionInputIntegrity.TryNormalize(requestedValues, out var values)
@@ -67,6 +75,46 @@ internal static class CharacterCreationFoundationQualityInstanceResolver
             results.Add(result with { InstancePrompt = prompt, InstanceValue = value,
                 InstancePush = sourcePush?.Instruction, InstancePushOccurrenceId = sourcePush?.OccurrenceId });
         }
+        var dependentResults = new List<CharacterCreationLifeModuleDependentQualityInstance>();
+        foreach (var occurrence in occurrences)
+        foreach (var consumer in occurrence.Compilation.SelectionConsumers)
+        {
+            // A source-provided LIFO selection remains authoritative. Do not ask
+            // again or let player text override an already bound source push.
+            if (occurrence.Compilation.SelectionBindings.Any(binding => binding.ConsumerId == consumer.ConsumerId))
+                continue;
+            var dependents = occurrence.Compilation.DependentQualities
+                .Where(item => item.SelectionConsumerId == consumer.ConsumerId).ToArray();
+            if (dependents.Length != 1
+                || dependents[0].CompilationStatus != CharacterCreationFoundationEffectCompilationStatuses.Supported
+                || dependents[0].HasRuntimeRequirements
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(dependents[0].TargetBinding, consumer.TargetBinding)
+                || qualities is null || !qualities.TryGetDefinition(consumer.TargetBinding, out var definition, out string nodeDigest)
+                || definition is null || nodeDigest != consumer.SourceNodeDigest
+                || !CharacterCreationFoundationEffectCompiler.TryInspectDependentQuality(definition,
+                    out bool needsText, out bool hasRequirements, out bool bonusSupported)
+                || !needsText || hasRequirements || !bonusSupported)
+            {
+                blockers.Add(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+                continue;
+            }
+            string digest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
+            {
+                Semantics = "life-module-dependent-quality-selecttext/v1",
+                occurrence.OccurrenceId, Consumer = consumer
+            });
+            string promptId = "dependent-quality-instance:" + digest[7..];
+            var prompt = new LifeModuleFollowUpPromptDto(promptId, consumer.TargetBinding.CanonicalName,
+                "text", true, [], consumer.SourceAnchorIds.ToArray(), consumer.EffectId, "quality/bonus/selecttext");
+            if (!knownPrompts.Add(promptId))
+                blockers.Add(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+            string? value = valuesValid && values.TryGetValue(promptId, out string? answer) && IsLiteral(answer)
+                ? answer : null;
+            if (value is null)
+                blockers.Add(CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+            dependentResults.Add(new(occurrence.OccurrenceId, consumer.ConsumerId, prompt, value));
+        }
+        dependentInstances = dependentResults.ToArray();
         if (requestedValues.Keys.Any(key => !knownPrompts.Contains(key)))
             blockers.Add(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
         return results.ToArray();

@@ -439,12 +439,14 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
         string ownerQualityId,
         string ownerFriendlyName,
         string defaultNotesColor,
-        IReadOnlySet<string>? sequencePushes = null)
+        IReadOnlySet<string>? sequencePushes = null,
+        IReadOnlyDictionary<string, string>? dependentSelections = null)
     {
         var improvements = new List<XElement>();
         var dependentQualityElements = new List<XElement>();
         var usedConsumerIds = new HashSet<string>(StringComparer.Ordinal);
         var usedBindingDigests = new HashSet<string>(StringComparer.Ordinal);
+        var usedPlayerSelections = new HashSet<string>(StringComparer.Ordinal);
         int dependentCount = 0;
 
         foreach (CharacterCreationFoundationEffectInstruction instruction in compilation.Effects)
@@ -549,10 +551,6 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                                 StringComparison.Ordinal))
                             .ToArray();
                     if (consumers.Length != 1
-                        || selectionBindings.Length != 1
-                        || !FixedTimeEquals(
-                            consumers[0].InstructionDigest,
-                            selectionBindings[0].ConsumerInstructionDigest)
                         || !FixedTimeEquals(
                             consumers[0].OwnerSourceDigest,
                             ledger.SourceDigest)
@@ -564,34 +562,49 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                             consumers[0].TargetBinding.CanonicalName,
                             dependent.TargetBinding.CanonicalName,
                             StringComparison.Ordinal)
-                        || compilation.SelectionPushes.Count(item => string.Equals(
-                            item.EffectId,
-                            selectionBindings[0].PushEffectId,
-                            StringComparison.Ordinal)) != 1)
+                        || !usedConsumerIds.Add(dependent.SelectionConsumerId))
                     {
                         return null;
                     }
 
-                    CharacterCreationFoundationSelectionPushInstruction push = compilation
-                        .SelectionPushes.Single(item => string.Equals(
-                            item.EffectId,
-                            selectionBindings[0].PushEffectId,
-                            StringComparison.Ordinal));
-                    if (!FixedTimeEquals(
-                            push.InstructionDigest,
-                            selectionBindings[0].PushInstructionDigest)
-                        || !FixedTimeEquals(push.SourceDigest, ledger.SourceDigest)
-                        || !string.Equals(
-                            push.Literal,
-                            selectionBindings[0].Literal,
-                            StringComparison.Ordinal)
-                        || !usedConsumerIds.Add(dependent.SelectionConsumerId)
-                        || !usedBindingDigests.Add(selectionBindings[0].BindingDigest))
+                    if (selectionBindings.Length == 0)
                     {
-                        return null;
+                        // Only the full sequence writer supplies these, after
+                        // re-resolving the source/occurrence-bound prompt graph.
+                        if (dependentSelections is null
+                            || !dependentSelections.TryGetValue(dependent.SelectionConsumerId, out string? selected)
+                            || string.IsNullOrWhiteSpace(selected)
+                            || !usedPlayerSelections.Add(dependent.SelectionConsumerId))
+                            return null;
+                        extra = selected;
                     }
+                    else
+                    {
+                        if (selectionBindings.Length != 1
+                            || dependentSelections?.ContainsKey(dependent.SelectionConsumerId) == true
+                            || !FixedTimeEquals(consumers[0].InstructionDigest, selectionBindings[0].ConsumerInstructionDigest)
+                            || compilation.SelectionPushes.Count(item => item.EffectId == selectionBindings[0].PushEffectId) != 1)
+                            return null;
+                        CharacterCreationFoundationSelectionPushInstruction push = compilation
+                            .SelectionPushes.Single(item => string.Equals(
+                                item.EffectId,
+                                selectionBindings[0].PushEffectId,
+                                StringComparison.Ordinal));
+                        if (!FixedTimeEquals(
+                                push.InstructionDigest,
+                                selectionBindings[0].PushInstructionDigest)
+                            || !FixedTimeEquals(push.SourceDigest, ledger.SourceDigest)
+                            || !string.Equals(
+                                push.Literal,
+                                selectionBindings[0].Literal,
+                                StringComparison.Ordinal)
+                            || !usedBindingDigests.Add(selectionBindings[0].BindingDigest))
+                        {
+                            return null;
+                        }
 
-                    extra = selectionBindings[0].Literal;
+                        extra = selectionBindings[0].Literal;
+                    }
                 }
 
                 string dependentQualityId = CreateDeterministicDependentQualityId(
@@ -638,6 +651,7 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
         if (dependentCount != compilation.DependentQualities.Count
             || usedConsumerIds.Count != compilation.SelectionConsumers.Count
             || usedBindingDigests.Count != compilation.SelectionBindings.Count
+            || usedPlayerSelections.Count != (dependentSelections?.Count ?? 0)
             || compilation.SelectionPushes.Count != compilation.SelectionBindings.Count + (sequencePushes?.Count ?? 0)
             || (sequencePushes is not null && sequencePushes.Any(id =>
                 compilation.SelectionPushes.Count(push => push.EffectId == id) != 1
