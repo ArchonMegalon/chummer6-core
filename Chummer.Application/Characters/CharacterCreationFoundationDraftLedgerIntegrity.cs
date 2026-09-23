@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -185,14 +184,18 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
 
     private static string ComputeCanonicalSha256<T>(T value)
     {
-        JsonElement root = JsonSerializer.SerializeToElement(value);
-        ArrayBufferWriter<byte> buffer = new();
-        using (var writer = new Utf8JsonWriter(buffer))
+        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        // Keep the canonical v1 bytes, but hash them as they are emitted rather
+        // than retaining another full copy of the large Creation/archive graph.
+        using SHA256 hash = SHA256.Create();
+        using CryptoStream stream = new(Stream.Null, hash, CryptoStreamMode.Write);
+        using (Utf8JsonWriter writer = new(stream))
         {
-            WriteCanonical(root, writer);
+            WriteCanonical(document.RootElement, writer);
         }
 
-        return Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        stream.FlushFinalBlock();
+        return Convert.ToHexStringLower(hash.Hash!);
     }
 
     private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
@@ -236,6 +239,11 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
             default:
                 throw new InvalidOperationException("Unsupported foundation-draft JSON value kind.");
         }
+
+        // Utf8JsonWriter(Stream) buffers until Flush. Bound that buffer between
+        // values; a single large string is still written intact and unchanged.
+        if (writer.BytesPending >= 64 * 1024)
+            writer.Flush();
     }
 
     private static bool FixedTimeEquals(string? left, string? right)
