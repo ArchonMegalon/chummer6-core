@@ -78,6 +78,26 @@ public sealed class CreationCanonicalDigestTests
             CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state));
     }
 
+    [TestMethod]
+    public void Foundation_digest_reuses_output_buffer_for_large_single_values()
+    {
+        var value = new { text = new string('x', 300_000) + "é😀\"", tail = new[] { 1, 2, 3 } };
+        string expected = "sha256:" + LegacyDigest(value);
+        Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+        long allocated = Allocations(() => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+        // Decoding the JSON string still allocates its UTF-16 representation.
+        // The UTF-8 output buffer must not add another large array each time.
+        Assert.IsTrue(allocated < 1_000_000, $"Canonical digest allocated {allocated:N0} bytes.");
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+            Assert.AreEqual("sha256:" + LegacyDigest(new { small = i }),
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new { small = i }));
+        }
+        Parallel.For(0, 4, _ => Assert.AreEqual(expected,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value)));
+    }
+
     private static WorkspaceDocumentAuxiliaryState State(int count)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
