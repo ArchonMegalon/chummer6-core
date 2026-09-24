@@ -366,6 +366,9 @@ public sealed record LifeModuleOriginDossierDecisionPreview(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public LifeModuleDecisionInputResolution? InputResolution { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public LifeModuleEffectReview? EffectReview { get; init; }
+
     public bool RequiresExplicitConfirmation { get; } = true;
 
     public bool IncludesFutureBranchText { get; }
