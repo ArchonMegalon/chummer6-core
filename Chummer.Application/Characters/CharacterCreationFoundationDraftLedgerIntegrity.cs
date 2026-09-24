@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -187,15 +188,60 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
         using JsonDocument document = JsonSerializer.SerializeToDocument(value);
         // Keep the canonical v1 bytes, but hash them as they are emitted rather
         // than retaining another full copy of the large Creation/archive graph.
-        using SHA256 hash = SHA256.Create();
-        using CryptoStream stream = new(Stream.Null, hash, CryptoStreamMode.Write);
-        using (Utf8JsonWriter writer = new(stream))
+        using var output = new CanonicalHashBufferWriter();
+        using (Utf8JsonWriter writer = new(output))
         {
             WriteCanonical(document.RootElement, writer);
         }
 
-        stream.FlushFinalBlock();
-        return Convert.ToHexStringLower(hash.Hash!);
+        return output.GetDigest();
+    }
+
+    // Utf8JsonWriter(Stream) owns a fresh growable output array. Replaying the
+    // large Creation catalogs repeatedly allocated those arrays even though the
+    // bytes went straight into a hash. Hash each committed segment instead and
+    // return the cleared rental after this invocation. No domain result or
+    // caller-owned value is cached; every comparison still serializes both sides.
+    private sealed class CanonicalHashBufferWriter : IBufferWriter<byte>, IDisposable
+    {
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private byte[] _buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+
+        public void Advance(int count)
+        {
+            if ((uint)count > (uint)_buffer.Length)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            _hash.AppendData(_buffer.AsSpan(0, count));
+        }
+
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        public Span<byte> GetSpan(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        private void EnsureCapacity(int sizeHint)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(sizeHint);
+            if (sizeHint <= _buffer.Length) return;
+            byte[] replacement = ArrayPool<byte>.Shared.Rent(sizeHint);
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            _buffer = replacement;
+        }
+
+        public string GetDigest() => Convert.ToHexStringLower(_hash.GetHashAndReset());
+
+        public void Dispose()
+        {
+            _hash.Dispose();
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+        }
     }
 
     private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
@@ -240,7 +286,7 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
                 throw new InvalidOperationException("Unsupported foundation-draft JSON value kind.");
         }
 
-        // Utf8JsonWriter(Stream) buffers until Flush. Bound that buffer between
+        // Utf8JsonWriter buffers until Flush. Bound that buffer between
         // values; a single large string is still written intact and unchanged.
         if (writer.BytesPending >= 64 * 1024)
             writer.Flush();
