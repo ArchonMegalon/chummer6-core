@@ -1821,6 +1821,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
         private readonly object _completionProjectionSync = new();
+        private CharacterCreationFoundationEffectSources? _foundationEffectSourcesSnapshot;
         private JsonElement? _creationSkillsCatalogSnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
         private JsonElement? _creationGearAuthoritySnapshot;
@@ -2050,8 +2051,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
-                || skillsDigest != _effectiveSkillsInputsDigest
-                || !TryLoadEffectiveDocument(_catalog, "skills.xml", out XDocument? skills)
+                || skillsDigest != _effectiveSkillsInputsDigest)
+                return false;
+
+            CharacterCreationFoundationEffectSources? cached;
+            lock (_completionProjectionSync) { cached = _foundationEffectSourcesSnapshot; }
+            if (cached is not null)
+            {
+                // Reuse only the immutable XML strings for this exact context.
+                // Nested Enter calls may already have the snapshot installed,
+                // so explicit byte/identity/membership admission is still required.
+                if (!_sourceInputs.TryAdmitReuse(_catalog))
+                    return false;
+                sources = CopyFoundationEffectSources(cached);
+                return true;
+            }
+
+            if (!TryLoadEffectiveDocument(_catalog, "skills.xml", out XDocument? skills)
                 || skills?.Root is null
                 || !TryLoadEffectiveDocument(_catalog, "qualities.xml", out XDocument? qualities)
                 || qualities?.Root is null
@@ -2060,15 +2076,26 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !_sourceInputs.TryAdmitReuse(_catalog))
                 return false;
 
-            sources = new CharacterCreationFoundationEffectSources(
+            var result = new CharacterCreationFoundationEffectSources(
                 _settingsProfileId,
                 _rawProfileInputsDigest,
                 Array.AsReadOnly(_enabledSourcebooks.OrderBy(book => book, StringComparer.Ordinal).ToArray()),
                 skills.ToString(SaveOptions.DisableFormatting),
                 qualities.ToString(SaveOptions.DisableFormatting),
                 qualityLevels.ToString(SaveOptions.DisableFormatting));
+            lock (_completionProjectionSync)
+            {
+                _foundationEffectSourcesSnapshot ??= result;
+                sources = CopyFoundationEffectSources(_foundationEffectSourcesSnapshot);
+            }
             return true;
         }
+
+        private static CharacterCreationFoundationEffectSources CopyFoundationEffectSources(
+            CharacterCreationFoundationEffectSources snapshot) => snapshot with
+        {
+            EnabledSourcebooks = Array.AsReadOnly(snapshot.EnabledSourcebooks.ToArray())
+        };
 
         public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
         {

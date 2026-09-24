@@ -31,6 +31,106 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         "sha256:ccee5dfabb8d0e193aa980e9905822a0f94fb9bb8093c162f5b694a974946425";
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
+    private static string FoundationEffectsCharacterXml =>
+        $"<character><settings>{CanonicalLifeModuleSettingsId}</settings>"
+        + "<buildmethod>LifeModule</buildmethod><created>False</created><ruleset>sr5</ruleset></character>";
+
+    [TestMethod]
+    public void Life_foundation_effect_sources_reuse_exact_strings_without_rebuilding_xml_trees()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var first));
+        long coldBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsNotNull(first);
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var second));
+        long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsNotNull(second);
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.AreNotSame(first, second);
+        Assert.AreNotSame(first.EnabledSourcebooks, second.EnabledSourcebooks);
+        Assert.IsTrue(((System.Collections.IList)second.EnabledSourcebooks).IsReadOnly);
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+        Console.WriteLine($"foundation-effects cold-bytes={coldBytes} warm-bytes={warmBytes}");
+        Assert.IsTrue(warmBytes < coldBytes / 4,
+            $"Repeated effect-source projection allocated {warmBytes:N0} bytes versus {coldBytes:N0} cold.");
+    }
+
+    [TestMethod]
+    [DataRow("skills.xml", false)]
+    [DataRow("qualities.xml", false)]
+    [DataRow("qualitylevels.xml", false)]
+    [DataRow("skills.xml", true)]
+    [DataRow("qualities.xml", true)]
+    [DataRow("qualitylevels.xml", true)]
+    public void Life_foundation_effect_sources_reuse_rejects_byte_drift_and_ABA(string fileName, bool weakIdentity)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml",
+                "skills.xml", "qualities.xml", "qualitylevels.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null,
+                useStrongChangeIdentity: !weakIdentity);
+            var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+            Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var first));
+            string expected = System.Text.Json.JsonSerializer.Serialize(first);
+            Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out _));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            byte[] changed = original.ToArray();
+            int whitespace = Array.IndexOf(changed, (byte)'\n');
+            Assert.IsTrue(whitespace >= 0);
+            changed[whitespace] = (byte)' ';
+            File.WriteAllBytes(path, changed);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var drifted));
+            Assert.IsNull(drifted);
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var restored));
+            Assert.IsNull(restored, "A drifted context must not revive when its old bytes return.");
+            var fresh = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+            Assert.IsTrue(fresh.TryResolveCreationFoundationEffectSources(out var current));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(current));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Life_foundation_effect_sources_parallel_reads_remain_detached(bool warm)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        if (warm) Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out _));
+        var calls = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+        {
+            Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var result));
+            Assert.IsNotNull(result);
+            return result;
+        })).ToArray();
+        var results = await Task.WhenAll(calls);
+        string expected = System.Text.Json.JsonSerializer.Serialize(results[0]);
+        foreach (var result in results.Skip(1))
+        {
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(result));
+            Assert.AreNotSame(results[0], result);
+            Assert.AreNotSame(results[0].EnabledSourcebooks, result.EnabledSourcebooks);
+        }
+    }
+
     [TestMethod]
     [DataRow("skills")]
     [DataRow("life-quality-policy")]
