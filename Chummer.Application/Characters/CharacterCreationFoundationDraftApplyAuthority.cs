@@ -74,6 +74,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             context.Workspace.Document.AuxiliaryState.CharacterCreationFoundationDraft;
         if (current is not null)
         {
+            if (current.AdditionalModules is { Count: > 0 })
+                blockers.Add(CharacterCreationFoundationBlockers.FoundationLockedByJourney);
             if (current.DraftRevision == long.MaxValue)
                 blockers.Add(CharacterCreationFoundationBlockers.PendingDraftConflict);
             string currentRawDigest = CharacterCreationFoundationDraftLedgerIntegrity
@@ -156,7 +158,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
                 CharacterCreationFoundationLifeModuleDecisionAuthority.CreateAcceptance(
                     context,
                     proposed,
-                    context.Workspace.ContentRevision + 1);
+                    context.Workspace.ContentRevision + 1,
+                    previewDigest);
             if (originAcceptance is null)
             {
                 return Blocked(
@@ -246,7 +249,11 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             SourceAnchorIds: sourceAnchors,
             CompilationStatus: CharacterCreationFoundationDraftStatuses.PendingFinalization,
             CharacterEffectsApplied: false,
-            DraftDigest: string.Empty);
+            DraftDigest: string.Empty)
+        {
+            AdditionalModules = current?.AdditionalModules,
+            ModuleSelectionFinished = current?.ModuleSelectionFinished ?? false
+        };
         return ledger with
         {
             DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(ledger)

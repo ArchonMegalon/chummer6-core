@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.shd1c6e3d22360c"
-runtime_source_commit="d1c6e3d22360ce61fd32ed58cb571ac2b50b070d"
+candidate_version="0.0.0-packageplane.candidate.shcc6548718d9ce"
+runtime_source_commit="cc6548718d9ce01983e74473bb35953f64859617"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -483,10 +483,12 @@ cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
 using System.Reflection;
 using Chummer.Application.Characters;
 using Chummer.Application.Explain;
+using Chummer.Application.LifeModules;
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.BuildGhost;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 using Chummer.Engine.GmCharacterEdits;
@@ -534,6 +536,28 @@ public static class BoundaryProbe
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+
+    // Compile the actual phone-facing contracts from packages, without source
+    // siblings. These signatures are not a device or provider execution claim.
+    public static CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview> PreviewLifeModules(
+        IOwnerBoundCharacterCreationLifeModuleFinalizationService service,
+        OwnerContextStamp owner, CharacterCreationFoundationFinalizationPreviewRequest request)
+        => service.Preview(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> ConfirmLifeModules(
+        IOwnerBoundCharacterCreationLifeModuleFinalizationService service,
+        OwnerContextStamp owner, CharacterCreationFoundationFinalizationConfirmRequest request)
+        => service.Confirm(owner, request);
+
+    public static LifeModuleOriginDossierResult<OriginStoryArcSeed> ReadRetainedLifeModuleBook(
+        IOwnerBoundLifeModuleBookService service, OwnerContextStamp owner,
+        CharacterWorkspaceId workspaceId, long revision, long savedRevision)
+        => service.Load(owner, workspaceId, revision, savedRevision);
+
+    public static CharacterCreationFoundationResult<Sr6CreationFinalizationReview> ReviewSr6Creation(
+        ISr6CreationFoundationService service, OwnerContextStamp owner,
+        Sr6CreationFoundationBinding binding)
+        => service.ReviewFinalization(owner, binding);
 
     public static Type WorkspaceRuleQuestionImplementation => typeof(WorkspaceRuleQuestionService);
 

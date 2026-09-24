@@ -184,7 +184,11 @@ public sealed record LifeModuleDecisionAuthorityChoice(
     LifeModuleMechanicsPreview MechanicsPreview,
     IReadOnlyList<string> SourceAnchorIds,
     IReadOnlyList<string> Blockers,
-    bool IsLegal);
+    bool IsLegal)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<LifeModuleFollowUpPromptDto>? FollowUps { get; init; }
+}
 
 /// <summary>
 /// Read model returned by the existing Life Module decision authority. Scene
@@ -246,7 +250,11 @@ public sealed record LifeModuleDecisionAcceptanceCommand(
     string ExpectedMechanicsSnapshotDigest,
     string ExpectedTurnSeedDigest,
     string IdempotencyKey,
-    string IdempotencyKeyDigest);
+    string IdempotencyKeyDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public LifeModuleDecisionInputResolution? InputResolution { get; init; }
+}
 
 public sealed record LifeModuleAcceptedDecisionReceipt(
     string Schema,
@@ -267,11 +275,23 @@ public sealed record LifeModuleAcceptedDecisionReceipt(
     string MechanicsSnapshotDigest,
     string ConsequenceMarkdown,
     IReadOnlyList<OriginCanonicalNarrativeFact> CanonicalFacts,
-    string ReceiptDigest);
+    string ReceiptDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputResolutionDigest { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChapterDigest { get; init; }
+}
 
 public sealed record LifeModuleDecisionAcceptance(
     LifeModuleAcceptedDecisionReceipt Receipt,
-    LifeModuleDecisionAuthorityStep NextStep);
+    LifeModuleDecisionAuthorityStep NextStep)
+{
+    /// <summary>The exact canonical chapter committed with this decision, not provider prose.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public OriginNarrativeChapterProjection? Chapter { get; init; }
+}
 
 public sealed record LifeModuleDecisionAuthorityResult<T>(
     string Outcome,
@@ -343,6 +363,9 @@ public sealed record LifeModuleOriginDossierDecisionPreview(
     string BoundMechanicsSnapshotDigest,
     string PreviewDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public LifeModuleDecisionInputResolution? InputResolution { get; init; }
+
     public bool RequiresExplicitConfirmation { get; } = true;
 
     public bool IncludesFutureBranchText { get; }
@@ -396,6 +419,9 @@ public sealed record LifeModuleNarrativeChoiceSeed(
     bool IsLegal,
     string ChoiceDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<LifeModuleFollowUpPromptDto>? FollowUps { get; init; }
+
     public bool WithholdsContinuationUntilAccepted { get; } = true;
 }
 

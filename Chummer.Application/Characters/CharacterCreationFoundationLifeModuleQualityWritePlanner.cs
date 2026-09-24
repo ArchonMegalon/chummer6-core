@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.LifeModules;
@@ -15,12 +16,12 @@ namespace Chummer.Application.Characters;
 /// workspace. The caller must supply the exact effective source node produced
 /// by the authoritative VERSION-over-MODULE resolver and its raw-input digest.
 /// </summary>
-internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
+internal static partial class CharacterCreationFoundationLifeModuleQualityWritePlanner
 {
     private const string PlanSchema =
         "chummer.character_creation_foundation_lifemodule_quality_write_plan.v3";
     private const string WriterSemantics =
-        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;pushtext-addqualities-dependent-quality-composite-v1;ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
+        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-and-skillgrouplevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;free-quality-pools-literal-v1;pushtext-addqualities-dependent-quality-composite-v1;literal-addqualities-v1-without-selection-consumer;ordered-distinct-improvements;deterministic-quality-uuidv8;confirmed-knowledge-inputs-v1;no-partial-apply";
 
     private static readonly IReadOnlySet<string> s_AllowedSourceChildren =
         new HashSet<string>(
@@ -45,7 +46,9 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         string? skillsSourceXml = null,
         string? skillsSourceDigest = null,
         string? qualitiesSourceXml = null,
-        string? qualitiesSourceDigest = null)
+        string? qualitiesSourceDigest = null,
+        string? qualityLevelsSourceXml = null,
+        string? qualityLevelsSourceDigest = null)
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
@@ -65,6 +68,11 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                                       qualitiesSourceXml,
                                       qualitiesSourceDigest,
                                       out qualitySourceAuthority);
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevels = null;
+        bool hasQualityLevels = qualityLevelsSourceXml is not null || qualityLevelsSourceDigest is not null;
+        bool qualityLevelsValid = !hasQualityLevels
+            || CharacterCreationFoundationQualityLevelSourceAuthority.TryCreate(
+                qualityLevelsSourceXml, qualityLevelsSourceDigest, out qualityLevels);
         CharacterCreationFoundationEffectCompilation compilation =
             CharacterCreationFoundationEffectCompiler.Compile(
                 rulesetId,
@@ -72,7 +80,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                 module,
                 version,
                 skillSourceAuthority,
-                qualitySourceAuthority);
+                qualitySourceAuthority,
+                qualityLevelSourceAuthority: qualityLevels);
         var blockers = new List<string>();
         if (workspaceId != ledger.WorkspaceId
             || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
@@ -84,13 +93,13 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             blockers.Add(
                 CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         }
-        if (!skillSourceValid)
+        if (!skillSourceValid || !qualityLevelsValid)
         {
             blockers.Add(
                 CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         }
         bool needsQualitySource = compilation.Effects.Any(effect => effect.EffectKind
-            is "pushtext" or "addqualities");
+            is "pushtext" or "addqualities" or "qualitylevel");
         if (!qualitySourceValid || (needsQualitySource && qualitySourceAuthority is null))
         {
             blockers.Add(
@@ -198,7 +207,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                     instruction.TargetBinding,
                     instruction.IgnoredSourceMetadata
                         .OrderBy(item => item.Key, StringComparer.Ordinal)
-                        .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)))
+                        .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal))
+                { InputResolution = instruction.InputResolution })
                 .ToArray(),
             SelectionPushes: compilation.SelectionPushes.ToArray(),
             SelectionConsumers: compilation.SelectionConsumers.ToArray(),
@@ -428,23 +438,43 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority,
         string ownerQualityId,
         string ownerFriendlyName,
-        string defaultNotesColor)
+        string defaultNotesColor,
+        IReadOnlySet<string>? sequencePushes = null,
+        IReadOnlyDictionary<string, string>? dependentSelections = null)
     {
         var improvements = new List<XElement>();
         var dependentQualityElements = new List<XElement>();
         var usedConsumerIds = new HashSet<string>(StringComparer.Ordinal);
         var usedBindingDigests = new HashSet<string>(StringComparer.Ordinal);
+        var usedPlayerSelections = new HashSet<string>(StringComparer.Ordinal);
         int dependentCount = 0;
 
         foreach (CharacterCreationFoundationEffectInstruction instruction in compilation.Effects)
         {
-            if (instruction.EffectKind is "attributelevel" or "skilllevel"
+            if (instruction.EffectKind == "qualitylevel" && sequencePushes is not null)
+            {
+                improvements.Add(CreateLegacyImprovement(instruction.Parameters["@group"], ownerQualityId,
+                    "QualityLevel", instruction.TargetId, defaultNotesColor));
+                continue;
+            }
+            if (instruction.EffectKind is "attributelevel" or "skilllevel" or "skillgrouplevel"
                 or "knowledgeskilllevel")
             {
                 improvements.Add(CreateImprovement(
                     instruction,
                     ownerQualityId,
                     defaultNotesColor));
+                continue;
+            }
+
+            if (instruction.EffectKind is "freepositivequalities" or "freenegativequalities")
+            {
+                // An allowance/offset Improvement, not a direct Karma award or
+                // permission to buy a quality without its normal requirements.
+                improvements.Add(CreateLegacyImprovement(string.Empty, ownerQualityId,
+                    instruction.TargetBinding!.CanonicalName,
+                    decimal.Parse(instruction.TargetId, NumberStyles.Any, CultureInfo.InvariantCulture)
+                        .ToString(CultureInfo.InvariantCulture), defaultNotesColor));
                 continue;
             }
 
@@ -521,10 +551,6 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                                 StringComparison.Ordinal))
                             .ToArray();
                     if (consumers.Length != 1
-                        || selectionBindings.Length != 1
-                        || !FixedTimeEquals(
-                            consumers[0].InstructionDigest,
-                            selectionBindings[0].ConsumerInstructionDigest)
                         || !FixedTimeEquals(
                             consumers[0].OwnerSourceDigest,
                             ledger.SourceDigest)
@@ -536,34 +562,49 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                             consumers[0].TargetBinding.CanonicalName,
                             dependent.TargetBinding.CanonicalName,
                             StringComparison.Ordinal)
-                        || compilation.SelectionPushes.Count(item => string.Equals(
-                            item.EffectId,
-                            selectionBindings[0].PushEffectId,
-                            StringComparison.Ordinal)) != 1)
+                        || !usedConsumerIds.Add(dependent.SelectionConsumerId))
                     {
                         return null;
                     }
 
-                    CharacterCreationFoundationSelectionPushInstruction push = compilation
-                        .SelectionPushes.Single(item => string.Equals(
-                            item.EffectId,
-                            selectionBindings[0].PushEffectId,
-                            StringComparison.Ordinal));
-                    if (!FixedTimeEquals(
-                            push.InstructionDigest,
-                            selectionBindings[0].PushInstructionDigest)
-                        || !FixedTimeEquals(push.SourceDigest, ledger.SourceDigest)
-                        || !string.Equals(
-                            push.Literal,
-                            selectionBindings[0].Literal,
-                            StringComparison.Ordinal)
-                        || !usedConsumerIds.Add(dependent.SelectionConsumerId)
-                        || !usedBindingDigests.Add(selectionBindings[0].BindingDigest))
+                    if (selectionBindings.Length == 0)
                     {
-                        return null;
+                        // Only the full sequence writer supplies these, after
+                        // re-resolving the source/occurrence-bound prompt graph.
+                        if (dependentSelections is null
+                            || !dependentSelections.TryGetValue(dependent.SelectionConsumerId, out string? selected)
+                            || string.IsNullOrWhiteSpace(selected)
+                            || !usedPlayerSelections.Add(dependent.SelectionConsumerId))
+                            return null;
+                        extra = selected;
                     }
+                    else
+                    {
+                        if (selectionBindings.Length != 1
+                            || dependentSelections?.ContainsKey(dependent.SelectionConsumerId) == true
+                            || !FixedTimeEquals(consumers[0].InstructionDigest, selectionBindings[0].ConsumerInstructionDigest)
+                            || compilation.SelectionPushes.Count(item => item.EffectId == selectionBindings[0].PushEffectId) != 1)
+                            return null;
+                        CharacterCreationFoundationSelectionPushInstruction push = compilation
+                            .SelectionPushes.Single(item => string.Equals(
+                                item.EffectId,
+                                selectionBindings[0].PushEffectId,
+                                StringComparison.Ordinal));
+                        if (!FixedTimeEquals(
+                                push.InstructionDigest,
+                                selectionBindings[0].PushInstructionDigest)
+                            || !FixedTimeEquals(push.SourceDigest, ledger.SourceDigest)
+                            || !string.Equals(
+                                push.Literal,
+                                selectionBindings[0].Literal,
+                                StringComparison.Ordinal)
+                            || !usedBindingDigests.Add(selectionBindings[0].BindingDigest))
+                        {
+                            return null;
+                        }
 
-                    extra = selectionBindings[0].Literal;
+                        extra = selectionBindings[0].Literal;
+                    }
                 }
 
                 string dependentQualityId = CreateDeterministicDependentQualityId(
@@ -610,7 +651,11 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         if (dependentCount != compilation.DependentQualities.Count
             || usedConsumerIds.Count != compilation.SelectionConsumers.Count
             || usedBindingDigests.Count != compilation.SelectionBindings.Count
-            || compilation.SelectionPushes.Count != compilation.SelectionBindings.Count)
+            || usedPlayerSelections.Count != (dependentSelections?.Count ?? 0)
+            || compilation.SelectionPushes.Count != compilation.SelectionBindings.Count + (sequencePushes?.Count ?? 0)
+            || (sequencePushes is not null && sequencePushes.Any(id =>
+                compilation.SelectionPushes.Count(push => push.EffectId == id) != 1
+                || compilation.SelectionBindings.Any(binding => binding.PushEffectId == id))))
         {
             return null;
         }
@@ -625,7 +670,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         string qualityId,
         string extra,
         string ownerFriendlyName,
-        string defaultNotesColor)
+        string defaultNotesColor,
+        bool qualityLevel = false)
     {
         string sourceId = ReadRequired(source, "id");
         string name = ReadRequired(source, "name");
@@ -637,6 +683,7 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             || category is not ("Positive" or "Negative")
             || !TryReadBoolean(source, "implemented", defaultValue: true, out bool implemented)
             || !TryReadBoolean(source, "contributetobp", defaultValue: true, out bool contributeToBp)
+            || !TryReadBoolean(source, "contributetolimit", defaultValue: true, out bool contributeToLimit)
             || !TryReadBoolean(source, "stagedpurchase", defaultValue: false, out bool stagedPurchase)
             || !TryReadBoolean(source, "doublecareer", defaultValue: true, out bool doubleCareer)
             || !TryReadBoolean(source, "canbuywithspellpoints", defaultValue: false, out bool spellPoints)
@@ -667,17 +714,17 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             new XElement("extra", extra),
             // An addquality without contributetobp="True" is made free by the
             // handler, which zeroes BP and excludes it from the quality limit.
-            new XElement("bp", "0"),
+            new XElement("bp", qualityLevel ? ReadRequired(source, "karma") : "0"),
             new XElement("implemented", LegacyBoolean(implemented)),
             new XElement("contributetobp", LegacyBoolean(contributeToBp)),
-            new XElement("contributetolimit", "False"),
+            new XElement("contributetolimit", qualityLevel ? LegacyBoolean(contributeToLimit) : "False"),
             new XElement("stagedpurchase", LegacyBoolean(stagedPurchase)),
             new XElement("doublecareer", LegacyBoolean(doubleCareer)),
             new XElement("canbuywithspellpoints", LegacyBoolean(spellPoints)),
             new XElement("metagenic", LegacyBoolean(metagenic)),
             new XElement("print", LegacyBoolean(print)),
             new XElement("qualitytype", category),
-            new XElement("qualitysource", "Improvement"),
+            new XElement("qualitysource", qualityLevel ? "QualityLevelImprovement" : "Improvement"),
             new XElement("mutant", LegacyBoolean(source.Element("mutant") is not null)),
             new XElement("source", sourceBook),
             new XElement("page", page),
@@ -786,24 +833,24 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             instruction.EffectKind,
             "knowledgeskilllevel",
             StringComparison.Ordinal);
+        bool isSkillGroupLevel = instruction.EffectKind == "skillgrouplevel";
         string parsedValue = isKnowledgeSkillLevel
             ? CharacterCreationFoundationEffectCompiler
                 .ParseLegacyKnowledgeSkillLevelValue(rawValue)
                 .ToString(CultureInfo.InvariantCulture)
-            : (isSkillLevel
+            : (isSkillLevel || isSkillGroupLevel
                 ? CharacterCreationFoundationEffectCompiler.ParseLegacySkillLevelValue(rawValue)
                 : CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(rawValue))
                 .ToString(CultureInfo.InvariantCulture);
         string improvedName = isKnowledgeSkillLevel
             ? string.Empty
-            : isSkillLevel
+            : isSkillLevel || isSkillGroupLevel
                 ? instruction.TargetBinding!.CanonicalName
                 : instruction.TargetId;
         string improvementType = isKnowledgeSkillLevel
             ? "FreeKnowledgeSkills"
-            : isSkillLevel
-                ? "SkillLevel"
-                : "Attributelevel";
+            : isSkillGroupLevel ? "SkillGroupLevel"
+                : isSkillLevel ? "SkillLevel" : "Attributelevel";
         return CreateLegacyImprovement(
             improvedName,
             qualityId,
@@ -1003,7 +1050,11 @@ internal sealed record CharacterCreationFoundationEffectWriteProvenance(
     string InstructionDigest,
     IReadOnlyList<string> SourceAnchorIds,
     CharacterCreationFoundationEffectTargetBinding? TargetBinding,
-    IReadOnlyDictionary<string, string> IgnoredSourceMetadata);
+    IReadOnlyDictionary<string, string> IgnoredSourceMetadata)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFoundationEffectInputResolution? InputResolution { get; init; }
+}
 
 internal sealed record CharacterCreationFoundationEffectWritePlanResult(
     CharacterCreationFoundationEffectWritePlan? Plan,

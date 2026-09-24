@@ -15,6 +15,7 @@ public sealed record CharacterCreationKarmaMagicPolicy(
     string PolicyDigest)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_magic_policy.v1";
+    public const string LifeModulesSchemaV1 = "chummer.character_creation_life_module_magic_policy.v1";
 }
 
 /// <summary>A source slice shared with the existing magic option projector, not a Priority talent.</summary>

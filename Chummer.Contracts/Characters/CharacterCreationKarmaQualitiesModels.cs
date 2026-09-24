@@ -14,6 +14,7 @@ public sealed record CharacterCreationKarmaQualitiesPolicy(
     string AuthorityDigest)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_qualities_policy.v1";
+    public const string LifeModulesSchemaV1 = "chummer.character_creation_life_module_qualities_policy.v1";
 }
 
 public sealed record CharacterCreationKarmaQualitiesCatalog(

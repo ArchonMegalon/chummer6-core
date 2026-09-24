@@ -7,7 +7,7 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Contracts.Characters;
 
 /// <summary>
-/// Typed request and persisted binding schemas for an uncreated SR5 character whose
+/// Typed request and persisted binding schemas for an uncreated character whose
 /// metatype has deliberately not been selected yet.  The request marker is state,
 /// never source authority; authority is resolved and rebound by Core before use.
 /// </summary>
@@ -37,6 +37,49 @@ public static class CharacterCreationBootstrapRevisions
 /// </summary>
 public static class CharacterCreationBootstrapProfiles
 {
+    // Keep the original two-argument APIs SR5-only for existing callers.
+    public static bool TryResolveCanonicalSettingsProfileId(
+        string rulesetId, string? buildMethod, out string settingsProfileId)
+    {
+        settingsProfileId = string.Empty;
+        return rulesetId switch
+        {
+            RulesetDefaults.Sr5 => TryResolveCanonicalSettingsProfileId(buildMethod, out settingsProfileId),
+            RulesetDefaults.Sr6 => Sr6CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+                buildMethod, out settingsProfileId),
+            _ => false
+        };
+    }
+
+    public static bool IsExactCanonicalTuple(string rulesetId, string? buildMethod, string? settingsProfileId)
+        => TryResolveCanonicalSettingsProfileId(rulesetId, buildMethod, out string expected)
+           && string.Equals(settingsProfileId, expected, StringComparison.Ordinal);
+
+    public static string SettingsSourceAnchor(string rulesetId, string settingsProfileId)
+        => rulesetId switch
+        {
+            RulesetDefaults.Sr5 => $"settings.xml#setting:{settingsProfileId}",
+            RulesetDefaults.Sr6 => Sr6CharacterCreationBootstrapProfiles.SettingsSourceAnchor(settingsProfileId),
+            _ => string.Empty
+        };
+
+    public static string[] ExpectedSourceAnchorIds(string rulesetId, string buildMethod, string settingsProfileId)
+        => rulesetId switch
+        {
+            RulesetDefaults.Sr5 => ExpectedSourceAnchorIds(buildMethod, settingsProfileId),
+            RulesetDefaults.Sr6 => Sr6CharacterCreationBootstrapProfiles.ExpectedSourceAnchorIds(buildMethod, settingsProfileId),
+            _ => []
+        };
+
+    public static bool HasExactCanonicalSourceAnchors(string rulesetId, string buildMethod,
+        string settingsProfileId, IReadOnlyList<string>? sourceAnchorIds)
+    {
+        string[] expected = ExpectedSourceAnchorIds(rulesetId, buildMethod, settingsProfileId);
+        return expected.Length > 0 && sourceAnchorIds is not null
+            && sourceAnchorIds.Count == expected.Length
+            && sourceAnchorIds.SequenceEqual(expected, StringComparer.Ordinal);
+    }
+
     public const string PrioritySettingsProfileId =
         "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
     public const string SumToTenSettingsProfileId =
@@ -117,6 +160,7 @@ public static class CharacterCreationBootstrapBlockers
     public const string RequestSchemaInvalid = "creation-bootstrap-request-schema-invalid";
     public const string RequestStageInvalid = "creation-bootstrap-request-stage-invalid";
     public const string RulesetSr5Required = "creation-bootstrap-ruleset-sr5-required";
+    public const string RulesetUnsupported = "creation-bootstrap-ruleset-unsupported";
     public const string DisplayIdentityRequired = "creation-bootstrap-display-identity-required";
     public const string BuildMethodInvalid = "creation-bootstrap-build-method-invalid";
     public const string SettingsProfileInvalid = "creation-bootstrap-settings-profile-invalid";
@@ -235,8 +279,8 @@ public static class CharacterCreationBootstrapBindingDigest
                CharacterCreationBootstrapStages.AwaitingFoundationSelection,
                StringComparison.Ordinal)
            && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
-           && string.Equals(binding.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)
            && CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+               binding.RulesetId,
                binding.BuildMethod,
                binding.SettingsProfileId)
            && binding.InitialContentRevision
@@ -252,9 +296,10 @@ public static class CharacterCreationBootstrapBindingDigest
                : string.IsNullOrEmpty(binding.PrerequisiteAuthorityDigest))
            && string.Equals(
                binding.SettingsSourceAnchor,
-               $"settings.xml#setting:{binding.SettingsProfileId}",
+               CharacterCreationBootstrapProfiles.SettingsSourceAnchor(binding.RulesetId, binding.SettingsProfileId),
                StringComparison.Ordinal)
            && CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+               binding.RulesetId,
                binding.BuildMethod,
                binding.SettingsProfileId,
                binding.SourceAnchorIds)
@@ -342,6 +387,7 @@ public static class CharacterCreationBootstrapReceiptDigest
            && receipt.ContentRevision == CharacterCreationBootstrapRevisions.InitialContentRevision
            && receipt.SavedRevision == CharacterCreationBootstrapRevisions.InitialSavedRevision
            && CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+               receipt.Binding.RulesetId,
                receipt.Binding.BuildMethod,
                receipt.Binding.SettingsProfileId,
                receipt.SourceAnchorIds)

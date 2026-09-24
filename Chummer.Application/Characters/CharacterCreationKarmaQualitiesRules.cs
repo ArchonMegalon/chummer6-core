@@ -15,9 +15,13 @@ public static class CharacterCreationKarmaQualitiesRules
         => CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog);
 
     public static bool IsValidPolicy(CharacterCreationKarmaQualitiesPolicy? policy)
-        => policy is { Schema: CharacterCreationKarmaQualitiesPolicy.SchemaV1,
+        => IsValidCostPolicy(policy, CharacterCreationKarmaQualitiesPolicy.SchemaV1);
+
+    internal static bool IsValidCostPolicy(CharacterCreationKarmaQualitiesPolicy? policy, string schema)
+        => policy is {
                 QualityKarmaLimit: >= 0, MetagenicLimit: >= 0, Costs.KarmaMultiplier: >= 0,
                 SourceAnchorIds.Count: > 0 }
+            && policy.Schema == schema
             && !string.IsNullOrWhiteSpace(policy.SettingsProfileId)
             && Digest(policy.RawProfileInputsDigest) && Digest(policy.SourceInputsDigest)
             && policy.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))

@@ -21,7 +21,9 @@ public sealed partial class FileWorkspaceStore :
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationBootstrapAtomicCreateCapability,
     ICharacterCareerReputationAtomicCommitCapability,
-    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
+    ISr6CreationFoundationAtomicCommitCapability, ISr6CreationFinalizationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 4;
@@ -1240,7 +1242,8 @@ public sealed partial class FileWorkspaceStore :
                 record.DelegatedGmCharacterEdits,
                 record.RecordSchemaVersion >= 4 ? record.DelegatedGmHistorySegmentStarts : [],
                 out delegatedEditLedger)
-            || !IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState))
+            || !IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState)
+            || !Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision))
         {
             return CorruptRead();
         }
@@ -1415,6 +1418,8 @@ public sealed partial class FileWorkspaceStore :
         IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null,
         IReadOnlyList<int>? segmentStarts = null)
     {
+        if (!Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision))
+            throw new IOException("SR6 finalized character state is inconsistent.");
         if (localHistory is null || !localHistory.IsValid(contentRevision))
             throw new InvalidOperationException("Workspace local history is invalid.");
         segmentStarts ??= [];
@@ -1570,6 +1575,15 @@ public sealed partial class FileWorkspaceStore :
         {
             return false;
         }
+
+        // SR6 choices have their own source-validated transaction. No generic
+        // writer, including an unrelated lane, can replace or discard them.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFinalizationArchive),
+                JsonSerializer.Serialize(replacementState.Sr6CreationFinalizationArchive), StringComparison.Ordinal))
+            return false;
+        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFoundationDecisions),
+                JsonSerializer.Serialize(replacementState.Sr6CreationFoundationDecisions), StringComparison.Ordinal))
+            return false;
 
         if (!string.Equals(
                 JsonSerializer.Serialize(currentState.CharacterCreationFinalizationArchive),
@@ -1967,15 +1981,17 @@ public sealed partial class FileWorkspaceStore :
             return false;
         if (HasSameLifeModuleAcceptanceLedger(currentAcceptances, replacementAcceptances))
             return true;
-        if ((currentAcceptances?.Count ?? 0) != 0
-            || replacementAcceptances is not { Count: 1 }
+        int previousCount = currentAcceptances?.Count ?? 0;
+        if (replacementAcceptances is null || replacementAcceptances.Count != previousCount + 1
+            || (previousCount > 0 && !HasSameLifeModuleAcceptanceLedger(currentAcceptances,
+                replacementAcceptances.Take(previousCount).ToArray()))
             || nextContentRevision != previousContentRevision + 1)
             return false;
         return LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
             workspaceId,
             nextContentRevision,
             replacementAcceptances)
-               && replacementAcceptances[0].Receipt.PreviousWorkspaceRevision
+               && replacementAcceptances[^1].Receipt.PreviousWorkspaceRevision
                == previousContentRevision;
     }
 

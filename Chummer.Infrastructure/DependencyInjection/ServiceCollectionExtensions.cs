@@ -196,8 +196,14 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<CharacterCreationBootstrapService>());
         services.AddSingleton<IOwnerBoundCharacterCreationBootstrapService,
             OwnerBoundCharacterCreationBootstrapService>();
-        services.AddSingleton<ICharacterCreationFoundationService,
-            CharacterCreationFoundationService>();
+        services.AddSingleton<CharacterCreationFoundationService>();
+        services.AddSingleton<ICharacterCreationFoundationService>(provider =>
+            provider.GetRequiredService<CharacterCreationFoundationService>());
+        services.AddSingleton<ICharacterCreationLifeModuleJourneyService>(provider =>
+            provider.GetRequiredService<CharacterCreationFoundationService>());
+        services.AddSingleton<IOwnerBoundCharacterCreationLifeModuleFinalizationService,
+            OwnerBoundCharacterCreationLifeModuleFinalizationService>();
+        services.AddSingleton<IOwnerBoundLifeModuleBookService, OwnerBoundLifeModuleBookService>();
         services.AddSingleton<ICharacterCreationPrerequisiteService,
             CharacterCreationPrerequisiteService>();
         services.AddSingleton<IOwnerBoundCharacterCreationPrerequisiteService,

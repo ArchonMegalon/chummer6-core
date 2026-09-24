@@ -35,7 +35,7 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
             ["pushtext"] = "story"
         };
 
-    private sealed record CatalogSnapshot(XDocument Document, string RawXmlDigest);
+    private sealed record CatalogSnapshot(XDocument Document, string RawXmlDigest, byte[] Bytes);
 
     private readonly Lazy<CatalogSnapshot> _snapshot;
 
@@ -49,6 +49,10 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
         Schema: LifeModuleJourneySchemas.CatalogAuthorityV1,
         RawXmlDigest: _snapshot.Value.RawXmlDigest,
         SourceAnchorIds: ["lifemodules.xml"]);
+
+    public byte[]? ReadSourceBytes(string sourceDigest) =>
+        string.Equals(sourceDigest, _snapshot.Value.RawXmlDigest, StringComparison.Ordinal)
+            ? _snapshot.Value.Bytes.ToArray() : null;
 
     public IReadOnlyList<LifeModuleStageDto> GetStages()
     {
@@ -610,6 +614,6 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
         using var stream = new MemoryStream(bytes, writable: false);
         XDocument document = XDocument.Load(stream, LoadOptions.None);
         string digest = "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        return new CatalogSnapshot(document, digest);
+        return new CatalogSnapshot(document, digest, bytes);
     }
 }

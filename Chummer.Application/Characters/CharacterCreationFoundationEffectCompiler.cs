@@ -10,10 +10,10 @@ namespace Chummer.Application.Characters;
 /// Quality/Improvement graphs, never as direct edits to attributes or skills.
 /// Classifying one effect does not authorize partial application of a ledger.
 /// </summary>
-internal static class CharacterCreationFoundationEffectCompiler
+internal static partial class CharacterCreationFoundationEffectCompiler
 {
     private const string CompilerSemantics =
-        "chummer5-life-module-improvement-oracle-5.225.0;attributelevel-v1-int32-any-default1;skilllevel-v1-digest-bound-active-skill-int32-any-default1;knowledgeskilllevel-v1-digest-bound-free-knowledge-pool-decimal-any-default1;pushtext-addqualities-v1-digest-bound-lifo-dependent-quality-graph;version-before-module;no-partial-apply";
+        "chummer5-life-module-improvement-oracle-5.225.0;attributelevel-v1-int32-any-default1;skilllevel-v1-digest-bound-active-skill-int32-any-default1;skillgrouplevel-v1-digest-bound-group-int32-any-default1;free-quality-pools-v1-source-bound-decimal-literal;knowledgeskilllevel-v1-digest-bound-free-knowledge-pool-decimal-any-default1;pushtext-addqualities-v1-digest-bound-lifo-dependent-quality-graph;literal-addqualities-v1-without-selection-consumer;version-before-module;no-partial-apply";
 
     private const string FreeKnowledgeSkillsIdentity = "FreeKnowledgeSkills";
 
@@ -30,10 +30,18 @@ internal static class CharacterCreationFoundationEffectCompiler
         LifeModuleLegalOptionDto module,
         LifeModuleVersionProjectionDto? version,
         CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority = null,
-        CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority = null)
+        CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority = null,
+        string sourceContextDigest = "",
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevelSourceAuthority = null,
+        CharacterCreationLifeModuleDraftEntry? occurrence = null)
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
+
+        // Keep the real parent ledger/revision/digest. A later module is not a
+        // forged nationality ledger with substituted effects and an old hash.
+        var projectedEffects = occurrence?.ProjectedEffects ?? ledger.ProjectedEffects;
+        var requirementEvaluations = occurrence?.RequirementEvaluations ?? ledger.RequirementEvaluations;
 
         string compilerRuntimeDigest = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeCanonicalDigest(new
@@ -41,16 +49,23 @@ internal static class CharacterCreationFoundationEffectCompiler
                 Schema = CharacterCreationFoundationSchemas.EffectCompilationV1,
                 RulesetId = rulesetId,
                 CompilerSemantics,
+                ContinuationDraftSemantics = "ordered-occurrence-inputs-parent-ledger-bound-v2;confirmed-knowledge-inputs-v1",
                 SupportedEffectKinds = new[]
                 {
                     "attributelevel:v1",
                     "skilllevel:v1",
+                    "skillgrouplevel:v1",
+                    "freepositivequalities:v1-literal",
+                    "qualitylevel:v1-source-mapped-positive-literal-contribution-only",
+                    "freenegativequalities:v1-literal",
                     "knowledgeskilllevel:v1-free-knowledge-pool",
                     "pushtext:v1-selection-stack",
                     "addqualities:v1-dependent-quality-graph"
                 },
                 SkillSourceDigest = skillSourceAuthority?.SourceDigest ?? string.Empty,
                 QualitySourceDigest = qualitySourceAuthority?.SourceDigest ?? string.Empty,
+                SourceContextDigest = sourceContextDigest,
+                QualityLevelsSourceDigest = qualityLevelSourceAuthority?.SourceDigest ?? string.Empty,
                 SupportedRequirementKinds = new[] { "oneof:metatype" }
             });
 
@@ -72,18 +87,25 @@ internal static class CharacterCreationFoundationEffectCompiler
 
         var blockers = new List<string>
         {
-            // This ledger schema contains Nationality only.  Creation cannot be
-            // finalized before Formative Years, Teen Years and Further Education.
-            CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete
+            // This compiles one occurrence, not the cumulative write transaction.
+            // The sequence compiler separately checks all stages and explicit finish.
+            LifeModuleJourneyStageOrders.Required
+                .Where(stage => stage != LifeModuleJourneyStageOrders.Nationality)
+                .All(stage => ledger.AdditionalModules?.Any(entry => entry.StageOrder == stage) == true)
+                ? CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired
+                : CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete
         };
 
         bool effectLedgerMatches = CharacterCreationFoundationDraftLedgerIntegrity
-            .CanonicallyEquals(authoritativeEffects, ledger.ProjectedEffects);
+            .CanonicallyEquals(authoritativeEffects, projectedEffects);
         if (!effectLedgerMatches)
             blockers.Add(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+        var answers = occurrence?.FollowUpValues ?? ledger.FollowUpValues;
+        bool answerMapMatches = HasValidAnswerMap(authoritativePrompts, answers);
+        if (!answerMapMatches)
+            blockers.Add(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
 
-        CharacterCreationFoundationRequirementInstruction[] requirements = ledger
-            .RequirementEvaluations
+        CharacterCreationFoundationRequirementInstruction[] requirements = requirementEvaluations
             .Select((requirement, index) => CompileRequirement(
                 index,
                 requirement,
@@ -102,28 +124,36 @@ internal static class CharacterCreationFoundationEffectCompiler
         }
 
         int versionEffectCount = version?.Effects.Count ?? 0;
-        CharacterCreationFoundationEffectInstruction[] effects = ledger.ProjectedEffects
-            .Select((effect, index) => CompileEffect(
+        ResolvedEffectInput[] inputs = projectedEffects.Select(effect => ResolveEffectInput(
+            effect,
+            authoritativePrompts.Where(prompt => prompt.EffectId == effect.EffectId).ToArray(),
+            answers,
+            effectLedgerMatches && answerMapMatches)).ToArray();
+        CharacterCreationFoundationEffectInstruction[] effects = inputs
+            .Select((input, index) => CompileEffect(
                 index,
-                effect,
+                input.Effect,
                 index < versionEffectCount
                     ? CharacterCreationFoundationEffectSourcePhases.Version
                     : CharacterCreationFoundationEffectSourcePhases.Module,
-                authoritativePrompts
-                    .Where(prompt => string.Equals(
-                        prompt.EffectId,
-                        effect.EffectId,
-                        StringComparison.Ordinal))
-                    .ToArray(),
+                input.PendingPrompts,
                 skillSourceAuthority,
-                ledger.SourceDigest))
+                ledger.SourceDigest,
+                qualitySourceAuthority,
+                qualityLevelSourceAuthority,
+                input.Resolution))
             .ToArray();
         CompositeSelectionCompilation composite = CompileCompositeSelections(
-            ledger.ProjectedEffects,
+            inputs.Select(input => input.Effect).ToArray(),
             effects,
             qualitySourceAuthority,
             ledger.SourceDigest);
         effects = composite.Effects;
+        // Resolving a group contribution does not yet evaluate existing runner
+        // qualities, choose instance text or serialize the one cumulative winner.
+        // Keep the write planner blocked as well, even for a module without pushtext.
+        if (effects.Any(effect => effect.EffectKind == "qualitylevel"))
+            blockers.Add(CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         if (effects.Any(item => string.Equals(
                 item.CompilationStatus,
                 CharacterCreationFoundationEffectCompilationStatuses.PromptRequired,
@@ -242,7 +272,10 @@ internal static class CharacterCreationFoundationEffectCompiler
         string sourcePhase,
         IReadOnlyList<LifeModuleFollowUpPromptDto> prompts,
         CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority,
-        string lifeModulesSourceDigest)
+        string lifeModulesSourceDigest,
+        CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority,
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevelSourceAuthority,
+        CharacterCreationFoundationEffectInputResolution? inputResolution)
     {
         string effectKind = ReadEffectKind(effect.RawXml);
         string[] promptIds = prompts
@@ -263,6 +296,10 @@ internal static class CharacterCreationFoundationEffectCompiler
                             skillSourceAuthority,
                             out targetBinding,
                             out ignoredSourceMetadata)
+                        || IsSupportedSkillGroupLevel(effect, skillSourceAuthority, out targetBinding)
+                        || IsSupportedFreeQualityPool(effect, lifeModulesSourceDigest, out targetBinding)
+                        || (qualitySourceAuthority is not null && qualityLevelSourceAuthority is not null
+                            && qualityLevelSourceAuthority.TryResolveEffect(effect, qualitySourceAuthority, out targetBinding))
                         || IsSupportedKnowledgeSkillLevel(
                             effect,
                             lifeModulesSourceDigest,
@@ -279,6 +316,13 @@ internal static class CharacterCreationFoundationEffectCompiler
             : supported
                 ? null
                 : CharacterCreationFoundationBlockers.FinalizationEffectUnsupported;
+        string[] anchors = supported && effectKind == "qualitylevel" && targetBinding is not null
+            ? effect.SourceAnchorIds.Concat(new[]
+                {
+                    $"qualitylevels.xml#qualitygroup:{effect.Parameters["@group"]}:level:{effect.TargetId}",
+                    $"qualities.xml#quality:{targetBinding.SourceId}"
+                }).Distinct(StringComparer.Ordinal).ToArray()
+            : effect.SourceAnchorIds.ToArray();
         var instruction = new CharacterCreationFoundationEffectInstruction(
             Order: index + 1,
             EffectId: effect.EffectId,
@@ -290,13 +334,14 @@ internal static class CharacterCreationFoundationEffectCompiler
                 .OrderBy(item => item.Key, StringComparer.Ordinal)
                 .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
             PromptIds: promptIds,
-            SourceAnchorIds: effect.SourceAnchorIds.ToArray(),
+            SourceAnchorIds: anchors,
             CompilationStatus: status,
             Blocker: blocker,
             InstructionDigest: string.Empty)
         {
             TargetBinding = targetBinding,
-            IgnoredSourceMetadata = ignoredSourceMetadata
+            IgnoredSourceMetadata = ignoredSourceMetadata,
+            InputResolution = inputResolution
         };
         return instruction with
         {
@@ -357,7 +402,6 @@ internal static class CharacterCreationFoundationEffectCompiler
                 continue;
             }
 
-            int consumerCountBefore = consumers.Count;
             for (int addQualityIndex = 0; addQualityIndex < qualityNames.Length;
                  addQualityIndex++)
             {
@@ -459,10 +503,9 @@ internal static class CharacterCreationFoundationEffectCompiler
                 bindings.Add(binding);
             }
 
-            // This writer family is deliberately paired. An addqualities effect
-            // which consumes no pushed value is a different effect family.
-            if (consumers.Count == consumerCountBefore)
-                complete = false;
+            // Fixed qualities such as Uncouth have no selecttext and therefore
+            // consume no stack value. Their full source graph was still checked
+            // above. Missing required selections and unused pushes remain errors.
         }
 
         if (stack.Count > 0)
@@ -582,9 +625,12 @@ internal static class CharacterCreationFoundationEffectCompiler
                 || !string.Equals(element.Name.LocalName, "addqualities", StringComparison.Ordinal)
                 || element.HasAttributes
                 || children.Length == 0
+                // Source annotations (including commented-out grants in Street Kid)
+                // are not executable children. Keep them in RawXml/digests, but
+                // validate and resolve only the actual addquality elements.
                 || element.Nodes().Any(node => node is XText text
                     ? !string.IsNullOrWhiteSpace(text.Value)
-                    : node is not XElement)
+                    : node is not XElement and not XComment)
                 || children.Any(child => child.Name.NamespaceName.Length != 0
                     || !string.Equals(child.Name.LocalName, "addquality", StringComparison.Ordinal)
                     || child.HasAttributes
@@ -934,13 +980,17 @@ internal static class CharacterCreationFoundationEffectCompiler
                     "spec",
                     StringComparison.Ordinal))
                 .ToArray();
+            XElement[] ids = children.Where(child => child.Name == "id").ToArray();
             if (children.Any(child => child.Name.NamespaceName.Length != 0)
                 || children.Length
-                != names.Length + groups.Length + values.Length + specializations.Length
+                != names.Length + groups.Length + values.Length + specializations.Length + ids.Length
                 || names.Length != 1
                 || groups.Length > 1
                 || values.Length > 1
                 || specializations.Length > 1
+                || ids.Length > 1
+                || (ids.Length == 1 && (!Guid.TryParseExact(ids[0].Value.Trim(), "D", out Guid id)
+                    || id == Guid.Empty))
                 || element.Nodes().Any(node => node is XText text
                     ? !string.IsNullOrWhiteSpace(text.Value)
                     : node is not XElement)
@@ -994,6 +1044,8 @@ internal static class CharacterCreationFoundationEffectCompiler
                 expectedParameters["val"] = projectedValue;
             if (literalSpecialization is not null)
                 expectedParameters["spec"] = literalSpecialization;
+            if (ids.Length == 1)
+                expectedParameters["id"] = ids[0].Value.Trim();
             if (!string.Equals(effect.TargetId, literalName, StringComparison.Ordinal)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                     expectedParameters,
@@ -1023,6 +1075,8 @@ internal static class CharacterCreationFoundationEffectCompiler
             {
                 ignored["legacy-ignored-literal-spec"] = literalSpecialization;
             }
+            if (ids.Length == 1)
+                ignored["legacy-ignored-source-id"] = ids[0].Value.Trim();
 
             ignoredSourceMetadata = ignored;
             return true;
@@ -1149,6 +1203,75 @@ internal static class CharacterCreationFoundationEffectCompiler
         {
             targetBinding = null;
             ignoredSourceMetadata = new Dictionary<string, string>(StringComparer.Ordinal);
+            return false;
+        }
+    }
+
+    private static bool IsSupportedFreeQualityPool(LifeModuleEffectProjectionDto effect,
+        string sourceDigest, out CharacterCreationFoundationEffectTargetBinding? binding)
+    {
+        binding = null;
+        if (!effect.IsFullyTyped || effect.Parameters.Count != 0 || effect.BeforeValue is not null
+            || effect.SourceAnchorIds.Count == 0 || effect.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(sourceDigest))
+            return false;
+        try
+        {
+            XElement element = XElement.Parse(effect.RawXml, LoadOptions.None);
+            string kind = element.Name.LocalName;
+            if (element.Name.NamespaceName.Length != 0
+                || kind is not ("freepositivequalities" or "freenegativequalities")
+                || !TryReadExactScalar(element, numeric: true, out string value))
+                return false;
+            string domain = kind == "freepositivequalities" ? "positive-quality-karma" : "negative-quality-karma";
+            if (effect.Domain != domain || effect.BudgetId != domain || effect.TargetId != value
+                || effect.AfterValue != value || effect.BudgetDelta != decimal.Parse(value,
+                    System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture))
+                return false;
+            string identity = kind == "freepositivequalities" ? "FreePositiveQualities" : "FreeNegativeQualities";
+            binding = new CharacterCreationFoundationEffectTargetBinding(domain, identity, identity, sourceDigest);
+            return true;
+        }
+        catch (System.Xml.XmlException) { return false; }
+    }
+
+    private static bool IsSupportedSkillGroupLevel(LifeModuleEffectProjectionDto effect,
+        CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority,
+        out CharacterCreationFoundationEffectTargetBinding? targetBinding)
+    {
+        targetBinding = null;
+        if (skillSourceAuthority is null || !effect.IsFullyTyped
+            || effect.Domain != "skill-group" || effect.BudgetId is not null
+            || effect.BudgetDelta != 0 || effect.SourceAnchorIds.Count == 0
+            || effect.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
+            return false;
+        try
+        {
+            XElement element = XElement.Parse(effect.RawXml, LoadOptions.None);
+            XElement[] names = element.Elements("name").ToArray();
+            XElement[] values = element.Elements("val").ToArray();
+            XElement[] children = element.Elements().ToArray();
+            if (element.Name != "skillgrouplevel" || element.HasAttributes
+                || names.Length != 1 || values.Length > 1
+                || children.Length != names.Length + values.Length
+                || children.Any(child => child.HasAttributes || child.HasElements)
+                || element.Nodes().Any(node => node is XText text
+                    ? !string.IsNullOrWhiteSpace(text.Value) : node is not XElement))
+                return false;
+            string name = names[0].Value;
+            string? value = values.Length == 0 ? null : values[0].Value;
+            if (string.IsNullOrWhiteSpace(name) || name != name.Trim()
+                || (value is not null && value != value.Trim()))
+                return false;
+            var parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["name"] = name };
+            if (value is not null)
+                parameters["val"] = value;
+            return effect.TargetId == name && effect.AfterValue == value
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(parameters, effect.Parameters)
+                && skillSourceAuthority.TryResolveExactGroup(name, out targetBinding);
+        }
+        catch (System.Xml.XmlException)
+        {
             return false;
         }
     }

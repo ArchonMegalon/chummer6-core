@@ -386,7 +386,7 @@ public sealed class CharacterCreationBootstrapServiceTests
     [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId, true)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId, true)]
     [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId, true)]
-    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId, false)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId, true)]
     public void Creation_contacts_policy_uses_the_selected_profile_without_reinterpreting_the_method(
         string method, string profile, bool supported)
     {

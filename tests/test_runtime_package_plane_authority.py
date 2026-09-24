@@ -5,10 +5,13 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import re
+import subprocess
 import sys
 import tarfile
 import tempfile
+import textwrap
 import unittest
 from unittest import mock
 import xml.etree.ElementTree as ET
@@ -54,8 +57,40 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("d1c6e3d22360ce61fd32ed58cb571ac2b50b070d", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shd1c6e3d22360c", runtime.PACKAGE_VERSION)
+        self.assertEqual("cc6548718d9ce01983e74473bb35953f64859617", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shcc6548718d9ce", runtime.PACKAGE_VERSION)
+
+    def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
+        for field, value in (
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
+                                "commit": "d1c6e3d22360ce61fd32ed58cb571ac2b50b070d"}),
+            ("package_version", "0.0.0-packageplane.candidate.shd1c6e3d22360c"),
+        ):
+            altered = copy.deepcopy(self.lock)
+            altered[field] = value
+            with self.subTest(field=field), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_life_module_completion_book_and_sr6_apis_are_in_package_consumer(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        for name in (
+            "IOwnerBoundCharacterCreationLifeModuleFinalizationService",
+            "CharacterCreationFoundationFinalizationConfirmRequest",
+            "IOwnerBoundLifeModuleBookService", "OriginStoryArcSeed",
+            "ISr6CreationFoundationService", "Sr6CreationFinalizationReview",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, script)
+        for member in (
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationLifeModuleFinalizationService.cs",
+            "Chummer.Application/LifeModules/OwnerBoundLifeModuleBookService.cs",
+            "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.LifeModuleFinalization.cs",
+            "Chummer.Tests/CharacterCreationFoundationDraftApplyAuthorityTests.OperationScope.cs",
+            "Chummer.Tests/CharacterCreationFoundationDraftApplyAuthorityTests.QualityComments.cs",
+            "Chummer.Rulesets.Sr6/Sr6CreationFoundationService.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
     def test_pending_reopen_only_authority_cannot_stand_in_for_karma_completion(self) -> None:
         for field, value in (
@@ -1658,6 +1693,72 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
 
 
 class RuntimePackageWorkflowTests(unittest.TestCase):
+    @staticmethod
+    def workflow_jobs() -> tuple[str, str, str]:
+        workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(
+            encoding="utf-8"
+        )
+        source, rest = workflow.split("  source-regressions:\n", 1)[1].split(
+            "  no-siblings:\n", 1
+        )
+        consumer, publisher = rest.split(
+            "  publish-public-runtime-package-handoff:\n", 1
+        )
+        return source, consumer, publisher
+
+    def test_source_and_consumer_have_independent_unchanged_job_budgets(self) -> None:
+        source, consumer, publisher = self.workflow_jobs()
+        for job in (source, consumer):
+            with self.subTest(job=job[:80]):
+                self.assertIn("    timeout-minutes: 45\n", job)
+                self.assertNotIn("continue-on-error", job)
+                self.assertIn("ref: ${{ github.sha }}", job)
+                self.assertIn("persist-credentials: false", job)
+                self.assertIn(runtime.SDK_ARCHIVE_SHA512, job)
+                self.assertIn("--extract-sdk-archive", job)
+                self.assertIn('test "$(dotnet --version)" = "10.0.103"', job)
+        for step in (
+            "Build and run affected authority tests",
+            "Build and run workspace rule question tests",
+            "Run Career Calendar authority tests",
+            "Revalidate locked owner feed after early test graphs",
+        ):
+            self.assertIn(step, source)
+            self.assertNotIn(step, consumer)
+        self.assertNotIn("verify-no-siblings-package-plane.sh", source)
+        self.assertEqual(1, consumer.count("verify-no-siblings-package-plane.sh"))
+        self.assertIn("    needs: no-siblings\n", publisher)
+        self.assertNotIn("if: always()", publisher)
+
+    def test_required_consumer_check_rejects_failed_cancelled_or_skipped_source(self) -> None:
+        _, consumer, _ = self.workflow_jobs()
+        self.assertIn("    needs: source-regressions\n", consumer)
+        self.assertIn("    if: always()\n", consumer)
+        self.assertIn(
+            "SOURCE_REGRESSION_RESULT: ${{ needs.source-regressions.result }}",
+            consumer,
+        )
+        admission, remaining = consumer.split(
+            "      - name: Require successful source regressions\n", 1
+        )[1].split("      - name:", 1)
+        self.assertNotIn("      - name:", consumer.split(
+            "      - name: Require successful source regressions\n", 1
+        )[0])
+        script = textwrap.dedent(admission.split("        run: |\n", 1)[1])
+        self.assertIn("Verify immutable no-siblings package plane and export bundle", remaining)
+        for state in ("success", "failure", "cancelled", "skipped", "", "unknown"):
+            with self.subTest(state=state):
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-c", script],
+                    env={"PATH": os.defpath, "SOURCE_REGRESSION_RESULT": state},
+                    text=True,
+                    capture_output=True,
+                    timeout=5,
+                    check=False,
+                )
+                self.assertEqual(state == "success", result.returncode == 0)
+        self.assertNotIn("if: always()", remaining)
+
     def test_all_candidate_packs_bind_assembly_metadata_to_semantic_source(self) -> None:
         verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         packs = re.findall(r"(?m)^\s*dotnet pack .*?(?=\n\s*\n)", verifier, re.DOTALL)

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -12,6 +13,7 @@ using System.Xml.XPath;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Rulesets;
 
 namespace Chummer.Infrastructure.Xml;
 
@@ -1818,6 +1820,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     {
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
+        private readonly object _completionProjectionSync = new();
+        private JsonElement? _creationSkillsCatalogSnapshot;
+        private JsonElement? _lifeModuleQualitiesPolicySnapshot;
+        private JsonElement? _creationGearAuthoritySnapshot;
+        private JsonElement? _lifeModuleMagicCatalogSnapshot;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
@@ -2023,6 +2030,46 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationFoundationEffectSources(
+            out CharacterCreationFoundationEffectSources? sources)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            sources = null;
+            if (_sourceInputs.HasSourceDrift
+                || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || _character.Elements("buildmethod").Count() != 1
+                || _character.Element("buildmethod")?.Value != _buildMethod
+                || _character.Elements("created").Count() != 1
+                || !bool.TryParse(_character.Element("created")?.Value, out bool created)
+                || created
+                || _character.Elements("ruleset").Count() > 1
+                || (_character.Element("ruleset") is XElement ruleset
+                    && ruleset.Value != RulesetDefaults.Sr5)
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || _enabledSourcebooks.Count == 0
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
+                || skillsDigest != _effectiveSkillsInputsDigest
+                || !TryLoadEffectiveDocument(_catalog, "skills.xml", out XDocument? skills)
+                || skills?.Root is null
+                || !TryLoadEffectiveDocument(_catalog, "qualities.xml", out XDocument? qualities)
+                || qualities?.Root is null
+                || !TryLoadEffectiveDocument(_catalog, "qualitylevels.xml", out XDocument? qualityLevels)
+                || qualityLevels?.Root is null
+                || !_sourceInputs.TryAdmitReuse(_catalog))
+                return false;
+
+            sources = new CharacterCreationFoundationEffectSources(
+                _settingsProfileId,
+                _rawProfileInputsDigest,
+                Array.AsReadOnly(_enabledSourcebooks.OrderBy(book => book, StringComparer.Ordinal).ToArray()),
+                skills.ToString(SaveOptions.DisableFormatting),
+                qualities.ToString(SaveOptions.DisableFormatting),
+                qualityLevels.ToString(SaveOptions.DisableFormatting));
+            return true;
+        }
+
         public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
@@ -2047,15 +2094,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         public bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+            => TryResolveCreationSkillSpendingPolicy(CharacterCreationBuildMethods.Karma,
+                CharacterCreationKarmaSkillsPolicy.SchemaV1, out policy);
+
+        public bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+            => TryResolveCreationSkillSpendingPolicy(CharacterCreationBuildMethods.LifeModules,
+                CharacterCreationKarmaSkillsPolicy.LifeModulesSchemaV1, out policy);
+
+        private bool TryResolveCreationSkillSpendingPolicy(string method, string schema,
+            out CharacterCreationKarmaSkillsPolicy? policy)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || _buildMethod != method
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
+                || method == CharacterCreationBuildMethods.LifeModules && ReadValue(settings, "buildmethod") != method
                 || !TryReadKarmaCost(settings, "karmanewactiveskill", out int newActive)
                 || !TryReadKarmaCost(settings, "karmaimproveactiveskill", out int improveActive)
                 || !TryReadKarmaCost(settings, "karmanewknowledgeskill", out int newKnowledge)
@@ -2076,7 +2133,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (!expressionValid || string.IsNullOrWhiteSpace(expression) || _sourceInputs.HasSourceDrift)
                 return false;
             var result = new CharacterCreationKarmaSkillsPolicy(
-                CharacterCreationKarmaSkillsPolicy.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                schema, _settingsProfileId, _rawProfileInputsDigest,
                 newActive, improveActive, newKnowledge, improveKnowledge, newGroup, improveGroup,
                 specialization, knowledgeSpecialization, activeCap, knowledgeCap, expression,
                 useBroken, strict, specBreak, pointSpecs, compensate,
@@ -2086,15 +2143,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         public bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+            => TryResolveCreationResourceSpendingPolicy(CharacterCreationBuildMethods.Karma,
+                CharacterCreationKarmaResourcesPolicy.SchemaV1, out policy);
+
+        public bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+            => TryResolveCreationResourceSpendingPolicy(CharacterCreationBuildMethods.LifeModules,
+                CharacterCreationKarmaResourcesPolicy.LifeModulesSchemaV1, out policy);
+
+        private bool TryResolveCreationResourceSpendingPolicy(string method, string schema,
+            out CharacterCreationKarmaResourcesPolicy? policy)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || _buildMethod != method
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
+                || method == CharacterCreationBuildMethods.LifeModules && ReadValue(settings, "buildmethod") != method
                 || !TryReadOptionalStrictBoolean(settings, "unrestrictednuyen", false, out bool unrestricted))
                 return false;
             var maximumNodes = settings.Elements("nuyenmaxbp").Take(2).ToArray();
@@ -2120,12 +2187,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 if (!expression.Contains("{PriorityNuyen}", StringComparison.Ordinal))
                     expression = "(" + expression + ") + {PriorityNuyen}"; // CharacterSettings load shim.
             }
-            var result = new CharacterCreationKarmaResourcesPolicy(CharacterCreationKarmaResourcesPolicy.SchemaV1,
+            var result = new CharacterCreationKarmaResourcesPolicy(schema,
                 _settingsProfileId, _rawProfileInputsDigest, expression, maximum,
                 [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationResourcesSourceAnchors.LegacyTotal,
                     CharacterCreationResourcesSourceAnchors.LegacyMaximumInvestment], string.Empty);
             result = result with { AuthorityDigest = CharacterCreationKarmaResourcesRules.ComputePolicyDigest(result) };
-            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidPolicy(result)) return false;
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidSpendingPolicy(result, schema)) return false;
             policy = result;
             return true;
 
@@ -2150,7 +2217,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
-                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
+                    or CharacterCreationBuildMethods.LifeModules)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
@@ -2209,7 +2277,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
-                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.LifeModules)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
@@ -2256,6 +2324,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
         }
 
+        public bool TryResolveCreationLifeModuleStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+        {
+            source = null;
+            return _buildMethod == CharacterCreationBuildMethods.LifeModules
+                && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
+        }
+
         private bool TryResolveCreationStartingNuyenCore(Guid? lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
@@ -2263,7 +2338,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
             if (_sourceInputs.HasSourceDrift || lifestyleSourceId == Guid.Empty
                 || _buildMethod is not (CharacterCreationBuildMethods.Karma
-                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.LifeModules)
                 || lifestyles.Length > 1 || lifestyles.Length == 1
                     && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
@@ -2357,13 +2432,65 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             catalog = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
                 || !TryResolveCreationKarmaTalents(out var talents) || talents is null
+                || !TryResolveMagicPurchaseInputs(out var policy, out string customDigest, out var slices, out var anchors)) return false;
+            var result = new CharacterCreationKarmaMagicCatalog(CharacterCreationKarmaMagicCatalog.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, customDigest, policy!, talents, slices,
+                anchors.Concat(talents.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationKarmaMagicRules.ComputeCatalogDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleMagicCatalog(out CharacterCreationLifeModuleMagicCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules)
+                return false;
+            // The source scope validates all previously captured inputs, including
+            // settings, custom overlays, talents and every magic catalog. Only the
+            // immutable-context projection is reusable, never a purchase or quote.
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _lifeModuleMagicCatalogSnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationLifeModuleMagicCatalog>();
+                if (_sourceInputs.HasSourceDrift) return false;
+                catalog = detached;
+                return catalog is not null;
+            }
+            if (!TryResolveCreationLifeModuleTalents(out var talents) || talents is null
+                || !TryResolveMagicPurchaseInputs(out var policy, out string customDigest, out var slices, out var anchors)) return false;
+            var result = new CharacterCreationLifeModuleMagicCatalog(_settingsProfileId, _rawProfileInputsDigest,
+                customDigest, policy!, talents, slices,
+                anchors.Concat(talents.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationLifeModuleMagicRules.ComputeCatalogDigest(result) };
+            if (_sourceInputs.HasSourceDrift) return false;
+            var frozen = JsonSerializer.SerializeToElement(result);
+            lock (_completionProjectionSync) { _lifeModuleMagicCatalogSnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            catalog = result;
+            return true;
+        }
+
+        private bool TryResolveMagicPurchaseInputs(out CharacterCreationKarmaMagicPolicy? policy, out string customDigest,
+            out IReadOnlyList<CharacterCreationKarmaMagicCatalogSlice> catalogs, out IReadOnlyList<string> anchors)
+        {
+            policy = null;
+            customDigest = string.Empty;
+            catalogs = [];
+            anchors = [];
+            if (_buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
+                || _sourceInputs.HasSourceDrift
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
-                || !CharacterCreationKarmaMagicRules.TryCreatePolicy(_settingsProfileId, settingsDigest,
-                    settings.ToString(SaveOptions.DisableFormatting), out var policy)
-                || !TryComputeSelectedCustomDataInputsDigest(_customDirectories, out string customDigest)
+                || !(_buildMethod == CharacterCreationBuildMethods.Karma
+                    ? CharacterCreationKarmaMagicRules.TryCreatePolicy(_settingsProfileId, settingsDigest,
+                        settings.ToString(SaveOptions.DisableFormatting), out policy)
+                    : CharacterCreationKarmaMagicRules.TryCreateLifeModulePolicy(_settingsProfileId, settingsDigest,
+                        settings.ToString(SaveOptions.DisableFormatting), out policy))
+                || !TryComputeSelectedCustomDataInputsDigest(_customDirectories, out customDigest)
                 || customDigest != _selectedCustomDataInputsDigest) return false;
 
             (string File, string Container, string Row, string Kind)[] sources =
@@ -2383,7 +2510,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     || !TryEnumerateTargets(source.File, [source.Container], source.Row, out var rows)) return false;
                 var options = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
                     rows, source.Kind, digest, books, blockers);
-                // A visible choice must be applicable by this same Karma lane.
+                // A visible choice must be applicable by this purchase lane.
                 // Keep incomplete/custom or unsupported rows visible but disabled.
                 slices.Add(new(source.Kind, digest, options.Select(option => option.IsEnabled
                     && !CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _)
@@ -2391,12 +2518,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     : option).ToArray()));
             }
             if (blockers.Count != 0 || _sourceInputs.HasSourceDrift) return false;
-            var result = new CharacterCreationKarmaMagicCatalog(CharacterCreationKarmaMagicCatalog.SchemaV1,
-                _settingsProfileId, _rawProfileInputsDigest, customDigest, policy!, talents, slices.ToArray(),
-                policy!.SourceAnchorIds.Concat(talents.SourceAnchorIds).Concat(sources.Select(source => source.File))
-                    .Concat(_customDirectories.Select(directory => $"customdata:{directory.Name}"))
-                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
-            catalog = result with { AuthorityDigest = CharacterCreationKarmaMagicRules.ComputeCatalogDigest(result) };
+            catalogs = slices.ToArray();
+            anchors = policy!.SourceAnchorIds.Concat(sources.Select(source => source.File))
+                .Concat(_customDirectories.Select(directory => $"customdata:{directory.Name}"))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             return true;
         }
 
@@ -2456,6 +2581,110 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             metatypeQualities = sources.Take(metatype.GrantedQualities.Count).ToArray();
             talentQuality = selectedTalent;
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleMetatypeSources(string metatypeOptionId,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            metatypeQualities = [];
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || !TryResolveCreationMetatypeCatalog(out var metatypes) || !metatypes.IsAuthoritative
+                || metatypes.Options.SingleOrDefault(option => option.OptionId == metatypeOptionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } metatype
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities))
+                return false;
+            var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty)).ToArray();
+            bool needsGear = qualities.Any(row => references.Any(reference => row.Element("name")?.Value == reference.Reference)
+                && row.Element("bonus")?.Elements("addgear").Any() == true);
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear))) return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                references, qualities, gear, qualityDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != references.Length
+                || sources.Where((source, index) => !string.Equals(
+                    XElement.Parse(source.CanonicalSourceXml).Element("category")?.Value,
+                    metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase)).Any()) return false;
+            metatypeQualities = sources;
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleTalents(out CharacterCreationLifeModuleTalentCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || ReadValue(settings, "buildmethod") != CharacterCreationBuildMethods.LifeModules
+                || !TryReadKarmaCost(settings, "karmaquality", out int multiplier) || multiplier <= 0
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var rows)
+                || _character.Element("qualityrestriction") is not null
+                || _character.Element("qualities")?.Elements("quality").Any() == true)
+                return false;
+            string profileAnchor = $"settings.xml#setting:{_settingsProfileId}";
+            var options = new List<CharacterCreationKarmaTalentOption>
+            {
+                CharacterCreationKarmaTalentAuthority.Mundane(profileAnchor)
+            };
+            var unlocks = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+                { [CharacterCreationKarmaTalentCatalog.MundaneOptionId] = [] };
+            foreach (var row in rows.Where(item => item.Element("onlyprioritygiven") is not null
+                && item.Element("bonus")?.Elements("enableattribute").Any() == true))
+            {
+                // Match the quality/gear resolver's normalized node representation;
+                // the effective file digest still binds the original source bytes.
+                var canonical = XElement.Parse(row.ToString(SaveOptions.DisableFormatting), LoadOptions.None);
+                var option = CharacterCreationKarmaTalentAuthority.Project(canonical, multiplier,
+                    _enabledSourcebooks.Contains(ReadValue(row, "source")));
+                if (option is null) return false;
+                if (!CharacterCreationLifeModuleTalentAuthority.TryProjectUnlockChoices(option, out var choices))
+                    option = option with { IsEnabled = false,
+                        Blockers = option.Blockers.Append(CharacterCreationKarmaTalentCatalog.UnsupportedSource).Distinct(StringComparer.Ordinal).ToArray() };
+                unlocks[option.OptionId] = choices;
+                options.Add(option);
+            }
+            if (_sourceInputs.HasSourceDrift || options.GroupBy(option => option.OptionId,
+                StringComparer.Ordinal).Any(group => group.Count() != 1)) return false;
+            var result = new CharacterCreationLifeModuleTalentCatalog(
+                CharacterCreationLifeModuleTalentCatalog.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                qualityDigest, multiplier, options.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray(), unlocks,
+                [profileAnchor, "qualities.xml"], string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationLifeModuleTalentAuthority.ComputeDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleTalentSource(string optionId, out CharacterCreationTalentQualitySource? source)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            source = null;
+            if (!TryResolveCreationLifeModuleTalents(out var catalog) || catalog is null
+                || catalog.Options.SingleOrDefault(option => option.OptionId == optionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } talent) return false;
+            if (optionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId) return !_sourceInputs.HasSourceDrift;
+            if (!TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities)) return false;
+            bool needsGear = XElement.Parse(talent.SourceNodeXml).Element("bonus")?.Elements("addgear").Any() == true;
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear))) return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                [(Reference: optionId, Selection: string.Empty)], qualities, gear, catalog.SourceInputsDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != 1
+                || sources[0].CanonicalSourceXml != talent.SourceNodeXml) return false;
+            source = sources[0];
             return true;
         }
 
@@ -2908,11 +3137,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || maximumAvailability < 0
                 || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
                 || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string sourceDigest)
-                || !TryEnumerateTargets(
-                    "gear.xml",
-                    ["gears"],
-                    "gear",
-                    out XElement[] rows)
                 || !TryHasSelectedCustomDataInputFor(
                     _customDirectories,
                     "gear.xml",
@@ -2920,6 +3144,22 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 return false;
             }
+
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _creationGearAuthoritySnapshot; }
+            if (!_sourceInputs.HasSourceDrift && cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationGearAuthority>();
+                if (!_sourceInputs.HasSourceDrift && detached is not null)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+            // Preserve the existing non-authoritative diagnostic projection on
+            // drift. It must not turn into a successful cache hit.
+            if (!TryEnumerateTargets("gear.xml", ["gears"], "gear", out XElement[] rows))
+                return false;
 
             var options = new List<CharacterCreationGearCatalogOption>();
             var identities = new HashSet<Guid>();
@@ -3095,6 +3335,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(candidateAuthority)
             };
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                var frozen = JsonSerializer.SerializeToElement(authority);
+                lock (_completionProjectionSync) { _creationGearAuthoritySnapshot = frozen; }
+            }
             return true;
         }
 
@@ -3389,8 +3634,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || skillsDigest != _effectiveSkillsInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
                 || !TryHasSelectedCustomDataInputFor(_customDirectories, "skills.xml", out bool customSkills)
-                || customSkills
-                || !TryEnumerateTargets("skills.xml", ["skills"], "skill", out var activeRows)
+                || customSkills)
+                return false;
+            // Enter has revalidated bytes, file identities and directory membership.
+            // Reuse only this context's successful projection, never an admitted
+            // purchase or a caller-owned DTO. JSON freezes every nested collection.
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _creationSkillsCatalogSnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationSkillsCatalog>();
+                if (_sourceInputs.HasSourceDrift) return false;
+                catalog = detached;
+                return catalog is not null;
+            }
+            if (!TryEnumerateTargets("skills.xml", ["skills"], "skill", out var activeRows)
                 || !TryEnumerateTargets("skills.xml", ["knowledgeskills"], "skill", out var knowledgeRows))
                 return false;
             // Reuse the strict source projection, not Priority caps, budgets or
@@ -3409,6 +3667,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             result = result with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(result) };
             if (blockers.Count != 0 || _sourceInputs.HasSourceDrift
                 || !CharacterCreationSkillsCatalogAuthority.IsValid(result)) return false;
+            var frozen = JsonSerializer.SerializeToElement(result);
+            // No IO, source-snapshot lock, or callback under the projection lock.
+            // Concurrent cold calls may build equivalent private snapshots.
+            lock (_completionProjectionSync) { _creationSkillsCatalogSnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
             catalog = result;
             return true;
         }
@@ -3672,6 +3935,33 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return CharacterCreationKarmaQualitiesRules.IsValidCatalog(catalog);
         }
 
+        public bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_buildMethod != CharacterCreationBuildMethods.LifeModules || _sourceInputs.HasSourceDrift) return false;
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _lifeModuleQualitiesPolicySnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationKarmaQualitiesPolicy>();
+                if (_sourceInputs.HasSourceDrift) return false;
+                policy = detached;
+                return policy is not null;
+            }
+            if (!TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
+            var result = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.LifeModulesSchemaV1,
+                source.SettingsProfileId, source.ProfileDigest, source.SourceDigest, source.QualityKarmaLimit,
+                source.MayExceedPositiveQualityLimit, source.MayExceedNegativeQualityLimit, source.MetagenicLimit,
+                source.CostPolicy ?? CharacterCreationQualityCostPolicy.Default, source.SourceAnchorIds, string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationKarmaQualitiesRules.PolicyDigest(result) };
+            var frozen = JsonSerializer.SerializeToElement(result);
+            lock (_completionProjectionSync) { _lifeModuleQualitiesPolicySnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            policy = result;
+            return true;
+        }
+
         // Shared source parsing only. Each public entry retains its own build-method
         // guard and contract; this never creates a Priority prerequisite for Karma.
         private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority)
@@ -3680,7 +3970,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             authority = CharacterCreationQualitiesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _buildMethod is not (CharacterCreationBuildMethods.Priority
-                    or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.Karma)
+                    or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
                     "qualities.xml",
@@ -3984,7 +4274,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || (!CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
-                    && _buildMethod != CharacterCreationBuildMethods.Karma)
+                    && _buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules))
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || !TryResolveTarget(

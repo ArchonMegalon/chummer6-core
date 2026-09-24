@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -83,11 +82,33 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
             return false;
         }
 
-        return ledger.RequirementEvaluations.All(IsStructurallyValid)
+        return (!ledger.ModuleSelectionFinished || LifeModuleJourneyStageOrders.Required
+                   .Where(stage => stage != LifeModuleJourneyStageOrders.Nationality)
+                   .All(stage => ledger.AdditionalModules?.Any(entry => entry?.StageOrder == stage) == true))
+               && ledger.RequirementEvaluations.All(IsStructurallyValid)
                && ledger.ProjectedEffects.All(IsStructurallyValid)
                && ledger.FollowUpValues.All(item =>
                    IsNormalizedNonEmpty(item.Key) && item.Value is not null)
-               && ledger.SourceAnchorIds.All(IsNormalizedNonEmpty);
+               && ledger.SourceAnchorIds.All(IsNormalizedNonEmpty)
+               && (ledger.AdditionalModules is null
+                   || (ledger.AdditionalModules.Count is > 0 and <= 128
+                       && ledger.AdditionalModules.All(entry => entry is not null
+                           && entry.StageOrder is >= LifeModuleJourneyStageOrders.FormativeYears and <= LifeModuleJourneyStageOrders.RealLife
+                           && IsNormalizedNonEmpty(entry.StageId)
+                           && entry.Selection is not null
+                           && IsNormalizedNonEmpty(entry.Selection.ModuleId)
+                           && (entry.Selection.VersionId is null || IsNormalizedNonEmpty(entry.Selection.VersionId))
+                           && entry.KarmaCost >= 0
+                           && entry.RequirementEvaluations is not null
+                           && entry.RequirementEvaluations.All(IsStructurallyValid)
+                           && entry.ProjectedEffects is not null
+                           && entry.ProjectedEffects.All(IsStructurallyValid)
+                           && entry.FollowUpValues is not null
+                           && entry.FollowUpValues.All(item => IsNormalizedNonEmpty(item.Key) && item.Value is not null)
+                           && entry.SourceAnchorIds is not null
+                           && entry.SourceAnchorIds.Count > 0
+                           && entry.SourceAnchorIds.All(IsNormalizedNonEmpty)
+                           && entry.StoryTemplate is not null)));
     }
 
     public static bool HasSameLogicalPayload(
@@ -163,14 +184,18 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
 
     private static string ComputeCanonicalSha256<T>(T value)
     {
-        JsonElement root = JsonSerializer.SerializeToElement(value);
-        ArrayBufferWriter<byte> buffer = new();
-        using (var writer = new Utf8JsonWriter(buffer))
+        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        // Keep the canonical v1 bytes, but hash them as they are emitted rather
+        // than retaining another full copy of the large Creation/archive graph.
+        using SHA256 hash = SHA256.Create();
+        using CryptoStream stream = new(Stream.Null, hash, CryptoStreamMode.Write);
+        using (Utf8JsonWriter writer = new(stream))
         {
-            WriteCanonical(root, writer);
+            WriteCanonical(document.RootElement, writer);
         }
 
-        return Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        stream.FlushFinalBlock();
+        return Convert.ToHexStringLower(hash.Hash!);
     }
 
     private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
@@ -214,6 +239,11 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
             default:
                 throw new InvalidOperationException("Unsupported foundation-draft JSON value kind.");
         }
+
+        // Utf8JsonWriter(Stream) buffers until Flush. Bound that buffer between
+        // values; a single large string is still written intact and unchanged.
+        if (writer.BytesPending >= 64 * 1024)
+            writer.Flush();
     }
 
     private static bool FixedTimeEquals(string? left, string? right)

@@ -11,13 +11,15 @@ using Chummer.Infrastructure.DependencyInjection;
 using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
+using Chummer.Rulesets.Hosting;
+using Chummer.Rulesets.Sr5;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
+public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 {
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
@@ -38,6 +40,108 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         "d6843e67-0837-4353-a5db-f4c320560ddb";
     private const string ComputerSkillId = "1c14bf0d-cc69-4126-9a95-1f2429c11aa5";
     private const string EtiquetteSkillId = "b20acd11-f102-40f3-a641-e3c420fbdb91";
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Origin_book_uses_real_foundation_digests_and_reopens_the_committed_chapter(bool newRunner)
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            CharacterWorkspaceId id = new("foundation-origin-book");
+            string xml = CharacterXml("Human");
+            FileWorkspaceStore store = new(directory);
+            if (newRunner)
+            {
+                var resolver = new FileSystemCharacterSourceDataResolver(CreateOverlays());
+                var queries = new XmlCharacterFileQueries(new CharacterFileService());
+                var codec = new Sr5WorkspaceCodec(queries,
+                    new XmlCharacterSectionQueries(new CharacterSectionService(resolver)),
+                    new XmlCharacterMetadataCommands(new CharacterFileService()));
+                var created = new CharacterCreationBootstrapService(store,
+                    new RulesetWorkspaceCodecResolver([codec]), queries, resolver).Create(new(
+                    CharacterCreationBootstrapSchemas.RequestV1,
+                    CharacterCreationBootstrapStages.AwaitingFoundationSelection, RulesetDefaults.Sr5,
+                    "Origin Runner", "No default metatype", CharacterCreationBuildMethods.LifeModules,
+                    CanonicalLifeModuleSettingsId));
+                Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome,
+                    string.Join(", ", created.Blockers));
+                id = created.Value!.WorkspaceId;
+                xml = store.Get(id).Value!.Document.Content;
+            }
+            else
+                Assert.IsTrue(store.CreateWorkspaceDocument(
+                    id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            CharacterCreationFoundationState foundation = Load(CreateService(store), id);
+            Assert.AreEqual(newRunner ? string.Empty : "Human", foundation.CurrentMetatype);
+            Assert.IsTrue(IsCanonicalDigest(foundation.Binding.RawCharacterXmlDigest));
+            Assert.IsTrue(IsCanonicalDigest(foundation.Binding.SourceDigest));
+
+            LifeModuleOriginDossierInteractionService CreateInteraction(FileWorkspaceStore currentStore) =>
+                new(new LifeModuleOriginDossierService(
+                    new CharacterCreationFoundationLifeModuleDecisionAuthority(
+                        currentStore, CreateService(currentStore),
+                        new XmlCharacterFileQueries(new CharacterFileService()), () => "de-DE")));
+            LifeModuleOriginDossierInteractionService interaction = CreateInteraction(store);
+            var started = interaction.Start(id.Value);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, started.Outcome,
+                string.Join(", ", started.Blockers));
+            Assert.IsNotNull(started.Value);
+            Assert.AreEqual(foundation.Binding.RawCharacterXmlDigest[7..], started.Value.BoundContentDigest);
+            Assert.AreEqual(foundation.Binding.SourceDigest[7..], started.Value.BoundSourceDigest);
+            string selectedMetatype = newRunner ? "Elf" : "Human";
+            var choices = started.Value.Projection.CurrentTurn.LegalChoices;
+            if (newRunner)
+            {
+                string[] offeredMetatypes = choices.SelectMany(item => item.MechanicsPreview.Items)
+                    .Where(item => item.Domain == "metatype-choice").Select(item => item.AfterValue).Distinct().ToArray();
+                CollectionAssert.Contains(offeredMetatypes, "Human");
+                CollectionAssert.Contains(offeredMetatypes, "Elf");
+                Assert.AreEqual(choices.Count, choices.Select(item => item.ChoiceId).Distinct().Count());
+            }
+            var choice = choices.First(item => item.FollowUps is null && item.MechanicsPreview.Items.Any(effect =>
+                effect.Domain == "metatype-choice" && effect.AfterValue == selectedMetatype));
+            var prepared = interaction.Prepare(started.Value, choice.ChoiceId);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, prepared.Outcome);
+            Assert.IsNotNull(prepared.Value?.PendingPreview);
+            Assert.AreEqual(newRunner ? 55m : 15m, prepared.Value.PendingPreview.SelectedChoice.MechanicsPreview.KarmaCost,
+                "The reviewed cost includes metatype and nationality, not just the module.");
+            string previewDigest = prepared.Value.PendingPreview.PreviewDigest;
+
+            var unconfirmed = interaction.Confirm(prepared.Value, previewDigest, "origin-book-confirm", false);
+            Assert.AreNotEqual(LifeModuleOriginDossierOutcomes.Success, unconfirmed.Outcome);
+            Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+            var confirmed = interaction.Confirm(prepared.Value, previewDigest, "origin-book-confirm", true);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, confirmed.Outcome,
+                string.Join(", ", confirmed.Blockers));
+            Assert.IsNotNull(confirmed.Value);
+            Assert.HasCount(1, confirmed.Value.Checkpoint.Projection.VisibleChapters);
+            Assert.IsTrue(confirmed.Value.Checkpoint.Projection.CurrentTurn.CanonicalFacts.Any(fact =>
+                fact.FactKind == "accepted-metatype" && fact.LocalizedSummary == selectedMetatype));
+            Assert.AreEqual(OriginLtdProvenanceStates.NotRequested, confirmed.Value.Checkpoint.LtdProvenance.State);
+
+            FileWorkspaceStore reopened = new(directory);
+            byte[] committedBytes = File.ReadAllBytes(WorkspacePath(directory, id));
+            Assert.AreEqual(xml, reopened.Get(id).Value!.Document.Content);
+            Assert.AreEqual(2L, reopened.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(selectedMetatype,
+                reopened.Get(id).Value!.Document.AuxiliaryState.CharacterCreationFoundationDraft!.RequestedMetatype);
+            Assert.AreEqual(newRunner ? 55m : 15m, Load(CreateService(reopened), id).LifeModuleBudget.Used);
+            LifeModuleOriginDossierInteractionService restarted = CreateInteraction(reopened);
+            var restored = restarted.Restore(confirmed.Value.Checkpoint);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, restored.Outcome);
+            Assert.AreEqual(confirmed.Value.Checkpoint.CheckpointDigest, restored.Value!.CheckpointDigest);
+            var replay = restarted.Confirm(prepared.Value, previewDigest, "origin-book-confirm", true);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, replay.Outcome);
+            Assert.AreEqual(confirmed.Value.Checkpoint.CheckpointDigest, replay.Value!.Checkpoint.CheckpointDigest);
+            CollectionAssert.AreEqual(committedBytes, File.ReadAllBytes(WorkspacePath(directory, id)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
     [TestMethod]
     public void Exact_Tir_Human_and_Elf_drafts_preserve_legacy_effect_order_and_raw_xml()
@@ -419,18 +523,21 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 .Compilation.Effects.Where(effect => effect.CompilationStatus
                     == CharacterCreationFoundationEffectCompilationStatuses.Supported)
                 .ToArray();
-            Assert.HasCount(5, supportedEffects);
+            Assert.HasCount(9, supportedEffects);
             CharacterCreationFoundationEffectInstruction supportedAttribute = supportedEffects
                 .Single(effect => effect.EffectKind == "attributelevel");
             Assert.AreEqual("attributelevel", supportedAttribute.EffectKind);
             Assert.AreEqual(CharacterCreationFoundationEffectSourcePhases.Version,
                 supportedAttribute.SourcePhase);
-            Assert.IsTrue(supportedEffects.Skip(1).All(effect =>
-                effect.EffectKind == "knowledgeskilllevel"
-                && effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module
+            Assert.IsTrue(supportedEffects.Where(effect => effect.EffectKind == "knowledgeskilllevel").All(effect =>
+                effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module
                 && effect.TargetBinding?.TargetKind == "free-knowledge-skill-pool"
                 && effect.TargetBinding.SourceId == "FreeKnowledgeSkills"
                 && effect.TargetBinding.SourceDigest == draft.SourceDigest));
+            CharacterCreationFoundationEffectInstruction freeNegative = supportedEffects.Single(
+                effect => effect.EffectKind == "freenegativequalities");
+            Assert.AreEqual("FreeNegativeQualities", freeNegative.TargetBinding!.SourceId);
+            Assert.AreEqual(draft.SourceDigest, freeNegative.TargetBinding.SourceDigest);
             Assert.IsTrue(preview.Compilation.Effects
                 .Except(supportedEffects)
                 .All(effect => effect.CompilationStatus
@@ -2037,7 +2144,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
     }
 
     [TestMethod]
-    public void Finalization_prompt_effects_are_typed_and_confirm_is_repeatable_zero_write()
+    public void Finalization_confirmed_knowledge_inputs_are_typed_and_confirm_is_repeatable_zero_write()
     {
         string directory = CreateTempDirectory();
         try
@@ -2065,13 +2172,11 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     draft.DraftRevision,
                     draft.DraftDigest))
                 .Value!;
-            Assert.IsTrue(preview.Compilation.Effects.Any(effect =>
-                effect.CompilationStatus
-                == CharacterCreationFoundationEffectCompilationStatuses.PromptRequired
-                && effect.PromptIds.Count > 0));
-            CollectionAssert.Contains(
-                preview.FinalizationBlocked.ToList(),
-                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+            var answered = preview.Compilation.Effects.Where(effect => effect.InputResolution is not null).ToArray();
+            Assert.HasCount(3, answered, "The version has two prompts and the UCAS module has its own language choice.");
+            Assert.IsTrue(answered.All(effect => effect.PromptIds.Count == 0
+                && effect.CompilationStatus == CharacterCreationFoundationEffectCompilationStatuses.Supported));
+            Assert.IsFalse(preview.FinalizationBlocked.Contains(CharacterCreationFoundationBlockers.FinalizationPromptRequired));
             string targetPath = WorkspacePath(directory, id);
             byte[] before = File.ReadAllBytes(targetPath);
             DateTime beforeWrite = File.GetLastWriteTimeUtc(targetPath);
@@ -2087,7 +2192,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.IsNull(duplicate.Value);
             CollectionAssert.Contains(
                 first.Blockers.ToList(),
-                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+                CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete);
             CollectionAssert.AreEqual(before, File.ReadAllBytes(targetPath));
             Assert.AreEqual(beforeWrite, File.GetLastWriteTimeUtc(targetPath));
             WorkspaceStoredDocument reopened = new FileWorkspaceStore(directory).Get(id).Value!;

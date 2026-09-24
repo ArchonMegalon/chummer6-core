@@ -69,6 +69,7 @@ public static class CharacterCreationLifeModuleStageIds
     public const string TeenYears = "teen-years";
     public const string FurtherEducation = "further-education";
     public const string RealLife = "real-life";
+    public const string SelectionFinished = "life-module-selection-finished";
 
     public static IReadOnlyList<string> RequiredStages { get; } =
     [Nationality, FormativeYears, TeenYears, FurtherEducation];

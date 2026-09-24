@@ -32,6 +32,175 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
+    [DataRow("skills")]
+    [DataRow("life-quality-policy")]
+    [DataRow("gear")]
+    [DataRow("life-magic")]
+    public void Creation_completion_projection_reuse_detaches_collections_and_avoids_full_reprojection(string kind)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>")!;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        object first = ReadCompletionProjection(context, kind);
+        long coldBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        if (PoisonCompletionProjection(first))
+            Assert.AreNotEqual(expected, System.Text.Json.JsonSerializer.Serialize(first));
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        object second = ReadCompletionProjection(context, kind);
+        long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+            "Reuse must still revalidate live source bytes, not just metadata.");
+        Assert.IsTrue(warmBytes < coldBytes / 2,
+            $"Repeated {kind} projection allocated {warmBytes:N0} bytes versus {coldBytes:N0} on first read.");
+        PoisonCompletionProjection(second);
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)),
+            "Neither the initial result nor a cache hit may expose the private projection.");
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("skills.xml")]
+    [DataRow("weapons.xml")]
+    [DataRow("qualities.xml")]
+    [DataRow("gear.xml")]
+    [DataRow("traditions.xml")]
+    [DataRow("streams.xml")]
+    [DataRow("powers.xml")]
+    [DataRow("spells.xml")]
+    [DataRow("complexforms.xml")]
+    public void Creation_completion_projection_reuse_rejects_source_drift_and_ABA(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "weapons.xml", "qualities.xml",
+                "gear.xml", "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
+            var context = resolver.TryCreateContext(xml)!;
+            string skills = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "skills"));
+            string policy = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-quality-policy"));
+            string gear = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "gear"));
+            string magic = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-magic"));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            File.AppendAllText(path, "\n");
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationGearAuthority(out var driftedGear) && driftedGear.IsAuthoritative);
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
+            Assert.IsFalse(context.TryResolveCreationGearAuthority(out var restoredGear) && restoredGear.IsAuthoritative);
+            var fresh = resolver.TryCreateContext(xml)!;
+            Assert.AreEqual(skills, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "skills")));
+            Assert.AreEqual(policy, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-quality-policy")));
+            Assert.AreEqual(gear, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "gear")));
+            Assert.AreEqual(magic, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-magic")));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static object ReadCompletionProjection(ICharacterSourceDataContext context, string kind)
+    {
+        if (kind == "skills")
+        {
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+            Assert.IsNotNull(catalog);
+            return catalog;
+        }
+        if (kind == "gear")
+        {
+            Assert.IsTrue(context.TryResolveCreationGearAuthority(out var gear));
+            Assert.IsTrue(gear.IsAuthoritative);
+            return gear;
+        }
+        if (kind == "life-magic")
+        {
+            Assert.IsTrue(context.TryResolveCreationLifeModuleMagicCatalog(out var magic));
+            Assert.IsNotNull(magic);
+            return magic;
+        }
+        Assert.IsTrue(context.TryResolveCreationLifeModuleQualitiesPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        return policy;
+    }
+
+    [TestMethod]
+    [DataRow("skills", false)]
+    [DataRow("skills", true)]
+    [DataRow("life-quality-policy", false)]
+    [DataRow("life-quality-policy", true)]
+    [DataRow("gear", false)]
+    [DataRow("gear", true)]
+    [DataRow("life-magic", false)]
+    [DataRow("life-magic", true)]
+    public async Task Creation_completion_projection_parallel_readers_do_not_share_mutable_results(string kind, bool warm)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>")!;
+        if (warm) ReadCompletionProjection(context, kind);
+        var calls = Enumerable.Range(0, 3).Select(_ => Task.Run(() => ReadCompletionProjection(context, kind))).ToArray();
+        object[] results = await Task.WhenAll(calls);
+        string expected = System.Text.Json.JsonSerializer.Serialize(results[0]);
+        Assert.IsTrue(results.All(result => System.Text.Json.JsonSerializer.Serialize(result) == expected));
+        PoisonCompletionProjection(results[0]);
+        foreach (object result in results.Skip(1))
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(result));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)));
+    }
+
+    private static bool PoisonCompletionProjection(object projection)
+    {
+        bool changed = false;
+        void Poison(IReadOnlyList<string> values)
+        {
+            if (values is System.Collections.IList { IsReadOnly: false } list && list.Count > 0)
+            {
+                list[0] = "caller-poison";
+                changed = true;
+            }
+        }
+        if (projection is CharacterCreationSkillsCatalog catalog)
+        {
+            Poison(catalog.SourceAnchorIds);
+            Poison(catalog.ActiveSkills[0].SourceAnchorIds);
+            Poison(catalog.SkillGroups[0].MemberSkillSourceIds);
+            Poison(catalog.ActiveSkillSourceOrder);
+        }
+        else if (projection is CharacterCreationGearAuthority gear)
+        {
+            Poison(gear.SourceAnchorIds);
+            Poison(gear.Options[0].SourceAnchorIds);
+            Poison(gear.Options.First(option => option.Blockers.Count > 0).Blockers);
+        }
+        else if (projection is CharacterCreationLifeModuleMagicCatalog magic)
+        {
+            Poison(magic.SourceAnchorIds);
+            Poison(magic.Policy.SourceAnchorIds);
+            Poison(magic.Talents.SourceAnchorIds);
+            Poison(magic.Talents.SkillUnlockChoices.Values.First(values => values.Count > 0));
+            Poison(magic.Catalogs.SelectMany(slice => slice.Options).First().SourceAnchorIds);
+        }
+        else
+            Poison(((CharacterCreationKarmaQualitiesPolicy)projection).SourceAnchorIds);
+        return changed;
+    }
+
+    [TestMethod]
     public void Canonical_active_skill_source_resolves_exact_saved_source_guid()
     {
         string coreRoot = FindCoreRoot();
@@ -4913,6 +5082,91 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             DeleteTempDirectory(root);
         }
+    }
+
+    [TestMethod]
+    public void Foundation_effect_sources_bind_saved_profile_books_and_real_catalogs()
+    {
+        const string profileId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(),
+            $"<character><settings>{profileId}</settings><buildmethod>LifeModule</buildmethod>"
+            + "<created>False</created><ruleset>sr5</ruleset></character>")!;
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var sources));
+        Assert.IsNotNull(sources);
+        Assert.AreEqual(profileId, sources.SettingsProfileId);
+        Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
+        Assert.AreEqual(profile.RawProfileInputsDigest, sources.ProfileInputsDigest);
+        Assert.IsTrue(sources.TryCreateAuthorities(out var skills, out var qualities, out var levels, out string digest));
+        Assert.IsTrue(levels!.TryResolveExact("SINner", 1, qualities!, out var national));
+        Assert.AreEqual("SINner (National)", national!.CanonicalName);
+        Assert.IsTrue(skills!.TryResolveExactActive("Perception", out var perception));
+        Assert.IsTrue(skills.TryResolveExactGroup("Close Combat", out _));
+        Assert.IsTrue(qualities!.TryResolveExact("Uncouth", out var uncouth));
+        Assert.IsTrue(qualities.TryGetDefinition(uncouth!, out _, out _));
+        Assert.IsNotNull(perception);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(digest));
+
+        // Keep the complete catalogs for ambiguity checks, but never resolve a
+        // disabled book or accept a previously bound target through that filter.
+        var disabled = sources with { EnabledSourcebooks = new[] { "RF" } };
+        Assert.IsTrue(disabled.TryCreateAuthorities(out skills, out qualities, out levels, out string disabledDigest));
+        Assert.IsFalse(levels!.TryResolveExact("SINner", 1, qualities!, out _));
+        Assert.IsFalse(skills!.TryResolveExactActive("Perception", out _));
+        Assert.IsFalse(skills.TryResolveExactGroup("Close Combat", out _));
+        Assert.IsFalse(qualities!.TryResolveExact("Uncouth", out _));
+        Assert.IsFalse(qualities.TryGetDefinition(uncouth!, out _, out _));
+        Assert.AreNotEqual(digest, disabledDigest);
+    }
+
+    [TestMethod]
+    [DataRow("<created>True</created><buildmethod>LifeModule</buildmethod>")]
+    [DataRow("<created>False</created><buildmethod>Karma</buildmethod>")]
+    [DataRow("<created>False</created><buildmethod>LifeModule</buildmethod><ruleset>sr6</ruleset>")]
+    [DataRow("<created>False</created>")]
+    public void Foundation_effect_sources_reject_nonmatching_character_scope(string characterFields)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source>"));
+            CopyCanonicalDataFiles(root, "qualitylevels.xml");
+            var context = CreateContext(root, CharacterXml(characterFields));
+            Assert.IsNotNull(context);
+            Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var sources));
+            Assert.IsNull(sources);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("skills.xml")]
+    [DataRow("qualities.xml")]
+    [DataRow("qualitylevels.xml")]
+    public void Foundation_effect_sources_reject_source_drift_after_capture(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source>"));
+            CopyCanonicalDataFiles(root, "qualitylevels.xml");
+            var context = CreateContext(root, CharacterXml(
+                "<created>False</created><buildmethod>LifeModule</buildmethod>"));
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var before));
+            Assert.IsNotNull(before);
+            string path = Path.Combine(root, "data", fileName);
+            if (fileName == "settings.xml")
+                File.WriteAllText(path, File.ReadAllText(path).Replace("<book>SR5</book>", "<book>RF</book>", StringComparison.Ordinal));
+            else
+                RewriteFirstElementValueSameLength(path, "name");
+            Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var after));
+            Assert.IsNull(after);
+        }
+        finally { DeleteTempDirectory(root); }
     }
 
     private static ICharacterSourceDataContext? CreateContext(

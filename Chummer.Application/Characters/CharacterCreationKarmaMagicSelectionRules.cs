@@ -75,84 +75,16 @@ public static class CharacterCreationKarmaMagicSelectionRules
                 || !CharacterCreationKarmaEffectsProjector.TryProject(foundation, racialSources, talentSource,
                     out var effects)) return null;
 
-            string[] tabs = effects.Elements("improvement").Where(item => Type(item) == "SpecialTab")
-                .Select(item => item.Element("improvedname")!.Value).ToArray();
-            bool adept = tabs.Contains("Adept", StringComparer.Ordinal);
-            bool magician = tabs.Contains("Magician", StringComparer.Ordinal);
-            bool technomancer = tabs.Contains("Technomancer", StringComparer.Ordinal);
-            bool mundane = talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId;
-            string kind = mundane ? "mundane" : technomancer && !adept && !magician && talent.EnabledAttribute == "RES"
-                ? "technomancer" : talent.EnabledAttribute == "MAG" && !technomancer
-                    ? adept && magician ? "mystic-adept" : adept ? "adept" : magician
-                        ? skills.Access.RequiredUnlockChoices.Count > 0 ? "aspected-magician" : "magician" : "unsupported"
-                    : "unsupported";
-            int magic = attributes.Attributes.Single(item => item.AttributeId == "MAG").Current;
-            int resonance = attributes.Attributes.Single(item => item.AttributeId == "RES").Current;
-            if (!CharacterCreationKarmaMagicRules.TryCalculateCost(catalog.Policy, kind, magic,
-                    frozen.Spells.Count, frozen.ComplexForms.Count, frozen.MysticAdeptPowerPoints, out var cost)) return null;
-            var access = new CharacterCreationKarmaMagicAccess(magician, technomancer, adept,
-                magician && (kind != "aspected-magician" || skills.Selection.TalentUnlock == "Sorcery"), technomancer);
-            var blockers = new HashSet<string>(StringComparer.Ordinal);
-            if (magician != (frozen.Tradition is not null))
-                blockers.Add(magician ? CharacterCreationMagicResonanceBlockers.TraditionRequired
-                    : CharacterCreationMagicResonanceBlockers.TraditionInvalid);
-            if (technomancer != (frozen.Stream is not null))
-                blockers.Add(technomancer ? CharacterCreationMagicResonanceBlockers.StreamRequired
-                    : CharacterCreationMagicResonanceBlockers.StreamInvalid);
-            if (!adept && frozen.AdeptPowers.Count > 0) blockers.Add(CharacterCreationMagicResonanceBlockers.PowerSelectionNotAllowed);
-            if (!technomancer && frozen.ComplexForms.Count > 0) blockers.Add(CharacterCreationMagicResonanceBlockers.ComplexFormSelectionNotAllowed);
-            if (!access.AllowsSpells && frozen.Spells.Count > 0)
-                blockers.Add(CharacterCreationMagicResonanceBlockers.SpellSelectionNotAllowed);
-
-            var selected = new List<(CharacterCreationMagicResonanceOptionIdentity Identity, int Levels)>();
-            if (frozen.Tradition is not null) selected.Add((frozen.Tradition, 1));
-            if (frozen.Stream is not null) selected.Add((frozen.Stream, 1));
-            selected.AddRange(frozen.AdeptPowers.Select(item => (item.Identity, item.Levels)));
-            selected.AddRange(frozen.Spells.Select(item => (item, 1)));
-            selected.AddRange(frozen.ComplexForms.Select(item => (item, 1)));
-            var sources = new List<CharacterCreationMagicResonanceOptionFinalizationSource>();
-            foreach (var (identity, levels) in selected)
-            {
-                var option = catalog.Catalogs.Single(slice => slice.Kind == identity.Kind).Options
-                    .SingleOrDefault(item => item.Identity == identity);
-                if (!CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, levels, out var source))
-                    return null;
-                if (identity.Kind == CharacterCreationMagicResonanceKinds.AdeptPower
-                    && levels > CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(option!, magic))
-                    blockers.Add(CharacterCreationMagicResonanceBlockers.OptionInvalid);
-                sources.Add(source!);
-            }
-            decimal totalPoints = kind == "adept" ? magic : cost!.MysticPowerPoints?.PowerPoints ?? 0;
-            decimal usedPoints = sources.Where(item => item.Identity.Kind == "adept-power")
-                .Sum(item => checked(item.PointCost * item.Levels));
-            if (usedPoints > totalPoints) blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
-            // Chummer5 SelectSpell.AcceptForm limits ordinary spells and rituals
-            // separately to twice current MAG. It does not use Priority's free slots.
-            int spellLimit = checked(magic * 2);
-            int formLimit = catalog.Policy.IgnoreComplexFormLimit ? int.MaxValue : checked(resonance * 2);
-            if (sources.Count(item => item.Identity.Kind == "spell" && item.Category != "Rituals") > spellLimit
-                || sources.Count(item => item.Identity.Kind == "spell" && item.Category == "Rituals") > spellLimit)
-                blockers.Add(CharacterCreationMagicResonanceBlockers.SpellBudgetExceeded);
-            if (frozen.ComplexForms.Count > formLimit) blockers.Add(CharacterCreationMagicResonanceBlockers.ComplexFormBudgetExceeded);
-            // Every currently compiled quality effect that can constrain spell
-            // selection is applied. New compiler capabilities must extend this list.
-            string[] descriptors = effects.Elements("improvement").Where(item => Type(item) == "BlockSpellDescriptor")
-                .Select(item => item.Element("improvedname")!.Value).ToArray();
-            string[] categories = effects.Elements("improvement").Where(item => Type(item) == "LimitSpellCategory")
-                .Select(item => item.Element("improvedname")!.Value).ToArray();
-            foreach (var spell in sources.Where(item => item.Identity.Kind == "spell"))
-            {
-                string descriptor = XElement.Parse(spell.CanonicalSourceXml).Element("descriptor")?.Value ?? string.Empty;
-                if (descriptors.Any(value => descriptor.Contains(value, StringComparison.Ordinal))
-                    || categories.Any(value => value != spell.Category))
-                    blockers.Add(CharacterCreationMagicResonanceBlockers.SpellSelectionNotAllowed);
-            }
-            if (cost!.TotalKarma > foundation.KarmaBudget.Remaining)
-                blockers.Add(CharacterCreationKarmaMetatypeBlockers.BudgetExceeded);
+            var purchase = CharacterCreationMagicPurchaseRules.Evaluate(catalog.Policy, catalog.Catalogs, talent,
+                skills.Access.RequiredUnlockChoices.Count > 0, skills.Selection.TalentUnlock,
+                attributes.Attributes.Single(item => item.AttributeId == "MAG").Current,
+                attributes.Attributes.Single(item => item.AttributeId == "RES").Current,
+                effects.Elements("improvement").ToArray(), frozen, foundation.KarmaBudget.Remaining, false);
+            if (purchase is null) return null;
 
             var subsetTalents = catalog.Talents with { Options = [talent], AuthorityDigest = string.Empty };
             subsetTalents = subsetTalents with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(subsetTalents) };
-            var identities = selected.Select(item => item.Identity).ToHashSet();
+            var identities = purchase.Sources.Select(item => item.Identity).ToHashSet();
             var subset = catalog with
             {
                 Talents = subsetTalents,
@@ -162,9 +94,9 @@ public static class CharacterCreationKarmaMagicSelectionRules
             };
             subset = subset with { AuthorityDigest = CharacterCreationKarmaMagicRules.ComputeCatalogDigest(subset) };
             var quote = new CharacterCreationKarmaMagicQuote(CharacterCreationKarmaMagicQuote.SchemaV1,
-                catalog.AuthorityDigest, subset, kind, access, attributes.QuoteDigest, skills.QuoteDigest, qualities.QuoteDigest,
-                racialSources.ToArray(), talentSource, frozen, sources.ToArray(), cost, totalPoints, usedPoints,
-                spellLimit, formLimit, blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty);
+                catalog.AuthorityDigest, subset, purchase.TalentKind, purchase.Access, attributes.QuoteDigest, skills.QuoteDigest, qualities.QuoteDigest,
+                racialSources.ToArray(), talentSource, purchase.Selections, purchase.Sources, purchase.Cost, purchase.PowerPointsTotal, purchase.PowerPointsUsed,
+                purchase.MaximumSpellsPerKind, purchase.MaximumComplexForms, purchase.Blockers, string.Empty);
             return quote with { QuoteDigest = Hash(quote) };
         }
         catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
@@ -214,7 +146,6 @@ public static class CharacterCreationKarmaMagicSelectionRules
     private static bool Identity(CharacterCreationMagicResonanceOptionIdentity? identity, string kind) =>
         identity is not null && identity.Kind == kind && Guid.TryParseExact(identity.SourceId, "D", out var id)
         && id != Guid.Empty && id.ToString("D") == identity.SourceId;
-    private static string Type(XElement effect) => effect.Element("improvementttype")?.Value ?? string.Empty;
     private static bool Same<T>(T left, T right) => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right);
     private static string Hash<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);
 }

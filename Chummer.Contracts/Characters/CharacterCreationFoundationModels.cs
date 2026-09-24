@@ -1,5 +1,6 @@
 using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Workspaces;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -74,6 +75,10 @@ public static class CharacterCreationFoundationBlockers
     public const string PendingDraftConflict = "pending-draft-conflict";
     public const string PendingDraftDuplicate = "pending-draft-duplicate";
     public const string PendingDraftInvalid = "pending-draft-invalid";
+    public const string FoundationLockedByJourney = "foundation-locked-by-life-module-journey";
+    public const string LifeModuleStageInvalid = "life-module-stage-invalid";
+    public const string LifeModuleSelectionInvalid = "life-module-selection-invalid";
+    public const string LifeModuleSelectionFinished = "life-module-selection-finished";
     public const string RulesetSr5Required = "ruleset-sr5-required";
     public const string SourceDigestConflict = "source-digest-conflict";
     public const string StaleRawCharacterXmlDigest = "stale-raw-character-xml-digest";
@@ -140,7 +145,16 @@ public sealed record CharacterCreationFoundationDraftLedger(
     IReadOnlyList<string> SourceAnchorIds,
     string CompilationStatus,
     bool CharacterEffectsApplied,
-    string DraftDigest);
+    string DraftDigest)
+{
+    // Omit absent continuation data so existing nationality-only ledger bytes
+    // and their canonical hashes remain readable without a migration.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleDraftEntry>? AdditionalModules { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ModuleSelectionFinished { get; init; }
+}
 
 public sealed record CharacterCreationFoundationState(
     string Schema,
@@ -217,14 +231,82 @@ public sealed record CharacterCreationFoundationConfirmRequest(
 public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
     CharacterCreationFoundationBinding Binding,
     long DraftRevision,
-    string DraftDigest);
+    string DraftDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? QualityInstanceValues { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? AttributePurchases { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentSelection? TalentSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaSkillsSelection? SkillSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? KarmaResourceInvestment { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationGearSelection>? GearSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifestyleConfiguration>? LifestyleSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? StartingLifestyleId { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationKarmaContactSelection>? ContactSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? StartingNuyenDiceTotal { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMagicResonanceSelections? MagicSelection { get; init; }
+}
 
 public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
     CharacterCreationFoundationBinding Binding,
     long DraftRevision,
     string DraftDigest,
     string PreviewDigest,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? QualityInstanceValues { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifeModuleAttributePurchase>? AttributePurchases { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentSelection? TalentSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaSkillsSelection? SkillSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? KarmaResourceInvestment { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationGearSelection>? GearSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifestyleConfiguration>? LifestyleSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? StartingLifestyleId { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationKarmaContactSelection>? ContactSelection { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? StartingNuyenDiceTotal { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMagicResonanceSelections? MagicSelection { get; init; }
+}
 
 /// <summary>
 /// One deterministic compiler instruction derived from the persisted draft and
@@ -260,7 +342,26 @@ public sealed record CharacterCreationFoundationEffectInstruction(
     /// </summary>
     public IReadOnlyDictionary<string, string> IgnoredSourceMetadata { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Confirmed source-owned answers used by this instruction. Original draft
+    /// projections remain unchanged; both projections and each prompt are bound
+    /// into InstructionDigest through this resolution.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFoundationEffectInputResolution? InputResolution { get; init; }
 }
+
+public sealed record CharacterCreationFoundationEffectInputResolution(
+    string SourceEffectDigest,
+    string ResolvedEffectDigest,
+    IReadOnlyList<CharacterCreationFoundationEffectInputBinding> Inputs);
+
+public sealed record CharacterCreationFoundationEffectInputBinding(
+    string PromptId,
+    string ValuePath,
+    string Value,
+    string PromptDigest);
 
 public sealed record CharacterCreationFoundationEffectTargetBinding(
     string TargetKind,
@@ -366,7 +467,78 @@ public sealed record CharacterCreationFoundationFinalizationPreview(
     bool CanApply,
     bool CharacterEffectsApplied,
     bool CharacterCreated,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    // Historical nationality-only previews remain readable. New finalization
+    // previews additionally bind the complete ordered sequence, not just its root.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleSequenceCompilation? ModuleSequence { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleEffectWriteSummary? EffectWriteSummary { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleMetatypeWriteSummary? MetatypeWriteSummary { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleAttributeQuote? AttributeQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentCatalog? TalentCatalog { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleTalentWriteSummary? TalentWriteSummary { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSkillsCatalog? SkillsCatalog { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleSkillsQuote? SkillsQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaResourcesPolicy? ResourcesPolicy { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleResourcesQuote? ResourcesQuote { get; init; }
+    public CharacterCreationLifeModuleQualityCostsQuote? QualityCosts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationGearAuthority? GearAuthority { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleGearQuote? GearQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestylesAuthority? LifestylesAuthority { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleLifestylesQuote? LifestylesQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaContactsPolicy? ContactsPolicy { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleContactsQuote? ContactsQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleMagicCatalog? MagicCatalog { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleMagicQuote? MagicQuote { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingNuyenSource? StartingCashSource { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifeModuleFinalizationBudgetQuote? FinalizationBudget { get; init; }
+
+    /// <summary>Complete proposed runner and cost deltas, not persistence authority.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFinalizationPlan? FinalizationPlan { get; init; }
+}
 
 public sealed record CharacterCreationFoundationFinalizationReceipt(
     CharacterWorkspaceId WorkspaceId,

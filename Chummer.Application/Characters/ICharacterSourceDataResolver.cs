@@ -132,8 +132,46 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Complete racial grants for the selected Life Modules metatype.
+    /// Does not choose a talent, apply a module, or authorize finalization.</summary>
+    bool TryResolveCreationLifeModuleMetatypeSources(string metatypeOptionId,
+        out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+    {
+        metatypeQualities = [];
+        return false;
+    }
+
+    /// <summary>Purchased talents for an exact Life Modules profile, without Priority grants.</summary>
+    bool TryResolveCreationLifeModuleTalents(out CharacterCreationLifeModuleTalentCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
+    /// <summary>Complete selected talent payload, including any source-owned free gear.
+    /// Mundane succeeds with a null source; failure must not be interpreted as Mundane.</summary>
+    bool TryResolveCreationLifeModuleTalentSource(string optionId, out CharacterCreationTalentQualitySource? source)
+    {
+        source = null;
+        return false;
+    }
+
+    /// <summary>Source-owned Life Modules magic purchases, without Priority free slots.</summary>
+    bool TryResolveCreationLifeModuleMagicCatalog(out CharacterCreationLifeModuleMagicCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
     /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
     bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Life Modules costs, caps and knowledge expression; not a Karma-foundation authority.</summary>
+    bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
     {
         policy = null;
         return false;
@@ -146,9 +184,23 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    bool TryResolveCreationLifeModuleResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Costs for the cumulative pending Life Modules quality graph,
+    /// not a catalog granting permission to purchase Karma-method qualities.</summary>
+    bool TryResolveCreationLifeModuleQualitiesPolicy(out CharacterCreationKarmaQualitiesPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>
     /// Profile-owned contact allowance and group rate for Priority, Sum-to-Ten
-    /// and Karma. The historical DTO name does not combine their Karma budgets.
+    /// Karma and Life Modules. The historical DTO name does not combine their Karma budgets.
     /// </summary>
     bool TryResolveCreationContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
     {
@@ -164,7 +216,7 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
-    /// Profile-owned completion limits shared by Priority, Sum-to-Ten and Karma.
+    /// Profile-owned completion limits shared by Priority, Sum-to-Ten, Karma and Life Modules.
     /// The historical policy DTO name does not authorize mixing creation budgets.
     /// </summary>
     bool TryResolveCreationCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
@@ -204,6 +256,13 @@ public interface ICharacterSourceDataContext
     /// callers must bind it to the saved lifestyle quote before finalization.
     /// </summary>
     bool TryResolveCreationKarmaStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
+    /// <summary>Life Modules selected source; callers must prove pending lifestyle ownership.</summary>
+    bool TryResolveCreationLifeModuleStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
     {
         source = null;
         return false;
@@ -341,6 +400,17 @@ public interface ICharacterSourceDataContext
     bool TryResolveCreationSourceProfile(out CharacterCreationSourceProfileAuthority authority)
     {
         authority = CharacterCreationSourceProfileAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
+    /// Effective skills/qualities inputs for Life Modules, captured under the
+    /// saved profile. This internal engine input is not a client/export payload
+    /// and never grants permission to apply an incomplete module sequence.
+    /// </summary>
+    bool TryResolveCreationFoundationEffectSources(out CharacterCreationFoundationEffectSources? sources)
+    {
+        sources = null;
         return false;
     }
 
