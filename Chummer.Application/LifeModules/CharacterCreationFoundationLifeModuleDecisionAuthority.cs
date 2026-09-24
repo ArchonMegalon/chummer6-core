@@ -21,7 +21,7 @@ namespace Chummer.Application.LifeModules;
 public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthority :
     ILifeModuleDecisionAuthority, ILifeModuleDecisionInputAuthority, ILifeModuleDecisionHistoryAuthority
 {
-    private const string OwnerId = "local-single-user";
+    private readonly string _ownerId;
     private const string JourneyId = "sr5-life-modules-foundation";
     private const string StageId = "nationality";
     private const string TerminalStageId = "nationality-accepted";
@@ -39,7 +39,18 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         ICharacterCreationFoundationService foundation,
         ICharacterFileQueries characterFiles,
         Func<string>? localeProvider = null)
+        : this(workspaceStore, foundation, characterFiles, "local-single-user", localeProvider)
     {
+    }
+
+    internal CharacterCreationFoundationLifeModuleDecisionAuthority(
+        IWorkspaceStore workspaceStore,
+        ICharacterCreationFoundationService foundation,
+        ICharacterFileQueries characterFiles,
+        string ownerId,
+        Func<string>? localeProvider = null)
+    {
+        _ownerId = ownerId;
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _foundation = foundation ?? throw new ArgumentNullException(nameof(foundation));
         _characterFiles = characterFiles ?? throw new ArgumentNullException(nameof(characterFiles));
@@ -427,7 +438,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             RulesetDefaults.Sr5,
             workspace.Id.Value,
             workspace.ContentRevision,
-            OwnerId,
+            _ownerId,
             workspace.Id.Value,
             displayName,
             locale,
