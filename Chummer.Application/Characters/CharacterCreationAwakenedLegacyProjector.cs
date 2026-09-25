@@ -301,9 +301,31 @@ internal static class CharacterCreationAwakenedLegacyProjector
         return extra;
     }
 
-    internal static void CheckRestrictions(XElement definition, XElement root, IReadOnlyList<XElement> granted, IReadOnlySet<string> flags)
+    internal static void CheckRestrictions(XElement definition, XElement root, IReadOnlyList<XElement> granted,
+        IReadOnlySet<string> flags, bool checkRequiredQualities = false)
     {
-        Require(!definition.Elements("required").Any());
+        var requirements = definition.Elements("required").ToArray();
+        if (requirements.Length != 0)
+        {
+            // Only the Life Modules reverse check opts into this literal form.
+            // Re-evaluate against the current complete graph, including newly
+            // granted racial/talent qualities. Never skip a prerequisite merely
+            // because an earlier module plan admitted it.
+            Require(checkRequiredQualities && requirements.Length == 1);
+            XElement required = requirements[0];
+            Require(!required.HasAttributes && required.Elements().Count() == 1
+                && required.Element("oneof") is not null);
+            XElement alternatives = required.Element("oneof")!;
+            Require(!alternatives.HasAttributes && alternatives.HasElements
+                && alternatives.Elements().All(item => item.Name == "quality"
+                    && !item.HasAttributes && !item.HasElements
+                    && !string.IsNullOrWhiteSpace(item.Value) && item.Value == item.Value.Trim())
+                && required.Nodes().Concat(alternatives.Nodes()).All(item => item is XElement or XComment
+                    || item is XText text && string.IsNullOrWhiteSpace(text.Value)));
+            Require(alternatives.Elements().Any(condition =>
+                root.Element("qualities")!.Elements("quality").Concat(granted).Any(item =>
+                    item.Element("name")?.Value == condition.Value || item.Element("sourceid")?.Value == condition.Value)));
+        }
         XElement? forbidden = definition.Element("forbidden");
         if (forbidden is null) return;
         Require(!forbidden.HasAttributes && forbidden.Elements().Count() == 1 && forbidden.Element("oneof") is not null);

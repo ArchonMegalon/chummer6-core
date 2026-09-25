@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Xml.Linq;
+using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -10,6 +11,40 @@ namespace Chummer.Tests;
 
 public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 {
+    [TestMethod]
+    [DataRow("existing", true)]
+    [DataRow("new-grant", true)]
+    [DataRow("missing", false)]
+    [DataRow("forbidden-quality", false)]
+    [DataRow("forbidden-magic", false)]
+    [DataRow("unknown-condition", false)]
+    [DataRow("qualified-condition", false)]
+    [DataRow("extra-text", false)]
+    [DataRow("duplicate-required", false)]
+    [DataRow("ordinary-caller", false)]
+    public void Life_module_reverse_requirements_recheck_current_grants_without_relaxing_other_callers(string scenario, bool allowed)
+    {
+        var definition = XElement.Parse("<quality><required><oneof><quality>SINner (National)</quality>"
+            + "<quality>SINner (Corporate)</quality></oneof></required></quality>");
+        var sin = XElement.Parse("<quality><name>SINner (National)</name></quality>");
+        var root = new XElement("character", new XElement("qualities", scenario is "missing" or "new-grant" ? null : sin));
+        XElement[] granted = scenario == "new-grant" ? [sin] : [];
+        if (scenario == "forbidden-quality")
+            definition.Add(XElement.Parse("<forbidden><oneof><quality>SINner (National)</quality></oneof></forbidden>"));
+        if (scenario == "forbidden-magic")
+            definition.Add(XElement.Parse("<forbidden><oneof><magenabled /></oneof></forbidden>"));
+        if (scenario == "unknown-condition") definition.Element("required")!.Element("oneof")!.Add(new XElement("metatype", "Human"));
+        if (scenario == "qualified-condition") definition.Descendants("quality").First().SetAttributeValue("extra", "elsewhere");
+        if (scenario == "extra-text") definition.Element("required")!.Add(new XText("uninterpreted"));
+        if (scenario == "duplicate-required") definition.Add(new XElement(definition.Element("required")!));
+        string before = root.ToString(SaveOptions.DisableFormatting);
+        void Check() => CharacterCreationAwakenedLegacyProjector.CheckRestrictions(definition, root, granted,
+            new HashSet<string>(["magenabled"], StringComparer.Ordinal), checkRequiredQualities: scenario != "ordinary-caller");
+        if (allowed) Check();
+        else Assert.ThrowsExactly<InvalidDataException>(Check);
+        Assert.AreEqual(before, root.ToString(SaveOptions.DisableFormatting));
+    }
+
     [TestMethod]
     [DataRow("valid")]
     [DataRow("conflicting-fund")]
@@ -85,6 +120,31 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             {
                 Assert.IsNotNull(plan.Plan, string.Join(", ", plan.Blockers));
                 Assert.IsNotNull(preview.EffectWriteSummary, string.Join(", ", preview.FinalizationBlocked));
+                Assert.IsNotNull(preview.MetatypeWriteSummary, string.Join(", ", preview.FinalizationBlocked));
+                Assert.IsNotNull(preview.TalentCatalog, "The native completion screen must expose the next step.");
+                var mundane = service.PreviewFinalization(request with
+                {
+                    TalentSelection = new(CharacterCreationKarmaTalentCatalog.MundaneOptionId),
+                    AttributePurchases = [],
+                    SkillSelection = new([], [])
+                }).Value!;
+                Assert.IsNotNull(mundane.TalentWriteSummary, string.Join(", ", mundane.FinalizationBlocked));
+                Assert.IsNotNull(mundane.AttributeQuote, string.Join(", ", mundane.FinalizationBlocked));
+                Assert.IsNotNull(mundane.SkillsQuote, string.Join(", ", mundane.FinalizationBlocked));
+                var language = mundane.SkillsCatalog!.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
+                var completeRequest = request with
+                {
+                    TalentSelection = new(CharacterCreationKarmaTalentCatalog.MundaneOptionId),
+                    AttributePurchases = [],
+                    SkillSelection = new([new(language.SourceSkillId, language.Kind, 0, IsNativeLanguage: true)], []),
+                    KarmaResourceInvestment = 0m, GearSelection = [], LifestyleSelection = [], ContactSelection = [],
+                    MagicSelection = new(null, null, [], [], []), StartingNuyenDiceTotal = 4
+                };
+                var complete = service.PreviewFinalization(completeRequest).Value!;
+                Assert.IsNotNull(complete.FinalizationPlan, string.Join(", ", complete.FinalizationBlocked));
+                Assert.IsTrue(complete.CanConfirm, string.Join(", ", complete.FinalizationBlocked));
+                Assert.AreEqual(complete.PreviewDigest,
+                    CreateService(new FileWorkspaceStore(directory)).PreviewFinalization(completeRequest).Value!.PreviewDigest);
                 var qualities = plan.Plan.QualityXml.Select(XElement.Parse).ToArray();
                 Assert.AreEqual("Salish-Shidhe Council", qualities.Single(row => row.Element("name")!.Value == "SINner (National)").Element("extra")!.Value);
                 Assert.AreEqual("Poor", qualities.Single(row => row.Element("name")!.Value == "Prejudiced (Common, Outspoken)").Element("extra")!.Value);
