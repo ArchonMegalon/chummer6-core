@@ -440,7 +440,8 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
         string ownerFriendlyName,
         string defaultNotesColor,
         IReadOnlySet<string>? sequencePushes = null,
-        IReadOnlyDictionary<string, string>? dependentSelections = null)
+        IReadOnlyDictionary<string, string>? dependentSelections = null,
+        ICollection<XElement>? sequenceQualityRequirements = null)
     {
         var improvements = new List<XElement>();
         var dependentQualityElements = new List<XElement>();
@@ -511,12 +512,18 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                      in dependents)
             {
                 dependentCount++;
+                // An isolated module cannot satisfy a dependent quality's
+                // requirements. The full sequence may defer only that check
+                // until the complete, source-rechecked quality graph exists.
+                bool deferRequirements = sequenceQualityRequirements is not null
+                    && dependent.HasRuntimeRequirements;
                 if (!string.Equals(
                         dependent.CompilationStatus,
-                        CharacterCreationFoundationEffectCompilationStatuses.Supported,
+                        deferRequirements ? CharacterCreationFoundationEffectCompilationStatuses.Unsupported
+                            : CharacterCreationFoundationEffectCompilationStatuses.Supported,
                         StringComparison.Ordinal)
                     || !FixedTimeEquals(dependent.OwnerSourceDigest, ledger.SourceDigest)
-                    || dependent.HasRuntimeRequirements
+                    || (dependent.HasRuntimeRequirements && !deferRequirements)
                     || !qualitySourceAuthority.TryGetDefinition(
                         dependent.TargetBinding,
                         out XElement? qualitySource,
@@ -528,12 +535,15 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                         out bool hasSelectText,
                         out bool hasRuntimeRequirements,
                         out bool bonusSupported)
-                    || hasRuntimeRequirements
+                    || hasRuntimeRequirements != dependent.HasRuntimeRequirements
                     || !bonusSupported
                     || hasSelectText != (dependent.SelectionConsumerId is not null))
                 {
                     return null;
                 }
+
+                if (deferRequirements)
+                    sequenceQualityRequirements!.Add(qualitySource);
 
                 string extra = string.Empty;
                 if (dependent.SelectionConsumerId is not null)

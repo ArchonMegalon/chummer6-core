@@ -105,7 +105,8 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
                     return Failed(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
                 // The group writer already checked the quality against its full
                 // module graph; add the racial grants without mutating that graph.
-                CharacterCreationAwakenedLegacyProjector.CheckRestrictions(definition, other, qualities, flags);
+                CharacterCreationAwakenedLegacyProjector.CheckRestrictions(definition, other, qualities, flags,
+                    checkRequiredQualities: true);
             }
 
             if (!context.TryResolveCreationMetatypeCatalog(out var finalCatalog)

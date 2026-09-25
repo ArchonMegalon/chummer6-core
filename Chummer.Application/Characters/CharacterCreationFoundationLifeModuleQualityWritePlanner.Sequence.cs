@@ -67,6 +67,7 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
             var improvements = new List<string>();
             var owners = new List<CharacterCreationFoundationSequenceModuleOwner>();
             var dispositions = new List<CharacterCreationFoundationSequencePushDisposition>();
+            var dependentRequirements = new List<XElement>();
             int dependentCount = 0;
             for (int index = 0; index < sequence.Occurrences.Count; index++)
             {
@@ -108,7 +109,7 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                 var dependentSelections = dependentInstances.Where(row => row.OccurrenceId == occurrence.OccurrenceId)
                     .ToDictionary(row => row.ConsumerId, row => row.InstanceValue!, StringComparer.Ordinal);
                 var graph = CreateCompositeWriteGraph(draft.WorkspaceId, draft, compiled, qualities,
-                    ownerId, definition.Name, defaultNotesColor, reserved, dependentSelections);
+                    ownerId, definition.Name, defaultNotesColor, reserved, dependentSelections, dependentRequirements);
                 if (graph is null) return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                 qualityXml.Add(CreateQuality(effective, definition, ownerId, defaultNotesColor).ToString(SaveOptions.DisableFormatting));
                 qualityXml.AddRange(graph.DependentQualities.Select(node => node.ToString(SaveOptions.DisableFormatting)));
@@ -151,6 +152,12 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
 
             var allNames = existing.Select(item => item.Element("name")?.Value ?? string.Empty)
                 .Concat(qualityXml.Select(xml => XElement.Parse(xml).Element("name")!.Value)).ToHashSet(StringComparer.Ordinal);
+            // Includes winning quality tiers from other modules (e.g. the
+            // National SIN required by Rich Kid's Trust Fund II), as well as
+            // existing and newly granted conflicts. Unknown condition forms
+            // still fail closed; no partial plan escapes a failed requirement.
+            if (dependentRequirements.Any(definition => !MatchesQualityConditions(definition, allNames)))
+                return Failure(CharacterCreationFoundationBlockers.FinalizationRequirementUnsupported);
             foreach (var level in sequence.QualityLevels)
             {
                 qualities.TryGetDefinition(level.Target, out var definition, out _);

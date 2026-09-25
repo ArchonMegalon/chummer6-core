@@ -111,7 +111,8 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
                         || !qualityAuthority.TryGetDefinition(binding, out var definition, out _) || definition is null)
                         return Failed(catalog, CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
                     // Check the reverse direction as well as the new talent's own exclusions.
-                    CharacterCreationAwakenedLegacyProjector.CheckRestrictions(definition, prior, qualities, flags);
+                    CharacterCreationAwakenedLegacyProjector.CheckRestrictions(definition, prior, qualities, flags,
+                        checkRequiredQualities: true);
                 }
             }
             catch (InvalidDataException)
