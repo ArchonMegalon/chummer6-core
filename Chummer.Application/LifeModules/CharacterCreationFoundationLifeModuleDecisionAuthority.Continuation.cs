@@ -118,6 +118,9 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 prompt.SourceAnchorIds, string.Empty);
             acceptedFacts.Add(answerFact with { FactDigest = Digest(answerFact) });
         }
+        var compilation = foundation.ReviewModuleEffects(preview.Request, preview.PreviewDigest).Value;
+        acceptedFacts.Add(CreateContributionFact(fact.FactId, decisionId, choice, current.Locale,
+            compilation is null ? null : CharacterCreationFoundationEffectCompiler.ReviewContributions(compilation)));
         string consequence = string.IsNullOrWhiteSpace(preview.Entry.StoryTemplate)
             ? choice.Label : preview.Entry.StoryTemplate.Trim();
         var seed = current with

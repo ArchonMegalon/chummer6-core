@@ -300,6 +300,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 "accepted-life-module-answer", prompt.Label + ": " + answer, decisionId, prompt.SourceAnchorIds, string.Empty);
             facts.Add(answerFact with { FactDigest = Digest(answerFact) });
         }
+        facts.Add(CreateContributionFact(factId, decisionId, choice, current.Locale,
+            context.OriginEffectContributions));
         string acceptedGraphDigest = Digest(new
         {
             current.DecisionGraphDigest,
