@@ -36,9 +36,9 @@ CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.invent
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
 # Date/sequence must advance for new candidates; commit hashes do not sort by
 # release order. Keep the source suffix for identity, not version precedence.
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.v20260925.3.shf3ca90e11c838"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.v20260925.4.sh07b2f586969f1"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "f3ca90e11c838c83cd296902ce981c5b2f011f52"
+SOURCE_COMMIT = "07b2f586969f1be2ee8e9bf40bca09c1dfa6b395"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
