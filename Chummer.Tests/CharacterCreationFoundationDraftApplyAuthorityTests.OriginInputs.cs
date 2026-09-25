@@ -79,7 +79,17 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             CollectionAssert.AreEqual(before, File.ReadAllBytes(WorkspacePath(directory, id)));
             store = new FileWorkspaceStore(directory);
             interaction = Interaction();
-            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, interaction.Restore(pending).Outcome);
+            var restored = interaction.Restore(pending);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, restored.Outcome);
+            Assert.AreEqual(JsonSerializer.Serialize(pending), JsonSerializer.Serialize(restored.Value),
+                "Fresh display hints must not rewrite the legacy checkpoint or its decision digests.");
+            var restoredPrompts = restored.Value!.Projection.CurrentTurn.LegalChoices
+                .Single(item => item.ChoiceId == choice.ChoiceId).FollowUps!;
+            CollectionAssert.AreEqual(choice.FollowUps.Select(prompt => prompt.DisplayLabel).ToArray(),
+                restoredPrompts.Select(prompt => prompt.DisplayLabel).ToArray());
+            if (!nationality)
+                Assert.IsTrue(restoredPrompts.Any(prompt => prompt.DisplayLabel == "Academic · Corporation"));
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(WorkspacePath(directory, id)));
             var tampered = pending with { PendingPreview = pending.PendingPreview with
             {
                 InputResolution = pending.PendingPreview.InputResolution with

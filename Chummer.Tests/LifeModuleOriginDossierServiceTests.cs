@@ -468,6 +468,33 @@ public class LifeModuleOriginDossierServiceTests
         Assert.AreEqual(0, authority.MechanicsMutationCount);
     }
 
+    [TestMethod]
+    public void Restore_refreshes_display_hints_but_preserves_checkpoint_and_rejects_canonical_label_drift()
+    {
+        var choice = CreateChoice("choice-a", "Street path");
+        var prompt = new LifeModuleFollowUpPromptDto("prompt-1", "Any", "text", true, [],
+            choice.SourceAnchorIds, "choice-a:effect:1", "knowledgeskilllevel/name");
+        choice = choice with { FollowUps = [prompt] };
+        var authority = new FakeDecisionAuthority(CreateInitialStep(choice));
+        var interaction = new LifeModuleOriginDossierInteractionService(new LifeModuleOriginDossierService(authority));
+        var checkpoint = AssertSuccess(interaction.Start("workspace-1"));
+        string persisted = JsonSerializer.Serialize(checkpoint);
+        checkpoint = JsonSerializer.Deserialize<LifeModuleOriginDossierDraftCheckpoint>(persisted)!;
+        authority.Current = authority.Current with
+        { LegalChoices = [choice with { FollowUps = [prompt with { DisplayLabel = "Language · Any" }] }] };
+
+        var restored = AssertSuccess(interaction.Restore(checkpoint));
+        Assert.AreEqual(persisted, JsonSerializer.Serialize(restored));
+        Assert.AreEqual("Language · Any", restored.Projection.CurrentTurn.LegalChoices.Single().FollowUps!.Single().DisplayLabel);
+        Assert.AreEqual(checkpoint.CheckpointDigest, restored.CheckpointDigest);
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+
+        authority.Current = authority.Current with
+        { LegalChoices = [choice with { FollowUps = [prompt with { Label = "Different canonical question" }] }] };
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Conflict, interaction.Restore(checkpoint).Outcome);
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+    }
+
     private static LifeModuleDecisionAuthorityStep CreateInitialStep(
         params LifeModuleDecisionAuthorityChoice[] choices)
         => new(
