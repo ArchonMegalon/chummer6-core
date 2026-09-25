@@ -2594,6 +2594,53 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow(65535)]
+    [DataRow(65536)]
+    [DataRow(65537)]
+    [DataRow(131071)]
+    [DataRow(131072)]
+    public void Creation_source_context_validates_bytes_across_stream_buffer_boundaries(int changedOffset)
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            string path = Path.Combine(root, "data", "priorities.xml");
+            File.AppendAllText(path, "<!--" + new string('x', 192 * 1024) + "-->");
+            byte[] original = File.ReadAllBytes(path);
+            Assert.AreEqual((byte)'x', original[changedOffset]);
+            DateTime originalTime = File.GetLastWriteTimeUtc(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null,
+                useStrongChangeIdentity: false);
+            using var scope = resolver.CreateOperationScope();
+            var context = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative, string.Join(",", before.Blockers));
+            Assert.AreSame(context, scope.TryCreateContext(CharacterXml()),
+                "An unchanged multi-buffer source must remain usable.");
+            int reads = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+
+            byte[] changed = (byte[])original.Clone();
+            changed[changedOffset] = (byte)'y';
+            File.WriteAllBytes(path, changed);
+            File.SetLastWriteTimeUtc(path, originalTime);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()),
+                "Equal size and restored timestamp cannot hide byte drift at a buffer boundary.");
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.AreEqual(reads, resolver.LastSourceInputSnapshotDiagnostics.PhysicalReadCount);
+
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, originalTime);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()), "Observed drift remains poisoned on ABA.");
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Creation_source_context_rejects_atomic_same_metadata_replacement()
     {
         string root = CreateTempDirectory();
