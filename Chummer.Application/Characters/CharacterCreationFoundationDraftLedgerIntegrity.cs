@@ -250,14 +250,7 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
         {
             case JsonValueKind.Object:
                 writer.WriteStartObject();
-                foreach (JsonProperty property in element
-                             .EnumerateObject()
-                             .OrderBy(property => property.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(property.Value, writer);
-                }
-
+                WriteCanonicalProperties(element, writer);
                 writer.WriteEndObject();
                 break;
             case JsonValueKind.Array:
@@ -290,6 +283,63 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
         // values; a single large string is still written intact and unchanged.
         if (writer.BytesPending >= 64 * 1024)
             writer.Flush();
+    }
+
+    private static void WriteCanonicalProperties(JsonElement element, Utf8JsonWriter writer)
+    {
+        int count = 0;
+        foreach (JsonProperty _ in element.EnumerateObject()) count++;
+        if (count == 0) return;
+        if (count == 1)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                writer.WritePropertyName(property.Name);
+                WriteCanonical(property.Value, writer);
+            }
+            return;
+        }
+
+        // Catalog graphs contain many small objects. Rent sorting scratch space
+        // and decode each key once rather than allocating LINQ sorting arrays
+        // and decoding each key again for output. Nothing survives this call.
+        CanonicalProperty[] properties = ArrayPool<CanonicalProperty>.Shared.Rent(count);
+        try
+        {
+            int index = 0;
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                properties[index] = new(property, property.Name, index);
+                index++;
+            }
+            Array.Sort(properties, 0, count, CanonicalPropertyComparer.Instance);
+            for (int i = 0; i < count; i++)
+            {
+                writer.WritePropertyName(properties[i].Name);
+                WriteCanonical(properties[i].Property.Value, writer);
+            }
+        }
+        finally
+        {
+            // Never retain character values or disposed JsonDocument references
+            // in the shared rental, including when recursive writing throws.
+            ArrayPool<CanonicalProperty>.Shared.Return(properties, clearArray: true);
+        }
+    }
+
+    private readonly record struct CanonicalProperty(JsonProperty Property, string Name, int Ordinal);
+
+    private sealed class CanonicalPropertyComparer : IComparer<CanonicalProperty>
+    {
+        public static readonly CanonicalPropertyComparer Instance = new();
+
+        public int Compare(CanonicalProperty left, CanonicalProperty right)
+        {
+            int order = StringComparer.Ordinal.Compare(left.Name, right.Name);
+            // LINQ OrderBy was stable. Preserve duplicate JSON property order
+            // too; Array.Sort by name alone would change canonical bytes.
+            return order != 0 ? order : left.Ordinal.CompareTo(right.Ordinal);
+        }
     }
 
     private static bool FixedTimeEquals(string? left, string? right)
