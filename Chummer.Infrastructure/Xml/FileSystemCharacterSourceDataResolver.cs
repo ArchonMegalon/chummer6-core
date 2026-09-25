@@ -2043,7 +2043,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             lock (_completionProjectionSync) { cached = _foundationEffectSourcesSnapshot; }
             if (cached is not null)
             {
-                // Reuse only the immutable XML strings for this exact context.
+                // Reuse immutable XML and parsed authority for this exact context.
                 // Nested Enter calls may already have the snapshot installed,
                 // so explicit byte/identity/membership admission is still required.
                 if (!_sourceInputs.TryAdmitReuse(_catalog))
@@ -2077,10 +2077,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         private static CharacterCreationFoundationEffectSources CopyFoundationEffectSources(
-            CharacterCreationFoundationEffectSources snapshot) => snapshot with
-        {
-            EnabledSourcebooks = Array.AsReadOnly(snapshot.EnabledSourcebooks.ToArray())
-        };
+            CharacterCreationFoundationEffectSources snapshot) => snapshot.CopyWithDetachedSourcebooks();
 
         public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
         {
