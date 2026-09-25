@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Chummer.Application.Characters;
 using Chummer.Application.LifeModules;
 using Chummer.Contracts.Characters;
@@ -68,6 +69,37 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthorityTests
         Assert.AreEqual(
             LifeModuleOriginDossierOutcomes.Blocked,
             authority.Load(workspaceId.Value).Outcome);
+    }
+
+    [TestMethod]
+    public void Candidate_cache_rehydrates_display_hints_without_changing_identity_or_sharing_arrays()
+    {
+        CharacterWorkspaceId id = new("display-hint-cache");
+        var store = new InMemoryWorkspaceStore();
+        Assert.IsTrue(store.CreateWorkspaceDocument(id, new WorkspaceDocument("<character />", RulesetDefaults.Sr5)).Success);
+        var state = CreateState(id, RulesetDefaults.Sr5, CharacterCreationBuildMethods.LifeModules);
+        var prompt = new LifeModuleFollowUpPromptDto("prompt-1", "Any", "text", true, [],
+            state.NationalityOptions[0].SourceAnchorIds, "effect-1", "knowledgeskilllevel/name")
+        { DisplayLabel = "Language · Any" };
+        state = state with { NationalityOptions = [state.NationalityOptions[0] with { FollowUps = [prompt] }] };
+        var foundation = new FakeFoundation(state, CreatePreview(state));
+        var authority = new CharacterCreationFoundationLifeModuleDecisionAuthority(store, foundation,
+            new FakeCharacterFiles(), () => "en-US");
+        var first = authority.Load(id.Value).Value!;
+        Assert.AreEqual("Language · Any", first.LegalChoices.Single().FollowUps!.Single().DisplayLabel);
+        string identity = JsonSerializer.Serialize(first);
+        foundation.State = state with
+        {
+            NationalityOptions = [state.NationalityOptions[0] with
+            { FollowUps = [prompt with { DisplayLabel = "Language: choose a name" }] }]
+        };
+        var second = authority.Load(id.Value).Value!;
+        Assert.AreEqual(identity, JsonSerializer.Serialize(second));
+        Assert.AreEqual("Language: choose a name", second.LegalChoices.Single().FollowUps!.Single().DisplayLabel);
+        ((LifeModuleFollowUpPromptDto[])second.LegalChoices.Single().FollowUps!)[0] = prompt with { Label = "tampered" };
+        var third = authority.Load(id.Value).Value!;
+        Assert.AreEqual(identity, JsonSerializer.Serialize(third));
+        Assert.HasCount(1, foundation.PreviewRequests, "Display-only refresh must reuse the immutable preview cache.");
     }
 
     private static CharacterCreationFoundationState CreateState(

@@ -466,13 +466,16 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
             string value = placeholder.Value.Trim();
             prompts.Add(new LifeModuleFollowUpPromptDto(
                 PromptId: $"{effectId}:follow-up:{promptIndex}",
-                Label: DescribePlaceholder(effect, placeholder, value.Trim('[', ']')),
+                Label: value.Trim('[', ']'),
                 InputKind: "text",
                 IsRequired: true,
                 Options: [],
                 SourceAnchorIds: sourceAnchors,
                 EffectId: effectId,
-                ValuePath: BuildValuePath(effect, placeholder)));
+                ValuePath: BuildValuePath(effect, placeholder))
+            {
+                DisplayLabel = DescribePlaceholder(effect, placeholder, value.Trim('[', ']'))
+            });
         }
 
         return prompts.ToArray();

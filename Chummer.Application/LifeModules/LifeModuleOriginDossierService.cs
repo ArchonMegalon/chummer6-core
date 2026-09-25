@@ -139,7 +139,7 @@ public sealed partial class LifeModuleOriginDossierService
 
         return new(
             LifeModuleOriginDossierOutcomes.Success,
-            persisted,
+            persisted with { CurrentTurn = freshTurn },
             []);
     }
 

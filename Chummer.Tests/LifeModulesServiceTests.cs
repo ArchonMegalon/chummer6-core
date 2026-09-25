@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Xml.Linq;
 using Chummer.Contracts.LifeModules;
 using Chummer.Infrastructure.Files;
@@ -172,7 +173,8 @@ public class LifeModulesServiceTests
             Assert.IsTrue(inherited.IsEnabled);
             LifeModuleFollowUpPromptDto city = AssertExactlyOne(inherited.FollowUps);
             Assert.AreEqual("text", city.InputKind);
-            Assert.AreEqual("Street · City", city.Label);
+            Assert.AreEqual("City", city.Label);
+            Assert.AreEqual("Street · City", city.DisplayLabel);
 
             LifeModuleFollowUpPromptDto quality = option.FollowUps.Single(prompt =>
                 prompt.Options.Any(item => item.SourceValue == "College Education"));
@@ -191,7 +193,7 @@ public class LifeModulesServiceTests
                 new[] { "Academic", "Professional" },
                 group.Options.Select(item => item.SourceValue).ToArray());
             Assert.IsTrue(option.FollowUps.Any(prompt =>
-                prompt.InputKind == "text" && prompt.Label == "Knowledge skill · Any"));
+                prompt.InputKind == "text" && prompt.Label == "Any" && prompt.DisplayLabel == "Knowledge skill · Any"));
         }
         finally
         {
@@ -207,7 +209,7 @@ public class LifeModulesServiceTests
             .Single(item => item.ModuleId == "4f078a7f-bfa5-4eba-97f9-a97f06eab6e8");
 
         CollectionAssert.AreEqual(new[] { "Language · Any", "Interest · Any" },
-            module.FollowUps.Select(prompt => prompt.Label).ToArray());
+            module.FollowUps.Select(prompt => prompt.DisplayLabel).ToArray());
         for (int index = 0; index < module.FollowUps.Count; index++)
         {
             LifeModuleFollowUpPromptDto prompt = module.FollowUps[index];
@@ -218,6 +220,10 @@ public class LifeModulesServiceTests
             Assert.AreEqual("text", prompt.InputKind);
             Assert.IsTrue(prompt.IsRequired);
             Assert.IsEmpty(prompt.Options);
+            Assert.AreEqual("Any", prompt.Label);
+            string serialized = JsonSerializer.Serialize(prompt);
+            Assert.AreEqual(serialized, JsonSerializer.Serialize(prompt with { DisplayLabel = "Different display only" }));
+            Assert.IsNull(JsonSerializer.Deserialize<LifeModuleFollowUpPromptDto>(serialized)!.DisplayLabel);
             CollectionAssert.AreEqual(module.SourceAnchorIds.ToArray(), prompt.SourceAnchorIds.ToArray());
             LifeModuleEffectProjectionDto effect = module.Effects.Single(item => item.EffectId == effectId);
             Assert.AreEqual("[Any]", effect.Parameters["name"]);
@@ -245,7 +251,8 @@ public class LifeModulesServiceTests
             LifeModuleLegalOptionDto module = AssertExactlyOne(
                 new XmlLifeModulesCatalogService(xmlPath).GetOptionProjections("Youth", ["RF"]));
             LifeModuleFollowUpPromptDto name = module.FollowUps.Single(prompt => prompt.ValuePath == "knowledgeskilllevel/name");
-            Assert.AreEqual(expectedLabel, name.Label);
+            Assert.AreEqual("Any", name.Label);
+            Assert.AreEqual(expectedLabel, name.DisplayLabel);
             Assert.AreEqual("text", name.InputKind);
             Assert.AreEqual("Biography", module.FollowUps.Single(prompt => prompt.EffectId.EndsWith(":effect:2", StringComparison.Ordinal)).Label);
         }

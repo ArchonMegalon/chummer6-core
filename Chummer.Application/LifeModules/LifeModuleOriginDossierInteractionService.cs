@@ -66,7 +66,7 @@ public sealed class LifeModuleOriginDossierInteractionService
             ? Map<OriginStoryArcSeed, LifeModuleOriginDossierDraftCheckpoint>(resumed)
             : new(
                 LifeModuleOriginDossierOutcomes.Success,
-                checkpoint,
+                checkpoint with { Projection = resumed.Value },
                 []);
     }
 

@@ -91,6 +91,9 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 if (fresh is null || !SameStep(stored, fresh))
                     return Blocked<LifeModuleDecisionAuthorityStep>(LifeModuleOriginDossierOutcomes.Conflict,
                         LifeModuleOriginDossierBlockers.DecisionStale);
+                // Serialized identity is identical; retain only fresh,
+                // non-persisted catalog display hints for the current form.
+                return Success(fresh);
             }
             return Success(stored);
         }
@@ -482,7 +485,24 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         string digest = Digest(state);
         var cached = Volatile.Read(ref _candidateSnapshot);
         if (cached?.StateDigest == digest)
-            return JsonSerializer.Deserialize<DecisionCandidate[]>(cached.Json)!;
+        {
+            var labels = state.NationalityOptions.SelectMany(module => module.FollowUps.Concat(
+                module.Versions.SelectMany(version => version.FollowUps)))
+                .GroupBy(prompt => prompt.PromptId, StringComparer.Ordinal)
+                .Where(group => group.Count() == 1)
+                .ToDictionary(group => group.Key, group => group.Single().DisplayLabel, StringComparer.Ordinal);
+            return JsonSerializer.Deserialize<DecisionCandidate[]>(cached.Json)!
+                .Select(candidate => candidate with
+                {
+                    Choice = candidate.Choice with
+                    {
+                        FollowUps = candidate.Choice.FollowUps?.Select(prompt => prompt with
+                        {
+                            DisplayLabel = labels.GetValueOrDefault(prompt.PromptId)
+                        }).ToArray()
+                    }
+                }).ToArray();
+        }
         var candidates = state.MetatypeOptions
             .Where(option => option.IsEnabled && option.DisableReasonKey is null
                 && (string.IsNullOrEmpty(state.CurrentMetatype)

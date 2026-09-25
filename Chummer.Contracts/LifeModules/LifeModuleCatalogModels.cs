@@ -88,7 +88,15 @@ public sealed record LifeModuleFollowUpPromptDto(
     IReadOnlyList<LifeModuleFollowUpOptionDto> Options,
     IReadOnlyList<string> SourceAnchorIds,
     string EffectId,
-    string ValuePath);
+    string ValuePath)
+{
+    /// <summary>
+    /// Fresh catalog display context only. Never persisted or included in
+    /// decision identities; callers fall back to Label when no live context exists.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DisplayLabel { get; init; }
+}
 
 public sealed record LifeModuleVersionProjectionDto(
     string VersionId,
