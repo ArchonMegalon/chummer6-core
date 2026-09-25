@@ -36,6 +36,195 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         + "<buildmethod>LifeModule</buildmethod><created>False</created><ruleset>sr5</ruleset></character>";
 
     [TestMethod]
+    public void Source_target_enumeration_transfers_detached_rows_without_a_second_catalog_copy()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        Assert.IsTrue(context.TryResolveCreationLifeModuleTalents(out _));
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic;
+        var inputs = context.GetType().GetField("_sourceInputs", flags)!.GetValue(context)!;
+        var enumerate = context.GetType().GetMethod("TryEnumerateTargets", flags)!;
+        var enter = inputs.GetType().GetMethod("Enter")!;
+        XElement[] ReadRows(params string[] containers)
+        {
+            object?[] arguments = ["qualities.xml", containers.Length == 0 ? new[] { "qualities" } : containers, "quality", null];
+            Assert.IsTrue((bool)enumerate.Invoke(context, arguments)!);
+            return (XElement[])arguments[3]!;
+        }
+
+        // Enter once, as the resolver does, to measure only XML projection, not
+        // the separately tested mandatory live-byte admission around it.
+        using var admission = (IDisposable)enter.Invoke(inputs, null)!;
+        var first = ReadRows();
+        string[] expected = first.Select(row => row.ToString(SaveOptions.DisableFormatting)).ToArray();
+        Assert.IsTrue(first.Length > 100);
+        var captured = new XDocument(new XElement("chummer",
+            new XElement("qualities", first.Select(row => new XElement(row)))));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var legacyDocument = new XDocument(captured);
+        var legacyRows = legacyDocument.Root!.Element("qualities")!.Elements("quality")
+            .Select(row => new XElement(row)).ToArray();
+        long legacyBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        GC.KeepAlive(legacyRows);
+
+        ReadRows(); // Warm reflection and collection implementation paths.
+        before = GC.GetAllocatedBytesForCurrentThread();
+        var second = ReadRows();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsTrue(allocated < legacyBytes * 0.75,
+            $"Enumeration allocated {allocated:N0}; two catalog copies {legacyBytes:N0}.");
+        Assert.IsTrue(first.All(row => row.Parent is null && row.Document is null));
+        Assert.IsTrue(second.All(row => row.Parent is null && row.Document is null));
+        Assert.AreNotSame(first[0], second[0]);
+        first[0].SetElementValue("name", "caller mutation");
+        second[^1].RemoveNodes();
+        CollectionAssert.AreEqual(expected, ReadRows().Select(row => row.ToString(SaveOptions.DisableFormatting)).ToArray(),
+            "Returned target mutations must not reach the retained source snapshot.");
+        var repeated = ReadRows("qualities", "qualities");
+        CollectionAssert.AreEqual(expected.Concat(expected).ToArray(),
+            repeated.Select(row => row.ToString(SaveOptions.DisableFormatting)).ToArray());
+        Assert.AreNotSame(repeated[0], repeated[expected.Length]);
+        Assert.IsTrue(repeated.All(row => row.Parent is null && row.Document is null));
+    }
+
+    [TestMethod]
+    public void Life_foundation_effect_authorities_reuse_only_the_exact_admitted_snapshot()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var first));
+        Assert.IsNotNull(first);
+        var equalBeforeCompilation = first with { };
+        int hashBeforeCompilation = first.GetHashCode();
+        string wireBeforeCompilation = System.Text.Json.JsonSerializer.Serialize(first);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(first.TryCreateAuthorities(out var skills, out var qualities, out var levels, out string digest));
+        long coldBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(equalBeforeCompilation, first, "Compilation must not alter record equality.");
+        Assert.AreEqual(hashBeforeCompilation, first.GetHashCode());
+        Assert.AreEqual(wireBeforeCompilation, System.Text.Json.JsonSerializer.Serialize(first));
+
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var second));
+        Assert.IsNotNull(second);
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+        before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(second.TryCreateAuthorities(out var warmSkills, out var warmQualities, out var warmLevels, out string warmDigest));
+        long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"foundation-authorities cold-bytes={coldBytes} warm-bytes={warmBytes}");
+        Assert.IsTrue(warmBytes < coldBytes / 10,
+            $"Repeated authority compilation allocated {warmBytes:N0} bytes versus {coldBytes:N0} cold.");
+        Assert.AreEqual(digest, warmDigest);
+        Assert.AreSame(skills, warmSkills);
+        Assert.AreSame(qualities, warmQualities);
+        Assert.AreSame(levels, warmLevels);
+        Assert.IsTrue(qualities!.TryResolveExact("Uncouth", out var binding));
+        Assert.IsTrue(qualities.TryGetDefinition(binding!, out var definition, out string nodeDigest));
+        string expectedDefinition = definition!.ToString();
+        definition.RemoveNodes();
+        Assert.IsTrue(warmQualities!.TryGetDefinition(binding!, out definition, out string rereadDigest));
+        Assert.AreEqual(expectedDefinition, definition!.ToString());
+        Assert.AreEqual(nodeDigest, rereadDigest);
+    }
+
+    [TestMethod]
+    [DataRow("profile-id")]
+    [DataRow("profile-digest")]
+    [DataRow("skills")]
+    [DataRow("qualities")]
+    [DataRow("levels")]
+    [DataRow("books")]
+    public void Life_foundation_effect_authority_copy_does_not_reuse_changed_record_inputs(string changed)
+    {
+        string root = FindCoreRoot();
+        var context = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)).TryCreateContext(FoundationEffectsCharacterXml)!;
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var original));
+        Assert.IsTrue(original!.TryCreateAuthorities(out var skills, out var qualities, out var levels, out string digest));
+        var copy = original.CopyWithDetachedSourcebooks();
+        var modified = changed switch
+        {
+            "profile-id" => copy with { SettingsProfileId = "different-profile" },
+            "profile-digest" => copy with { ProfileInputsDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest("different") },
+            "skills" => copy with { SkillsXml = copy.SkillsXml + "\n" },
+            "qualities" => copy with { QualitiesXml = copy.QualitiesXml + "\n" },
+            "levels" => copy with { QualityLevelsXml = copy.QualityLevelsXml + "\n" },
+            _ => copy with { EnabledSourcebooks = new[] { "RF" } }
+        };
+        Assert.IsTrue(modified.TryCreateAuthorities(out var newSkills, out var newQualities, out var newLevels, out string newDigest));
+        Assert.AreNotEqual(digest, newDigest);
+        Assert.AreNotSame(skills, newSkills);
+        Assert.AreNotSame(qualities, newQualities);
+        Assert.AreNotSame(levels, newLevels);
+        var independent = new CharacterCreationFoundationEffectSources(modified.SettingsProfileId,
+            modified.ProfileInputsDigest, modified.EnabledSourcebooks, modified.SkillsXml,
+            modified.QualitiesXml, modified.QualityLevelsXml);
+        Assert.IsTrue(independent.TryCreateAuthorities(out _, out _, out _, out string independentDigest));
+        Assert.AreEqual(independentDigest, newDigest);
+
+        // A cache-bearing copy is not permission to accept malformed replacements.
+        var invalid = changed switch
+        {
+            "profile-id" => copy with { SettingsProfileId = " " },
+            "profile-digest" => copy with { ProfileInputsDigest = "not-a-digest" },
+            "skills" => copy with { SkillsXml = "<chummer/>" },
+            "qualities" => copy with { QualitiesXml = "<chummer/>" },
+            "levels" => copy with { QualityLevelsXml = "<chummer/>" },
+            _ => copy with { EnabledSourcebooks = new[] { " SR5 " } }
+        };
+        Assert.IsFalse(invalid.TryCreateAuthorities(out newSkills, out newQualities, out newLevels, out newDigest));
+        Assert.IsNull(newSkills);
+        Assert.IsNull(newQualities);
+        Assert.IsNull(newLevels);
+        Assert.AreEqual(string.Empty, newDigest);
+        Assert.IsTrue(original.TryCreateAuthorities(out var retained, out _, out _, out newDigest));
+        Assert.AreSame(skills, retained);
+        Assert.AreEqual(digest, newDigest);
+    }
+
+    [TestMethod]
+    public async Task Life_foundation_effect_authority_reuse_rechecks_mutable_books_and_serializes_first_compilation()
+    {
+        string root = FindCoreRoot();
+        var context = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)).TryCreateContext(FoundationEffectsCharacterXml)!;
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var original));
+        var books = new List<string> { "SR5" };
+        var mutable = original! with { EnabledSourcebooks = books };
+        var frozen = mutable.CopyWithDetachedSourcebooks();
+        var calls = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+        {
+            var copy = frozen.CopyWithDetachedSourcebooks();
+            Assert.IsTrue(copy.TryCreateAuthorities(out var skills, out var qualities, out var levels, out var digest));
+            return (skills, qualities, levels, digest);
+        })).ToArray();
+        var compiled = await Task.WhenAll(calls);
+        foreach (var result in compiled)
+        {
+            Assert.AreSame(compiled[0].skills, result.skills);
+            Assert.AreSame(compiled[0].qualities, result.qualities);
+            Assert.AreSame(compiled[0].levels, result.levels);
+            Assert.AreEqual(compiled[0].digest, result.digest);
+        }
+        Assert.IsTrue(mutable.TryCreateAuthorities(out var skillAuthority, out _, out _, out string before));
+        Assert.IsTrue(skillAuthority!.TryResolveExactActive("Perception", out _));
+        books[0] = "RF";
+        Assert.IsTrue(mutable.TryCreateAuthorities(out skillAuthority, out _, out _, out string disabled));
+        Assert.IsFalse(skillAuthority!.TryResolveExactActive("Perception", out _));
+        Assert.AreNotEqual(before, disabled);
+        Assert.IsTrue(frozen.TryCreateAuthorities(out skillAuthority, out _, out _, out string detached));
+        Assert.IsTrue(skillAuthority!.TryResolveExactActive("Perception", out _));
+        Assert.AreEqual(before, detached);
+        books[0] = " SR5 ";
+        Assert.IsFalse(mutable.TryCreateAuthorities(out _, out _, out _, out _));
+    }
+
+    [TestMethod]
     public void Life_foundation_effect_sources_reuse_exact_strings_without_rebuilding_xml_trees()
     {
         string root = FindCoreRoot();
@@ -82,6 +271,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
             Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var first));
             string expected = System.Text.Json.JsonSerializer.Serialize(first);
+            Assert.IsTrue(first!.TryCreateAuthorities(out _, out _, out _, out _));
             Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out _));
             string path = Path.Combine(root, "data", fileName);
             byte[] original = File.ReadAllBytes(path);

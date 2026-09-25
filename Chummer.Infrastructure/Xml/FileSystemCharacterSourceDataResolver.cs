@@ -2043,7 +2043,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             lock (_completionProjectionSync) { cached = _foundationEffectSourcesSnapshot; }
             if (cached is not null)
             {
-                // Reuse only the immutable XML strings for this exact context.
+                // Reuse immutable XML and parsed authority for this exact context.
                 // Nested Enter calls may already have the snapshot installed,
                 // so explicit byte/identity/membership admission is still required.
                 if (!_sourceInputs.TryAdmitReuse(_catalog))
@@ -2077,10 +2077,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         private static CharacterCreationFoundationEffectSources CopyFoundationEffectSources(
-            CharacterCreationFoundationEffectSources snapshot) => snapshot with
-        {
-            EnabledSourcebooks = Array.AsReadOnly(snapshot.EnabledSourcebooks.ToArray())
-        };
+            CharacterCreationFoundationEffectSources snapshot) => snapshot.CopyWithDetachedSourcebooks();
 
         public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
         {
@@ -6550,16 +6547,27 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
-            var locators = new List<TargetLocator>();
-            AddLocators(document.Root, containerNames, entryName, locators);
             if (_customDirectories.Count == 0)
             {
+                // TryLoadEffectiveDocument already gives this call a detached
+                // document, never the private source snapshot. Transfer its
+                // entries rather than cloning the same XML tree a second time.
+                // Detach them to retain the parentless-target contract and avoid
+                // retaining the rest of the document through a returned row.
                 targets = containerNames
                     .SelectMany(containerName => document.Root.Element(containerName)?.Elements(entryName) ?? [])
-                    .Select(entry => new XElement(entry))
                     .ToArray();
+                for (int i = 0; i < targets.Length; i++)
+                {
+                    // Repeated container names previously returned separate
+                    // copies too. Only that unusual repeated row needs a clone.
+                    if (targets[i].Parent is null) targets[i] = new XElement(targets[i]);
+                    else targets[i].Remove();
+                }
                 return true;
             }
+            var locators = new List<TargetLocator>();
+            AddLocators(document.Root, containerNames, entryName, locators);
             var customInputs = new List<(string Prefix, XElement Root)>();
             foreach (CustomDirectory directory in _customDirectories)
             {
