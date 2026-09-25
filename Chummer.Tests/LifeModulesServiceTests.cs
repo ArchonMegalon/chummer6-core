@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Xml.Linq;
 using Chummer.Contracts.LifeModules;
 using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Xml;
@@ -171,7 +172,7 @@ public class LifeModulesServiceTests
             Assert.IsTrue(inherited.IsEnabled);
             LifeModuleFollowUpPromptDto city = AssertExactlyOne(inherited.FollowUps);
             Assert.AreEqual("text", city.InputKind);
-            Assert.AreEqual("City", city.Label);
+            Assert.AreEqual("Street · City", city.Label);
 
             LifeModuleFollowUpPromptDto quality = option.FollowUps.Single(prompt =>
                 prompt.Options.Any(item => item.SourceValue == "College Education"));
@@ -190,7 +191,63 @@ public class LifeModulesServiceTests
                 new[] { "Academic", "Professional" },
                 group.Options.Select(item => item.SourceValue).ToArray());
             Assert.IsTrue(option.FollowUps.Any(prompt =>
-                prompt.InputKind == "text" && prompt.Label == "Any"));
+                prompt.InputKind == "text" && prompt.Label == "Knowledge skill · Any"));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Canonical_rich_kid_questions_distinguish_language_and_interest_without_changing_effect_identity()
+    {
+        var service = new XmlLifeModulesCatalogService(FindCanonicalLifeModulesPath());
+        LifeModuleLegalOptionDto module = service.GetOptionProjections("Formative Years", ["RF"])
+            .Single(item => item.ModuleId == "4f078a7f-bfa5-4eba-97f9-a97f06eab6e8");
+
+        CollectionAssert.AreEqual(new[] { "Language · Any", "Interest · Any" },
+            module.FollowUps.Select(prompt => prompt.Label).ToArray());
+        for (int index = 0; index < module.FollowUps.Count; index++)
+        {
+            LifeModuleFollowUpPromptDto prompt = module.FollowUps[index];
+            string effectId = $"{module.ModuleId}:effect:{index + 5}";
+            Assert.AreEqual($"{effectId}:follow-up:1", prompt.PromptId);
+            Assert.AreEqual(effectId, prompt.EffectId);
+            Assert.AreEqual("knowledgeskilllevel/name", prompt.ValuePath);
+            Assert.AreEqual("text", prompt.InputKind);
+            Assert.IsTrue(prompt.IsRequired);
+            Assert.IsEmpty(prompt.Options);
+            CollectionAssert.AreEqual(module.SourceAnchorIds.ToArray(), prompt.SourceAnchorIds.ToArray());
+            LifeModuleEffectProjectionDto effect = module.Effects.Single(item => item.EffectId == effectId);
+            Assert.AreEqual("[Any]", effect.Parameters["name"]);
+            Assert.AreEqual("3", effect.Parameters["val"]);
+            Assert.AreEqual("[Any]", XElement.Parse(effect.RawXml).Element("name")!.Value);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("<group> Language </group>", "Language · Any")]
+    [DataRow("<group><option><academic>Academic</academic><professional>Professional</professional></option></group>", "Knowledge skill · Any")]
+    [DataRow("<group>[Category]</group>", "Knowledge skill · Any")]
+    [DataRow("<group> </group>", "Knowledge skill · Any")]
+    [DataRow("", "Knowledge skill · Any")]
+    public void Knowledge_question_context_does_not_invent_an_unselected_category(string groupXml, string expectedLabel)
+    {
+        (string root, string xmlPath) = CreateTempLifeModulesXml();
+        try
+        {
+            XDocument document = XDocument.Load(xmlPath);
+            document.Root!.Element("modules")!.Elements("module").First().Add(
+                XElement.Parse($"<bonus><knowledgeskilllevel><name>[Any]</name>{groupXml}</knowledgeskilllevel><pushtext>[Biography]</pushtext></bonus>"));
+            document.Save(xmlPath);
+
+            LifeModuleLegalOptionDto module = AssertExactlyOne(
+                new XmlLifeModulesCatalogService(xmlPath).GetOptionProjections("Youth", ["RF"]));
+            LifeModuleFollowUpPromptDto name = module.FollowUps.Single(prompt => prompt.ValuePath == "knowledgeskilllevel/name");
+            Assert.AreEqual(expectedLabel, name.Label);
+            Assert.AreEqual("text", name.InputKind);
+            Assert.AreEqual("Biography", module.FollowUps.Single(prompt => prompt.EffectId.EndsWith(":effect:2", StringComparison.Ordinal)).Label);
         }
         finally
         {

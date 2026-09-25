@@ -466,7 +466,7 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
             string value = placeholder.Value.Trim();
             prompts.Add(new LifeModuleFollowUpPromptDto(
                 PromptId: $"{effectId}:follow-up:{promptIndex}",
-                Label: value.Trim('[', ']'),
+                Label: DescribePlaceholder(effect, placeholder, value.Trim('[', ']')),
                 InputKind: "text",
                 IsRequired: true,
                 Options: [],
@@ -515,6 +515,21 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                 EffectId: effectId,
                 ValuePath: BuildValuePath(effect, valueNode)));
         }
+    }
+
+    private static string DescribePlaceholder(XElement effect, XElement placeholder, string label)
+    {
+        if (effect.Name.LocalName != "knowledgeskilllevel" || placeholder.Name.LocalName != "name")
+            return label;
+
+        // The same [Any] prompt can describe a language or an interest. Carry
+        // the source category into the label, not into the answer or identity.
+        // Nested options and unresolved placeholders are not a chosen category.
+        XElement? group = effect.Element("group");
+        string category = group is { HasElements: false } ? group.Value.Trim() : string.Empty;
+        if (string.IsNullOrWhiteSpace(category) || s_FollowUpPlaceholder.IsMatch(category))
+            category = "Knowledge skill";
+        return $"{category} · {label}";
     }
 
     private static IReadOnlyDictionary<string, string> ReadParameters(XElement effect)
