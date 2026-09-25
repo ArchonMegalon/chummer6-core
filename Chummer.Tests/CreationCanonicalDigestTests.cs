@@ -57,6 +57,8 @@ public sealed class CreationCanonicalDigestTests
         values["long"] += "changed";
         Assert.AreNotEqual(before, WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
         Assert.AreEqual(LegacyDigest(state), WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        Assert.AreEqual("sha256:" + LegacyDigest(state),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state));
     }
 
     [TestMethod]
@@ -96,6 +98,53 @@ public sealed class CreationCanonicalDigestTests
         }
         Parallel.For(0, 4, _ => Assert.AreEqual(expected,
             CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value)));
+    }
+
+    [TestMethod]
+    public void Foundation_digest_keeps_stable_duplicate_property_order()
+    {
+        using var document = JsonDocument.Parse("""
+            {"z":0,"a":1,"a":2,"b":3,"a":4,"d":5,"a":6,"f":7,"a":8,
+             "h":9,"a":10,"j":11,"a":12,"l":13,"a":14,"n":15,"a":16,
+             "nested":{"é":1,"\u00e9":2,"z":3,"é":4},"A":17,"a":18}
+            """);
+        string expected = "sha256:" + LegacyDigest(document.RootElement);
+        for (int i = 0; i < 3; i++)
+            Assert.AreEqual(expected,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(document.RootElement));
+        Parallel.For(0, 8, _ => Assert.AreEqual(expected,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(document.RootElement)));
+    }
+
+    [TestMethod]
+    public void Foundation_digest_keeps_nested_properties_across_scratch_buffer_sizes()
+    {
+        foreach (int count in new[] { 0, 1, 15, 16, 17, 128, 1, 0 })
+        {
+            var properties = Enumerable.Range(0, count).Reverse().ToDictionary(
+                i => "key-" + i, i => new { z = i, a = new { value = i }, empty = new { } });
+            var value = new { z = properties, a = new[] { properties, properties } };
+            string expected = "sha256:" + LegacyDigest(value);
+            Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+        }
+    }
+
+    [TestMethod]
+    public void Foundation_digest_bounds_allocations_for_many_small_catalog_objects()
+    {
+        var value = Enumerable.Range(0, 1024).Select(i => new
+        {
+            z = i, y = i + 1, x = i + 2, w = i + 3,
+            nested = new { d = true, c = false, b = i, a = "catalog" },
+            b = "name", a = "source"
+        }).ToArray();
+        string expected = "sha256:" + LegacyDigest(value);
+        Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+        long legacy = Allocations(() => LegacyDigest(value));
+        long allocated = Allocations(() => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+        Assert.IsTrue(allocated < legacy * 0.65,
+            $"Catalog digest allocated {allocated:N0}; original canonical traversal {legacy:N0}.");
+        Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
     }
 
     private static WorkspaceDocumentAuxiliaryState State(int count)
