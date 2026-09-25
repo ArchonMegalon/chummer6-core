@@ -44,6 +44,9 @@ public sealed record CharacterCreationFoundationAuthorityContext(
     // Installed only by the Core service, never accepted from a client DTO.
     internal Func<WorkspaceStoredDocument, LifeModuleDecisionAuthorityStep,
         LifeModuleDecisionAuthorityStep?>? OriginContinuation { get; init; }
+
+    // Compiled by Core from the exact confirmed draft, never supplied by a client.
+    internal IReadOnlyList<LifeModuleEffectContribution>? OriginEffectContributions { get; init; }
 }
 
 public sealed record CharacterCreationFoundationAuthorityPreview(

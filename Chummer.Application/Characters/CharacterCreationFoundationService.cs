@@ -158,6 +158,11 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         {
             OriginDecisionCommand = request.OriginDecisionCommand,
             OriginDecisionStep = request.OriginDecisionStep,
+            OriginEffectContributions = request.OriginDecisionCommand is not null
+                && CompileEffectReview(context.Workspace,
+                    CharacterCreationFoundationDraftApplyAuthority.BuildProposedLedger(context),
+                    context.Nationality, context.NationalityVersion).Value is { } compilation
+                ? CharacterCreationFoundationEffectCompiler.ReviewContributions(compilation) : null,
             OriginContinuation = (workspace, seed) =>
                 CharacterCreationFoundationLifeModuleDecisionAuthority.BuildContinuationStep(this, workspace, seed)
         };

@@ -109,6 +109,17 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             var receipt = persisted.Document.AuxiliaryState.LifeModuleDecisionAcceptances![^1].Receipt;
             Assert.AreEqual(pending.PendingPreview.InputResolution.ResolutionDigest, receipt.InputResolutionDigest);
             Assert.IsTrue(receipt.CanonicalFacts.Any(fact => fact.FactKind == "accepted-life-module-answer"));
+            var contributionFact = receipt.CanonicalFacts.Single(fact => fact.FactKind == "accepted-life-module-contributions");
+            var reviewedFact = CharacterCreationFoundationLifeModuleDecisionAuthority.CreateContributionFact(
+                receipt.CanonicalFacts.Single(fact => fact.FactKind == "accepted-life-module").FactId,
+                receipt.DecisionId, new(choice.ChoiceId, choice.Label, choice.Source,
+                    choice.PageReference, choice.DecisionCommandDigest, choice.MechanicsPreview,
+                    choice.SourceAnchorIds, [], true), "de-DE",
+                pending.PendingPreview.EffectReview!.Contributions);
+            Assert.AreEqual(JsonSerializer.Serialize(reviewedFact), JsonSerializer.Serialize(contributionFact),
+                "The atomic accepted fact must describe exactly the player-reviewed compilation.");
+            Assert.IsTrue(contributionFact.LocalizedSummary.Length <= 2048);
+            Assert.IsFalse(contributionFact.LocalizedSummary.Contains("<bonus>"));
             byte[] after = File.ReadAllBytes(WorkspacePath(directory, id));
             // No phone timeline/checkpoint is supplied: a fresh process recovers
             // the exact book from the atomically committed workspace history.
