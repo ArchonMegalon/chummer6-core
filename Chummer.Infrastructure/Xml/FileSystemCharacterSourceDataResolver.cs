@@ -31,7 +31,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly Dictionary<string, string> _digests = new(StringComparer.Ordinal);
         private readonly Dictionary<string, FileSnapshot> _files = new(StringComparer.Ordinal);
         private readonly Dictionary<string, bool> _fileExistence = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, string> _contentDigests = new(StringComparer.Ordinal);
         private readonly Dictionary<DirectoryInventoryKey, DirectoryInventorySnapshot> _directoryInventories = new();
         private readonly HashSet<string> _driftedFiles = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _physicalReads = new(StringComparer.Ordinal);
@@ -123,7 +122,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _afterSourceBytesRead?.Invoke(identity);
                 FileSnapshot after = CaptureFileSnapshot(identity);
                 if (!HasStableIdentity(before, after)
-                    || !ValidateCapturedBytes(identity, bytes))
+                    || !ValidateContentBytes(identity, bytes))
                 {
                     throw new IOException($"Source input changed while it was captured: {identity}");
                 }
@@ -405,67 +404,53 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
-        private bool ValidateCapturedBytes(string path, byte[] captured) =>
-            ValidateContentDigest(path, captured.LongLength, ComputeContentDigest(captured));
+        private bool ValidateCurrentContent(string path) => ValidateContentBytes(path, _bytes[path]);
 
-        private bool ValidateCurrentContent(string path)
-        {
-            if (!_contentDigests.TryGetValue(path, out string? expected))
-            {
-                expected = ComputeContentDigest(_bytes[path]);
-                _contentDigests.Add(path, expected);
-            }
-
-            return ValidateContentDigest(path, _bytes[path].LongLength, expected);
-        }
-
-        private bool ValidateContentDigest(string path, long expectedLength, string expectedDigest)
+        private bool ValidateContentBytes(string path, byte[] expected)
         {
             FileSnapshot before = CaptureFileSnapshot(path);
             // FileInfo.Length may describe the symlink itself. The bounded
             // stream below checks the actual content length; link/target
             // identities are independently compared before and after reading.
-            string? digest = ReadValidationDigest(path, expectedLength);
+            bool matches = ReadValidationBytes(path, expected);
             FileSnapshot after = CaptureFileSnapshot(path);
             return HasStableIdentity(before, after)
-                   && string.Equals(expectedDigest, digest, StringComparison.Ordinal);
+                   && matches;
         }
 
-        private string? ReadValidationDigest(string path, long expectedLength)
+        private bool ReadValidationBytes(string path, byte[] expected)
         {
             // Reuse parsed snapshots; validation is streaming and bounded to
             // the captured length plus one byte, even if a writer keeps growing
-            // the file. Do not allocate another full XML byte array per lookup.
+            // the file. The private captured bytes are already retained, so
+            // compare every byte directly rather than rehashing the whole input
+            // on each admission. Public authority digests remain unchanged.
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
-            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
             long total = 0;
             _validationReadCount++;
             try
             {
-                while (total <= expectedLength)
+                while (total <= expected.LongLength)
                 {
-                    int requested = (int)Math.Min(buffer.Length, expectedLength - total + 1);
+                    int requested = (int)Math.Min(buffer.Length, expected.LongLength - total + 1);
                     int count = stream.Read(buffer, 0, requested);
                     if (count == 0)
                         break;
-                    total += count;
                     _validationBytesRead += count;
-                    hash.AppendData(buffer, 0, count);
+                    if (count > expected.LongLength - total
+                        || !buffer.AsSpan(0, count).SequenceEqual(expected.AsSpan((int)total, count)))
+                        return false;
+                    total += count;
                 }
-                return total == expectedLength
-                    ? Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()
-                    : null;
+                return total == expected.LongLength;
             }
             finally
             {
                 ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
             }
         }
-
-        private static string ComputeContentDigest(byte[] bytes)
-            => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
         private static string ComputeCatalogFingerprint(ContentOverlayCatalog catalog)
         {

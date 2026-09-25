@@ -12,12 +12,16 @@ ctime is not a guaranteed collision-free change counter. See the primary
 
 ## Changed behavior
 
-- Initial capture and subsequent outer source-context entries validate content
-  hashes even when native metadata is available and equal.
+- Initial capture and subsequent outer source-context entries compare the live
+  content byte-for-byte with the privately retained capture, even when native
+  metadata is available and equal. Equality of hashes is no longer needed for
+  this internal comparison; public authority digests still use unchanged SHA-256.
 - Metadata, file/link identity and directory membership checks remain; obvious
   changes still fail closed before expensive projection.
 - Validation streams at most the captured length plus one byte through a pooled
   buffer. It does not allocate another full source byte array or parse XML again.
+  A differing byte, premature end or extra byte rejects reuse. An observed
+  mismatch poisons the context even if the original file is subsequently restored.
 - Before/after metadata checks bracket validation. Symlink identity is separate
   from content length: a link's `FileInfo.Length` is not the target's byte count.
 - The captured source bytes, parsed trees and digests stay immutable. A changed
@@ -28,10 +32,14 @@ ctime is not a guaranteed collision-free change counter. See the primary
   been replaced with an explicit content-validation requirement.
 
 Two focused tests reproduced the missing byte validation before the patch.
-The 14 source-context cases cover capture caching, restored metadata, fallback
+The source-context cases cover capture caching, restored metadata, fallback
 validation, atomic replacement, new overlays/custom directories, mid-capture
-mutation, direct skill lookup, gear, and changed symlink targets. Full combined
-Core/native verification remains required for each final source commit.
+mutation, direct skill lookup, gear, changed symlink targets, and equal-length
+changes on both sides of the 64 KiB streaming-buffer boundary. Finalization
+tests separately protect the post-flush source check, atomic replacement and
+cold receipt recovery. These host tests do not establish Android performance.
+Before Android delivery, verify the affected native finalization/save/reopen
+route against the candidate that actually consumes this resolver.
 
 This is a local source correction, not a new package seal, phone-performance
 measurement, device-process proof, or release receipt. A future optimization
