@@ -19,7 +19,8 @@ namespace Chummer.Application.LifeModules;
 /// explicit confirmation and the atomic workspace CAS.
 /// </summary>
 public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthority :
-    ILifeModuleDecisionAuthority, ILifeModuleDecisionInputAuthority, ILifeModuleDecisionHistoryAuthority
+    ILifeModuleDecisionAuthority, ILifeModuleDecisionInputAuthority, ILifeModuleDecisionHistoryAuthority,
+    ILifeModuleDecisionEffectReviewAuthority
 {
     private readonly string _ownerId;
     private const string JourneyId = "sr5-life-modules-foundation";

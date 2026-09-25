@@ -55,6 +55,13 @@ public sealed class LifeModuleOriginDossierInteractionService
                 return Blocked<LifeModuleOriginDossierDraftCheckpoint>(LifeModuleOriginDossierOutcomes.Invalid,
                     LifeModuleOriginDossierBlockers.ProjectionInvalid);
         }
+        if (IsSuccess(resumed.Outcome) && checkpoint.PendingPreview is { EffectReview: { } review } pending)
+        {
+            var fresh = _dossier.ResolveEffectReview(checkpoint.Projection, pending.SelectedChoice.ChoiceId, pending.InputResolution);
+            if (fresh.Value?.ReviewDigest != review.ReviewDigest)
+                return Blocked<LifeModuleOriginDossierDraftCheckpoint>(LifeModuleOriginDossierOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.DecisionStale);
+        }
         return !IsSuccess(resumed.Outcome) || resumed.Value is null
             ? Map<OriginStoryArcSeed, LifeModuleOriginDossierDraftCheckpoint>(resumed)
             : new(
@@ -98,10 +105,13 @@ public sealed class LifeModuleOriginDossierInteractionService
             return Blocked<LifeModuleOriginDossierDraftCheckpoint>(LifeModuleOriginDossierOutcomes.Invalid,
                 LifeModuleOriginDossierBlockers.IllegalChoice);
 
+        var reviewed = _dossier.ResolveEffectReview(current.Projection, choiceId, inputs);
+        if (!IsSuccess(reviewed.Outcome) && reviewed.Outcome != LifeModuleOriginDossierOutcomes.Missing)
+            return Map<LifeModuleEffectReview, LifeModuleOriginDossierDraftCheckpoint>(reviewed);
         LifeModuleOriginDossierDecisionPreview preview = SealPreview(
             current.Projection,
             matches[0],
-            current.LtdProvenance, inputs);
+            current.LtdProvenance, inputs, reviewed.Value);
         return new(
             LifeModuleOriginDossierOutcomes.Success,
             SealCheckpoint(current.Projection, preview, current.LtdProvenance),
@@ -125,11 +135,11 @@ public sealed class LifeModuleOriginDossierInteractionService
         }
 
         LifeModuleOriginDossierResult<LifeModuleOriginDossierAdvance> accepted =
-            _dossier.Accept(
+            _dossier.AcceptReviewed(
                 checkpoint.Projection,
                 pending.SelectedChoice.ChoiceId,
                 idempotencyKey,
-                explicitlyConfirmed, pending.InputResolution);
+                explicitlyConfirmed, pending.InputResolution, pending.EffectReview);
         if (!IsSuccess(accepted.Outcome) || accepted.Value is not { } advance)
             return Map<LifeModuleOriginDossierAdvance, LifeModuleOriginDossierInteractionAdvance>(accepted);
 
@@ -168,7 +178,8 @@ public sealed class LifeModuleOriginDossierInteractionService
         OriginStoryArcSeed projection,
         LifeModuleNarrativeChoiceSeed choice,
         OriginLtdNarrativeProvenance provenance,
-        LifeModuleDecisionInputResolution? inputs = null)
+        LifeModuleDecisionInputResolution? inputs = null,
+        LifeModuleEffectReview? effectReview = null)
     {
         var card = new LifeModuleOriginDossierChoiceCard(
             choice.ChoiceId,
@@ -193,7 +204,7 @@ public sealed class LifeModuleOriginDossierInteractionService
             projection.SeedDigest,
             projection.CurrentTurn.DecisionDigest,
             projection.CanonicalLayer.MechanicsSnapshotDigest,
-            string.Empty) { InputResolution = inputs };
+            string.Empty) { InputResolution = inputs, EffectReview = effectReview };
         return preview with { PreviewDigest = ComputePreviewDigest(preview) };
     }
 
@@ -267,7 +278,8 @@ public sealed class LifeModuleOriginDossierInteractionService
     {
         if (preview is null
             || preview.SelectedChoice is null
-            || preview.LtdProvenance is null)
+            || preview.LtdProvenance is null
+            || preview.EffectReview is { } review && !LifeModuleEffectReviewIntegrity.IsValid(review))
         {
             return false;
         }
@@ -283,7 +295,7 @@ public sealed class LifeModuleOriginDossierInteractionService
         LifeModuleOriginDossierDecisionPreview expected = SealPreview(
             projection,
             matches[0],
-            provenance, preview.InputResolution);
+            provenance, preview.InputResolution, preview.EffectReview);
         return DigestsEqual(preview.PreviewDigest, expected.PreviewDigest)
                && DigestsEqual(preview.SelectedChoice.CardDigest, expected.SelectedChoice.CardDigest);
     }
@@ -348,6 +360,8 @@ public sealed class LifeModuleOriginDossierInteractionService
             writer.WriteString("boundMechanicsSnapshotDigest", preview.BoundMechanicsSnapshotDigest);
             if (preview.InputResolution is not null)
                 writer.WriteString("inputResolutionDigest", preview.InputResolution.ResolutionDigest);
+            if (preview.EffectReview is not null)
+                writer.WriteString("effectReviewDigest", preview.EffectReview.ReviewDigest);
             writer.WriteEndObject();
         });
 

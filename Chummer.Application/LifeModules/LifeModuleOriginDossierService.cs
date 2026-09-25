@@ -30,6 +30,12 @@ public interface ILifeModuleDecisionInputAuthority
         LifeModuleDecisionInputRequest request);
 }
 
+/// <summary>Fresh compiler review, separate from immutable historical choices.</summary>
+public interface ILifeModuleDecisionEffectReviewAuthority
+{
+    LifeModuleDecisionAuthorityResult<LifeModuleEffectReview> ReviewEffects(LifeModuleDecisionInputRequest request);
+}
+
 /// <summary>Read-only canonical history; recovery must never replay mechanics.</summary>
 public interface ILifeModuleDecisionHistoryAuthority
 {
@@ -143,6 +149,16 @@ public sealed partial class LifeModuleOriginDossierService
         string idempotencyKey,
         bool explicitlyAccepted,
         LifeModuleDecisionInputResolution? inputResolution = null)
+        => AcceptCore(current, choiceId, idempotencyKey, explicitlyAccepted, inputResolution, null, false);
+
+    internal LifeModuleOriginDossierResult<LifeModuleOriginDossierAdvance> AcceptReviewed(
+        OriginStoryArcSeed current, string choiceId, string idempotencyKey, bool explicitlyAccepted,
+        LifeModuleDecisionInputResolution? inputResolution, LifeModuleEffectReview? review)
+        => AcceptCore(current, choiceId, idempotencyKey, explicitlyAccepted, inputResolution, review, true);
+
+    private LifeModuleOriginDossierResult<LifeModuleOriginDossierAdvance> AcceptCore(
+        OriginStoryArcSeed current, string choiceId, string idempotencyKey, bool explicitlyAccepted,
+        LifeModuleDecisionInputResolution? inputResolution, LifeModuleEffectReview? review, bool requireEffectReview)
     {
         ArgumentNullException.ThrowIfNull(current);
         if (!explicitlyAccepted)
@@ -231,6 +247,17 @@ public sealed partial class LifeModuleOriginDossierService
         {
             var resolved = ResolveChoiceInputs(current, choiceId, inputResolution.Values);
             if (resolved.Value?.ResolutionDigest != inputResolution.ResolutionDigest)
+                return Blocked<LifeModuleOriginDossierAdvance>(LifeModuleOriginDossierOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.DecisionStale);
+        }
+        // Exact idempotent replay above stays available to old clients. A new
+        // interactive confirmation must review current compiler semantics;
+        // historical raw projections do not silently become corrected evidence.
+        if (requireEffectReview && _authority is ILifeModuleDecisionEffectReviewAuthority)
+        {
+            var freshReview = ResolveEffectReview(current, choiceId, inputResolution);
+            if (review is null || !LifeModuleEffectReviewIntegrity.IsValid(review)
+                || freshReview.Value?.ReviewDigest != review.ReviewDigest)
                 return Blocked<LifeModuleOriginDossierAdvance>(LifeModuleOriginDossierOutcomes.Conflict,
                     LifeModuleOriginDossierBlockers.DecisionStale);
         }

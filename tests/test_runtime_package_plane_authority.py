@@ -51,14 +51,22 @@ class RuntimePackageLockTests(unittest.TestCase):
             runtime.validate_lock_payload(altered)
 
     def test_candidate_version_is_bound_to_runtime_source_prefix(self) -> None:
-        self.assertEqual(
-            f"0.0.0-packageplane.candidate.sh{runtime.SOURCE_COMMIT[:13]}",
+        self.assertRegex(
             runtime.PACKAGE_VERSION,
+            rf"^0\.0\.0-packageplane\.candidate\.v[0-9]{{8}}\.[1-9][0-9]*\.sh{runtime.SOURCE_COMMIT[:13]}$",
         )
 
+    def test_candidate_version_advances_past_hash_only_dependency_floors(self) -> None:
+        # NuGet compares these nonnumeric prerelease labels lexically. The
+        # dated v epoch sorts after every old sh<hash>, regardless of SHA order.
+        label = runtime.PACKAGE_VERSION.split("candidate.", 1)[1].split(".", 1)[0]
+        self.assertGreater(label, "shfffffffffffff")
+        self.assertIn(f'candidate_version="{runtime.PACKAGE_VERSION}"',
+                      (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
+
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("6aef9b21c622527f15e45383e374846b63b4b959", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh6aef9b21c6225", runtime.PACKAGE_VERSION)
+        self.assertEqual("123f896c5e22670a965dfd2bf4cd325ea4d0ded0", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20260925.1.sh123f896c5e226", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
