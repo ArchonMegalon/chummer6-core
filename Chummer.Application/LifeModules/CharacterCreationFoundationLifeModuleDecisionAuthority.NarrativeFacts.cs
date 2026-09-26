@@ -67,7 +67,13 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             ? Text("Confirmed choice cost", "Kosten der bestätigten Auswahl", "Coste de la elección confirmada")
                 + $": {choice.MechanicsPreview.KarmaCost.ToString(CultureInfo.InvariantCulture)} Karma. "
             : string.Empty;
-        if (unverified) rows.Add(unavailable);
+        // Partial coverage must not negate the confirmed rows above. Unknown
+        // effects still grant nothing; this only distinguishes them from a
+        // completely unavailable summary for a newly accepted decision.
+        if (unverified) rows.Add(rows.Count == 0 ? unavailable : Text(
+            "Other contributions unverified; infer no additional rewards.",
+            "Weitere Beiträge nicht bestätigt; keine zusätzlichen Vorteile ableiten.",
+            "Otras aportaciones sin verificar; no inferir recompensas adicionales."));
         if (rows.Count == 0)
             rows.Add(Text("No mechanical reward asserted.", "Kein mechanischer Vorteil behauptet.", "No se afirma ninguna recompensa mecánica."));
         string summary = $"{choice.Label} — {heading}. {cost}{string.Join("; ", rows)}";
