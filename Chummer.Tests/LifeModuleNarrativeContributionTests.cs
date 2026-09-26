@@ -57,11 +57,38 @@ public sealed class LifeModuleNarrativeContributionTests
     }
 
     [TestMethod]
+    [DataRow("en-US", "Other contributions unverified; infer no additional rewards.", "Mechanical contributions unavailable")]
+    [DataRow("de-DE", "Weitere Beiträge nicht bestätigt; keine zusätzlichen Vorteile ableiten.", "Mechanische Beiträge nicht verfügbar")]
+    [DataRow("es-ES", "Otras aportaciones sin verificar; no inferir recompensas adicionales.", "Aportaciones mecánicas no disponibles")]
+    public void Partial_coverage_does_not_disclaim_the_confirmed_contributions(
+        string locale, string partialWarning, string unavailableWarning)
+    {
+        foreach (var unknown in new[]
+        {
+            Row("skilllevel", "NotGranted", 999) with
+            { CompilationStatus = CharacterCreationFoundationEffectCompilationStatuses.Unsupported, Blocker = "unsupported" },
+            Row("future-effect-kind", "NotGranted", 999),
+            Row("skilllevel", "NotGranted", null)
+        })
+        {
+            var fact = CharacterCreationFoundationLifeModuleDecisionAuthority.CreateContributionFact(
+                "module:1", "decision", Choice(), locale, [Row("skilllevel", "Survival", 2), unknown]);
+            StringAssert.Contains(fact.LocalizedSummary, "Survival: +2");
+            StringAssert.Contains(fact.LocalizedSummary, partialWarning);
+            Assert.IsFalse(fact.LocalizedSummary.Contains(unavailableWarning));
+            Assert.IsFalse(fact.LocalizedSummary.Contains("NotGranted"));
+            Assert.IsFalse(fact.LocalizedSummary.Contains("999"));
+        }
+    }
+
+    [TestMethod]
     public void Missing_or_oversized_contributions_do_not_assert_partial_rewards()
     {
         foreach (var rows in new IReadOnlyList<LifeModuleEffectContribution>?[]
         {
-            null, [Row("skilllevel", new string('x', 2100), 2)]
+            null, [Row("skilllevel", new string('x', 2100), 2)],
+            [Row("future-effect-kind", "NotGranted", 999)],
+            [Row("pushtext", "raw-selection", null), Row("future-effect-kind", "NotGranted", 999)]
         })
         {
             var fact = CharacterCreationFoundationLifeModuleDecisionAuthority.CreateContributionFact(
