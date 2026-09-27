@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20260927.4.sh1f3dceb812cb7"
-runtime_source_commit="1f3dceb812cb7fe27371f42fccbd4fa354dc1f9d"
+candidate_version="0.0.0-packageplane.candidate.v20260927.5.she2f594f6ea00e"
+runtime_source_commit="e2f594f6ea00e5cecd6adeededc696753572a97e"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -553,6 +553,11 @@ public static class BoundaryProbe
         IOwnerBoundLifeModuleBookService service, OwnerContextStamp owner,
         CharacterWorkspaceId workspaceId, long revision, long savedRevision)
         => service.Load(owner, workspaceId, revision, savedRevision);
+
+    public static LifeModuleOriginDossierResult<LifeModuleDecisionAvailabilitySnapshot> ReadLifeModuleAvailability(
+        IOwnerBoundLifeModuleAvailabilityService service, OwnerContextStamp owner,
+        LifeModuleDecisionAvailabilityRequest request)
+        => service.LoadAvailability(owner, request);
 
     public static CharacterCreationFoundationResult<Sr6CreationFinalizationReview> ReviewSr6Creation(
         ISr6CreationFoundationService service, OwnerContextStamp owner,

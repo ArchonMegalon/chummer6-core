@@ -17,14 +17,34 @@ public interface IOwnerBoundLifeModuleOriginService
         string previewDigest, string idempotencyKey, bool explicitlyConfirmed);
 }
 
+/// <summary>Read-only capability, separate from Origin decisions and confirmation.</summary>
+public interface IOwnerBoundLifeModuleAvailabilityService
+{
+    LifeModuleOriginDossierResult<LifeModuleDecisionAvailabilitySnapshot> LoadAvailability(
+        OwnerContextStamp owner, LifeModuleDecisionAvailabilityRequest request);
+}
+
 /// <summary>
 /// Admits each synchronous Origin operation for one exact owner transition and
 /// workspace. No lease, evaluator, or mutable owner context escapes the call.
 /// </summary>
 public sealed class OwnerBoundLifeModuleOriginService(
     IWorkspaceStore store, IOwnerContextAccessor owners, ICharacterFileQueries characterFiles,
-    ICharacterSourceDataResolver sourceResolver, ILifeModulesCatalogService catalog) : IOwnerBoundLifeModuleOriginService
+    ICharacterSourceDataResolver sourceResolver, ILifeModulesCatalogService catalog)
+    : IOwnerBoundLifeModuleOriginService, IOwnerBoundLifeModuleAvailabilityService
 {
+    public LifeModuleOriginDossierResult<LifeModuleDecisionAvailabilitySnapshot> LoadAvailability(
+        OwnerContextStamp owner, LifeModuleDecisionAvailabilityRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return InvokeAuthority(owner, request.WorkspaceId, authority =>
+        {
+            var result = authority.LoadAvailability(request);
+            return new LifeModuleOriginDossierResult<LifeModuleDecisionAvailabilitySnapshot>(
+                result.Outcome, result.Value, result.Blockers);
+        });
+    }
+
     public bool IsCurrent(OwnerContextStamp owner)
     {
         if (!OwnerContextAdmission.TryAcquire(owners, owner, out var lease)) return false;
@@ -65,6 +85,10 @@ public sealed class OwnerBoundLifeModuleOriginService(
 
     private LifeModuleOriginDossierResult<T> Invoke<T>(OwnerContextStamp owner, string workspaceId,
         Func<LifeModuleOriginDossierInteractionService, LifeModuleOriginDossierResult<T>> action) where T : class
+        => InvokeAuthority(owner, workspaceId, authority => action(new(new(authority))));
+
+    private LifeModuleOriginDossierResult<T> InvokeAuthority<T>(OwnerContextStamp owner, string workspaceId,
+        Func<CharacterCreationFoundationLifeModuleDecisionAuthority, LifeModuleOriginDossierResult<T>> action) where T : class
     {
         if (string.IsNullOrWhiteSpace(workspaceId)
             || (owner.Owner.UsesLocalSingleUserValue && !owner.Owner.IsLocalSingleUser)
@@ -79,7 +103,7 @@ public sealed class OwnerBoundLifeModuleOriginService(
                 sourceScope ?? sourceResolver, catalog, new CharacterCreationFoundationDraftApplyAuthority(view));
             var authority = new CharacterCreationFoundationLifeModuleDecisionAuthority(
                 view, foundation, characterFiles, owner.Owner.NormalizedValue);
-            return action(new(new(authority)));
+            return action(authority);
         }
     }
 

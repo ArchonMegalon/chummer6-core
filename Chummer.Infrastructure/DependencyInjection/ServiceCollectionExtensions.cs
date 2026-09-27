@@ -205,6 +205,8 @@ public static class ServiceCollectionExtensions
             OwnerBoundCharacterCreationLifeModuleFinalizationService>();
         services.AddSingleton<IOwnerBoundLifeModuleBookService, OwnerBoundLifeModuleBookService>();
         services.AddSingleton<IOwnerBoundLifeModuleOriginService, OwnerBoundLifeModuleOriginService>();
+        services.AddSingleton<IOwnerBoundLifeModuleAvailabilityService>(provider =>
+            (OwnerBoundLifeModuleOriginService)provider.GetRequiredService<IOwnerBoundLifeModuleOriginService>());
         services.AddSingleton<ICharacterCreationPrerequisiteService,
             CharacterCreationPrerequisiteService>();
         services.AddSingleton<IOwnerBoundCharacterCreationPrerequisiteService,

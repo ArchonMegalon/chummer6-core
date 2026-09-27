@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("1f3dceb812cb7fe27371f42fccbd4fa354dc1f9d", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20260927.4.sh1f3dceb812cb7", runtime.PACKAGE_VERSION)
+        self.assertEqual("e2f594f6ea00e5cecd6adeededc696753572a97e", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20260927.5.she2f594f6ea00e", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
@@ -85,6 +85,8 @@ class RuntimePackageLockTests(unittest.TestCase):
             "IOwnerBoundCharacterCreationLifeModuleFinalizationService",
             "CharacterCreationFoundationFinalizationConfirmRequest",
             "IOwnerBoundLifeModuleBookService", "OriginStoryArcSeed",
+            "IOwnerBoundLifeModuleAvailabilityService", "LifeModuleDecisionAvailabilitySnapshot",
+            "LifeModuleDecisionAvailabilityRequest",
             "ISr6CreationFoundationService", "Sr6CreationFinalizationReview",
         ):
             with self.subTest(name=name):
