@@ -998,13 +998,59 @@ public sealed partial class LifeModuleOriginDossierService
 
     private static string ComputeDigest(Action<Utf8JsonWriter> write)
     {
-        var buffer = new ArrayBufferWriter<byte>();
+        using var buffer = new NarrativeDigestBuffer();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             write(writer);
             writer.Flush();
         }
-        return Convert.ToHexString(SHA256.HashData(buffer.WrittenSpan)).ToLowerInvariant();
+        Span<byte> digest = stackalloc byte[SHA256.HashSizeInBytes];
+        SHA256.HashData(buffer.WrittenSpan, digest);
+        return Convert.ToHexStringLower(digest);
+    }
+
+    // A restored Origin ledger revalidates thousands of effect/choice digests.
+    // Reuse only scratch bytes, never a result or caller-owned narrative graph.
+    // Each invocation owns its rental (also for nested/concurrent calls) and
+    // clears it on return, including when writing or hashing fails.
+    private sealed class NarrativeDigestBuffer : IBufferWriter<byte>, IDisposable
+    {
+        private byte[] _buffer = ArrayPool<byte>.Shared.Rent(4096);
+        private int _written;
+        public ReadOnlySpan<byte> WrittenSpan => _buffer.AsSpan(0, _written);
+
+        public void Advance(int count)
+        {
+            if ((uint)count > (uint)(_buffer.Length - _written))
+                throw new ArgumentOutOfRangeException(nameof(count));
+            _written += count;
+        }
+
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer.AsMemory(_written);
+        }
+
+        public Span<byte> GetSpan(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer.AsSpan(_written);
+        }
+
+        private void EnsureCapacity(int sizeHint)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(sizeHint);
+            sizeHint = Math.Max(1, sizeHint);
+            if (sizeHint <= _buffer.Length - _written) return;
+            byte[] replacement = ArrayPool<byte>.Shared.Rent(
+                checked(_written + Math.Max(sizeHint, _buffer.Length)));
+            WrittenSpan.CopyTo(replacement);
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            _buffer = replacement;
+        }
+
+        public void Dispose() => ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
     }
 
     private static void WriteStringArray(
