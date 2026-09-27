@@ -391,6 +391,45 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Creation_gear_cache_reuses_immutable_xml_but_detaches_every_collection()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        Assert.IsTrue(context.TryResolveCreationGearAuthority(out var first));
+        Assert.IsTrue(first.IsAuthoritative);
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        string[] originalXml = first.Options.Select(option => option.SourceNodeXml).ToArray();
+        Assert.IsTrue(originalXml.Any(xml => xml.Length > 0));
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        PoisonCompletionProjection(first);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(context.TryResolveCreationGearAuthority(out var second));
+        long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"gear-detached warm-bytes={warmBytes}");
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+        Assert.AreNotSame(first, second);
+        Assert.AreNotSame(first.Options, second.Options);
+        Assert.AreNotSame(first.SourceAnchorIds, second.SourceAnchorIds);
+        for (int index = 0; index < first.Options.Count; index++)
+        {
+            Assert.AreNotSame(first.Options[index], second.Options[index]);
+            if (first.Options[index].SourceAnchorIds.Count > 0)
+                Assert.AreNotSame(first.Options[index].SourceAnchorIds, second.Options[index].SourceAnchorIds);
+            if (first.Options[index].Blockers.Count > 0)
+                Assert.AreNotSame(first.Options[index].Blockers, second.Options[index].Blockers);
+            Assert.AreSame(originalXml[index], second.Options[index].SourceNodeXml,
+                "Immutable source XML must not be parsed and allocated again on a cache hit.");
+        }
+        PoisonCompletionProjection(second);
+        Assert.IsTrue(context.TryResolveCreationGearAuthority(out var third));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(third));
+    }
+
+    [TestMethod]
     [DataRow("settings.xml")]
     [DataRow("skills.xml")]
     [DataRow("weapons.xml")]
@@ -523,9 +562,15 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         }
         else if (projection is CharacterCreationGearAuthority gear)
         {
+            Poison(gear.Blockers);
             Poison(gear.SourceAnchorIds);
             Poison(gear.Options[0].SourceAnchorIds);
             Poison(gear.Options.First(option => option.Blockers.Count > 0).Blockers);
+            if (gear.Options is System.Collections.IList { IsReadOnly: false, Count: > 0 } rows)
+            {
+                rows[0] = gear.Options[0] with { PackageCost = -1, SourceNodeXml = "caller-poison" };
+                changed = true;
+            }
         }
         else if (projection is CharacterCreationLifestylesAuthority lifestyles)
         {
