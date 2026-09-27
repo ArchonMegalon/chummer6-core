@@ -12,6 +12,93 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Skill_projection_digest_preserves_legacy_scalars_nested_arrays_and_flags()
+    {
+        foreach (string? text in new[] { null, "", "Zoë 東京 😀 e\u0301 é <>&\"\\\r\n\t", "\ud800",
+                     new string('x', 300_000) + "é😀\"" })
+        {
+            var input = SkillProjection(text!);
+            string expected = "sha256:" + LegacyDigest(input);
+            Assert.AreEqual(expected, input.Digest());
+            Parallel.For(0, 4, _ => Assert.AreEqual(expected, input.Digest()));
+        }
+        var digests = new HashSet<string>(StringComparer.Ordinal);
+        for (int flags = 0; flags < 128; flags++)
+        {
+            var input = SkillProjection("Skill") with
+            {
+                IsExotic = (flags & 1) != 0, CanDefault = (flags & 2) != 0,
+                IgnoresSourceDisabled = (flags & 4) != 0, RequiresGroundMovement = (flags & 8) != 0,
+                RequiresSwimMovement = (flags & 16) != 0, RequiresFlyMovement = (flags & 32) != 0,
+                CanBeNativeLanguage = (flags & 64) != 0, Specializations = [], SourceAnchorIds = []
+            };
+            Assert.AreEqual("sha256:" + LegacyDigest(input), input.Digest());
+            Assert.IsTrue(digests.Add(input.Digest()), "Every capability bit must remain bound.");
+        }
+    }
+
+    [TestMethod]
+    public void Skill_projection_digest_recomputes_mutable_inputs_and_preserves_array_order()
+    {
+        var input = SkillProjection("Skill");
+        var specializations = (CharacterCreationSkillSpecializationOption[])input.Specializations;
+        var anchors = (string[])input.SourceAnchorIds;
+        string before = input.Digest();
+        specializations[0] = specializations[0] with { Name = "Changed specialization" };
+        Assert.AreNotEqual(before, input.Digest());
+        Assert.AreEqual("sha256:" + LegacyDigest(input), input.Digest());
+        before = input.Digest();
+        Array.Reverse(specializations);
+        Assert.AreNotEqual(before, input.Digest());
+        Assert.AreEqual("sha256:" + LegacyDigest(input), input.Digest());
+        before = input.Digest();
+        anchors[0] = "changed source";
+        Assert.AreNotEqual(before, input.Digest());
+        Assert.AreEqual("sha256:" + LegacyDigest(input), input.Digest());
+        before = input.Digest();
+        Array.Reverse(anchors);
+        Assert.AreNotEqual(before, input.Digest());
+        Assert.AreEqual("sha256:" + LegacyDigest(input), input.Digest());
+        Assert.AreNotEqual(input.Digest(), (input with { SkillGroup = string.Empty }).Digest());
+        Assert.ThrowsExactly<ArgumentNullException>(() => (input with { Specializations = null! }).Digest());
+        Assert.ThrowsExactly<ArgumentNullException>(() => (input with { SourceAnchorIds = null! }).Digest());
+    }
+
+    [TestMethod]
+    public void Skill_projection_digest_avoids_JSON_DOM_and_output_copy_allocations()
+    {
+        var input = SkillProjection(new string('x', 4096) + "é😀");
+        string expected = "sha256:" + LegacyDigest(input);
+        Assert.AreEqual(expected, input.Digest());
+        long legacy = Allocations(() => LegacyDigest(input));
+        long direct = Allocations(input.Digest);
+        Console.WriteLine($"Skill projection warm allocation: direct={direct}; legacy={legacy}.");
+        Assert.IsTrue(direct < legacy / 4, $"Skill projection {direct:N0}; legacy {legacy:N0}.");
+        Assert.AreEqual(expected, input.Digest());
+    }
+
+    private static SkillProjectionInput SkillProjection(string text) => new(
+        "sha256:" + new string('a', 64), "source-id", "active", text, "Combat Active", "AGI", null, false,
+        new CharacterCreationSkillSpecializationOption[] { new("option-z", text, "source-z"), null!, new("option-a", "", null!) },
+        new string[] { "source-z", null!, "source-a", "source-z" });
+
+    private sealed record SkillProjectionInput(
+        string EffectiveSkillsInputsDigest, string SourceSkillId, string Kind, string Name,
+        string Category, string DefaultAttribute, string? SkillGroup, bool IsExotic,
+        IReadOnlyList<CharacterCreationSkillSpecializationOption> Specializations,
+        IReadOnlyList<string> SourceAnchorIds, bool CanDefault = false, bool IgnoresSourceDisabled = false,
+        bool RequiresGroundMovement = false, bool RequiresSwimMovement = false,
+        bool RequiresFlyMovement = false, bool CanBeNativeLanguage = false)
+    {
+        public string Schema => CharacterCreationSkillsSchemas.CatalogProjectionV2;
+
+        public string Digest() => CharacterCreationStandardPrioritySkillsRules.ComputeCatalogProjectionDigest(
+            EffectiveSkillsInputsDigest, SourceSkillId, Kind, Name, Category, DefaultAttribute, SkillGroup,
+            IsExotic, Specializations, SourceAnchorIds, CanDefault, IgnoresSourceDisabled,
+            RequiresGroundMovement, RequiresSwimMovement, RequiresFlyMovement, CanBeNativeLanguage);
+    }
+
+    [TestMethod]
     public void Auxiliary_digest_preserves_legacy_bytes_for_empty_nested_and_large_states()
     {
         Assert.AreEqual(LegacyDigest(WorkspaceDocumentAuxiliaryState.Empty),
