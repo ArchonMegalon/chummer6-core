@@ -122,7 +122,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _afterSourceBytesRead?.Invoke(identity);
                 FileSnapshot after = CaptureFileSnapshot(identity);
                 if (!HasStableIdentity(before, after)
-                    || !ValidateContentBytes(identity, bytes))
+                    || !ValidateContentBytes(identity, bytes, after))
                 {
                     throw new IOException($"Source input changed while it was captured: {identity}");
                 }
@@ -366,7 +366,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     // filesystem clock tick. Metadata detects obvious drift;
                     // equality is not evidence that cached bytes are unchanged.
                     if (!HasStableIdentity(snapshot, current)
-                        || !ValidateCurrentContent(path))
+                        || !ValidateContentBytes(path, _bytes[path], current))
                     {
                         _driftedFiles.Add(path);
                     }
@@ -404,11 +404,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
-        private bool ValidateCurrentContent(string path) => ValidateContentBytes(path, _bytes[path]);
-
-        private bool ValidateContentBytes(string path, byte[] expected)
+        private bool ValidateContentBytes(string path, byte[] expected, FileSnapshot before)
         {
-            FileSnapshot before = CaptureFileSnapshot(path);
+            // The caller just captured and admitted this identity. Carry it
+            // across the byte read instead of taking a second pre-read snapshot.
+            // This binds the post-read identity to the admitted snapshot too.
             // FileInfo.Length may describe the symlink itself. The bounded
             // stream below checks the actual content length; link/target
             // identities are independently compared before and after reading.

@@ -87,8 +87,8 @@ public sealed class CreationCanonicalDigestTests
         string expected = "sha256:" + LegacyDigest(value);
         Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
         long allocated = Allocations(() => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
-        // Decoding the JSON string still allocates its UTF-16 representation.
-        // The UTF-8 output buffer must not add another large array each time.
+        // Neither scalar traversal nor the UTF-8 output buffer should require
+        // another large text/output copy after the scratch buffers are warm.
         Assert.IsTrue(allocated < 1_000_000, $"Canonical digest allocated {allocated:N0} bytes.");
         for (int i = 0; i < 3; i++)
         {
@@ -198,6 +198,56 @@ public sealed class CreationCanonicalDigestTests
         Assert.AreNotEqual(expected, CharacterCreationGearRules.ComputeAuthorityDigest(authority));
         Assert.AreEqual(CharacterCreationGearRules.Compute(authority with { AuthorityDigest = string.Empty }),
             CharacterCreationGearRules.ComputeAuthorityDigest(authority));
+    }
+
+    [TestMethod]
+    public void Canonical_digest_writes_JSON_scalars_without_allocating_decoded_text_copies()
+    {
+        var state = State(128);
+        var values = (Dictionary<string, string>)state.CharacterCreationFoundationDraft!.FollowUpValues;
+        values["large"] = new string('x', 300_000) + "é😀<>&\"\\\r\n\t";
+        string expected = LegacyDigest(state);
+        Assert.AreEqual(expected, WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        Assert.AreEqual("sha256:" + expected,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state));
+        long auxiliary = Allocations(() => WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        long foundation = Allocations(() => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state));
+        Console.WriteLine($"Scalar traversal allocations: auxiliary={auxiliary}; foundation={foundation}.");
+        Assert.IsTrue(auxiliary < 100_000, $"Auxiliary scalar traversal allocated {auxiliary:N0} bytes.");
+        Assert.IsTrue(foundation < 100_000, $"Foundation scalar traversal allocated {foundation:N0} bytes.");
+        values["large"] += "changed";
+        Assert.AreNotEqual(expected, WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        Assert.AreEqual(LegacyDigest(state), WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        Assert.AreEqual("sha256:" + LegacyDigest(state),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state));
+    }
+
+    [TestMethod]
+    public void Foundation_digest_preserves_escaped_scalar_values_and_numeric_spellings()
+    {
+        foreach (string json in new[]
+        {
+            """{"value":"\u0061\u002f\u0022\u005c\u000a","number":-0.00}""",
+            """{"value":"\u00e9\uD83D\uDE00\u003c\u003e\u0026","number":1.234567890123456789e+100}""",
+            """{"value":"é😀/\t\b\f\r\n","number":1E-100}""",
+            """{"value":"","number":18446744073709551616}"""
+        })
+        {
+            using var document = JsonDocument.Parse(json);
+            string expected = "sha256:" + LegacyDigest(document.RootElement);
+            Assert.AreEqual(expected,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(document.RootElement));
+        }
+        using var escaped = JsonDocument.Parse("""{"value":"\u0061"}""");
+        Assert.AreEqual(CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new { value = "a" }),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(escaped.RootElement));
+        foreach (string json in new[] { """{"value":"\uD800"}""", """{"value":"\uDC00"}""" })
+        {
+            using var invalid = JsonDocument.Parse(json);
+            Assert.ThrowsExactly<JsonException>(() => LegacyDigest(invalid.RootElement));
+            Assert.ThrowsExactly<JsonException>(() =>
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(invalid.RootElement));
+        }
     }
 
     private static CharacterCreationGearCatalogOption GearDigestOption(string xml) => new(
