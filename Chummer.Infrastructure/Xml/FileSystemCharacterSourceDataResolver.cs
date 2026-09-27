@@ -1812,6 +1812,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private JsonElement? _creationSkillsCatalogSnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
         private JsonElement? _creationGearAuthoritySnapshot;
+        private JsonElement? _creationLifestylesAuthoritySnapshot;
         private JsonElement? _lifeModuleMagicCatalogSnapshot;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
@@ -4288,7 +4289,29 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && _buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules))
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
-                || !TryResolveTarget(
+                || !TryHasSelectedCustomDataInputFor(_customDirectories, "lifestyles.xml", out _))
+            {
+                return false;
+            }
+
+            bool profileMatches = string.Equals(
+                BindSelectedProfile(settingsDigest, _settingsProfileId),
+                _rawProfileInputsDigest, StringComparison.Ordinal);
+            JsonElement? cached;
+            lock (_completionProjectionSync) { cached = _creationLifestylesAuthoritySnapshot; }
+            if (!_sourceInputs.HasSourceDrift && profileMatches && cached is { } snapshot)
+            {
+                var detached = snapshot.Deserialize<CharacterCreationLifestylesAuthority>();
+                if (!_sourceInputs.HasSourceDrift && detached is not null)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+            // The context owns one exact character/settings/source snapshot.
+            // Reuse only after live-byte admission above, and return detached
+            // collections. Drift still produces the existing blocked projection.
+            if (!TryResolveTarget(
                     "settings.xml",
                     ["settings"],
                     "setting",
@@ -4328,19 +4351,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var blockers = new List<string>();
             if (_sourceInputs.HasSourceDrift)
                 blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
-            if (!string.Equals(
-                    BindSelectedProfile(settingsDigest, _settingsProfileId),
-                    _rawProfileInputsDigest,
-                    StringComparison.Ordinal))
+            if (!profileMatches)
             {
                 blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
-            }
-            if (!TryHasSelectedCustomDataInputFor(
-                    _customDirectories,
-                    "lifestyles.xml",
-                    out _))
-            {
-                return false;
             }
 
             bool freeGridsEnabled = ParseBool(ReadValue(settings, "allowfreegrids"))
@@ -4638,6 +4651,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projected)
             };
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                JsonElement frozen = JsonSerializer.SerializeToElement(authority);
+                lock (_completionProjectionSync) { _creationLifestylesAuthoritySnapshot = frozen; }
+            }
             return true;
         }
 

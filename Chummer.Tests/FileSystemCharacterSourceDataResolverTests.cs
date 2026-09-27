@@ -361,6 +361,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("life-quality-policy")]
     [DataRow("gear")]
     [DataRow("life-magic")]
+    [DataRow("lifestyles")]
     public void Creation_completion_projection_reuse_detaches_collections_and_avoids_full_reprojection(string kind)
     {
         string root = FindCoreRoot();
@@ -378,6 +379,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         before = GC.GetAllocatedBytesForCurrentThread();
         object second = ReadCompletionProjection(context, kind);
         long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"Completion {kind}: cold={coldBytes}; warm={warmBytes} bytes.");
         Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
         Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
             "Reuse must still revalidate live source bytes, not just metadata.");
@@ -399,13 +401,14 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("powers.xml")]
     [DataRow("spells.xml")]
     [DataRow("complexforms.xml")]
+    [DataRow("lifestyles.xml")]
     public void Creation_completion_projection_reuse_rejects_source_drift_and_ABA(string fileName)
     {
         string root = CreateTempDirectory();
         try
         {
             CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "weapons.xml", "qualities.xml",
-                "gear.xml", "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml");
+                "gear.xml", "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml", "lifestyles.xml");
             var resolver = new FileSystemCharacterSourceDataResolver(
                 new FileSystemContentOverlayCatalogService(root, root, null));
             string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
@@ -414,6 +417,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             string policy = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-quality-policy"));
             string gear = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "gear"));
             string magic = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-magic"));
+            string lifestyles = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "lifestyles"));
             string path = Path.Combine(root, "data", fileName);
             byte[] original = File.ReadAllBytes(path);
             DateTime timestamp = File.GetLastWriteTimeUtc(path);
@@ -422,17 +426,20 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationGearAuthority(out var driftedGear) && driftedGear.IsAuthoritative);
+            Assert.IsFalse(context.TryResolveCreationLifestylesAuthority(out var driftedLifestyles) && driftedLifestyles.IsAuthoritative);
             File.WriteAllBytes(path, original);
             File.SetLastWriteTimeUtc(path, timestamp);
             Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationGearAuthority(out var restoredGear) && restoredGear.IsAuthoritative);
+            Assert.IsFalse(context.TryResolveCreationLifestylesAuthority(out var restoredLifestyles) && restoredLifestyles.IsAuthoritative);
             var fresh = resolver.TryCreateContext(xml)!;
             Assert.AreEqual(skills, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "skills")));
             Assert.AreEqual(policy, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-quality-policy")));
             Assert.AreEqual(gear, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "gear")));
             Assert.AreEqual(magic, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-magic")));
+            Assert.AreEqual(lifestyles, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "lifestyles")));
         }
         finally { DeleteTempDirectory(root); }
     }
@@ -450,6 +457,12 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsTrue(context.TryResolveCreationGearAuthority(out var gear));
             Assert.IsTrue(gear.IsAuthoritative);
             return gear;
+        }
+        if (kind == "lifestyles")
+        {
+            Assert.IsTrue(context.TryResolveCreationLifestylesAuthority(out var lifestyles));
+            Assert.IsTrue(lifestyles.IsAuthoritative, string.Join(",", lifestyles.Blockers));
+            return lifestyles;
         }
         if (kind == "life-magic")
         {
@@ -471,6 +484,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("gear", true)]
     [DataRow("life-magic", false)]
     [DataRow("life-magic", true)]
+    [DataRow("lifestyles", false)]
+    [DataRow("lifestyles", true)]
     public async Task Creation_completion_projection_parallel_readers_do_not_share_mutable_results(string kind, bool warm)
     {
         string root = FindCoreRoot();
@@ -511,6 +526,27 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Poison(gear.SourceAnchorIds);
             Poison(gear.Options[0].SourceAnchorIds);
             Poison(gear.Options.First(option => option.Blockers.Count > 0).Blockers);
+        }
+        else if (projection is CharacterCreationLifestylesAuthority lifestyles)
+        {
+            Poison(lifestyles.SourceAnchorIds);
+            foreach (var option in lifestyles.LifestyleOptions)
+            {
+                Poison(option.SourceAnchorIds);
+                Poison(option.Blockers);
+                foreach (var quality in option.BuiltInQualities) Poison(quality.SourceAnchorIds);
+            }
+            foreach (var option in lifestyles.QualityOptions)
+            {
+                Poison(option.SourceAnchorIds);
+                Poison(option.Blockers);
+                Poison(option.AllowedFreeLifestyleNames);
+            }
+            if (lifestyles.LifestyleOptions is System.Collections.IList { IsReadOnly: false, Count: > 0 } rows)
+            {
+                rows[0] = lifestyles.LifestyleOptions[0] with { BaseCost = -1 };
+                changed = true;
+            }
         }
         else if (projection is CharacterCreationLifeModuleMagicCatalog magic)
         {
