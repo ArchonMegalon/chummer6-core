@@ -1811,7 +1811,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private CharacterCreationFoundationEffectSources? _foundationEffectSourcesSnapshot;
         private JsonElement? _creationSkillsCatalogSnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
-        private JsonElement? _creationGearAuthoritySnapshot;
+        private CharacterCreationGearAuthority? _creationGearAuthoritySnapshot;
         private JsonElement? _creationLifestylesAuthoritySnapshot;
         private JsonElement? _lifeModuleMagicCatalogSnapshot;
         private readonly ContentOverlayCatalog _catalog;
@@ -3157,12 +3157,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
-            JsonElement? cached;
+            CharacterCreationGearAuthority? cached;
             lock (_completionProjectionSync) { cached = _creationGearAuthoritySnapshot; }
             if (!_sourceInputs.HasSourceDrift && cached is { } snapshot)
             {
-                var detached = snapshot.Deserialize<CharacterCreationGearAuthority>();
-                if (!_sourceInputs.HasSourceDrift && detached is not null)
+                CharacterCreationGearAuthority detached = CopyGearAuthority(snapshot);
+                if (!_sourceInputs.HasSourceDrift)
                 {
                     authority = detached;
                     return true;
@@ -3349,11 +3349,26 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             };
             if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
             {
-                var frozen = JsonSerializer.SerializeToElement(authority);
+                CharacterCreationGearAuthority frozen = CopyGearAuthority(authority);
                 lock (_completionProjectionSync) { _creationGearAuthoritySnapshot = frozen; }
             }
             return true;
         }
+
+        private static CharacterCreationGearAuthority CopyGearAuthority(
+            CharacterCreationGearAuthority source) => source with
+        {
+            // Strings (including the full source XML) are immutable. Detach every
+            // collection on both admission and return, without a JSON round trip.
+            // Keep this copy in sync if these sealed DTOs gain mutable fields.
+            Options = source.Options.Select(option => option with
+            {
+                Blockers = option.Blockers.ToArray(),
+                SourceAnchorIds = option.SourceAnchorIds.ToArray()
+            }).ToArray(),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+            Blockers = source.Blockers.ToArray()
+        };
 
         public bool TryResolveVehicleWorkshopCatalog(out CharacterVehicleWorkshopCatalog catalog)
         {
