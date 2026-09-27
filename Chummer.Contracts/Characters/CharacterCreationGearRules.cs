@@ -284,9 +284,54 @@ public static class CharacterCreationGearRules
     // The generic Compute implementation remains the compatibility oracle.
     private static string ComputeDirect(Action<Utf8JsonWriter> write)
     {
-        ArrayBufferWriter<byte> buffer = new();
+        using var buffer = new DirectHashBufferWriter();
         using (Utf8JsonWriter writer = new(buffer)) write(writer);
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        return Prefix + buffer.GetDigest();
+    }
+
+    // Catalogs are revalidated, not cached. Hash the unchanged canonical bytes
+    // as the writer commits them instead of allocating a whole catalog copy
+    // for every source, option and authority check during finalization.
+    private sealed class DirectHashBufferWriter : IBufferWriter<byte>, IDisposable
+    {
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private byte[] _buffer = ArrayPool<byte>.Shared.Rent(4096);
+
+        public void Advance(int count)
+        {
+            if ((uint)count > (uint)_buffer.Length)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            _hash.AppendData(_buffer.AsSpan(0, count));
+        }
+
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        public Span<byte> GetSpan(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        private void EnsureCapacity(int sizeHint)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(sizeHint);
+            if (sizeHint <= _buffer.Length) return;
+            byte[] replacement = ArrayPool<byte>.Shared.Rent(sizeHint);
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            _buffer = replacement;
+        }
+
+        public string GetDigest() => Convert.ToHexStringLower(_hash.GetHashAndReset());
+
+        public void Dispose()
+        {
+            _hash.Dispose();
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+        }
     }
 
     private static void WriteOption(CharacterCreationGearCatalogOption value, Utf8JsonWriter writer, string? digest)
