@@ -38,6 +38,9 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
     private sealed record CatalogSnapshot(XDocument Document, string RawXmlDigest, byte[] Bytes);
 
     private readonly Lazy<CatalogSnapshot> _snapshot;
+    private sealed record ProjectionSnapshot(
+        string? Stage, HashSet<string>? EnabledSources, LifeModuleLegalOptionDto[] Options);
+    private ProjectionSnapshot? _projection;
 
     public XmlLifeModulesCatalogService(string lifeModulesPath)
     {
@@ -94,8 +97,7 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
         string? stage = null,
         IReadOnlyCollection<string>? enabledSources = null)
     {
-        IReadOnlyDictionary<string, LifeModuleStageDto> stagesByName = GetStages()
-            .ToDictionary(item => item.Name, StringComparer.Ordinal);
+        string? normalizedStage = string.IsNullOrWhiteSpace(stage) ? null : stage.Trim();
         HashSet<string>? enabledSourceSet = enabledSources is null
             ? null
             : enabledSources
@@ -103,6 +105,33 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                 .Select(item => item.Trim())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // The service already owns one immutable raw XML snapshot. Reuse only
+        // its last exact catalog projection, never character eligibility or a
+        // mutation result. Null sources (all books) and an empty filter (none)
+        // remain distinct. One entry bounds retention regardless of queries.
+        ProjectionSnapshot? cached = Volatile.Read(ref _projection);
+        if (cached is null
+            || !string.Equals(cached.Stage, normalizedStage, StringComparison.Ordinal)
+            || !(cached.EnabledSources is null
+                ? enabledSourceSet is null
+                : enabledSourceSet is not null && cached.EnabledSources.SetEquals(enabledSourceSet)))
+        {
+            cached = new ProjectionSnapshot(normalizedStage, enabledSourceSet,
+                ProjectOptions(normalizedStage, enabledSourceSet));
+            // Concurrent misses may duplicate pure projection work; publishing
+            // one complete private snapshot never mixes filters or partial data.
+            Volatile.Write(ref _projection, cached);
+        }
+
+        // IReadOnlyList/Dictionary do not make the nested DTO graph immutable.
+        // Detach every collection, including display-only follow-up context.
+        return cached.Options.Select(DetachOption).ToArray();
+    }
+
+    private LifeModuleLegalOptionDto[] ProjectOptions(string? stage, HashSet<string>? enabledSourceSet)
+    {
+        IReadOnlyDictionary<string, LifeModuleStageDto> stagesByName = GetStages()
+            .ToDictionary(item => item.Name, StringComparer.Ordinal);
         IEnumerable<XElement> modules = _snapshot.Value.Document.Root!
             .Element("modules")!
             .Elements("module");
@@ -135,6 +164,46 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
             .ThenBy(module => module.ModuleId, StringComparer.Ordinal)
             .ToArray();
     }
+
+    private static LifeModuleLegalOptionDto DetachOption(LifeModuleLegalOptionDto option) => option with
+    {
+        Requirements = option.Requirements.Select(DetachRequirement).ToArray(),
+        Versions = option.Versions.Select(version => version with
+        {
+            Requirements = version.Requirements.Select(DetachRequirement).ToArray(),
+            Effects = version.Effects.Select(DetachEffect).ToArray(),
+            FollowUps = version.FollowUps.Select(DetachFollowUp).ToArray(),
+            SourceAnchorIds = version.SourceAnchorIds.ToArray(),
+            AuthorityBlockers = version.AuthorityBlockers.ToArray()
+        }).ToArray(),
+        Effects = option.Effects.Select(DetachEffect).ToArray(),
+        FollowUps = option.FollowUps.Select(DetachFollowUp).ToArray(),
+        SourceAnchorIds = option.SourceAnchorIds.ToArray(),
+        AuthorityBlockers = option.AuthorityBlockers.ToArray()
+    };
+
+    private static LifeModuleRequirementProjectionDto DetachRequirement(LifeModuleRequirementProjectionDto requirement)
+        => requirement with
+        {
+            DisableReasonArguments = new Dictionary<string, string>(requirement.DisableReasonArguments, StringComparer.Ordinal),
+            SourceAnchorIds = requirement.SourceAnchorIds.ToArray(),
+            AcceptedValues = requirement.AcceptedValues.ToArray()
+        };
+
+    private static LifeModuleEffectProjectionDto DetachEffect(LifeModuleEffectProjectionDto effect) => effect with
+    {
+        SourceAnchorIds = effect.SourceAnchorIds.ToArray(),
+        Parameters = new Dictionary<string, string>(effect.Parameters, StringComparer.OrdinalIgnoreCase)
+    };
+
+    private static LifeModuleFollowUpPromptDto DetachFollowUp(LifeModuleFollowUpPromptDto prompt) => prompt with
+    {
+        Options = prompt.Options.Select(option => option with
+        {
+            DisableReasonArguments = new Dictionary<string, string>(option.DisableReasonArguments, StringComparer.Ordinal)
+        }).ToArray(),
+        SourceAnchorIds = prompt.SourceAnchorIds.ToArray()
+    };
 
     private static LifeModuleLegalOptionDto ProjectModule(
         XElement module,
