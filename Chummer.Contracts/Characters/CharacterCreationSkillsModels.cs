@@ -71,26 +71,50 @@ public static class CharacterCreationStandardPrioritySkillsRules
         bool requiresGroundMovement = false,
         bool requiresSwimMovement = false,
         bool requiresFlyMovement = false,
-        bool canBeNativeLanguage = false) => CharacterCreationSkillsDigest.Compute(new
+        bool canBeNativeLanguage = false)
+    {
+        // Retain the original collection snapshots and ordinal canonical wire
+        // format. Revalidate every row; do not cache mutable caller inputs.
+        CharacterCreationSkillSpecializationOption[] options = specializations.ToArray();
+        string[] anchors = sourceAnchorIds.ToArray();
+        return CharacterCreationSkillsDigest.ComputeDirect(writer =>
         {
-            Schema = CharacterCreationSkillsSchemas.CatalogProjectionV2,
-            EffectiveSkillsInputsDigest = effectiveSkillsInputsDigest,
-            SourceSkillId = sourceSkillId,
-            Kind = kind,
-            Name = name,
-            Category = category,
-            DefaultAttribute = defaultAttribute,
-            SkillGroup = skillGroup,
-            IsExotic = isExotic,
-            CanDefault = canDefault,
-            IgnoresSourceDisabled = ignoresSourceDisabled,
-            RequiresGroundMovement = requiresGroundMovement,
-            RequiresSwimMovement = requiresSwimMovement,
-            RequiresFlyMovement = requiresFlyMovement,
-            CanBeNativeLanguage = canBeNativeLanguage,
-            Specializations = specializations.ToArray(),
-            SourceAnchorIds = sourceAnchorIds.ToArray()
+            writer.WriteStartObject();
+            writer.WriteBoolean("CanBeNativeLanguage", canBeNativeLanguage);
+            writer.WriteBoolean("CanDefault", canDefault);
+            writer.WriteString("Category", category);
+            writer.WriteString("DefaultAttribute", defaultAttribute);
+            writer.WriteString("EffectiveSkillsInputsDigest", effectiveSkillsInputsDigest);
+            writer.WriteBoolean("IgnoresSourceDisabled", ignoresSourceDisabled);
+            writer.WriteBoolean("IsExotic", isExotic);
+            writer.WriteString("Kind", kind);
+            writer.WriteString("Name", name);
+            writer.WriteBoolean("RequiresFlyMovement", requiresFlyMovement);
+            writer.WriteBoolean("RequiresGroundMovement", requiresGroundMovement);
+            writer.WriteBoolean("RequiresSwimMovement", requiresSwimMovement);
+            writer.WriteString("Schema", CharacterCreationSkillsSchemas.CatalogProjectionV2);
+            writer.WriteString("SkillGroup", skillGroup);
+            writer.WriteStartArray("SourceAnchorIds");
+            foreach (string? anchor in anchors) writer.WriteStringValue(anchor);
+            writer.WriteEndArray();
+            writer.WriteString("SourceSkillId", sourceSkillId);
+            writer.WriteStartArray("Specializations");
+            foreach (CharacterCreationSkillSpecializationOption? option in options)
+            {
+                if (option is null) writer.WriteNullValue();
+                else
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("Name", option.Name);
+                    writer.WriteString("OptionId", option.OptionId);
+                    writer.WriteString("SourceAnchorId", option.SourceAnchorId);
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
         });
+    }
 
     public static bool TryGetBudget(string? rank, out int activePoints, out int groupPoints)
     {
@@ -487,6 +511,57 @@ public sealed record CharacterCreationSkillsReceipt(
 public static class CharacterCreationSkillsDigest
 {
     private const string Prefix = "sha256:";
+
+    // Known schemas can emit their canonical fields without a JSON DOM or
+    // per-property sorting. Generic Compute remains the compatibility oracle.
+    internal static string ComputeDirect(Action<Utf8JsonWriter> write)
+    {
+        using var buffer = new DirectHashBufferWriter();
+        using (Utf8JsonWriter writer = new(buffer)) write(writer);
+        return Prefix + buffer.GetDigest();
+    }
+
+    private sealed class DirectHashBufferWriter : IBufferWriter<byte>, IDisposable
+    {
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private byte[] _buffer = ArrayPool<byte>.Shared.Rent(4096);
+
+        public void Advance(int count)
+        {
+            if ((uint)count > (uint)_buffer.Length)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            _hash.AppendData(_buffer.AsSpan(0, count));
+        }
+
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        public Span<byte> GetSpan(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        private void EnsureCapacity(int sizeHint)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(sizeHint);
+            if (sizeHint <= _buffer.Length) return;
+            byte[] replacement = ArrayPool<byte>.Shared.Rent(sizeHint);
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            _buffer = replacement;
+        }
+
+        public string GetDigest() => Convert.ToHexStringLower(_hash.GetHashAndReset());
+
+        public void Dispose()
+        {
+            _hash.Dispose();
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+        }
+    }
 
     public static string ReceiptLedgerRootDigest { get; } =
         ComputeUtf8("chummer.character_creation_skills_receipt_ledger.root.v1");
