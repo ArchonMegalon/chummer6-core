@@ -260,10 +260,10 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
                 writer.WriteEndArray();
                 break;
             case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
             case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
+                // Preserve the writer's escaping and the original numeric token
+                // without allocating GetString/GetRawText UTF-16 copies.
+                element.WriteTo(writer);
                 break;
             case JsonValueKind.True:
                 writer.WriteBooleanValue(true);
