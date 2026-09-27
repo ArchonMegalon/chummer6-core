@@ -146,7 +146,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
     }
 
     private static ModuleCandidate[] BuildModuleCandidates(CharacterCreationFoundationService foundation,
-        WorkspaceStoredDocument workspace, CharacterCreationLifeModuleJourneyState state)
+        WorkspaceStoredDocument workspace, CharacterCreationLifeModuleJourneyState state,
+        bool includeBudgetExcluded = false)
     {
         var result = new List<ModuleCandidate>();
         foreach (var module in state.Options)
@@ -166,15 +167,18 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 // missing answers are deferred; every other rule blocker stays
                 // closed and actual confirmation always revalidates the inputs.
                 if (projected.Value is not { } preview || projected.Blockers.Any(blocker =>
-                        blocker != CharacterCreationFoundationBlockers.LifeModuleFollowUpRequired))
+                        blocker != CharacterCreationFoundationBlockers.LifeModuleFollowUpRequired
+                        && !(includeBudgetExcluded && blocker == CharacterCreationFoundationBlockers.LifeModuleBudgetExceeded)))
                     continue;
+                bool budgetExcluded = projected.Blockers.Contains(CharacterCreationFoundationBlockers.LifeModuleBudgetExceeded);
                 var entry = preview.Entry;
                 var mechanics = ModuleMechanics(preview) with
                 { PendingFollowUpIds = prompts.Where(prompt => prompt.IsRequired).Select(prompt => prompt.PromptId).ToArray() };
                 var choice = new LifeModuleDecisionAuthorityChoice(ModuleChoiceId(preview),
                     version is null ? module.Name : $"{module.Name} · {version.Label}",
                     version?.Source ?? module.Source, version?.PageReference ?? module.PageReference,
-                    ModuleCommandDigest(preview), mechanics, entry.SourceAnchorIds, [], true)
+                    ModuleCommandDigest(preview), mechanics, entry.SourceAnchorIds,
+                    budgetExcluded ? [CharacterCreationFoundationBlockers.LifeModuleBudgetExceeded] : [], !budgetExcluded)
                 { FollowUps = prompts.Length == 0 ? null : prompts };
                 result.Add(new(preview, choice));
             }
