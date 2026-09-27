@@ -425,8 +425,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             // the file. The private captured bytes are already retained, so
             // compare every byte directly rather than rehashing the whole input
             // on each admission. Public authority digests remain unchanged.
+            // This loop already owns the pooled buffer. Disable FileStream's
+            // second buffer, including for the final one-byte EOF probe.
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
+                FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
             byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
             long total = 0;
             _validationReadCount++;
