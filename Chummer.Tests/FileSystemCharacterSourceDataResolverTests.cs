@@ -36,6 +36,41 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         + "<buildmethod>LifeModule</buildmethod><created>False</created><ruleset>sr5</ruleset></character>";
 
     [TestMethod]
+    public void Source_byte_revalidation_uses_only_its_owned_read_buffer()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "source-input.bin");
+            byte[] expected = Enumerable.Range(0, 1024).Select(index => (byte)(index % 251)).ToArray();
+            File.WriteAllBytes(path, expected);
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic;
+            var type = typeof(FileSystemCharacterSourceDataResolver).GetNestedType("SourceInputSnapshot", flags)!;
+            object snapshot = Activator.CreateInstance(type, [null, false])!;
+            var read = type.GetMethod("ReadValidationBytes", flags | System.Reflection.BindingFlags.Instance)!
+                .CreateDelegate<Func<string, byte[], bool>>(snapshot);
+            for (int i = 0; i < 8; i++) Assert.IsTrue(read(path, expected));
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 256; i++) Assert.IsTrue(read(path, expected));
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Console.WriteLine($"Source revalidation warm allocation: {allocated:N0} bytes for 256 reads.");
+            Assert.IsTrue(allocated < 256 * 2048,
+                $"Validation allocated {allocated:N0} bytes despite owning a pooled read buffer.");
+            var diagnostics = (FileSystemCharacterSourceDataResolver.SourceInputSnapshotDiagnostics)
+                type.GetMethod("Diagnostics")!.Invoke(snapshot, null)!;
+            Assert.AreEqual(264, diagnostics.ValidationReadCount);
+            Assert.AreEqual(264L * expected.Length, diagnostics.ValidationBytesRead);
+            Assert.IsFalse(read(path, expected[..^1]), "A trailing byte must still be rejected.");
+            Assert.IsFalse(read(path, [.. expected, 0]), "Truncation must still be rejected.");
+            byte[] changed = expected.ToArray();
+            changed[^1] ^= 1;
+            Assert.IsFalse(read(path, changed), "A same-length final-byte change must still be rejected.");
+            Assert.IsTrue(read(path, expected));
+        }
+        finally { DeleteTempDirectory(directory); }
+    }
+
+    [TestMethod]
     public void Source_target_enumeration_transfers_detached_rows_without_a_second_catalog_copy()
     {
         string root = FindCoreRoot();
