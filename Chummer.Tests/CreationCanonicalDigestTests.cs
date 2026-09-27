@@ -147,6 +147,68 @@ public sealed class CreationCanonicalDigestTests
         Assert.AreEqual(expected, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
     }
 
+    [TestMethod]
+    public void Gear_direct_digests_preserve_canonical_bytes_across_large_values_and_reused_buffers()
+    {
+        foreach (int length in new[] { 0, 15, 4096, 65536, 300000, 1 })
+        {
+            string xml = new string('x', length) + "Zoë 東京 😀 e\u0301 é <>&\"\\\r\n\t";
+            var option = GearDigestOption(xml);
+            Assert.AreEqual(CharacterCreationGearRules.Compute(new
+                { Schema = "chummer.sr5.creation-gear.source-node.v1", Xml = xml }),
+                CharacterCreationGearRules.ComputeSourceNodeDigest(xml));
+            Assert.AreEqual(CharacterCreationGearRules.Compute(option with { OptionDigest = string.Empty }),
+                CharacterCreationGearRules.ComputeOptionDigest(option));
+            var authority = GearDigestAuthority([option, null!]);
+            string expected = CharacterCreationGearRules.Compute(authority with { AuthorityDigest = string.Empty });
+            Assert.AreEqual(expected, CharacterCreationGearRules.ComputeAuthorityDigest(authority));
+            Parallel.For(0, 4, _ => Assert.AreEqual(expected,
+                CharacterCreationGearRules.ComputeAuthorityDigest(authority)));
+        }
+    }
+
+    [TestMethod]
+    public void Auxiliary_digest_reuses_output_buffer_for_large_single_values()
+    {
+        var state = State(1);
+        var values = (Dictionary<string, string>)state.CharacterCreationFoundationDraft!.FollowUpValues;
+        values["long"] = new string('x', 300_000) + "é😀";
+        string expected = LegacyDigest(state);
+        Assert.AreEqual(expected, WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        long allocated = Allocations(() => WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        Console.WriteLine($"Auxiliary digest warm allocation: {allocated:N0} bytes.");
+        Assert.IsTrue(allocated < 1_000_000, $"Auxiliary digest allocated {allocated:N0} bytes after warmup.");
+        Parallel.For(0, 4, _ => Assert.AreEqual(expected, WorkspaceDocumentAuxiliaryStateDigest.Compute(state)));
+        values["long"] += "changed";
+        Assert.AreNotEqual(expected, WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+        Assert.AreEqual(LegacyDigest(state), WorkspaceDocumentAuxiliaryStateDigest.Compute(state));
+    }
+
+    [TestMethod]
+    public void Gear_catalog_digest_does_not_allocate_a_complete_output_copy_or_cache_mutable_inputs()
+    {
+        var options = Enumerable.Repeat(GearDigestOption(new string('x', 16384)), 128).ToArray();
+        var authority = GearDigestAuthority(options);
+        string expected = CharacterCreationGearRules.Compute(authority with { AuthorityDigest = string.Empty });
+        Assert.AreEqual(expected, CharacterCreationGearRules.ComputeAuthorityDigest(authority));
+        long bytes = Allocations(() => CharacterCreationGearRules.ComputeAuthorityDigest(authority));
+        Console.WriteLine($"Gear catalog digest warm allocation: {bytes:N0} bytes.");
+        Assert.IsTrue(bytes < 256_000, $"Gear catalog digest allocated {bytes:N0} bytes after warmup.");
+        options[0] = options[0] with { Name = "Changed after the first digest" };
+        Assert.AreNotEqual(expected, CharacterCreationGearRules.ComputeAuthorityDigest(authority));
+        Assert.AreEqual(CharacterCreationGearRules.Compute(authority with { AuthorityDigest = string.Empty }),
+            CharacterCreationGearRules.ComputeAuthorityDigest(authority));
+    }
+
+    private static CharacterCreationGearCatalogOption GearDigestOption(string xml) => new(
+        "digest-gear", Guid.Parse("aaaaaaaa-1111-4111-8111-111111111111"), "Zoë 東京", "Gear", 12.50m, 3, 2,
+        CharacterCreationGearLegality.Restricted, "SR5", "123", true, true, true, [], ["source-b", "source-a"],
+        xml, "sha256:" + new string('a', 64), "sha256:" + new string('b', 64));
+
+    private static CharacterCreationGearAuthority GearDigestAuthority(CharacterCreationGearCatalogOption[] options) => new(
+        CharacterCreationGearSchemas.AuthorityV1, "sr5", "settings", 12, 4096, 1000000, options,
+        ["source-z", "source-a"], [], true, "source", "profile", "rules", "runtime", "old-authority-digest");
+
     private static WorkspaceDocumentAuxiliaryState State(int count)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
