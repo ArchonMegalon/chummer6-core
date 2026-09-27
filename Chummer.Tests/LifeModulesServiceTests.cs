@@ -16,6 +16,145 @@ namespace Chummer.Tests;
 public class LifeModulesServiceTests
 {
     [TestMethod]
+    public void GetOptionProjections_reuses_projection_work_without_reusing_caller_state()
+    {
+        string path = FindCanonicalLifeModulesPath();
+        var service = new XmlLifeModulesCatalogService(path);
+        string expected = JsonSerializer.Serialize(service.GetOptionProjections(enabledSources: ["RF"]));
+        var cold = new XmlLifeModulesCatalogService(path);
+        _ = cold.GetAuthority(); // Exclude file loading/XML parsing from the comparison.
+        long beforeCold = GC.GetAllocatedBytesForCurrentThread();
+        _ = cold.GetOptionProjections(enabledSources: ["RF"]);
+        long coldBytes = GC.GetAllocatedBytesForCurrentThread() - beforeCold;
+        const int repetitions = 10;
+        long beforeWarm = GC.GetAllocatedBytesForCurrentThread();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < repetitions; i++)
+            _ = service.GetOptionProjections(enabledSources: ["RF"]);
+        timer.Stop();
+        long warmBytes = (GC.GetAllocatedBytesForCurrentThread() - beforeWarm) / repetitions;
+        Console.WriteLine($"Life module projections: cold={coldBytes} bytes, warm={warmBytes} bytes/call; warm={timer.Elapsed.TotalMilliseconds / repetitions:F2} ms/call.");
+        Assert.IsTrue(warmBytes < coldBytes / 2,
+            $"Repeated projection should allocate less than half of a cold projection: cold={coldBytes}, warm={warmBytes}.");
+        Assert.AreEqual(expected, JsonSerializer.Serialize(service.GetOptionProjections(enabledSources: ["RF"])));
+    }
+
+    [TestMethod]
+    public void GetOptionProjections_warm_snapshot_detaches_every_nested_collection_and_keeps_display_context()
+    {
+        (string root, string xmlPath) = CreateProjectionLifeModulesXml();
+        try
+        {
+            var service = new XmlLifeModulesCatalogService(xmlPath);
+            var sources = new List<string> { "RF", "SRC" };
+            IReadOnlyList<LifeModuleLegalOptionDto> initial = service.GetOptionProjections(enabledSources: sources);
+            string expected = JsonSerializer.Serialize(initial);
+            PoisonCollections(initial);
+            IReadOnlyList<LifeModuleLegalOptionDto> warm = service.GetOptionProjections(enabledSources: sources);
+            Assert.AreEqual(expected, JsonSerializer.Serialize(warm));
+            Assert.AreEqual("Street · City", warm[0].Versions[1].FollowUps[0].DisplayLabel);
+            Assert.AreEqual("LOG", warm[0].Effects[0].Parameters["NAME"], "Preserve the parameter comparer.");
+            PoisonCollections(warm);
+            // The caller's list must not become the cache's identity.
+            sources.Clear();
+            Assert.IsEmpty(service.GetOptionProjections(enabledSources: sources));
+            Assert.AreEqual(expected, JsonSerializer.Serialize(service.GetOptionProjections(enabledSources: ["RF", "SRC"])));
+            Assert.AreEqual(expected, JsonSerializer.Serialize(service.GetOptionProjections(enabledSources: ["src", " RF ", "RF", ""])));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void GetOptionProjections_cache_keeps_stage_and_source_filter_semantics_and_original_version_indices()
+    {
+        (string root, string xmlPath) = CreateProjectionLifeModulesXml();
+        try
+        {
+            XDocument document = XDocument.Load(xmlPath);
+            XElement module = document.Root!.Element("modules")!.Elements("module").First();
+            module.Element("versions")!.Elements("version").Last().Element("id")!.Remove();
+            // Keeping only the restricted version must change module authority.
+            module.Element("versions")!.Elements("version").First().Element("source")!.Value = "RF";
+            module.Element("versions")!.Elements("version").Last().Add(new XElement("source", "SRC"));
+            document.Save(xmlPath);
+            var service = new XmlLifeModulesCatalogService(xmlPath);
+            var queries = new (string? Stage, string[]? Sources)[]
+            {
+                (null, null), (null, []), ("Nationality", ["RF", "SRC"]),
+                (" Nationality ", ["RF"]), ("nationality", ["RF"]),
+                ("Teen Years", ["RF"]), (null, ["SRC"]), (null, ["OTHER"]), (" ", null)
+            };
+            foreach (var query in queries)
+            {
+                string expected = JsonSerializer.Serialize(new XmlLifeModulesCatalogService(xmlPath)
+                    .GetOptionProjections(query.Stage, query.Sources));
+                for (int repeat = 0; repeat < 2; repeat++)
+                    Assert.AreEqual(expected, JsonSerializer.Serialize(service.GetOptionProjections(query.Stage, query.Sources)));
+            }
+            LifeModuleLegalOptionDto filtered = AssertExactlyOne(service.GetOptionProjections("Nationality", ["RF"]));
+            Assert.IsFalse(filtered.IsEnabled);
+            Assert.HasCount(1, filtered.Versions);
+            CollectionAssert.Contains(filtered.AuthorityBlockers.ToArray(), XmlLifeModulesCatalogService.CharacterEligibilityAuthorityRequired);
+            LifeModuleLegalOptionDto both = AssertExactlyOne(service.GetOptionProjections("Nationality", ["RF", "SRC"]));
+            Assert.AreEqual(both.ModuleId + ":version:2", both.Versions[1].VersionId);
+            Assert.IsFalse(both.Versions[1].IsEnabled, "A missing version identity remains blocked.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void GetOptionProjections_snapshot_is_instance_local_and_safe_under_concurrent_queries()
+    {
+        (string root, string xmlPath) = CreateProjectionLifeModulesXml();
+        try
+        {
+            var service = new XmlLifeModulesCatalogService(xmlPath);
+            string[]?[] filters = [null, [], ["RF"], ["RF", "SRC"], ["OTHER"]];
+            string[] expected = filters.Select(filter => JsonSerializer.Serialize(service.GetOptionProjections(enabledSources: filter))).ToArray();
+            var authority = service.GetAuthority();
+            System.Threading.Tasks.Parallel.For(0, 30, index =>
+            {
+                int query = index % filters.Length;
+                var options = service.GetOptionProjections(enabledSources: filters[query]);
+                Assert.AreEqual(expected[query], JsonSerializer.Serialize(options));
+                PoisonCollections(options);
+            });
+            XDocument replacement = XDocument.Load(xmlPath);
+            replacement.Root!.Element("modules")!.Elements("module").First().Element("name")!.Value = "Changed catalog";
+            replacement.Save(xmlPath);
+            var changed = new XmlLifeModulesCatalogService(xmlPath);
+            Assert.AreNotEqual(authority.RawXmlDigest, changed.GetAuthority().RawXmlDigest);
+            Assert.AreNotEqual(expected[0], JsonSerializer.Serialize(changed.GetOptionProjections()));
+            Assert.AreEqual(expected[0], JsonSerializer.Serialize(service.GetOptionProjections()), "The existing immutable raw snapshot must not mix new source bytes into old authority.");
+            byte[] bytes = service.ReadSourceBytes(authority.RawXmlDigest)!;
+            bytes[0] ^= 0xff;
+            Assert.AreEqual(authority.RawXmlDigest, "sha256:" + Convert.ToHexStringLower(SHA256.HashData(service.ReadSourceBytes(authority.RawXmlDigest)!)));
+            Assert.IsNull(changed.ReadSourceBytes(authority.RawXmlDigest));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static void PoisonCollections(object? value)
+    {
+        if (value is null || value is string || value.GetType().IsValueType) return;
+        if (value is System.Collections.IDictionary dictionary)
+        {
+            dictionary.Clear();
+            dictionary["caller-only"] = "changed";
+        }
+        else if (value is System.Collections.IList list)
+        {
+            foreach (object? child in list) PoisonCollections(child);
+            if (list.Count > 0) list[0] = null;
+        }
+        else
+        {
+            foreach (var property in value.GetType().GetProperties())
+                PoisonCollections(property.GetValue(value));
+        }
+    }
+
+    [TestMethod]
     public void GetAuthority_digest_is_over_exact_raw_lifemodules_xml_bytes()
     {
         (string root, string xmlPath) = CreateTempLifeModulesXml();
