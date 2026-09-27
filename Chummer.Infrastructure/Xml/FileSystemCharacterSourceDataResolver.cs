@@ -1809,11 +1809,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
         private readonly object _completionProjectionSync = new();
         private CharacterCreationFoundationEffectSources? _foundationEffectSourcesSnapshot;
-        private JsonElement? _creationSkillsCatalogSnapshot;
+        private CharacterCreationSkillsCatalog? _creationSkillsCatalogSnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
         private CharacterCreationGearAuthority? _creationGearAuthoritySnapshot;
         private JsonElement? _creationLifestylesAuthoritySnapshot;
-        private JsonElement? _lifeModuleMagicCatalogSnapshot;
+        private CharacterCreationLifeModuleMagicCatalog? _lifeModuleMagicCatalogSnapshot;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
@@ -2461,11 +2461,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             // The source scope validates all previously captured inputs, including
             // settings, custom overlays, talents and every magic catalog. Only the
             // immutable-context projection is reusable, never a purchase or quote.
-            JsonElement? cached;
+            CharacterCreationLifeModuleMagicCatalog? cached;
             lock (_completionProjectionSync) { cached = _lifeModuleMagicCatalogSnapshot; }
             if (cached is { } snapshot)
             {
-                var detached = snapshot.Deserialize<CharacterCreationLifeModuleMagicCatalog>();
+                var detached = CopyLifeModuleMagicCatalog(snapshot);
                 if (_sourceInputs.HasSourceDrift) return false;
                 catalog = detached;
                 return catalog is not null;
@@ -2477,12 +2477,47 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 anchors.Concat(talents.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
             result = result with { AuthorityDigest = CharacterCreationLifeModuleMagicRules.ComputeCatalogDigest(result) };
             if (_sourceInputs.HasSourceDrift) return false;
-            var frozen = JsonSerializer.SerializeToElement(result);
+            var frozen = CopyLifeModuleMagicCatalog(result);
             lock (_completionProjectionSync) { _lifeModuleMagicCatalogSnapshot = frozen; }
             if (_sourceInputs.HasSourceDrift) return false;
             catalog = result;
             return true;
         }
+
+        private static CharacterCreationLifeModuleMagicCatalog CopyLifeModuleMagicCatalog(
+            CharacterCreationLifeModuleMagicCatalog source) => source with
+        {
+            // Retain immutable strings; detach every mutable container both when
+            // storing the private snapshot and when returning a projection.
+            Policy = source.Policy with
+            {
+                SourceAnchorIds = source.Policy.SourceAnchorIds.ToArray(),
+                PowerPointPolicy = source.Policy.PowerPointPolicy with
+                {
+                    SourceAnchorIds = source.Policy.PowerPointPolicy.SourceAnchorIds.ToArray()
+                }
+            },
+            Talents = source.Talents with
+            {
+                Options = source.Talents.Options.Select(option => option with
+                {
+                    SourceAnchorIds = option.SourceAnchorIds.ToArray(),
+                    Blockers = option.Blockers.ToArray()
+                }).ToArray(),
+                SkillUnlockChoices = source.Talents.SkillUnlockChoices.ToDictionary(
+                    pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
+                SourceAnchorIds = source.Talents.SourceAnchorIds.ToArray()
+            },
+            Catalogs = source.Catalogs.Select(slice => slice with
+            {
+                Options = slice.Options.Select(option => option with
+                {
+                    SourceAnchorIds = option.SourceAnchorIds.ToArray(),
+                    Blockers = option.Blockers.ToArray()
+                }).ToArray()
+            }).ToArray(),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray()
+        };
 
         private bool TryResolveMagicPurchaseInputs(out CharacterCreationKarmaMagicPolicy? policy, out string customDigest,
             out IReadOnlyList<CharacterCreationKarmaMagicCatalogSlice> catalogs, out IReadOnlyList<string> anchors)
@@ -3665,12 +3700,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             // Enter has revalidated bytes, file identities and directory membership.
             // Reuse only this context's successful projection, never an admitted
-            // purchase or a caller-owned DTO. JSON freezes every nested collection.
-            JsonElement? cached;
+            // purchase or a caller-owned DTO. The private copy owns every nested
+            // collection; cache hits do not reparse the complete catalog JSON.
+            CharacterCreationSkillsCatalog? cached;
             lock (_completionProjectionSync) { cached = _creationSkillsCatalogSnapshot; }
             if (cached is { } snapshot)
             {
-                var detached = snapshot.Deserialize<CharacterCreationSkillsCatalog>();
+                var detached = CopySkillsCatalog(snapshot);
                 if (_sourceInputs.HasSourceDrift) return false;
                 catalog = detached;
                 return catalog is not null;
@@ -3694,13 +3730,36 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             result = result with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(result) };
             if (blockers.Count != 0 || _sourceInputs.HasSourceDrift
                 || !CharacterCreationSkillsCatalogAuthority.IsValid(result)) return false;
-            var frozen = JsonSerializer.SerializeToElement(result);
+            var frozen = CopySkillsCatalog(result);
             // No IO, source-snapshot lock, or callback under the projection lock.
             // Concurrent cold calls may build equivalent private snapshots.
             lock (_completionProjectionSync) { _creationSkillsCatalogSnapshot = frozen; }
             if (_sourceInputs.HasSourceDrift) return false;
             catalog = result;
             return true;
+        }
+
+        private static CharacterCreationSkillsCatalog CopySkillsCatalog(CharacterCreationSkillsCatalog source)
+        {
+            static CharacterCreationSkillCatalogEntry CopySkill(CharacterCreationSkillCatalogEntry skill) => skill with
+            {
+                // Specialization records contain strings only and are immutable;
+                // their list, the skill rows and all anchor/member lists are not.
+                Specializations = skill.Specializations.ToArray(),
+                SourceAnchorIds = skill.SourceAnchorIds.ToArray()
+            };
+            return source with
+            {
+                ActiveSkills = source.ActiveSkills.Select(CopySkill).ToArray(),
+                KnowledgeSkills = source.KnowledgeSkills.Select(CopySkill).ToArray(),
+                SkillGroups = source.SkillGroups.Select(group => group with
+                {
+                    MemberSkillSourceIds = group.MemberSkillSourceIds.ToArray(),
+                    SourceAnchorIds = group.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+                ActiveSkillSourceOrder = source.ActiveSkillSourceOrder.ToArray()
+            };
         }
 
         private CharacterCreationSkillGroupCatalogEntry[] ProjectSkillGroups(

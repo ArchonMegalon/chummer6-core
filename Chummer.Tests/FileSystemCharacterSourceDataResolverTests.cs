@@ -391,6 +391,89 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow("skills")]
+    [DataRow("life-magic")]
+    public void Creation_completion_catalog_cache_retains_text_but_detaches_nested_collections(string kind)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        object first = ReadCompletionProjection(context, kind);
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        object second = ReadCompletionProjection(context, kind);
+        Console.WriteLine($"catalog-detached {kind}: warm-bytes={GC.GetAllocatedBytesForCurrentThread() - before}");
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+        Assert.AreNotSame(first, second);
+
+        static void Detached<T>(IReadOnlyList<T> left, IReadOnlyList<T> right)
+        {
+            Assert.AreEqual(left.Count, right.Count);
+            if (left.Count > 0) Assert.AreNotSame(left, right);
+        }
+        if (first is CharacterCreationSkillsCatalog skills)
+        {
+            var copy = (CharacterCreationSkillsCatalog)second;
+            Detached(skills.SourceAnchorIds, copy.SourceAnchorIds);
+            Detached(skills.ActiveSkillSourceOrder, copy.ActiveSkillSourceOrder);
+            Detached(skills.ActiveSkills, copy.ActiveSkills);
+            Detached(skills.KnowledgeSkills, copy.KnowledgeSkills);
+            Detached(skills.SkillGroups, copy.SkillGroups);
+            foreach (var (row, other) in skills.ActiveSkills.Concat(skills.KnowledgeSkills)
+                .Zip(copy.ActiveSkills.Concat(copy.KnowledgeSkills)))
+            {
+                Detached(row.SourceAnchorIds, other.SourceAnchorIds);
+                Detached(row.Specializations, other.Specializations);
+                Assert.AreSame(row.Name, other.Name, "Immutable catalog text must not be reparsed on reuse.");
+            }
+            foreach (var (row, other) in skills.SkillGroups.Zip(copy.SkillGroups))
+            {
+                Detached(row.SourceAnchorIds, other.SourceAnchorIds);
+                Detached(row.MemberSkillSourceIds, other.MemberSkillSourceIds);
+            }
+        }
+        else
+        {
+            var magic = (CharacterCreationLifeModuleMagicCatalog)first;
+            var copy = (CharacterCreationLifeModuleMagicCatalog)second;
+            Detached(magic.SourceAnchorIds, copy.SourceAnchorIds);
+            Detached(magic.Policy.SourceAnchorIds, copy.Policy.SourceAnchorIds);
+            Detached(magic.Policy.PowerPointPolicy.SourceAnchorIds, copy.Policy.PowerPointPolicy.SourceAnchorIds);
+            Detached(magic.Talents.SourceAnchorIds, copy.Talents.SourceAnchorIds);
+            Detached(magic.Talents.Options, copy.Talents.Options);
+            Assert.AreNotSame(magic.Talents.SkillUnlockChoices, copy.Talents.SkillUnlockChoices);
+            foreach (var pair in magic.Talents.SkillUnlockChoices)
+                Detached(pair.Value, copy.Talents.SkillUnlockChoices[pair.Key]);
+            Assert.AreSame(magic.Policy.CanonicalSourceXml, copy.Policy.CanonicalSourceXml);
+            Assert.AreSame(magic.Policy.PowerPointPolicy.CanonicalSourceXml, copy.Policy.PowerPointPolicy.CanonicalSourceXml);
+            foreach (var (row, other) in magic.Talents.Options.Zip(copy.Talents.Options))
+            {
+                Detached(row.SourceAnchorIds, other.SourceAnchorIds);
+                Detached(row.Blockers, other.Blockers);
+                Assert.AreSame(row.SourceNodeXml, other.SourceNodeXml);
+            }
+            Detached(magic.Catalogs, copy.Catalogs);
+            foreach (var (slice, otherSlice) in magic.Catalogs.Zip(copy.Catalogs))
+            {
+                Detached(slice.Options, otherSlice.Options);
+                foreach (var (row, other) in slice.Options.Zip(otherSlice.Options))
+                {
+                    Detached(row.SourceAnchorIds, other.SourceAnchorIds);
+                    Detached(row.Blockers, other.Blockers);
+                    Assert.AreSame(row.CanonicalSourceXml, other.CanonicalSourceXml);
+                }
+            }
+        }
+        Assert.IsTrue(PoisonCompletionProjection(first));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(PoisonCompletionProjection(second));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)));
+    }
+
+    [TestMethod]
     public void Creation_gear_cache_reuses_immutable_xml_but_detaches_every_collection()
     {
         string root = FindCoreRoot();
@@ -553,12 +636,31 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 changed = true;
             }
         }
+        void ReplaceFirst<T>(IReadOnlyList<T> values, Func<T, T> replace)
+        {
+            if (values is System.Collections.IList { IsReadOnly: false, Count: > 0 } list)
+            {
+                list[0] = replace(values[0]);
+                changed = true;
+            }
+        }
         if (projection is CharacterCreationSkillsCatalog catalog)
         {
             Poison(catalog.SourceAnchorIds);
-            Poison(catalog.ActiveSkills[0].SourceAnchorIds);
-            Poison(catalog.SkillGroups[0].MemberSkillSourceIds);
             Poison(catalog.ActiveSkillSourceOrder);
+            foreach (var row in catalog.ActiveSkills.Concat(catalog.KnowledgeSkills))
+            {
+                Poison(row.SourceAnchorIds);
+                ReplaceFirst(row.Specializations, option => option with { Name = "caller-poison" });
+            }
+            foreach (var group in catalog.SkillGroups)
+            {
+                Poison(group.MemberSkillSourceIds);
+                Poison(group.SourceAnchorIds);
+            }
+            ReplaceFirst(catalog.ActiveSkills, row => row with { Name = "caller-poison" });
+            ReplaceFirst(catalog.KnowledgeSkills, row => row with { Name = "caller-poison" });
+            ReplaceFirst(catalog.SkillGroups, row => row with { Name = "caller-poison" });
         }
         else if (projection is CharacterCreationGearAuthority gear)
         {
@@ -597,9 +699,30 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             Poison(magic.SourceAnchorIds);
             Poison(magic.Policy.SourceAnchorIds);
+            Poison(magic.Policy.PowerPointPolicy.SourceAnchorIds);
             Poison(magic.Talents.SourceAnchorIds);
-            Poison(magic.Talents.SkillUnlockChoices.Values.First(values => values.Count > 0));
-            Poison(magic.Catalogs.SelectMany(slice => slice.Options).First().SourceAnchorIds);
+            foreach (var values in magic.Talents.SkillUnlockChoices.Values) Poison(values);
+            if (magic.Talents.SkillUnlockChoices is System.Collections.IDictionary { IsReadOnly: false } choices)
+            {
+                choices[magic.Talents.SkillUnlockChoices.Keys.First()] = new[] { "caller-poison" };
+                changed = true;
+            }
+            foreach (var row in magic.Talents.Options)
+            {
+                Poison(row.SourceAnchorIds);
+                Poison(row.Blockers);
+            }
+            ReplaceFirst(magic.Talents.Options, row => row with { KarmaCost = -1 });
+            foreach (var slice in magic.Catalogs)
+            {
+                foreach (var row in slice.Options)
+                {
+                    Poison(row.SourceAnchorIds);
+                    Poison(row.Blockers);
+                }
+                ReplaceFirst(slice.Options, row => row with { CanonicalSourceXml = "caller-poison" });
+            }
+            ReplaceFirst(magic.Catalogs, row => row with { Kind = "caller-poison" });
         }
         else
             Poison(((CharacterCreationKarmaQualitiesPolicy)projection).SourceAnchorIds);
