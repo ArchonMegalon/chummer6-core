@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("b19fc03123c43885c39859cdad0c4554ad46b7ff", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20260928.2.shb19fc03123c43", runtime.PACKAGE_VERSION)
+        self.assertEqual("51b42cedf364a84a07fb737c80407ddca7a3074a", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20260928.3.sh51b42cedf364a", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
@@ -224,8 +224,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                 runtime.validate_lock_payload(altered)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
-        self.assertEqual(32, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
-        self.assertEqual(32, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
+        self.assertEqual(35, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+        self.assertEqual(35, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
         for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)

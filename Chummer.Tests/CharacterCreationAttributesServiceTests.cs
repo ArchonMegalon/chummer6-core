@@ -1,7 +1,10 @@
 using System.Xml.Linq;
+using System.Diagnostics.CodeAnalysis;
 using Chummer.Application.Characters;
+using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
@@ -12,6 +15,133 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class CharacterCreationAttributesServiceTests
 {
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Owner_bound_attributes_use_only_the_admitted_partition_and_reject_old_stamps(string method)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"chummer-owner-attributes-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new FileWorkspaceStore(directory);
+            var owners = new AllocationOwners();
+            var ownerA = new OwnerScope("attributes-owner-a");
+            var ownerB = new OwnerScope("attributes-owner-b");
+            owners.Set(ownerA);
+            OwnerContextStamp original = owners.Capture();
+            var id = new CharacterWorkspaceId("scoped-attributes");
+            var document = new WorkspaceDocument(
+                $"<character><name>Scoped</name><buildmethod>{method}</buildmethod><created>false</created><karma>25</karma></character>",
+                RulesetDefaults.Sr5);
+            Assert.IsTrue(store.CreateWorkspaceDocument(ownerA, id, document).Success);
+            Assert.IsTrue(store.CreateWorkspaceDocument(ownerB, id, document).Success);
+            var resolver = new StubSourceResolver(CharacterCreationPrerequisiteServiceTests.CreateAuthority(
+                method, ["A", "B", "C", "D", "E"]));
+            var prerequisites = new OwnerBoundCharacterCreationPrerequisiteService(store, owners, new StubCharacterQueries(), resolver);
+            var prerequisite = prerequisites.Load(original, new(id)).Value!;
+            var ranks = CharacterCreationPrerequisiteServiceTests.Assign("A", "E", "B", "C", "D");
+            var proposed = prerequisites.Preview(original, new(prerequisite.Binding, ranks)
+                { HeritageSelectionId = "human", TalentSelectionId = "mundane" }).Value!;
+            var prerequisiteSaved = prerequisites.Confirm(original, new(proposed.Binding, ranks, proposed.PreviewDigest, true)
+                { HeritageSelectionId = "human", TalentSelectionId = "mundane" });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, prerequisiteSaved.Outcome);
+            var service = new OwnerBoundCharacterCreationAttributesService(store, owners, resolver);
+            Assert.IsFalse(store.Get(id).Success, "No legacy copy may mask a missing owner partition.");
+            WorkspaceStoredDocument before = store.Get(ownerA, id).Value!;
+            WorkspaceStoredDocument other = store.Get(ownerB, id).Value!;
+            var loaded = service.Load(original, new(id));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome);
+            Assert.IsTrue(loaded.Value!.CanEdit);
+            CharacterCreationAttributeAllocation[] allocations = [new("BOD", 1, 0)];
+            var preview = service.Preview(original, new(loaded.Value.Binding, allocations)).Value!;
+            Assert.IsTrue(preview.CanConfirm);
+            var command = new CharacterCreationAttributesConfirmRequest(preview.Binding, allocations, preview.PreviewDigest, true);
+
+            foreach (OwnerContextStamp denied in new[] { default(OwnerContextStamp),
+                         original with { AuthorityInstanceId = "foreign" }, original with { Owner = ownerB } })
+            {
+                Assert.IsNull(service.Load(denied, new(id)).Value);
+                Assert.IsNull(service.Preview(denied, new(preview.Binding, allocations)).Value);
+                Assert.IsNull(service.Confirm(denied, command).Value);
+            }
+            Assert.IsNull(service.Load(original, new(new CharacterWorkspaceId("missing"))).Value);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(original, command with { ExplicitlyConfirmed = false }).Outcome);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(original, command with { PreviewDigest = Digest('f') }).Outcome);
+            owners.Set(ownerB);
+            Assert.IsNull(service.Confirm(original, command).Value);
+            owners.Set(ownerA);
+            Assert.IsNull(service.Load(original, new(id)).Value, "A→B→A must not revive old authority.");
+            Assert.IsNull(service.Confirm(original, command).Value);
+            Assert.AreEqual(before.Document.Content, store.Get(ownerA, id).Value!.Document.Content);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(ownerA, id).Value!.Document.AuxiliaryStateDigest);
+            Assert.AreEqual(before.ContentRevision, store.Get(ownerA, id).Value!.ContentRevision);
+
+            OwnerContextStamp fresh = owners.Capture();
+            var freshState = service.Load(fresh, new(id)).Value!;
+            var freshPreview = service.Preview(fresh, new(freshState.Binding, allocations)).Value!;
+            var confirmed = service.Confirm(fresh, new(freshPreview.Binding, allocations, freshPreview.PreviewDigest, true));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+            var coldStore = new FileWorkspaceStore(directory);
+            var after = coldStore.Get(ownerA, id).Value!;
+            Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+            Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+            Assert.AreEqual(document.Content, after.Document.Content);
+            Assert.AreEqual(before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!.DraftDigest,
+                after.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!.DraftDigest);
+            var reopened = new OwnerBoundCharacterCreationAttributesService(coldStore, owners, resolver).Load(fresh, new(id)).Value!;
+            Assert.AreEqual(2, reopened.Attributes.Single(item => item.AttributeId == "BOD").Current);
+            Assert.IsNotNull(reopened.PendingDraft);
+            Assert.AreEqual(other.Document.Content, coldStore.Get(ownerB, id).Value!.Document.Content);
+            Assert.AreEqual(other.Document.AuxiliaryStateDigest, coldStore.Get(ownerB, id).Value!.Document.AuxiliaryStateDigest);
+            Assert.AreEqual(other.ContentRevision, coldStore.Get(ownerB, id).Value!.ContentRevision);
+            Assert.IsFalse(coldStore.Get(id).Success);
+            Assert.AreEqual(0, owners.ActiveLeases);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    private sealed class AllocationOwners : IOwnerContextLeaseAccessor
+    {
+        private readonly object _gate = new();
+        private OwnerContextStamp _stamp = new(OwnerScope.LocalSingleUser, Guid.NewGuid().ToString("N"), 0);
+        public int ActiveLeases { get; private set; }
+        public OwnerScope Current => Capture().Owner;
+        public OwnerContextStamp Capture() { lock (_gate) return _stamp; }
+        public void Set(OwnerScope owner)
+        {
+            lock (_gate)
+            {
+                Assert.AreEqual(0, ActiveLeases);
+                _stamp = _stamp with { Owner = owner, TransitionRevision = checked(_stamp.TransitionRevision + 1) };
+            }
+        }
+        public bool TryAcquire(OwnerContextStamp expected, [NotNullWhen(true)] out IOwnerContextLease? lease)
+        {
+            Monitor.Enter(_gate);
+            lease = null;
+            if (expected != _stamp || !expected.IsValid || ActiveLeases != 0)
+            { Monitor.Exit(_gate); return false; }
+            ActiveLeases++;
+            lease = new Lease(this, expected);
+            return true;
+        }
+        private sealed class Lease(AllocationOwners owner, OwnerContextStamp stamp) : IOwnerContextLease
+        {
+            private bool _disposed;
+            public OwnerContextStamp Stamp { get { ObjectDisposedException.ThrowIf(_disposed, this); return stamp; } }
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                owner.ActiveLeases--;
+                Monitor.Exit(owner._gate);
+            }
+        }
+    }
+
     [TestMethod]
     public void Preview_projects_exact_normal_special_and_global_karma_budgets()
     {

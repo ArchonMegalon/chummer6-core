@@ -217,6 +217,8 @@ public static class ServiceCollectionExtensions
             OwnerBoundCharacterCreationKarmaMetatypeService>();
         services.AddSingleton<ICharacterCreationAttributesService,
             CharacterCreationAttributesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationAttributesService,
+            OwnerBoundCharacterCreationAttributesService>();
         services.AddSingleton<ICharacterCreationSkillsService,
             CharacterCreationSkillsService>();
         services.AddSingleton<ICharacterCreationQualitiesService,
