@@ -224,8 +224,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                 runtime.validate_lock_payload(altered)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
-        self.assertEqual(32, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
-        self.assertEqual(32, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
+        self.assertEqual(35, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+        self.assertEqual(35, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
         for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
