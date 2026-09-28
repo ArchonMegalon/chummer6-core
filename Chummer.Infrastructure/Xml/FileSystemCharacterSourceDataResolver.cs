@@ -320,6 +320,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
+        public bool TryGetEffectiveTarget(string key, IReadOnlyList<string> containers,
+            string entryName, TargetLocator locator, out XElement? target)
+        {
+            lock (_sync)
+            {
+                if (_effectiveDocuments.TryGetValue(key, out XDocument? document)
+                    && document.Root is { } root)
+                {
+                    // The snapshot stays private. Selecting one setting or rule
+                    // does not require copying every other row in its catalog.
+                    // Copy the selected subtree before returning it, even on
+                    // repeated reads; callers may amend their detached result.
+                    XElement? selected = FindTarget(root, containers, entryName, locator);
+                    target = selected is null ? null : new XElement(selected);
+                    _cacheHits++;
+                    return true;
+                }
+            }
+            target = null;
+            return false;
+        }
+
         public void SetDigest(string key, string digest)
         {
             lock (_sync)
@@ -6461,13 +6483,22 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             target = null;
             ambiguousIdentity = false;
+            TargetLocator locator = TargetLocator.Create(sourceId, name);
+            // Enter/reuse admission still validates the live bytes and source
+            // identities. Only the copy is reduced here. Keep raw-contributor
+            // ambiguity checks and custom amendment processing on their existing
+            // full-document path; neither is replaceable by a selected row.
+            if (!inspectIdentity && _customDirectories.Count == 0
+                && ActiveSourceInputs.Value is { } inputs
+                && inputs.TryGetEffectiveTarget(CreateSourceCacheKey("effective-document", fileName),
+                    containerNames, entryName, locator, out target))
+                return true;
             if (!TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
                 || document?.Root is null)
             {
                 return false;
             }
 
-            TargetLocator locator = TargetLocator.Create(sourceId, name);
             if (inspectIdentity)
             {
                 if (!TryHasAmbiguousRawTargetContributor(

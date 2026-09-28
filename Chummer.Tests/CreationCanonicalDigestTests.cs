@@ -12,6 +12,162 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Foundation_equality_preserves_canonical_keys_duplicates_arrays_and_numeric_tokens()
+    {
+        (string Left, string Right, bool Equal)[] cases =
+        [
+            ("null", "null", true),
+            ("null", "{}", false),
+            ("""{"z":2,"a":{"y":null,"x":[true,false,"é😀"]}}""",
+             """{"a":{"x":[true,false,"\u00e9\ud83d\ude00"],"y":null},"z":2}""", true),
+            ("""{"z":0,"a":1,"a":2}""", """{"a":1,"z":0,"a":2}""", true),
+            ("""{"a":1,"a":2}""", """{"a":2,"a":1}""", false),
+            ("""{"é":1,"\u00e9":2}""", """{"é":2,"é":1}""", false),
+            ("[1,2]", "[2,1]", false),
+            ("[1,2]", "[1,2,3]", false),
+            ("1", "1.0", false),
+            ("1e+20", "1E+20", false),
+            ("0", "-0", false),
+            ("""{"value":"\u0061\u002f"}""", """{"value":"a/"}""", true)
+        ];
+        foreach (var pair in cases)
+        {
+            using var left = JsonDocument.Parse(pair.Left);
+            using var right = JsonDocument.Parse(pair.Right);
+            Assert.AreEqual(pair.Equal, LegacyDigest(left.RootElement) == LegacyDigest(right.RootElement));
+            Assert.AreEqual(pair.Equal, CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                left.RootElement, right.RootElement), $"{pair.Left} versus {pair.Right}");
+        }
+    }
+
+    [TestMethod]
+    public void Foundation_equality_observes_mutated_catalogs_without_caching_reference_identity()
+    {
+        var left = State(3);
+        var right = State(3);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right));
+        var values = (Dictionary<string, string>)right.CharacterCreationFoundationDraft!.FollowUpValues;
+        values["choice-1"] += "changed";
+        Assert.IsFalse(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right));
+        values["choice-1"] = left.CharacterCreationFoundationDraft!.FollowUpValues["choice-1"];
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right));
+        Parallel.For(0, 8, _ => Assert.IsTrue(
+            CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right)));
+    }
+
+    [TestMethod]
+    public void Foundation_equality_does_not_accept_identical_invalid_values()
+    {
+        foreach (string json in new[] { """{"value":"\uD800"}""", """{"\uDC00":1}""" })
+        {
+            using var invalid = JsonDocument.Parse(json);
+            Assert.ThrowsExactly<JsonException>(() =>
+                CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(invalid.RootElement, invalid.RootElement));
+        }
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(double.NaN, double.NaN));
+        var changing = new ChangingEqualityValue();
+        Assert.IsFalse(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(changing, changing));
+        Assert.AreEqual(2, changing.Reads, "Even the same object must be freshly serialized for each side.");
+    }
+
+    [TestMethod]
+    public void Foundation_equality_rejects_raw_converter_output_like_the_existing_digest()
+    {
+        foreach (string json in new[] { "{", """{"value":"\uD800"}""", """{"\uDC00":1}""" })
+        {
+            var invalid = new RawEqualityValue(json);
+            var expected = Assert.Throws<Exception>(() =>
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(invalid));
+            Assert.IsTrue(expected is JsonException or InvalidOperationException,
+                "The reference digest must reject invalid JSON/Unicode, not fail for an unrelated reason.");
+            var actual = Assert.Throws<Exception>(() =>
+                CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(invalid, invalid));
+            Assert.AreEqual(expected.GetType(), actual.GetType());
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                new { valid = "after failed construction" }, new { valid = "after failed construction" }));
+        }
+    }
+
+    [TestMethod]
+    public void Foundation_equality_fallback_uses_each_serialized_snapshot_exactly_once()
+    {
+        var left = new RawEqualityValue("""{"z":2,"a":1}""");
+        var right = new RawEqualityValue("""{"a":1,"z":2}""");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right));
+        Assert.AreEqual(1, left.Writes);
+        Assert.AreEqual(1, right.Writes);
+    }
+
+    [TestMethod]
+    public void Foundation_equality_reuses_buffers_across_large_values_fallback_and_parallel_calls()
+    {
+        foreach (int length in new[] { 0, 15, 4096, 65536, 300000, 1 })
+        {
+            string value = new string('x', length) + "é😀<>&\"\\\r\n\t";
+            var left = new Dictionary<string, string> { ["z"] = value, ["a"] = "tail" };
+            var right = new Dictionary<string, string> { ["a"] = "tail", ["z"] = value };
+            Parallel.For(0, 4, _ =>
+            {
+                Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, left));
+                Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right));
+            });
+            right["z"] += "changed";
+            Assert.IsFalse(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right));
+        }
+    }
+
+    [TestMethod]
+    public void Foundation_equality_bounds_allocations_for_identical_large_catalogs()
+    {
+        var left = Enumerable.Range(0, 1024).Select(i => new
+        {
+            z = i, y = i + 1, x = i + 2, w = i + 3,
+            nested = new { d = true, c = false, b = i, a = "catalog" },
+            b = "name", a = "source"
+        }).ToArray();
+        var right = left.ToArray();
+        Func<string> hashed = () => string.Equals(
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(left),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(right),
+            StringComparison.Ordinal).ToString();
+        Func<string> compared = () => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right).ToString();
+        Assert.AreEqual(bool.TrueString, hashed());
+        Assert.AreEqual(bool.TrueString, compared());
+        long hashBytes = Allocations(hashed);
+        long equalityBytes = Allocations(compared);
+        Console.WriteLine($"Canonical equality warm allocation: equality={equalityBytes}; two-digests={hashBytes}.");
+        Assert.IsTrue(equalityBytes < hashBytes / 4,
+            $"Identical catalogs must avoid repeated property sorting/copies: {equalityBytes:N0} versus {hashBytes:N0}.");
+    }
+
+    private sealed class ChangingEqualityValue
+    {
+        [System.Text.Json.Serialization.JsonIgnore]
+        public int Reads { get; private set; }
+        public int Value => ++Reads;
+    }
+
+    [System.Text.Json.Serialization.JsonConverter(typeof(RawEqualityValueConverter))]
+    private sealed class RawEqualityValue(string json)
+    {
+        public string Json { get; } = json;
+        public int Writes { get; set; }
+    }
+
+    private sealed class RawEqualityValueConverter : System.Text.Json.Serialization.JsonConverter<RawEqualityValue>
+    {
+        public override RawEqualityValue Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+            => throw new NotSupportedException();
+
+        public override void Write(Utf8JsonWriter writer, RawEqualityValue value, JsonSerializerOptions options)
+        {
+            value.Writes++;
+            writer.WriteRawValue(value.Json, skipInputValidation: true);
+        }
+    }
+
+    [TestMethod]
     public void Skill_projection_digest_preserves_legacy_scalars_nested_arrays_and_flags()
     {
         foreach (string? text in new[] { null, "", "Zoë 東京 😀 e\u0301 é <>&\"\\\r\n\t", "\ud800",

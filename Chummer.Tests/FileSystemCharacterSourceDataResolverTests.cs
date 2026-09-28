@@ -71,6 +71,55 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Source_target_lookup_copies_only_the_selected_admitted_row()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic;
+        var inputs = context.GetType().GetField("_sourceInputs", flags)!.GetValue(context)!;
+        var resolve = context.GetType().GetMethods(flags)
+            .Single(method => method.Name == "TryResolveTarget" && method.GetParameters().Length == 6);
+        var enter = inputs.GetType().GetMethod("Enter")!;
+        XElement? ReadRow(string id = CanonicalLifeModuleSettingsId)
+        {
+            object?[] args = ["settings.xml", new[] { "settings" }, "setting", id, string.Empty, null];
+            Assert.IsTrue((bool)resolve.Invoke(context, args)!);
+            return (XElement?)args[5];
+        }
+
+        // Isolate copying from the mandatory byte admission tested separately.
+        using var admission = (IDisposable)enter.Invoke(inputs, null)!;
+        var first = ReadRow()!;
+        Assert.IsNotNull(first);
+        string expected = first.ToString(SaveOptions.DisableFormatting);
+        string settingsPath = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.Keys
+            .Single(path => Path.GetFileName(path) == "settings.xml");
+        var captured = XDocument.Load(settingsPath);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var legacy = new XDocument(captured);
+        long legacyBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        GC.KeepAlive(legacy);
+        ReadRow();
+        before = GC.GetAllocatedBytesForCurrentThread();
+        var second = ReadRow()!;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"Selected settings row warm allocation: {allocated}; full document: {legacyBytes}.");
+        Assert.IsTrue(allocated < legacyBytes / 4,
+            $"One selected setting allocated {allocated:N0}, whole catalog {legacyBytes:N0}.");
+        Assert.AreNotSame(first, second);
+        Assert.IsNull(second.Parent);
+        Assert.IsNull(second.Document);
+        first.RemoveNodes();
+        second.SetElementValue("name", "caller mutation");
+        Assert.AreEqual(expected, ReadRow()!.ToString(SaveOptions.DisableFormatting));
+        Assert.IsNull(ReadRow(Guid.Empty.ToString("D")), "A missing target must stay missing.");
+        Assert.AreEqual(expected, ReadRow()!.ToString(SaveOptions.DisableFormatting));
+    }
+
+    [TestMethod]
     public void Source_target_enumeration_transfers_detached_rows_without_a_second_catalog_copy()
     {
         string root = FindCoreRoot();
