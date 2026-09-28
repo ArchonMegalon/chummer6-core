@@ -142,9 +142,24 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
 
     public static bool CanonicallyEquals<T>(T left, T right)
     {
+        // Capture both values on every call, including repeated references.
+        // Catalogs usually serialize in the same order. Equality of their
+        // validated JSON already implies canonical equality, without sorting
+        // every property again. Hash both fresh snapshots using the same SHA-256
+        // trust boundary as canonical comparison. Do not compare a claimed
+        // digest or cache mutable caller objects.
+        using JsonDocument leftDocument = JsonSerializer.SerializeToDocument(left);
+        using JsonDocument rightDocument = JsonSerializer.SerializeToDocument(right);
+        if (FixedTimeEquals(
+                ComputeElementSha256(leftDocument.RootElement, canonical: false),
+                ComputeElementSha256(rightDocument.RootElement, canonical: false)))
+            return true;
+
+        // Different property order can still be canonically equal. Reuse the
+        // captured documents: never serialize a mutable value a second time.
         return FixedTimeEquals(
-            ComputeCanonicalSha256(left),
-            ComputeCanonicalSha256(right));
+            ComputeElementSha256(leftDocument.RootElement, canonical: true),
+            ComputeElementSha256(rightDocument.RootElement, canonical: true));
     }
 
     private static bool IsStructurallyValid(LifeModuleRequirementProjectionDto? requirement)
@@ -186,12 +201,23 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
     private static string ComputeCanonicalSha256<T>(T value)
     {
         using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        return ComputeElementSha256(document.RootElement, canonical: true);
+    }
+
+    private static string ComputeElementSha256(JsonElement element, bool canonical)
+    {
         // Keep the canonical v1 bytes, but hash them as they are emitted rather
         // than retaining another full copy of the large Creation/archive graph.
         using var output = new CanonicalHashBufferWriter();
         using (Utf8JsonWriter writer = new(output))
         {
-            WriteCanonical(document.RootElement, writer);
+            if (canonical)
+                WriteCanonical(element, writer);
+            else
+                // Validate strings/property names even for identical malformed
+                // values produced by raw custom converters. No unvalidated raw
+                // JSON shortcut may turn their matching bytes into a pass.
+                element.WriteTo(writer);
         }
 
         return output.GetDigest();
