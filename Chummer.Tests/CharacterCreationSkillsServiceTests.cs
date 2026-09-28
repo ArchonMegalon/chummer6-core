@@ -14,7 +14,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class CharacterCreationSkillsServiceTests
+public sealed partial class CharacterCreationSkillsServiceTests
 {
     private const string ReadyXml = "<character><name>Skills Runner</name><alias>Priority</alias>"
                                     + "<buildmethod>Priority</buildmethod><created>false</created>"
@@ -1419,10 +1419,11 @@ public sealed class CharacterCreationSkillsServiceTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    private static CharacterCreationPrerequisiteAuthority CreatePrerequisiteAuthority()
+    private static CharacterCreationPrerequisiteAuthority CreatePrerequisiteAuthority(
+        string method = CharacterCreationBuildMethods.Priority)
     {
         CharacterCreationPrerequisiteAuthority authority = CharacterCreationPrerequisiteServiceTests.CreateAuthority(
-            CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]);
+            method, ["A", "B", "C", "D", "E"]);
         CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
         {
             if (option.CategoryId == CharacterCreationPriorityCategoryIds.Skills)
@@ -1500,7 +1501,7 @@ public sealed class CharacterCreationSkillsServiceTests
     }
 
     private static CharacterCreationSkillsAuthority CreateSkillsAuthority(
-        CharacterCreationPrerequisiteAuthority? prerequisite = null)
+        CharacterCreationPrerequisiteAuthority? prerequisite = null, string xml = ReadyXml)
     {
         prerequisite ??= CreatePrerequisiteAuthority();
         string effectiveSkillsInputsDigest = prerequisite.EffectiveSkillsInputsDigest;
@@ -1546,7 +1547,7 @@ public sealed class CharacterCreationSkillsServiceTests
             EffectiveSkillsInputsDigest = effectiveSkillsInputsDigest
         });
         string characterDigest = CharacterCreationFoundationDraftLedgerIntegrity
-            .ComputeRawCharacterXmlDigest(ReadyXml);
+            .ComputeRawCharacterXmlDigest(xml);
         string[] contributionAnchors = ["qualities.xml#linguist"];
         const string contributionId = "quality:linguist";
         const int contributionPoints = 2;

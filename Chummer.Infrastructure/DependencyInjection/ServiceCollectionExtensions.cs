@@ -221,6 +221,8 @@ public static class ServiceCollectionExtensions
             OwnerBoundCharacterCreationAttributesService>();
         services.AddSingleton<ICharacterCreationSkillsService,
             CharacterCreationSkillsService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationSkillsService,
+            OwnerBoundCharacterCreationSkillsService>();
         services.AddSingleton<ICharacterCreationQualitiesService,
             CharacterCreationQualitiesService>();
         services.AddSingleton<ICharacterCreationMagicResonanceService,
