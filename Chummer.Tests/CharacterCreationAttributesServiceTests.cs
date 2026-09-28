@@ -103,7 +103,7 @@ public sealed class CharacterCreationAttributesServiceTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    private sealed class AllocationOwners : IOwnerContextLeaseAccessor
+    internal sealed class AllocationOwners : IOwnerContextLeaseAccessor
     {
         private readonly object _gate = new();
         private OwnerContextStamp _stamp = new(OwnerScope.LocalSingleUser, Guid.NewGuid().ToString("N"), 0);
