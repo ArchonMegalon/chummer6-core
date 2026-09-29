@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 string root = Check.Root(args);
 (string Name, Action Run)[] cases =
 [
+    ("magic owner partition, ABA rejection and cold receipt recovery", () => MagicResonanceCases.Run(root)),
     ("bootstrap creates only in admitted local or linked partition", BootstrapPartition),
     ("contacts commits only in admitted partition with identical sibling partitions", ContactsPartition),
     ("local to linked transition rejects original creation stamps", () => Stale(OwnerScope.LocalSingleUser, false)),
