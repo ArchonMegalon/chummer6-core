@@ -69,9 +69,12 @@ public sealed class CharacterCreationQualitiesRulesTests
     }
 
     [TestMethod]
-    public void Quality_option_digest_preserves_canonical_bytes_for_every_field_and_nullable_shape()
+    [DataRow(null)]
+    [DataRow(2)]
+    public void Quality_option_digest_preserves_canonical_bytes_for_every_field_and_nullable_shape(int? arms)
     {
-        var option = Option("digest-option", CharacterCreationQualityType.Positive, 7);
+        var option = Option("digest-option", CharacterCreationQualityType.Positive, 7) with { ResolvedArmCount = arms };
+        option = option with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(option) };
         var baseline = System.Text.Json.JsonSerializer.SerializeToElement(option);
         // Exercise every serialized property independently. A future added field
         // must not silently disappear from the specialized canonical writer.

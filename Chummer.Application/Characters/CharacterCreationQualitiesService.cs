@@ -310,7 +310,8 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
         ICharacterSourceDataContext? context = _resolver.TryCreateContext(workspace.Document.Content);
         CharacterCreationQualitiesAuthority authority = CharacterCreationQualitiesAuthority.Unavailable;
         if (context is null
-            || !context.TryResolveCreationQualitiesAuthority(out authority)
+            || !(prerequisite is null ? context.TryResolveCreationQualitiesAuthority(out authority)
+                : context.TryResolveCreationQualitiesAuthority(prerequisite, out authority))
             || !authority.IsAuthoritative
             || authority.Blockers.Count != 0
             || prerequisiteState is null
@@ -322,6 +323,21 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
         if (context is not null && prerequisite is not null && authority.IsAuthoritative
             && !CharacterCreationTalentQualityGrants.TryBind(prerequisite, context, authority, out authority))
             blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+
+        CharacterCreationQualitiesDraft? pending =
+            workspace.Document.AuxiliaryState.CharacterCreationQualitiesDraft;
+        if (pending is not null && context is not null && prerequisite is not null
+            && !CharacterCreationQualitiesRules.DigestsEqual(pending.AuthorityDigest, authority.AuthorityDigest)
+            && context.TryResolveCreationQualitiesAuthority(out var legacy)
+            && legacy.IsAuthoritative && legacy.Blockers.Count == 0
+            && CharacterCreationTalentQualityGrants.TryBind(prerequisite, context, legacy, out legacy)
+            && CharacterCreationQualitiesRules.DigestsEqual(pending.AuthorityDigest, legacy.AuthorityDigest))
+        {
+            // A previously accepted catalog is not silently migrated, repriced or
+            // rewritten just because a new option became supported. Its exact
+            // current sources must still reproduce the recorded authority.
+            authority = legacy;
+        }
 
         string rawDigest = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeRawCharacterXmlDigest(workspace.Document.Content);
@@ -342,8 +358,6 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
             attributes?.CreationKarmaUsed ?? 0,
             authority.AuthorityDigest,
             authority.RuntimeDigest);
-        CharacterCreationQualitiesDraft? pending =
-            workspace.Document.AuxiliaryState.CharacterCreationQualitiesDraft;
         CharacterCreationQualitiesPreview preview = CharacterCreationQualitiesRules.Evaluate(new(
             binding,
             authority,

@@ -4018,6 +4018,55 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 && TryResolveCreationQualitySources(out authority);
         }
 
+        public bool TryResolveCreationQualitiesAuthority(CharacterCreationPrerequisiteDraft prerequisite,
+            out CharacterCreationQualitiesAuthority authority)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            authority = CharacterCreationQualitiesAuthority.Unavailable;
+            if (_buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen))
+                return false;
+            int? armCount = HasUnmodifiedCreationArms(prerequisite) ? 2 : null;
+            return TryResolveCreationQualitySources(out authority, armCount);
+        }
+
+        private bool HasUnmodifiedCreationArms(CharacterCreationPrerequisiteDraft prerequisite)
+        {
+            // Character.LimbCount("arm") starts at two, then applies AddLimb.
+            // This bounded lane proves the *absence* of additional contributors;
+            // it never guesses anatomy for variants, granted qualities or ware.
+            // Supporting those requires their complete active-effect projection.
+            if (prerequisite is null || prerequisite.BuildMethod != _buildMethod
+                || prerequisite.SettingsProfileId != _settingsProfileId
+                || prerequisite.HeritageSelection is not { MetavariantSourceId: null } heritage
+                || !CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite)
+                || prerequisite.TalentSelection!.GrantedQualities is not { Count: 0 }
+                || new[] { "qualities", "improvements", "cyberwares", "biowares", "gears", "powers" }
+                    .Any(name => _character.Elements(name).Any(node => node.HasAttributes || node.HasElements
+                        || !string.IsNullOrWhiteSpace(node.Value)))
+                || !TryResolveCreationPrerequisiteAuthority(out var current) || !current.IsAuthoritative
+                || current.Blockers.Count != 0 || current.AuthorityDigest != prerequisite.AuthorityDigest
+                || current.Options.Where(option => option.SourceId == heritage.PrioritySourceId)
+                    .SelectMany(option => option.HeritageOptions).Count(option =>
+                    option.IsEnabled && option.Blockers.Count == 0 && option.SelectionId == heritage.SelectionId
+                    && option.MetatypeSourceId == heritage.MetatypeSourceId && option.MetavariantSourceId is null
+                    && option.MetatypeSourceNodeDigest == heritage.MetatypeSourceNodeDigest) != 1
+                || current.Options.Where(option => option.SourceId == prerequisite.TalentSelection.PrioritySourceId)
+                    .SelectMany(option => option.TalentOptions).Count(option => option.IsEnabled
+                        && option.Blockers.Count == 0 && option.SelectionId == prerequisite.TalentSelection.SelectionId
+                        && option.PriorityChildNodeDigest == prerequisite.TalentSelection.PriorityChildNodeDigest
+                        && option.Value == prerequisite.TalentSelection.Value && option.GrantedQualities.Count == 0
+                        && option.Magic is null && option.Resonance is null && option.Depth is null) != 1
+                || !TryResolveTarget("metatypes.xml", ["metatypes"], "metatype", heritage.MetatypeSourceId,
+                    string.Empty, out var metatype) || metatype is null
+                || metatype.Elements("bonus").Any(node => node.HasAttributes || node.HasElements
+                    || !string.IsNullOrWhiteSpace(node.Value))
+                || metatype.Elements("qualities").Any(node => node.HasAttributes || node.HasElements
+                    || !string.IsNullOrWhiteSpace(node.Value))
+                || _sourceInputs.HasSourceDrift)
+                return false;
+            return true;
+        }
+
         public bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
         {
             catalog = null;
@@ -4072,7 +4121,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         // Shared source parsing only. Each public entry retains its own build-method
         // guard and contract; this never creates a Priority prerequisite for Karma.
-        private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority)
+        private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority, int? armCount = null)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationQualitiesAuthority.Unavailable;
@@ -4198,7 +4247,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && !string.IsNullOrWhiteSpace(limit)
                     && !string.Equals(limit, "False", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!int.TryParse(
+                    if (limit == "{arm} - 1" && armCount is >= 2 and <= 101)
+                        maximumRating = armCount.Value - 1;
+                    else if (!int.TryParse(
                             limit,
                             NumberStyles.Integer,
                             CultureInfo.InvariantCulture,
@@ -4217,7 +4268,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase));
                 string sourceNodeXml = row.ToString(SaveOptions.DisableFormatting);
                 bool effectsProjectable =
-                    CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml);
+                    CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount);
                 bool selectable = sourceEnabled
                     && implemented
                     && !careerOnly
@@ -4289,7 +4340,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         SourceAnchorIds: [anchor],
                         SourceNodeXml: sourceNodeXml,
                         SourceNodeDigest: sourceNodeDigest,
-                        OptionDigest: string.Empty);
+                        OptionDigest: string.Empty)
+                    {
+                        ResolvedArmCount = limit == "{arm} - 1" && !hasVariableRatingLimit && !noLevels
+                            ? armCount : null
+                    };
                     options.Add(option with
                     {
                         OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(option)
@@ -4341,6 +4396,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     QualityCostArithmetic = "profile-multiplier-and-excess-v1"
                 });
             }
+            if (armCount is int resolvedArms)
+                runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-qualities-anatomy.v1",
+                    PreviousRuntimeDigest = runtimeDigest,
+                    ResolvedArmCount = resolvedArms,
+                    RatingExpression = "{arm} - 1"
+                });
             var candidate = new CharacterCreationQualitiesAuthority(
                 CharacterCreationQualitiesSchemas.AuthorityV1,
                 "sr5",

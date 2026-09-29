@@ -75,7 +75,13 @@ public sealed record CharacterCreationQualityCatalogOption(
     IReadOnlyList<string> SourceAnchorIds,
     string SourceNodeXml,
     string SourceNodeDigest,
-    string OptionDigest);
+    string OptionDigest)
+{
+    // Core-resolved anatomy, never a renderer input. Omit absent context so
+    // historical fixed-limit options and their digests remain byte-compatible.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ResolvedArmCount { get; init; }
+}
 
 /// <summary>
 /// A metatype, heritage, Life Module or other already-granted quality projection. The
@@ -196,7 +202,11 @@ public sealed record CharacterCreationQualitySelection(
     IReadOnlyList<string> SourceAnchorIds,
     string SourceNodeXml,
     string SourceNodeDigest,
-    string OptionDigest);
+    string OptionDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ResolvedArmCount { get; init; }
+}
 
 public sealed record CharacterCreationQualitiesBudget(
     int Total,
@@ -708,6 +718,7 @@ public static class CharacterCreationQualitiesRules
            && !string.IsNullOrWhiteSpace(option.SelectionKey)
            && !string.IsNullOrWhiteSpace(option.Name)
            && option.Rating > 0
+           && (option.ResolvedArmCount is null or (>= 2 and <= 101))
            && option.MaximumSelections > 0
            && option.SourceAnchorIds.All(static item => !string.IsNullOrWhiteSpace(item))
            && option.SourceAnchorIds.Distinct(StringComparer.Ordinal).Count()
@@ -761,7 +772,10 @@ public static class CharacterCreationQualitiesRules
         option.SourceAnchorIds,
         option.SourceNodeXml,
         option.SourceNodeDigest,
-        option.OptionDigest);
+        option.OptionDigest)
+    {
+        ResolvedArmCount = option.ResolvedArmCount
+    };
 
     private static CharacterCreationQualityCostItem ToCost(CharacterCreationQualitySelection item) => new(
         item.KarmaCost,
@@ -855,6 +869,8 @@ internal static class CharacterCreationQualitiesDigest
         writer.WriteString(nameof(option.OptionDigest), digest);
         writer.WriteString(nameof(option.OptionId), option.OptionId);
         writer.WriteNumber(nameof(option.Rating), option.Rating);
+        if (option.ResolvedArmCount is int arms)
+            writer.WriteNumber(nameof(option.ResolvedArmCount), arms);
         writer.WriteString(nameof(option.SelectionKey), option.SelectionKey);
         writer.WritePropertyName(nameof(option.SourceAnchorIds));
         if (option.SourceAnchorIds is null) writer.WriteNullValue();
