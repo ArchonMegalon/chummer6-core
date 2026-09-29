@@ -240,8 +240,12 @@ public static class ServiceCollectionExtensions
             OwnerBoundCharacterCreationLifestylesReader>();
         services.AddSingleton<ICharacterCreationResourcesService,
             CharacterCreationResourcesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationResourcesService,
+            OwnerBoundCharacterCreationResourcesService>();
         services.AddSingleton<ICharacterCreationGearService,
             CharacterCreationGearService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationGearService,
+            OwnerBoundCharacterCreationGearService>();
         services.AddSingleton<ICharacterCreationFinalizationService,
             CharacterCreationFinalizationService>();
         services.AddSingleton<IOwnerBoundCharacterCreationFinalizationService,
