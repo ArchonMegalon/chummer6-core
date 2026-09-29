@@ -158,7 +158,14 @@ public sealed record CharacterCreationFinalizationDelta(
     string? AfterValue,
     decimal KarmaCost,
     decimal NuyenCost,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>The canonical name from the admitted draft/source, bound into
+    /// the review digest. Not an identity or a client-side catalog lookup.
+    /// Omitted on historical deltas to preserve their serialized bytes.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetName { get; init; }
+}
 
 /// <summary>
 /// One sealed, whole-build write plan.  Every ordered delta is reviewable; the

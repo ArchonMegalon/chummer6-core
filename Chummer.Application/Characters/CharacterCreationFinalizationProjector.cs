@@ -159,7 +159,7 @@ public static class CharacterCreationFinalizationProjector
             AddDelta(projected, ref order, "metatype:selected",
                 CharacterCreationFinalizationDeltaKinds.Metatype, heritage.MetatypeSourceId,
                 ReadDirect(root, "metatype"), heritage.MetatypeName, heritage.KarmaCost, 0,
-                heritage.SourceAnchorIds);
+                heritage.SourceAnchorIds, heritage.MetatypeName);
 
             SetDirect(root, "metatype", heritage.MetatypeName);
             SetDirect(root, "metavariant", heritage.MetavariantName ?? string.Empty);
@@ -238,7 +238,7 @@ public static class CharacterCreationFinalizationProjector
                 foreach (var contact in contactsDraft.Contacts)
                     AddDelta(projected, ref order, $"contact:{contact.ContactId:D}",
                         "contact", contact.ContactId.ToString("D"), null, contact.Identity.Name, 0, 0,
-                        contactsDraft.Policy.SourceAnchorIds);
+                        contactsDraft.Policy.SourceAnchorIds, contact.Identity.Name);
             }
             // Readiness validates all non-cash inputs without fabricating a roll.
             // A real projection/confirmation always requires the explicit choice.
@@ -389,7 +389,9 @@ public static class CharacterCreationFinalizationProjector
             AddDelta(deltas, ref order, $"skill:{skill.Kind}:{skill.SourceSkillId}",
                 CharacterCreationFinalizationDeltaKinds.Skill, skill.SourceSkillId,
                 null, skill.IsNativeLanguage ? "native" : skill.EffectiveRating?.ToString(CultureInfo.InvariantCulture),
-                0, 0, skill.SourceAnchorIds);
+                0, 0, skill.SourceAnchorIds,
+                skill.SpecializationName is { Length: > 0 } specialization
+                    ? $"{skill.Name} ({specialization})" : skill.Name);
         }
 
         var groups = new XElement("groups");
@@ -404,7 +406,7 @@ public static class CharacterCreationFinalizationProjector
             AddDelta(deltas, ref order, $"skill-group:{group.GroupId}",
                 CharacterCreationFinalizationDeltaKinds.SkillGroup, group.GroupId,
                 null, group.Rating.ToString(CultureInfo.InvariantCulture),
-                0, 0, group.SourceAnchorIds);
+                0, 0, group.SourceAnchorIds, group.Name);
         }
         return new XElement("newskills",
             new XElement("skillptsmax", draft.ActivePointTotal),
@@ -448,7 +450,7 @@ public static class CharacterCreationFinalizationProjector
                 selection.Rating.ToString(CultureInfo.InvariantCulture),
                 sourceKarma,
                 0,
-                selection.SourceAnchorIds);
+                selection.SourceAnchorIds, selection.Name);
         }
         // A cap/rebate is a basket rule, not an arbitrary allocation to one quality.
         // Retain the original BP on each legacy row and show the exact profile/basket
@@ -495,7 +497,7 @@ public static class CharacterCreationFinalizationProjector
                 line.Quantity.ToString(CultureInfo.InvariantCulture),
                 0,
                 line.TotalCost,
-                line.SourceAnchorIds);
+                line.SourceAnchorIds, line.Name);
         }
         return container;
     }
@@ -607,7 +609,8 @@ public static class CharacterCreationFinalizationProjector
         string? after,
         decimal karmaCost,
         decimal nuyenCost,
-        IReadOnlyList<string> anchors)
+        IReadOnlyList<string> anchors,
+        string? targetName = null)
     {
         deltas.Add(new CharacterCreationFinalizationDelta(
             ++order,
@@ -618,7 +621,8 @@ public static class CharacterCreationFinalizationProjector
             after,
             karmaCost,
             nuyenCost,
-            anchors.Distinct(StringComparer.Ordinal).OrderBy(static item => item, StringComparer.Ordinal).ToArray()));
+            anchors.Distinct(StringComparer.Ordinal).OrderBy(static item => item, StringComparer.Ordinal).ToArray())
+        { TargetName = targetName });
     }
 
     private static string[] Normalize(IEnumerable<string> blockers) => blockers

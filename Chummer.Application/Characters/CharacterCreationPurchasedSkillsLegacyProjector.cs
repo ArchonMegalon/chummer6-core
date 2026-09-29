@@ -78,7 +78,8 @@ internal static class CharacterCreationPurchasedSkillsLegacyProjector
                 changes.Add(new(changes.Count, identity, CharacterCreationFinalizationDeltaKinds.Skill,
                     identity, null, allocation.IsNativeLanguage ? "native"
                         : skill.Rating?.ToString(CultureInfo.InvariantCulture),
-                    skill.KarmaCost, 0, Anchors(anchors)));
+                    skill.KarmaCost, 0, Anchors(anchors))
+                { TargetName = specialization is null ? source.Name : $"{source.Name} ({specialization.Name})" });
             }
             foreach (var group in skillGroups.OrderBy(item => item.Allocation.GroupId, StringComparer.Ordinal))
             {
@@ -92,7 +93,7 @@ internal static class CharacterCreationPurchasedSkillsLegacyProjector
                     new XElement("name", source.Name)));
                 changes.Add(new(changes.Count, identity, CharacterCreationFinalizationDeltaKinds.SkillGroup,
                     source.GroupId, null, group.Allocation.KarmaLevels.ToString(CultureInfo.InvariantCulture),
-                    group.KarmaCost, 0, Anchors(source.SourceAnchorIds)));
+                    group.KarmaCost, 0, Anchors(source.SourceAnchorIds)) { TargetName = source.Name });
             }
             if (changes.Sum(change => change.KarmaCost) != karmaUsed
                 || changes.Select(change => change.DeltaId).Distinct(StringComparer.Ordinal).Count() != changes.Count)

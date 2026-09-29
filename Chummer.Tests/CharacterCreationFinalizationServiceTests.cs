@@ -20,6 +20,79 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Final_review_names_are_bound_to_the_exact_drafts_without_changing_target_identity(string method)
+    {
+        using var context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            buildMethod: method, includeSkillPurchase: true);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var drafts = before.Document.AuxiliaryState;
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var choice = FixtureCashChoice(context);
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = choice }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        var plan = review.Plan!;
+        Assert.AreEqual(drafts.CharacterCreationPrerequisiteDraft!.HeritageSelection!.MetatypeName,
+            plan.OrderedDeltas.Single(delta => delta.DeltaId == "metatype:selected").TargetName);
+        foreach (var skill in drafts.CharacterCreationSkillsDraft!.Skills)
+        {
+            var delta = plan.OrderedDeltas.Single(row => row.DeltaId == $"skill:{skill.Kind}:{skill.SourceSkillId}");
+            Assert.AreEqual(skill.SourceSkillId, delta.TargetId);
+            Assert.AreEqual(skill.SpecializationName is { Length: > 0 } specialization
+                ? $"{skill.Name} ({specialization})" : skill.Name, delta.TargetName);
+        }
+        foreach (var group in drafts.CharacterCreationSkillsDraft.SkillGroups)
+            Assert.AreEqual(group.Name, plan.OrderedDeltas.Single(row => row.DeltaId == $"skill-group:{group.GroupId}").TargetName);
+        foreach (var quality in drafts.CharacterCreationQualitiesDraft!.Selections)
+        {
+            var delta = plan.OrderedDeltas.Single(row => row.DeltaId == $"quality:{quality.OptionId}");
+            Assert.AreEqual(quality.SourceId.ToString("D"), delta.TargetId);
+            Assert.AreEqual(quality.Name, delta.TargetName);
+        }
+        foreach (var gear in drafts.CharacterCreationGearDraft!.Lines)
+        {
+            var delta = plan.OrderedDeltas.Single(row => row.DeltaId == $"gear:{gear.OptionId}");
+            Assert.AreEqual(gear.SourceId.ToString("D"), delta.TargetId);
+            Assert.AreEqual(gear.Name, delta.TargetName);
+            Assert.AreEqual(gear.TotalCost, delta.NuyenCost);
+        }
+        var json = System.Text.Json.JsonSerializer.Serialize(plan);
+        var roundTrip = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationFinalizationPlan>(json)!;
+        Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(plan), CharacterCreationFinalizationDigest.Compute(roundTrip));
+        var forged = plan with
+        {
+            OrderedDeltas = plan.OrderedDeltas.Select(delta => delta.TargetName is null
+                ? delta : delta with { TargetName = "A different purchase" }).ToArray(),
+            PlanDigest = string.Empty
+        };
+        string forgedDigest = CharacterCreationFinalizationDigest.Compute(forged);
+        Assert.AreNotEqual(plan.PlanDigest, forgedDigest);
+        var rejected = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
+            forgedDigest, "forged-final-review-name", true) { StartingCash = choice });
+        Assert.IsFalse(rejected.Success);
+        var after = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Historical_finalization_delta_without_name_keeps_exact_json_and_digest()
+    {
+        const string json = "{\"Order\":1,\"DeltaId\":\"quality:original\",\"Kind\":\"quality\",\"TargetId\":\"original\",\"BeforeValue\":null,\"AfterValue\":\"1\",\"KarmaCost\":4,\"NuyenCost\":0,\"SourceAnchorIds\":[\"original-source\"]}";
+        var old = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationFinalizationDelta>(json)!;
+        Assert.IsNull(old.TargetName);
+        Assert.AreEqual(json, System.Text.Json.JsonSerializer.Serialize(old));
+        Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json)),
+            CharacterCreationFinalizationDigest.Compute(old));
+        var named = old with { TargetName = "Ambidextrous" };
+        Assert.AreNotEqual(CharacterCreationFinalizationDigest.Compute(old), CharacterCreationFinalizationDigest.Compute(named));
+        Assert.AreEqual(old.TargetId, named.TargetId);
+        Assert.AreEqual(old.DeltaId, named.DeltaId);
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, 1)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, 6)]
     public void Explicit_starting_cash_is_added_after_carryover_and_saved_with_lifestyle_once(string method, int face)

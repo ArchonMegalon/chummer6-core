@@ -61,7 +61,7 @@ internal static class CharacterCreationLifeModuleCharacterProjector
             }
             Set("initiativedice", Number(metatype.Initiative.MinimumDiceFallback));
             Change("metatype:selected", CharacterCreationFinalizationDeltaKinds.Metatype, metatype.OptionId,
-                null, metatype.Label, metatype.KarmaCost, 0, metatype.SourceAnchorIds);
+                null, metatype.Label, metatype.KarmaCost, 0, metatype.SourceAnchorIds, metatype.Label);
 
             var attributes = new XElement("attributes");
             foreach (var range in metatype.Attributes)
@@ -97,10 +97,10 @@ internal static class CharacterCreationLifeModuleCharacterProjector
                 var quality = qualities.Elements("quality").Single(row => row.Element("guid")?.Value == owner.QualityId);
                 Change("module:" + owner.OccurrenceId, CharacterCreationFinalizationDeltaKinds.Quality,
                     owner.SourceId, null, quality.Element("name")!.Value, owner.KarmaCost, 0,
-                    [$"{quality.Element("source")!.Value}:{quality.Element("page")!.Value}"]);
+                    [$"{quality.Element("source")!.Value}:{quality.Element("page")!.Value}"], quality.Element("name")!.Value);
             }
             Change("talent:selected", CharacterCreationFinalizationDeltaKinds.MagicResonance, p.Talent.Talent.OptionId,
-                null, p.Talent.Talent.Name, p.Talent.Talent.KarmaCost, 0, p.Talent.Summary.SourceAnchorIds);
+                null, p.Talent.Talent.Name, p.Talent.Talent.KarmaCost, 0, p.Talent.Summary.SourceAnchorIds, p.Talent.Talent.Name);
             Change("qualities:adjustment", CharacterCreationFinalizationDeltaKinds.Quality, "qualities-karma-adjustment",
                 "0", Number(p.Resources.QualityCosts.KarmaAdjustmentAfterTalent),
                 p.Resources.QualityCosts.KarmaAdjustmentAfterTalent, 0, p.Resources.QualityCosts.Policy.SourceAnchorIds);
@@ -132,7 +132,8 @@ internal static class CharacterCreationLifeModuleCharacterProjector
             Set("contactpoints", Number(p.Contacts.ContactBudget.Total));
             foreach (var line in p.Contacts.Lines)
                 Change("contact:" + line.Selection.ContactId.ToString("D"), CharacterCreationFinalizationDeltaKinds.Build,
-                    line.Selection.ContactId.ToString("D"), null, line.Selection.Identity.Name, 0, 0, p.Contacts.Policy.SourceAnchorIds);
+                    line.Selection.ContactId.ToString("D"), null, line.Selection.Identity.Name, 0, 0, p.Contacts.Policy.SourceAnchorIds,
+                    line.Selection.Identity.Name);
             Change("contacts:karma", CharacterCreationFinalizationDeltaKinds.Build, "contacts-karma", "0",
                 Number(p.Contacts.KarmaUsed), p.Contacts.KarmaUsed, 0, p.Contacts.Policy.SourceAnchorIds);
             var gear = new XElement("gears", p.Racial.GearXml.Concat(p.Talent.GearXml).Select(XElement.Parse));
@@ -141,7 +142,7 @@ internal static class CharacterCreationLifeModuleCharacterProjector
                 if (!CharacterCreationLegacySourceProjector.TryBuildGear(line, seed, out var saved)) return false;
                 gear.Add(saved);
                 Change("gear:" + line.OptionId, CharacterCreationFinalizationDeltaKinds.Gear, line.SourceId.ToString("D"),
-                    null, Number(line.Quantity), 0, line.TotalCost, line.SourceAnchorIds);
+                    null, Number(line.Quantity), 0, line.TotalCost, line.SourceAnchorIds, line.Name);
             }
             if (!gear.Elements("gear").Any(row => string.Equals(row.Element("active")?.Value, "True", StringComparison.OrdinalIgnoreCase))
                 && gear.Elements("gear").FirstOrDefault(row => row.Element("canformpersona")?.Value.Contains("Self", StringComparison.Ordinal) == true) is { } persona)
@@ -151,10 +152,12 @@ internal static class CharacterCreationLifeModuleCharacterProjector
             Replace(new XElement("lifestyles", lifestyleNodes));
             foreach (var line in p.Lifestyles.Lines)
                 Change("lifestyle:" + line.Configuration.LifestyleId.ToString("D"), CharacterCreationFinalizationDeltaKinds.Resources,
-                    line.SourceId.ToString("D"), null, line.Configuration.Name, 0, line.Economics.TotalCost, line.SourceAnchorIds);
+                    line.SourceId.ToString("D"), null, line.Configuration.Name, 0, line.Economics.TotalCost, line.SourceAnchorIds,
+                    line.Configuration.Name);
             if (p.Lifestyles.Lines.Count == 0)
                 Change("lifestyle:default", CharacterCreationFinalizationDeltaKinds.Resources, p.Finances.StartingCashSource.SourceId,
-                    null, p.Finances.StartingCashSource.Name, 0, 0, p.Finances.StartingCashSource.SourceAnchorIds);
+                    null, p.Finances.StartingCashSource.Name, 0, 0, p.Finances.StartingCashSource.SourceAnchorIds,
+                    p.Finances.StartingCashSource.Name);
             Set("startingnuyen", Number(p.Resources.NuyenFromKarma));
             Set("nuyenbp", Number(p.Resources.KarmaInvestment));
             Set("karma", Number(p.Finances.KarmaCarried));
@@ -192,7 +195,8 @@ internal static class CharacterCreationLifeModuleCharacterProjector
             void Add(IEnumerable<CharacterCreationFinalizationDelta> values)
             { foreach (var delta in values) changes.Add(delta with { Order = changes.Count + 1 }); }
             void Change(string id, string kind, string target, string? before, string? after, decimal karma, decimal nuyen,
-                IReadOnlyList<string> anchors) => changes.Add(new(changes.Count + 1, id, kind, target, before, after, karma, nuyen, anchors));
+                IReadOnlyList<string> anchors, string? targetName = null) =>
+                changes.Add(new(changes.Count + 1, id, kind, target, before, after, karma, nuyen, anchors) { TargetName = targetName });
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or InvalidDataException
             or XmlException or OverflowException or KeyNotFoundException)

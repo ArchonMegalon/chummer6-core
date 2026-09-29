@@ -85,7 +85,7 @@ public static class CharacterCreationKarmaFinalizationProjector
             }
             Set("initiativedice", Number(metatype.Initiative.MinimumDiceFallback));
             Change("metatype:selected", CharacterCreationFinalizationDeltaKinds.Metatype, metatype.OptionId,
-                null, metatype.Label, metatype.KarmaCost, 0, metatype.SourceAnchorIds);
+                null, metatype.Label, metatype.KarmaCost, 0, metatype.SourceAnchorIds, metatype.Label);
 
             var attributes = new XElement("attributes");
             foreach (var attribute in foundation.Attributes!.Attributes)
@@ -146,7 +146,7 @@ public static class CharacterCreationKarmaFinalizationProjector
                 decimal cost = option.CountsAgainstKarma ? option.KarmaCost : 0;
                 qualitySourceCost += cost;
                 Change("quality:" + option.OptionId, CharacterCreationFinalizationDeltaKinds.Quality,
-                    option.SourceId.ToString("D"), null, Number(option.Rating), cost, 0, option.SourceAnchorIds);
+                    option.SourceId.ToString("D"), null, Number(option.Rating), cost, 0, option.SourceAnchorIds, option.Name);
             }
             decimal qualityAdjustment = foundation.Qualities.Costs.NetKarmaSpent - qualitySourceCost;
             if (qualityAdjustment != 0)
@@ -161,7 +161,7 @@ public static class CharacterCreationKarmaFinalizationProjector
                 foreach (var line in contacts.Lines)
                     Change("contact:" + line.Selection.ContactId.ToString("D"), CharacterCreationFinalizationDeltaKinds.Build,
                         line.Selection.ContactId.ToString("D"), null, line.Selection.Identity.Name, 0, 0,
-                        contacts.Policy.SourceAnchorIds);
+                        contacts.Policy.SourceAnchorIds, line.Selection.Identity.Name);
                 Change("contacts:karma", CharacterCreationFinalizationDeltaKinds.Build, "contacts-karma",
                     "0", Number(contacts.KarmaUsed), contacts.KarmaUsed, 0, contacts.Policy.SourceAnchorIds);
             }
@@ -170,7 +170,7 @@ public static class CharacterCreationKarmaFinalizationProjector
                 if (!CharacterCreationLegacySourceProjector.TryBuildGear(line, foundation.QuoteDigest, out var gear)) return false;
                 root.Element("gears")!.Add(gear);
                 Change("gear:" + line.OptionId, CharacterCreationFinalizationDeltaKinds.Gear, line.SourceId.ToString("D"),
-                    null, Number(line.Quantity), 0, line.TotalCost, line.SourceAnchorIds);
+                    null, Number(line.Quantity), 0, line.TotalCost, line.SourceAnchorIds, line.Name);
             }
             // Select a granted persona only after grants and purchases coexist,
             // preserving any active device admitted by the complete build.
@@ -184,11 +184,12 @@ public static class CharacterCreationKarmaFinalizationProjector
             {
                 foreach (var line in purchasedLifestyles.Lines)
                     Change("lifestyle:" + line.Configuration.LifestyleId.ToString("D"), CharacterCreationFinalizationDeltaKinds.Resources,
-                        line.SourceId.ToString("D"), null, line.Configuration.Name, 0, line.Economics.TotalCost, line.SourceAnchorIds);
+                        line.SourceId.ToString("D"), null, line.Configuration.Name, 0, line.Economics.TotalCost, line.SourceAnchorIds,
+                        line.Configuration.Name);
             }
             else
                 Change("lifestyle:default", CharacterCreationFinalizationDeltaKinds.Resources, finances.StartingCashSource.SourceId,
-                    null, finances.StartingCashSource.Name, 0, 0, finances.StartingCashSource.SourceAnchorIds);
+                    null, finances.StartingCashSource.Name, 0, 0, finances.StartingCashSource.SourceAnchorIds, finances.StartingCashSource.Name);
             Set("karma", Number(finances.KarmaCarried));
             Set("nuyen", Number(finances.CareerNuyen));
             Set("startingnuyen", Number(foundation.Resources!.NuyenFromKarma));
@@ -228,7 +229,8 @@ public static class CharacterCreationKarmaFinalizationProjector
             void Add(IEnumerable<CharacterCreationFinalizationDelta> source)
             { foreach (var delta in source) changes.Add(delta with { Order = changes.Count + 1 }); }
             void Change(string id, string kind, string target, string? before, string? after, decimal karma, decimal nuyen,
-                IReadOnlyList<string> anchors) => changes.Add(new(changes.Count + 1, id, kind, target, before, after, karma, nuyen, anchors));
+                IReadOnlyList<string> anchors, string? targetName = null) =>
+                changes.Add(new(changes.Count + 1, id, kind, target, before, after, karma, nuyen, anchors) { TargetName = targetName });
         }
         catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
             or InvalidDataException or OverflowException)
