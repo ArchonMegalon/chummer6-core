@@ -1742,6 +1742,115 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Original_arm_limited_quality_survives_draft_restart_and_exact_once_career_finalization(string method)
+    {
+        using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            qualityName: "Ambidextrous", buildMethod: method);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var draft = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        var selection = draft.Selections.Single();
+        Assert.AreEqual(2, selection.ResolvedArmCount);
+        Assert.AreEqual(1, selection.Rating);
+        Assert.AreEqual(4, selection.KarmaCost);
+        Assert.AreEqual("{arm} - 1", XElement.Parse(selection.SourceNodeXml).Element("limit")!.Value);
+        using ReadyContext cold = context.Restart();
+        var stored = cold.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(draft.DraftDigest, stored.Document.AuxiliaryState.CharacterCreationQualitiesDraft!.DraftDigest);
+        var state = AssertAvailable(cold.Finalizer.Load(new(context.WorkspaceId)));
+        var review = AssertAvailable(cold.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(cold) }));
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual(4m, review.OrderedDeltas.Where(item => item.Kind == CharacterCreationFinalizationDeltaKinds.Quality
+            || item.TargetId == "qualities-karma-adjustment").Sum(item => item.KarmaCost));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "arm-limit-finalization", true) { StartingCash = review.Plan.StartingCash };
+        var applied = cold.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using ReadyContext reopened = context.Restart();
+        var saved = reopened.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.AreEqual(method, root.Element("buildmethod")!.Value);
+        var quality = root.Element("qualities")!.Elements("quality").Single();
+        Assert.AreEqual("Ambidextrous", quality.Element("name")!.Value);
+        Assert.AreEqual("4", quality.Element("bp")!.Value);
+        var improvement = root.Element("improvements")!.Elements("improvement")
+            .Single(item => item.Element("improvementttype")?.Value == "Ambidextrous");
+        Assert.AreEqual(quality.Element("guid")!.Value, improvement.Element("sourcename")!.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, reopened.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(saved.Document.Content, reopened.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual(saved.ContentRevision, reopened.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Existing_quality_draft_keeps_its_exact_catalog_after_anatomy_support_is_added(string method)
+    {
+        using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            buildMethod: method, legacyQualityCatalog: true);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var draft = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        Assert.IsTrue(draft.Selections.All(item => item.ResolvedArmCount is null));
+        var currentResolver = ((LegacyQualityCatalogResolver)context.Resolver).Inner;
+        var currentSource = currentResolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(currentSource.TryResolveCreationQualitiesAuthority(
+            before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!, out var currentCatalog));
+        Assert.AreNotEqual(draft.AuthorityDigest, currentCatalog.AuthorityDigest);
+
+        var reopenedStore = new FileWorkspaceStore(context.Directory);
+        var currentQualities = new CharacterCreationQualitiesService(reopenedStore, currentResolver,
+            new CharacterCreationPrerequisiteService(reopenedStore, context.Queries, currentResolver),
+            new CharacterCreationAttributesService(reopenedStore, currentResolver));
+        var qualityState = currentQualities.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(qualityState.CanEdit, string.Join(",", qualityState.Blockers));
+        Assert.AreEqual(draft.AuthorityDigest, qualityState.Authority.AuthorityDigest);
+        Assert.AreEqual(draft.DraftDigest, qualityState.PendingDraft!.DraftDigest);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest,
+            reopenedStore.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+
+        var finalizer = ReadyContext.BuildFinalizer(reopenedStore, context.Queries, currentResolver);
+        var state = AssertAvailable(finalizer.Load(new(context.WorkspaceId)));
+        var review = AssertAvailable(finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        var result = finalizer.Confirm(new(state.Binding, review.PreviewDigest, review.Plan!.PlanDigest,
+            "historical-quality-catalog", true) { StartingCash = review.Plan.StartingCash });
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, result.Outcome, string.Join(",", result.Blockers));
+    }
+
+    private sealed class LegacyQualityCatalogResolver(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
+    {
+        internal ICharacterSourceDataResolver Inner => inner;
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            var context = inner.TryCreateContext(characterXml);
+            if (context is null) return null;
+            var proxy = System.Reflection.DispatchProxy.Create<ICharacterSourceDataContext, LegacyQualityCatalogContext>();
+            ((LegacyQualityCatalogContext)proxy).Inner = context;
+            return proxy;
+        }
+    }
+
+    // Reproduces the pre-change resolver entry point with original source bytes;
+    // the fixture is saved by real services, not by rehashing a fabricated draft.
+    public class LegacyQualityCatalogContext : System.Reflection.DispatchProxy
+    {
+        public ICharacterSourceDataContext Inner { get; set; } = null!;
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name == nameof(ICharacterSourceDataContext.TryResolveCreationQualitiesAuthority)
+                && args!.Length == 2)
+            {
+                bool resolved = Inner.TryResolveCreationQualitiesAuthority(out var authority);
+                args[1] = authority;
+                return resolved;
+            }
+            return method.Invoke(Inner, args);
+        }
+    }
+
+    [TestMethod]
     public void Supported_quality_effect_projects_the_complete_legacy_quality_and_improvement_graph()
     {
         Guid sourceId = Guid.Parse("68cfe94a-fa7e-4129-a9b9-b5d73e3ced99");
@@ -2047,7 +2156,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             string? qualityName = null,
             string buildMethod = CharacterCreationBuildMethods.Priority,
             IReadOnlyDictionary<string, string>? rankAssignments = null,
-            bool includeSkillPurchase = false)
+            bool includeSkillPurchase = false,
+            bool legacyQualityCatalog = false)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -2075,6 +2185,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 }
                 ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
                     new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+                if (legacyQualityCatalog) resolver = new LegacyQualityCatalogResolver(resolver);
                 ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
                 var store = new FileWorkspaceStore(directory);
                 CharacterWorkspaceId workspaceId = beforeDrafts is null

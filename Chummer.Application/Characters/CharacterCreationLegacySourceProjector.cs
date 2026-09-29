@@ -43,6 +43,14 @@ public static class CharacterCreationLegacySourceProjector
         StringComparer.Ordinal);
 
     public static bool IsQualitySourceProjectable(string sourceNodeXml)
+        => IsQualitySourceProjectable(sourceNodeXml, armCount: null);
+
+    /// <summary>
+    /// Checks an original quality source against an explicitly resolved creation
+    /// anatomy. Callers must bind the arm count to the selected metatype and all
+    /// active limb effects; absent anatomy never means two arms.
+    /// </summary>
+    public static bool IsQualitySourceProjectable(string sourceNodeXml, int? armCount)
     {
         if (sourceNodeXml is not
             { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength })
@@ -51,7 +59,7 @@ public static class CharacterCreationLegacySourceProjector
             sourceNodeXml,
             "quality",
             s_QualitySourceChildren);
-        return source is not null && TryReadQualityDefinition(source, out _);
+        return source is not null && TryReadQualityDefinition(source, out _, armCount);
     }
 
     public static bool IsGearSourceProjectable(string sourceNodeXml)
@@ -68,6 +76,14 @@ public static class CharacterCreationLegacySourceProjector
         string draftDigest,
         out XElement[] qualities,
         out XElement[] improvements)
+        => TryBuildQualityGraph(selection, draftDigest, out qualities, out improvements, selection?.ResolvedArmCount);
+
+    internal static bool TryBuildQualityGraph(
+        CharacterCreationQualitySelection selection,
+        string draftDigest,
+        out XElement[] qualities,
+        out XElement[] improvements,
+        int? armCount)
     {
         qualities = [];
         improvements = [];
@@ -85,7 +101,7 @@ public static class CharacterCreationLegacySourceProjector
             "quality",
             s_QualitySourceChildren);
         if (source is null
-            || !TryReadQualityDefinition(source, out QualityDefinition definition)
+            || !TryReadQualityDefinition(source, out QualityDefinition definition, armCount)
             || definition.SourceId != selection.SourceId
             || !string.Equals(definition.Name, selection.Name, StringComparison.Ordinal)
             || definition.Type != selection.Type
@@ -276,7 +292,8 @@ public static class CharacterCreationLegacySourceProjector
 
     private static bool TryReadQualityDefinition(
         XElement source,
-        out QualityDefinition definition)
+        out QualityDefinition definition,
+        int? armCount = null)
     {
         definition = null!;
         if (!TryReadGuid(source, "id", out Guid sourceId)
@@ -296,7 +313,7 @@ public static class CharacterCreationLegacySourceProjector
             || !TryReadBoolean(source, "canbuywithspellpoints", false, out bool spellPoints)
             || !TryReadBoolean(source, "print", true, out bool print)
             || !TryReadBooleanAlias(source, "metagenic", "metagenetic", out bool metagenic)
-            || !TryReadMaximumRating(source, out int maximumRating)
+            || !TryReadMaximumRating(source, out int maximumRating, armCount)
             || !TryReadEffectContainer(source.Element("bonus"), out CompiledEffect[] bonusEffects)
             || !TryReadEffectContainer(
                 source.Element("firstlevelbonus"),
@@ -613,12 +630,23 @@ public static class CharacterCreationLegacySourceProjector
     private static XElement CloneContainer(XElement source, string name) =>
         new(name, source.Element(name)?.Nodes());
 
-    private static bool TryReadMaximumRating(XElement source, out int maximumRating)
+    private static bool TryReadMaximumRating(XElement source, out int maximumRating, int? armCount)
     {
         maximumRating = 1;
         if (source.Element("nolevels") is not null)
             return IsEmptyMarker(source.Element("nolevels")!);
         string? limit = ReadOptionalScalar(source, "limit");
+        if (string.Equals(limit, "{arm} - 1", StringComparison.Ordinal))
+        {
+            // The supported SR5 source expression, not a general expression
+            // evaluator. Keep the existing bounded rating contract and reject
+            // missing, impossible or excessive anatomy instead of guessing.
+            maximumRating = 0;
+            if (armCount is not (>= 2 and <= 101))
+                return false;
+            maximumRating = armCount.Value - 1;
+            return true;
+        }
         return limit is null
                || string.Equals(limit, "False", StringComparison.OrdinalIgnoreCase)
                || int.TryParse(limit, NumberStyles.Integer, CultureInfo.InvariantCulture,

@@ -97,7 +97,8 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
 
                 ICharacterSourceDataContext? context = sourceResolver.TryCreateContext(document.Content);
                 if (context is null || !WorkspaceContinuationSourceCapture.TryCapture(
-                        context, document.Content, lifeModules, out var sources))
+                        context, document.Content, lifeModules, out var sources,
+                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft))
                     return Failure("continuation-sources-unavailable", candidate, historyConsistent);
                 sourceDigest = sources.Digest;
                 ICharacterSourceDataResolver frozen = sources.CreateResolver();
@@ -228,7 +229,8 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                 // candidate capture is not proof that the producer is still current.
                 ICharacterSourceDataContext? current = sourceResolver.TryCreateContext(document.Content);
                 if (current is null || !WorkspaceContinuationSourceCapture.TryCapture(
-                        current, document.Content, lifeModules, out var finalSources)
+                        current, document.Content, lifeModules, out var finalSources,
+                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft)
                     || !string.Equals(sourceDigest, finalSources.Digest, StringComparison.Ordinal))
                     boundary.Add("continuation-sources-changed");
 

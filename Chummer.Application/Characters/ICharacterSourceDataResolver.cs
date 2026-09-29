@@ -294,6 +294,14 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Adds only anatomy proven from the current selected prerequisite and source
+    /// graph. Implementations without this projection retain the legacy catalog.
+    /// </summary>
+    bool TryResolveCreationQualitiesAuthority(CharacterCreationPrerequisiteDraft prerequisite,
+        out CharacterCreationQualitiesAuthority authority)
+        => TryResolveCreationQualitiesAuthority(out authority);
+
+    /// <summary>
     /// Resolves the SR5 Priority creation-quality catalog, profile limits and exact
     /// source/runtime binding. Catalog entries with unresolved requirements or follow-up
     /// prompts remain visible but disabled; callers must never invent a selectable fallback.

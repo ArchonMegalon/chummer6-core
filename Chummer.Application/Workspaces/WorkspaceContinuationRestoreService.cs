@@ -175,7 +175,7 @@ public sealed class WorkspaceContinuationRestoreService
                 if (target.Target.Exists && candidate.Snapshot.Workspace.ContentRevision <= target.Target.ContentRevision)
                     return Denied("continuation-target-revision-conflict",
                         target with { Outcome = WorkspaceContinuationRestoreOutcome.Conflict });
-                if (!SourcesMatch(candidate.Snapshot.Workspace.Document.Content, evaluated.SourceDigest!))
+                if (!SourcesMatch(candidate.Snapshot.Workspace.Document, evaluated.SourceDigest!))
                     return Denied("continuation-sources-changed");
                 Guid operation = Guid.NewGuid();
                 string digest = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
@@ -220,7 +220,7 @@ public sealed class WorkspaceContinuationRestoreService
                 return new(WorkspaceContinuationRestoreOutcome.Unavailable);
             using (lease)
             using (var admission = new WorkspaceContinuationRestoreAdmission(review, captured, _maximumBytes, lease,
-                       () => SourcesMatch(evaluated.Candidate.Snapshot.Workspace.Document.Content, review.SourceDigest!),
+                       () => SourcesMatch(evaluated.Candidate.Snapshot.Workspace.Document, review.SourceDigest!),
                        _clock, cancellationToken, evaluated.Candidate.Snapshot.Workspace.ContentRevision,
                        evaluated.Candidate.Snapshot.Workspace.SavedRevision))
                 return capability.RestoreContinuation(admission);
@@ -245,13 +245,14 @@ public sealed class WorkspaceContinuationRestoreService
         using (lease) return capability.RecoverContinuationRestore(owner.Owner, id, operationId, admissionDigest);
     }
 
-    private bool SourcesMatch(string xml, string expectedDigest)
+    private bool SourcesMatch(WorkspaceDocument document, string expectedDigest)
     {
         try
         {
-            ICharacterSourceDataContext? current = _sources.TryCreateContext(xml);
-            return current is not null && WorkspaceContinuationSourceCapture.TryCapture(current, xml, _lifeModules,
-                out var observed) && observed.Digest == expectedDigest;
+            ICharacterSourceDataContext? current = _sources.TryCreateContext(document.Content);
+            return current is not null && WorkspaceContinuationSourceCapture.TryCapture(current, document.Content, _lifeModules,
+                out var observed, document.AuxiliaryState.CharacterCreationPrerequisiteDraft)
+                && observed.Digest == expectedDigest;
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or IOException
             or UnauthorizedAccessException or System.Xml.XmlException or JsonException or FormatException

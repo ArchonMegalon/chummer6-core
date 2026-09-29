@@ -60,6 +60,29 @@ public sealed class WorkspaceContinuationCandidateEvaluatorTests
     }
 
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Original_arm_limited_quality_passes_readonly_continuation_without_rewriting_the_candidate(string method)
+    {
+        using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            qualityName: "Ambidextrous", buildMethod: method);
+        TestOwner owner = new(OwnerScope.LocalSingleUser);
+        var exported = Export(context, owner);
+        var selection = exported.Snapshot.Workspace.Document.AuxiliaryState
+            .CharacterCreationQualitiesDraft!.Selections.Single();
+        Assert.AreEqual(2, selection.ResolvedArmCount);
+        Assert.AreEqual(4, selection.KarmaCost);
+        byte[] bytes = Encode(exported);
+        var durable = CaptureFiles(context.Directory);
+
+        var result = Evaluator(context, owner).Evaluate(owner.Capture(), bytes, MaximumBytes);
+
+        Passed(result);
+        CollectionAssert.AreEqual(bytes, Encode(result.Candidate!));
+        AssertFilesUnchanged(context.Directory, durable);
+    }
+
+    [TestMethod]
     public void Real_bootstrap_only_wizard_does_not_require_absent_future_choices()
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
