@@ -24,6 +24,8 @@ internal sealed class WorkspaceContinuationSourceCapture
     private readonly Captured<CharacterCreationPrerequisiteAuthority> _prerequisite;
     private readonly Captured<CharacterCreationSkillsAuthority> _skills;
     private readonly Captured<CharacterCreationQualitiesAuthority> _qualities;
+    private readonly string? _qualityPrerequisiteDigest;
+    private readonly Captured<CharacterCreationQualitiesAuthority> _contextualQualities;
     private readonly Captured<CharacterCreationMagicResonanceAuthority> _magic;
     private readonly Captured<CharacterCreationResourcesAuthority> _resources;
     private readonly Captured<CharacterCreationGearAuthority> _gear;
@@ -32,7 +34,8 @@ internal sealed class WorkspaceContinuationSourceCapture
     private readonly FrozenLifeModulesCatalog _lifeModules;
 
     private WorkspaceContinuationSourceCapture(ICharacterSourceDataContext source,
-        string characterXml, ILifeModulesCatalogService lifeModules)
+        string characterXml, ILifeModulesCatalogService lifeModules,
+        CharacterCreationPrerequisiteDraft? qualityPrerequisite)
     {
         _characterXml = characterXml;
         _profile = Capture(source.TryResolveCreationSourceProfile, CharacterCreationSourceProfileAuthority.Unavailable);
@@ -78,6 +81,19 @@ internal sealed class WorkspaceContinuationSourceCapture
         _prerequisite = Capture(source.TryResolveCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority.Unavailable);
         _skills = Capture(source.TryResolveCreationSkillsAuthority, CharacterCreationSkillsAuthority.Unavailable);
         _qualities = Capture(source.TryResolveCreationQualitiesAuthority, CharacterCreationQualitiesAuthority.Unavailable);
+        // The pending prerequisite lives in auxiliary state, not in character XML.
+        // Freeze its complete bytes before asking the live source for anatomy;
+        // neither a claimed draft hash nor a later caller can substitute a choice.
+        CharacterCreationPrerequisiteDraft? frozenPrerequisite = qualityPrerequisite is null ? null
+            : JsonSerializer.SerializeToElement(qualityPrerequisite).Deserialize<CharacterCreationPrerequisiteDraft>()
+                ?? throw new InvalidDataException("Missing quality prerequisite capture.");
+        _qualityPrerequisiteDigest = frozenPrerequisite is null ? null
+            : CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(frozenPrerequisite);
+        _contextualQualities = frozenPrerequisite is null
+            ? new(false, CharacterCreationQualitiesAuthority.Unavailable)
+            : Capture((out CharacterCreationQualitiesAuthority result) =>
+                source.TryResolveCreationQualitiesAuthority(frozenPrerequisite, out result),
+                CharacterCreationQualitiesAuthority.Unavailable);
         _magic = Capture(source.TryResolveCreationMagicResonanceAuthority, CharacterCreationMagicResonanceAuthority.Unavailable);
         _resources = Capture(source.TryResolveCreationResourcesAuthority, CharacterCreationResourcesAuthority.Unavailable);
         _gear = Capture(source.TryResolveCreationGearAuthority, CharacterCreationGearAuthority.Unavailable);
@@ -93,11 +109,12 @@ internal sealed class WorkspaceContinuationSourceCapture
         _lifeModules = FrozenLifeModulesCatalog.Capture(lifeModules, _profile.Resolved, profile.EnabledSourcebooks);
         Digest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
         {
-            Semantics = "chummer.workspace-continuation-source-capture/v1",
+            Semantics = "chummer.workspace-continuation-source-capture/v2",
             RawCharacterXmlDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(characterXml),
             Profile = _profile, AttributePolicy = _attributePolicy, Metatypes = _metatypes, Prerequisite = _prerequisite,
             KarmaTalents = _karmaTalents, KarmaSkillsPolicy = _karmaSkillsPolicy, SkillsCatalog = _skillsCatalog,
             Skills = _skills, Qualities = _qualities, MagicResonance = _magic,
+            QualityPrerequisiteDigest = _qualityPrerequisiteDigest, ContextualQualities = _contextualQualities,
             Resources = _resources, Gear = _gear, Lifestyles = _lifestyles,
             Reputation = _reputation, LifeModules = _lifeModules.CapturedState
         });
@@ -109,7 +126,8 @@ internal sealed class WorkspaceContinuationSourceCapture
 
     public static bool TryCapture(ICharacterSourceDataContext source, string characterXml,
         ILifeModulesCatalogService lifeModules,
-        [NotNullWhen(true)] out WorkspaceContinuationSourceCapture? capture)
+        [NotNullWhen(true)] out WorkspaceContinuationSourceCapture? capture,
+        CharacterCreationPrerequisiteDraft? qualityPrerequisite = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(characterXml);
@@ -117,7 +135,7 @@ internal sealed class WorkspaceContinuationSourceCapture
         capture = null;
         try
         {
-            capture = new(source, characterXml, lifeModules);
+            capture = new(source, characterXml, lifeModules, qualityPrerequisite);
             return true;
         }
         catch (Exception exception) when (IsSourceFailure(exception))
@@ -217,6 +235,17 @@ internal sealed class WorkspaceContinuationSourceCapture
         public bool TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority authority) => capture._prerequisite.Read(out authority);
         public bool TryResolveCreationSkillsAuthority(out CharacterCreationSkillsAuthority authority) => capture._skills.Read(out authority);
         public bool TryResolveCreationQualitiesAuthority(out CharacterCreationQualitiesAuthority authority) => capture._qualities.Read(out authority);
+        public bool TryResolveCreationQualitiesAuthority(CharacterCreationPrerequisiteDraft prerequisite,
+            out CharacterCreationQualitiesAuthority authority)
+        {
+            authority = CharacterCreationQualitiesAuthority.Unavailable;
+            if (prerequisite is null || capture._qualityPrerequisiteDigest is null
+                || !string.Equals(capture._qualityPrerequisiteDigest,
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(prerequisite),
+                    StringComparison.Ordinal))
+                return false;
+            return capture._contextualQualities.Read(out authority);
+        }
         public bool TryResolveCreationMagicResonanceAuthority(out CharacterCreationMagicResonanceAuthority authority) => capture._magic.Read(out authority);
         public bool TryResolveCreationResourcesAuthority(out CharacterCreationResourcesAuthority authority) => capture._resources.Read(out authority);
         public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority) => capture._gear.Read(out authority);

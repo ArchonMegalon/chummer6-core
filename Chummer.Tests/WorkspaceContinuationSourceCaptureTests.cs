@@ -13,6 +13,44 @@ public sealed class WorkspaceContinuationSourceCaptureTests
     private const string CharacterXml = "<character><settings>capture.xml</settings></character>";
 
     [TestMethod]
+    public void Contextual_quality_capture_binds_exact_prerequisite_and_never_falls_back_to_live_sources()
+    {
+        using var context = CharacterCreationFinalizationServiceTests.ReadyContext.Create(true);
+        var prerequisite = context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryState
+            .CharacterCreationPrerequisiteDraft!;
+        var source = new Source();
+        var catalog = new Catalog();
+        source.ContextualQualities = source.Qualities with { Blockers = ["contextual-original"] };
+        Assert.IsTrue(WorkspaceContinuationSourceCapture.TryCapture(source, CharacterXml, catalog,
+            out var capture, prerequisite));
+        Assert.IsNotNull(capture);
+        source.ContextualQualities = source.ContextualQualities with { Blockers = ["changed"] };
+        Assert.IsTrue(WorkspaceContinuationSourceCapture.TryCapture(source, CharacterXml, catalog,
+            out var changed, prerequisite));
+        Assert.AreNotEqual(capture.Digest, changed!.Digest,
+            "Recapture must detect contextual changes even when the claimed authority hash is unchanged.");
+        source.ForbidReads = true;
+        catalog.ForbidReads = true;
+        var frozen = Context(capture);
+        Assert.IsTrue(frozen.TryResolveCreationQualitiesAuthority(prerequisite, out var first));
+        CollectionAssert.AreEqual(new[] { "contextual-original" }, first.Blockers.ToArray());
+        ((IList<string>)first.Blockers)[0] = "returned-mutation";
+        Assert.IsTrue(frozen.TryResolveCreationQualitiesAuthority(prerequisite, out var second));
+        CollectionAssert.AreEqual(new[] { "contextual-original" }, second.Blockers.ToArray());
+        Assert.IsTrue(frozen.TryResolveCreationQualitiesAuthority(out var legacy));
+        Same(source.Qualities, legacy);
+        // Keep the claimed DraftDigest unchanged while forging the actual choice.
+        var substituted = prerequisite with { HeritageSelection = prerequisite.HeritageSelection! with
+        {
+            MetatypeName = "Substituted anatomy"
+        } };
+        Assert.IsFalse(frozen.TryResolveCreationQualitiesAuthority(substituted, out var rejected));
+        Same(CharacterCreationQualitiesAuthority.Unavailable, rejected);
+        Assert.IsFalse(Context(Capture(new Source(), new Catalog()))
+            .TryResolveCreationQualitiesAuthority(prerequisite, out _));
+    }
+
+    [TestMethod]
     public void Every_captured_domain_and_complete_catalog_remain_available_without_live_reads()
     {
         var source = new Source();
@@ -300,6 +338,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         public CharacterCreationPrerequisiteAuthority Prerequisite { get; set; } = CharacterCreationPrerequisiteAuthority.Unavailable;
         public CharacterCreationSkillsAuthority Skills { get; set; }
         public CharacterCreationQualitiesAuthority Qualities { get; set; } = CharacterCreationQualitiesAuthority.Unavailable;
+        public CharacterCreationQualitiesAuthority ContextualQualities { get; set; } = CharacterCreationQualitiesAuthority.Unavailable;
         public CharacterCreationMagicResonanceAuthority Magic { get; set; } = CharacterCreationMagicResonanceAuthority.Unavailable;
         public CharacterCreationResourcesAuthority Resources { get; set; } = CharacterCreationResourcesAuthority.Unavailable;
         public CharacterCreationGearAuthority Gear { get; set; } = CharacterCreationGearAuthority.Unavailable;
@@ -362,6 +401,8 @@ public sealed class WorkspaceContinuationSourceCaptureTests
             return SkillsResolved;
         }
         public bool TryResolveCreationQualitiesAuthority(out CharacterCreationQualitiesAuthority value) => Read(Qualities, out value);
+        public bool TryResolveCreationQualitiesAuthority(CharacterCreationPrerequisiteDraft prerequisite,
+            out CharacterCreationQualitiesAuthority value) => Read(ContextualQualities, out value);
         public bool TryResolveCreationMagicResonanceAuthority(out CharacterCreationMagicResonanceAuthority value) => Read(Magic, out value);
         public bool TryResolveCreationResourcesAuthority(out CharacterCreationResourcesAuthority value) => Read(Resources, out value);
         public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority value) => Read(Gear, out value);
