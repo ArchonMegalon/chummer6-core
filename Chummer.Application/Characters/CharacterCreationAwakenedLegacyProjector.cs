@@ -103,7 +103,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 projectedQualities.Add(saved);
                 CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-quality:" + id,
                     CharacterCreationFinalizationDeltaKinds.Quality, quality.SourceId, null, quality.Name,
-                    0, 0, quality.SourceAnchorIds);
+                    0, 0, quality.SourceAnchorIds, quality.Name);
             }
             foreach (var quality in source.Talent.GrantedQualitySources!)
                 CheckRestrictions(Parse(quality.CanonicalSourceXml, "quality"), root,
@@ -125,7 +125,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 CharacterCreationFinalizationProjector.AddDelta(deltas, ref order,
                     "talent-gear:" + saved.Element("guid")!.Value,
                     CharacterCreationFinalizationDeltaKinds.Gear, gearSource.SourceId, null, gearSource.Name,
-                    0, 0, gearSource.SourceAnchorIds);
+                    0, 0, gearSource.SourceAnchorIds, gearSource.Name);
             }
             foreach (string flag in flags)
             {
@@ -466,7 +466,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
         CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, source.Identity.Kind + ":" + source.Identity.SourceId,
             CharacterCreationFinalizationDeltaKinds.MagicResonance, source.Identity.SourceId, null,
             source.Name + (source.Levels > 1 ? " × " + source.Levels.ToString(CultureInfo.InvariantCulture) : string.Empty),
-            0, 0, source.SourceAnchorIds);
+            0, 0, source.SourceAnchorIds, source.Name);
 
     internal static XElement Improvement(string type, string name, string sourceName, string source,
         int value = 0, string unique = "", int rating = 1) => new("improvement",

@@ -82,7 +82,7 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
                     changes.Add(new(changes.Count, "karma-metatype-bonus:" + type,
                         CharacterCreationFinalizationDeltaKinds.Metatype, quote.Metatype.OptionId, "0",
                         value.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, 0,
-                        [$"metatypes.xml#metatype:{quote.Metatype.OptionId}/bonus/{sourceField}"]));
+                        [$"metatypes.xml#metatype:{quote.Metatype.OptionId}/bonus/{sourceField}"]) { TargetName = quote.Metatype.Label });
                 }
             }
             var allSources = racialSources.Concat(talentSource is null ? [] : new[] { talentSource }).ToArray();
@@ -108,7 +108,8 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
                 changes.Add(new(changes.Count, $"karma-grant:{source.SourceId}", CharacterCreationFinalizationDeltaKinds.Quality,
                     source.SourceId, null, source.Name, racial ? 0 : quote.Talent.KarmaCost, 0,
                     source.SourceAnchorIds.Concat(racial ? quote.Metatype.GrantedQualities[index].SourceAnchorIds
-                        : quote.Talent.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()));
+                        : quote.Talent.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray())
+                { TargetName = source.Name });
             }
             // Check restrictions against both automatic grants and purchases.
             var purchased = new XElement("character", new XElement("qualities", quote.Qualities.Selections.Select(item =>
@@ -126,7 +127,8 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
                 // where these free instances are combined with purchased gear.
                 gearContainer.Add(saved);
                 changes.Add(new(changes.Count, "karma-grant-gear:" + saved.Element("guid")!.Value,
-                    CharacterCreationFinalizationDeltaKinds.Gear, source.SourceId, null, source.Name, 0, 0, source.SourceAnchorIds));
+                    CharacterCreationFinalizationDeltaKinds.Gear, source.SourceId, null, source.Name, 0, 0, source.SourceAnchorIds)
+                { TargetName = source.Name });
             }
             var flagNodes = new[] { "magenabled", "resenabled", "depenabled", "adept", "magician", "technomancer", "ai" }
                 .Select(flag => new XElement(flag, flags.Contains(flag) ? "True" : "False")).ToArray();
