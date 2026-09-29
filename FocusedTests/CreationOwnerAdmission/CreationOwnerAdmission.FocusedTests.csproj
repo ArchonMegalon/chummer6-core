@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Fixtures.cs" />
+    <Compile Include="MagicResonanceCases.cs" Condition="'$(RunLegacyProbe)' != 'true' and '$(RunScopedStoreProbe)' != 'true' and '$(RunInventoryProbe)' != 'true'" />
     <Compile Include="Program.cs" Condition="'$(RunLegacyProbe)' != 'true' and '$(RunScopedStoreProbe)' != 'true' and '$(RunInventoryProbe)' != 'true'" />
     <Compile Include="LegacyProbe.cs" Condition="'$(RunLegacyProbe)' == 'true' and '$(RunScopedStoreProbe)' != 'true' and '$(RunInventoryProbe)' != 'true'" />
     <Compile Include="ScopedStoreProbe.cs" Condition="'$(RunScopedStoreProbe)' == 'true' and '$(RunInventoryProbe)' != 'true'" />

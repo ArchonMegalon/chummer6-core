@@ -229,6 +229,8 @@ public static class ServiceCollectionExtensions
             OwnerBoundCharacterCreationQualitiesService>();
         services.AddSingleton<ICharacterCreationMagicResonanceService,
             CharacterCreationMagicResonanceService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationMagicResonanceService,
+            OwnerBoundCharacterCreationMagicResonanceService>();
         services.AddSingleton<CharacterCreationContactsService>();
         services.AddSingleton<ICharacterCreationContactsService>(provider =>
             provider.GetRequiredService<CharacterCreationContactsService>());
