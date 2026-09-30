@@ -387,7 +387,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 name,
                 category,
                 [anchor],
-                ComputeNodeDigest("metatype", effectiveDigest, id, row)));
+                CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest(
+                    "metatype", effectiveDigest, id, row.ToString(SaveOptions.DisableFormatting))));
         }
         if (result.Select(item => item.MetatypeSourceId)
             .Distinct(StringComparer.Ordinal).Count() != result.Count)
@@ -454,7 +455,12 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
 
             string anchor = $"{FileName(kind)}#{kind}:{id}";
             string[] normalized = Normalize(local);
-            string canonicalSourceXml = CanonicalXml(row);
+            // The node digest binds the original whitespace-preserving row;
+            // the payload binds the separately normalized XML. Retain both
+            // meanings while serializing the original row only once.
+            string rawSourceXml = row.ToString(SaveOptions.DisableFormatting);
+            string canonicalSourceXml = XElement.Parse(rawSourceXml, LoadOptions.None)
+                .ToString(SaveOptions.DisableFormatting);
             result.Add(new(
                 CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
                 new(kind, id),
@@ -464,7 +470,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 maximumLevels,
                 source,
                 page,
-                ComputeNodeDigest(kind, effectiveDigest, id, row),
+                CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest(kind, effectiveDigest, id, rawSourceXml),
                 [anchor],
                 normalized,
                 IsEnabled: normalized.Length == 0)
@@ -611,15 +617,6 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         value = false;
         return TryReadScalar(row, field, out string raw) && bool.TryParse(raw, out value);
     }
-
-    private static string ComputeNodeDigest(string kind, string inputsDigest, string id, XElement row) =>
-        CharacterCreationMagicResonanceDigest.Compute(new
-        {
-            Schema = $"chummer.sr5.standard_priority_magic_resonance_{kind}_source.v1",
-            EffectiveInputsDigest = inputsDigest,
-            SourceId = id,
-            RawNode = row.ToString(SaveOptions.DisableFormatting)
-        });
 
     private static string FileName(string kind) => kind switch
     {

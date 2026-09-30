@@ -12,6 +12,50 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Magic_source_node_digest_preserves_raw_XML_and_legacy_canonical_bytes()
+    {
+        foreach (string? kind in new string?[] { "metatype", "tradition", "stream", "adept-power", "spell", "complex-form", "é\"😀", null })
+        foreach (string? xml in new string?[] { null, "", "<spell>\n  <name>Zoë 東京 😀</name>\n</spell>",
+                     "é <>&\"\\\r\n\t\ud800", new string('x', 300_000) + "é😀" })
+        {
+            string? inputs = xml is null ? null : "sha256:" + new string('a', 64);
+            string? id = xml is null ? null : "source-\"é😀";
+            var reference = new
+            {
+                Schema = $"chummer.sr5.standard_priority_magic_resonance_{kind}_source.v1",
+                EffectiveInputsDigest = inputs, SourceId = id, RawNode = xml
+            };
+            string expected = "sha256:" + LegacyDigest(reference);
+            Assert.AreEqual(expected, CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest(kind!, inputs!, id!, xml!));
+            Parallel.For(0, 4, _ => Assert.AreEqual(expected,
+                CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest(kind!, inputs!, id!, xml!)));
+        }
+        string before = CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest("spell", "source", "id", "<spell> </spell>");
+        Assert.AreNotEqual(before, CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest("spell", "source", "id", "<spell></spell>"));
+        Assert.AreNotEqual(before, CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest("spell", "changed", "id", "<spell> </spell>"));
+        Assert.AreNotEqual(before, CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest("spell", "source", "changed", "<spell> </spell>"));
+        Assert.AreNotEqual(before, CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest("stream", "source", "id", "<spell> </spell>"));
+    }
+
+    [TestMethod]
+    public void Magic_source_node_digest_avoids_DOM_allocations_for_large_rows()
+    {
+        string xml = new string('x', 300_000) + "é😀<>&\"";
+        Func<string> direct = () => CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest("spell", "inputs", "id", xml);
+        Func<string> legacy = () => CharacterCreationMagicResonanceDigest.Compute(new
+        {
+            Schema = "chummer.sr5.standard_priority_magic_resonance_spell_source.v1",
+            EffectiveInputsDigest = "inputs", SourceId = "id", RawNode = xml
+        });
+        Assert.AreEqual(legacy(), direct());
+        long directBytes = Allocations(direct);
+        long legacyBytes = Allocations(legacy);
+        Console.WriteLine($"Magic source-node allocation: direct={directBytes}; DOM={legacyBytes}.");
+        Assert.IsTrue(directBytes < 4096, $"Fixed-shape source digest allocated {directBytes:N0} bytes after warmup.");
+        Assert.AreEqual(legacy(), direct());
+    }
+
+    [TestMethod]
     public void Foundation_equality_preserves_canonical_keys_duplicates_arrays_and_numeric_tokens()
     {
         (string Left, string Right, bool Equal)[] cases =
