@@ -47,7 +47,7 @@ public static class CharacterCreationKarmaMagicRules
                 || root.Element("karmacost") is not { } costs
                 || !TryCost(costs, "karmaspell", out int spell)
                 || !TryCost(costs, "karmanewcomplexform", out int form)) return false;
-            string anchor = $"settings.xml#setting:{profileId}";
+            string anchor = CharacterCreationBootstrapProfiles.SettingsSourceAnchor(profileId);
             var result = new CharacterCreationKarmaMagicPolicy(schema,
                 profileId, settingsInputsDigest, spell, form, ignoreLimit, powerPoints!, canonicalSourceXml,
                 CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalSourceXml),

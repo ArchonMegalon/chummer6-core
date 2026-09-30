@@ -3885,7 +3885,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
         Assert.AreEqual(profile.RawProfileInputsDigest, policy.RawProfileInputsDigest);
         Assert.AreEqual(CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(policy), policy.AuthorityDigest);
-        CollectionAssert.AreEqual(new[] { $"settings.xml#setting:{CanonicalKarmaSettingsId}" }, policy.SourceAnchorIds.ToArray());
+        CollectionAssert.AreEqual(new[] { CharacterCreationBootstrapProfiles.SettingsSourceAnchor(CanonicalKarmaSettingsId) }, policy.SourceAnchorIds.ToArray());
         AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
     }
 
@@ -4871,7 +4871,7 @@ public sealed class CharacterCreationBootstrapServiceTests
             bool includeLifestyles = false, bool includeMagic = false)
         {
             Directory.CreateDirectory(Path.Combine(_root, "data"));
-            foreach (string name in new[] { "settings.xml", "metatypes.xml", "qualities.xml" })
+            foreach (string name in new[] { "settings.xml", "settings-all-sources.xml", "metatypes.xml", "qualities.xml" })
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
             if (includeSkills)
                 foreach (string name in new[] { "skills.xml", "weapons.xml" })
@@ -4970,7 +4970,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         }
         public void EditSettings(Action<XElement> change)
         {
-            string path = Path.Combine(_root, "data", "settings.xml");
+            string path = Path.Combine(_root, "data", CharacterCreationBootstrapProfiles.SettingsSourceFile(CanonicalKarmaSettingsId));
             var document = XDocument.Load(path);
             change(document.Descendants("setting").Single(node => node.Element("id")?.Value == CanonicalKarmaSettingsId));
             document.Save(path);
@@ -5009,7 +5009,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(cost, quote.Metatype.KarmaCost);
         Assert.AreEqual((decimal)cost, quote.KarmaBudget.Used);
         Assert.AreEqual(800m - cost, quote.KarmaBudget.Remaining);
-        CollectionAssert.Contains(quote.SourceAnchorIds.ToArray(), $"settings.xml#setting:{CanonicalKarmaSettingsId}");
+        CollectionAssert.Contains(quote.SourceAnchorIds.ToArray(), CharacterCreationBootstrapProfiles.SettingsSourceAnchor(CanonicalKarmaSettingsId));
         Assert.IsTrue(quote.SourceAnchorIds.Count > 1);
         Assert.AreEqual(quote.QuoteDigest, service.Preview(state.Binding, optionId).Value!.QuoteDigest);
         AssertJsonEqual(before, store.Get(id).Value!);
@@ -5089,9 +5089,9 @@ public sealed class CharacterCreationBootstrapServiceTests
         {
             string data = Path.Combine(root, "data");
             Directory.CreateDirectory(data);
-            foreach (string file in new[] { "settings.xml", "metatypes.xml" })
+            foreach (string file in new[] { "settings.xml", "settings-all-sources.xml", "metatypes.xml" })
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(data, file));
-            string settingsPath = Path.Combine(data, "settings.xml");
+            string settingsPath = Path.Combine(data, CharacterCreationBootstrapProfiles.SettingsSourceFile(CanonicalKarmaSettingsId));
             XDocument settings = XDocument.Load(settingsPath);
             XElement profile = settings.Descendants("setting").Single(item =>
                 item.Element("id")?.Value == CanonicalKarmaSettingsId);
@@ -5158,9 +5158,9 @@ public sealed class CharacterCreationBootstrapServiceTests
         {
             string data = Path.Combine(root, "data");
             Directory.CreateDirectory(data);
-            foreach (string file in new[] { "settings.xml", "metatypes.xml" })
+            foreach (string file in new[] { "settings.xml", "settings-all-sources.xml", "metatypes.xml" })
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(data, file));
-            string settingsPath = Path.Combine(data, "settings.xml");
+            string settingsPath = Path.Combine(data, CharacterCreationBootstrapProfiles.SettingsSourceFile(CanonicalKarmaSettingsId));
             XDocument settings = XDocument.Load(settingsPath);
             XElement profile = settings.Descendants("setting").Single(item =>
                 item.Element("id")?.Value == CanonicalKarmaSettingsId);
@@ -5246,13 +5246,15 @@ public sealed class CharacterCreationBootstrapServiceTests
     {
         string coreRoot = FindCoreRoot();
         var settings = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data", "settings.xml"));
+        var defaults = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data", "settings-all-sources.xml"));
         string[] books = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data", "books.xml"))
             .Descendants("book").Select(book => book.Element("code")?.Value)
             .OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         Assert.IsTrue(books.Length > 2);
         Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(method, out string currentId));
         Assert.AreNotEqual(legacyId, currentId);
-        XElement Profile(string id) => settings.Descendants("setting").Single(row => row.Element("id")?.Value == id);
+        XElement Profile(string id) => (id == currentId ? defaults : settings).Descendants("setting")
+            .Single(row => row.Element("id")?.Value == id);
         var current = Profile(currentId);
         var legacy = Profile(legacyId);
         CollectionAssert.AreEqual(books, current.Element("books")!.Elements("book").Select(book => book.Value).Order(StringComparer.Ordinal).ToArray());
@@ -5276,12 +5278,130 @@ public sealed class CharacterCreationBootstrapServiceTests
             Assert.IsTrue(context.TryResolveCreationSourceProfile(out var authority));
             CollectionAssert.AreEquivalent(Profile(id).Element("books")!.Elements("book").Select(book => book.Value).ToArray(),
                 authority.EnabledSourcebooks.ToArray());
-            CollectionAssert.Contains(result.Value.Binding.SourceAnchorIds.ToList(), $"settings.xml#setting:{id}");
+            CollectionAssert.Contains(result.Value.Binding.SourceAnchorIds.ToList(), CharacterCreationBootstrapProfiles.SettingsSourceAnchor(id));
             AssertJsonEqual(saved, store.Get(result.Value.WorkspaceId).Value!);
         }
         Assert.IsFalse(CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(method,
             method == CharacterCreationBuildMethods.Priority ? CharacterCreationBootstrapProfiles.LegacyKarmaSettingsProfileId
                 : CharacterCreationBootstrapProfiles.LegacyPrioritySettingsProfileId));
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CharacterCreationBootstrapProfiles.LegacyPrioritySettingsProfileId)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CharacterCreationBootstrapProfiles.LegacySumToTenSettingsProfileId)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CharacterCreationBootstrapProfiles.LegacyKarmaSettingsProfileId)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CharacterCreationBootstrapProfiles.LegacyLifeModulesSettingsProfileId)]
+    public void Adding_new_default_profiles_preserves_cold_reopen_of_preexisting_runner_bindings(string method, string legacyId)
+    {
+        string root = Directory.CreateTempSubdirectory("chummer-profile-upgrade-").FullName;
+        try
+        {
+            string data = Directory.CreateDirectory(Path.Combine(root, "data")).FullName;
+            foreach (string name in new[] { "settings.xml", "metatypes.xml", "priorities.xml", "skills.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(data, name));
+            string settingsPath = Path.Combine(data, "settings.xml");
+            byte[] releasedSettings = File.ReadAllBytes(settingsPath);
+            var beforeUpgrade = XDocument.Load(settingsPath);
+            string[] newProfileIds = [CharacterCreationBootstrapProfiles.PrioritySettingsProfileId,
+                CharacterCreationBootstrapProfiles.SumToTenSettingsProfileId,
+                CharacterCreationBootstrapProfiles.KarmaSettingsProfileId,
+                CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId];
+            var newRows = beforeUpgrade.Descendants("setting")
+                .Where(row => newProfileIds.Contains(row.Element("id")?.Value, StringComparer.Ordinal)).ToArray();
+            // Existing installs did not contain the new default profiles. Keep
+            // byte-for-byte legacy input when the defaults live separately.
+            if (newRows.Length != 0)
+            {
+                newRows.Remove();
+                beforeUpgrade.Save(settingsPath);
+            }
+            string state = Path.Combine(root, "state");
+            var store = new FileWorkspaceStore(state);
+            var created = CreateService(store, CreateSourceResolver(root), CreateFileQueries())
+                .Create(CanonicalRequest() with { BuildMethod = method, SettingsProfileId = legacyId });
+            Assert.IsNotNull(created.Value, string.Join(",", created.Blockers));
+            var saved = store.Get(created.Value.WorkspaceId).Value!;
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryValidatePending(saved,
+                CreateSourceResolver(root), out var initialBlockers), string.Join(",", initialBlockers));
+
+            File.WriteAllBytes(settingsPath, releasedSettings);
+            string additionalProfiles = Path.Combine(FindCoreRoot(), "Chummer", "data", "settings-all-sources.xml");
+            if (File.Exists(additionalProfiles))
+                File.Copy(additionalProfiles, Path.Combine(data, "settings-all-sources.xml"));
+            var reopened = new FileWorkspaceStore(state).Get(saved.Id).Value!;
+            AssertJsonEqual(saved, reopened);
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryValidatePending(reopened,
+                CreateSourceResolver(root), out var upgradeBlockers), string.Join(",", upgradeBlockers));
+            AssertJsonEqual(saved, new FileWorkspaceStore(state).Get(saved.Id).Value!);
+
+            // Real edits to the selected old policy must still fail closed.
+            var changed = XDocument.Load(settingsPath);
+            changed.Descendants("setting").Single(row => row.Element("id")?.Value == legacyId)
+                .Element("books")!.Add(new XElement("book", "FORGED-SOURCE"));
+            changed.Save(settingsPath);
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryValidatePending(reopened,
+                CreateSourceResolver(root), out _));
+            AssertJsonEqual(saved, new FileWorkspaceStore(state).Get(saved.Id).Value!);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("missing")]
+    [DataRow("duplicate")]
+    [DataRow("changed")]
+    [DataRow("relocated")]
+    public void Default_profile_source_is_exact_and_never_falls_back_to_legacy_file(string fault)
+    {
+        string root = Directory.CreateTempSubdirectory("chummer-default-profile-drift-").FullName;
+        try
+        {
+            string data = Directory.CreateDirectory(Path.Combine(root, "data")).FullName;
+            foreach (string file in new[] { "settings.xml", "settings-all-sources.xml", "metatypes.xml", "priorities.xml", "skills.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(data, file));
+            var store = new FileWorkspaceStore(Path.Combine(root, "state"));
+            var service = CreateService(store, CreateSourceResolver(root), CreateFileQueries());
+            var current = service.Create(CanonicalRequest());
+            var legacy = service.Create(CanonicalRequest() with
+                { SettingsProfileId = CharacterCreationBootstrapProfiles.LegacyPrioritySettingsProfileId });
+            Assert.IsNotNull(current.Value, string.Join(",", current.Blockers));
+            Assert.IsNotNull(legacy.Value, string.Join(",", legacy.Blockers));
+            var currentSaved = store.Get(current.Value.WorkspaceId).Value!;
+            var legacySaved = store.Get(legacy.Value.WorkspaceId).Value!;
+            string defaultsPath = Path.Combine(data, "settings-all-sources.xml");
+            var defaults = XDocument.Load(defaultsPath);
+            XElement selected = defaults.Descendants("setting")
+                .Single(row => row.Element("id")?.Value == CanonicalPrioritySettingsId);
+            if (fault is "missing" or "relocated")
+            {
+                File.Delete(defaultsPath);
+                if (fault == "relocated")
+                {
+                    string legacyPath = Path.Combine(data, "settings.xml");
+                    var legacyFile = XDocument.Load(legacyPath);
+                    legacyFile.Root!.Element("settings")!.Add(new XElement(selected));
+                    legacyFile.Save(legacyPath);
+                }
+            }
+            else
+            {
+                if (fault == "duplicate") selected.Parent!.Add(new XElement(selected));
+                else selected.Element("karmacost")!.SetElementValue("karmaattribute", "7");
+                defaults.Save(defaultsPath);
+            }
+            var cold = new FileWorkspaceStore(Path.Combine(root, "state"));
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryValidatePending(cold.Get(currentSaved.Id).Value!,
+                CreateSourceResolver(root), out _));
+            if (fault != "relocated")
+                Assert.IsTrue(CharacterCreationBootstrapAuthority.TryValidatePending(cold.Get(legacySaved.Id).Value!,
+                    CreateSourceResolver(root), out var blockers), string.Join(",", blockers));
+            AssertJsonEqual(currentSaved, cold.Get(currentSaved.Id).Value!);
+            AssertJsonEqual(legacySaved, cold.Get(legacySaved.Id).Value!);
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     [TestMethod]
@@ -5355,7 +5475,7 @@ public sealed class CharacterCreationBootstrapServiceTests
             receipt.Binding.PrerequisiteAuthorityDigest));
         CollectionAssert.Contains(
             receipt.SourceAnchorIds.ToList(),
-            $"settings.xml#setting:{CanonicalPrioritySettingsId}");
+            CharacterCreationBootstrapProfiles.SettingsSourceAnchor(CanonicalPrioritySettingsId));
         CollectionAssert.Contains(receipt.SourceAnchorIds.ToList(), "metatypes.xml");
         CollectionAssert.Contains(receipt.SourceAnchorIds.ToList(), "priorities.xml");
 

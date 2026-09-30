@@ -22,7 +22,7 @@ public sealed class OwnerBoundCharacterCreationPrerequisiteServiceTests
 {
     private static readonly OwnerScope AccountA = new("prerequisite-account-a");
     private static readonly OwnerScope AccountB = new("prerequisite-account-b");
-    private static readonly string[] SourceFiles = ["settings.xml", "priorities.xml", "metatypes.xml", "skills.xml"];
+    private static readonly string[] SourceFiles = ["settings.xml", "settings-all-sources.xml", "priorities.xml", "metatypes.xml", "skills.xml"];
     private static readonly ICharacterFileQueries Queries = new XmlCharacterFileQueries(new CharacterFileService());
     private static string s_root = null!;
     private static ICharacterSourceDataResolver s_resolver = null!;

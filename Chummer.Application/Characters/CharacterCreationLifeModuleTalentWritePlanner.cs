@@ -35,7 +35,7 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
                 || !catalog.SkillUnlockChoices.TryGetValue(talent.OptionId, out var unlockChoices))
                 return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.SelectionInvalid);
             var projected = talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
-                ? CharacterCreationKarmaTalentAuthority.Mundane($"settings.xml#setting:{catalog.SettingsProfileId}")
+                ? CharacterCreationKarmaTalentAuthority.Mundane(CharacterCreationBootstrapProfiles.SettingsSourceAnchor(catalog.SettingsProfileId))
                 : CharacterCreationKarmaTalentAuthority.Project(XElement.Parse(talent.SourceNodeXml), catalog.KarmaQuality, true);
             if (!CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(talent, projected)
                 || !CharacterCreationLifeModuleTalentAuthority.TryProjectUnlockChoices(talent, out var expectedUnlocks)

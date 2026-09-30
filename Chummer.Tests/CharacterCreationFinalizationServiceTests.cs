@@ -368,7 +368,8 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
             review.Plan!.PlanDigest, "drifted-carryover-profile", true) { StartingCash = review.Plan.StartingCash };
-        string settingsPath = Path.Combine(context.Directory, "source", "data", "settings.xml");
+        string settingsPath = Path.Combine(context.Directory, "source", "data",
+            CharacterCreationBootstrapProfiles.SettingsSourceFile(review.Plan.CarryoverPolicy!.SettingsProfileId));
         var settings = XDocument.Load(settingsPath);
         var profile = settings.Root!.Element("settings")!.Elements("setting")
             .Single(item => item.Element("id")!.Value == review.Plan.CarryoverPolicy!.SettingsProfileId);
@@ -2247,10 +2248,10 @@ public sealed class CharacterCreationFinalizationServiceTests
                     System.IO.Directory.CreateDirectory(destination);
                     foreach (string sourceFile in System.IO.Directory.EnumerateFiles(sourceData, "*.xml"))
                         File.Copy(sourceFile, Path.Combine(destination, Path.GetFileName(sourceFile)));
-                    string settingsPath = Path.Combine(destination, "settings.xml");
-                    XDocument settingsDocument = XDocument.Load(settingsPath);
                     Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
                         buildMethod, out string settingsProfileId));
+                    string settingsPath = Path.Combine(destination, CharacterCreationBootstrapProfiles.SettingsSourceFile(settingsProfileId));
+                    XDocument settingsDocument = XDocument.Load(settingsPath);
                     XElement profile = settingsDocument.Root!.Element("settings")!.Elements("setting")
                         .Single(item => item.Element("id")!.Value == settingsProfileId);
                     amendSettings(profile);

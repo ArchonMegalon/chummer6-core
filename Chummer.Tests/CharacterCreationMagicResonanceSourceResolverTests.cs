@@ -15,11 +15,15 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     private const string StandardPrioritySettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
 
     [TestMethod]
-    public void Karma_magic_catalog_has_real_profile_prices_and_no_priority_talent_authority()
+    [DataRow(CharacterCreationBootstrapProfiles.KarmaSettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.LegacyKarmaSettingsProfileId)]
+    public void Karma_magic_catalog_has_real_profile_prices_and_no_priority_talent_authority(string profileId)
     {
-        var catalog = LoadKarmaMagic(FindCoreRoot());
+        var catalog = LoadKarmaMagic(FindCoreRoot(), profileId);
+        string[] enabledBooks = XElement.Parse(catalog.Policy.CanonicalSourceXml)
+            .Element("books")!.Elements("book").Select(book => book.Value).ToArray();
         Assert.AreEqual(CharacterCreationKarmaMagicCatalog.SchemaV1, catalog.Schema);
-        Assert.AreEqual(CharacterCreationBootstrapProfiles.KarmaSettingsProfileId, catalog.SettingsProfileId);
+        Assert.AreEqual(profileId, catalog.SettingsProfileId);
         Assert.AreEqual(catalog.Talents.RawProfileInputsDigest, catalog.RawProfileInputsDigest);
         Assert.AreEqual(5, catalog.Policy.KarmaPerSpell);
         Assert.AreEqual(4, catalog.Policy.KarmaPerComplexForm);
@@ -38,7 +42,8 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
                 Assert.AreEqual(CharacterCreationMagicResonanceDigest.ComputeUtf8(option.CanonicalSourceXml),
                     option.CanonicalSourceXmlDigest);
                 Assert.IsTrue(option.SourceAnchorIds.Count > 0);
-                if (option.SourceBook != "SR5") Assert.IsFalse(option.IsEnabled, option.Name);
+                if (!enabledBooks.Contains(option.SourceBook, StringComparer.Ordinal))
+                    Assert.IsFalse(option.IsEnabled, option.Name);
             }
         }
         Assert.IsTrue(catalog.Talents.Options.Any(option => option.IsEnabled && option.EnabledAttribute == "MAG"));
@@ -139,7 +144,7 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
         Directory.CreateDirectory(Path.Combine(root, "data"));
         try
         {
-            foreach (string file in new[] { "settings.xml", "priorities.xml", "metatypes.xml", "qualities.xml",
+            foreach (string file in new[] { "settings.xml", "settings-all-sources.xml", "priorities.xml", "metatypes.xml", "qualities.xml",
                 "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml" })
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(root, "data", file));
             var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
@@ -160,7 +165,7 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
             CollectionAssert.Contains(disabled.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
             var beforeProfileChange = resolver.TryCreateContext(character)!;
             Assert.IsTrue(beforeProfileChange.TryResolveCreationKarmaMagicCatalog(out _));
-            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            string settingsPath = Path.Combine(root, "data", CharacterCreationBootstrapProfiles.SettingsSourceFile(changed.SettingsProfileId));
             var settings = XDocument.Load(settingsPath);
             settings.Descendants("setting").Single(item => item.Element("id")?.Value == changed.SettingsProfileId)
                 .Element("karmacost")!.Element("karmaspell")!.Value = "9";
@@ -174,10 +179,11 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    private static CharacterCreationKarmaMagicCatalog LoadKarmaMagic(string root)
+    private static CharacterCreationKarmaMagicCatalog LoadKarmaMagic(string root,
+        string profileId = CharacterCreationBootstrapProfiles.KarmaSettingsProfileId)
     {
         var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
-        var context = resolver.TryCreateContext($"<character><settings>{CharacterCreationBootstrapProfiles.KarmaSettingsProfileId}</settings></character>");
+        var context = resolver.TryCreateContext($"<character><settings>{profileId}</settings></character>");
         Assert.IsNotNull(context);
         Assert.IsTrue(context.TryResolveCreationKarmaMagicCatalog(out var catalog));
         Assert.IsNotNull(catalog);

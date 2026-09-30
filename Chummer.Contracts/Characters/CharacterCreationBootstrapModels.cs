@@ -60,7 +60,7 @@ public static class CharacterCreationBootstrapProfiles
     public static string SettingsSourceAnchor(string rulesetId, string settingsProfileId)
         => rulesetId switch
         {
-            RulesetDefaults.Sr5 => $"settings.xml#setting:{settingsProfileId}",
+            RulesetDefaults.Sr5 => SettingsSourceAnchor(settingsProfileId),
             RulesetDefaults.Sr6 => Sr6CharacterCreationBootstrapProfiles.SettingsSourceAnchor(settingsProfileId),
             _ => string.Empty
         };
@@ -102,6 +102,17 @@ public static class CharacterCreationBootstrapProfiles
     public const string LegacyLifeModulesSettingsProfileId =
         "8a31af6d-7137-4284-872b-7d8087e156c6";
 
+    // New defaults have their own exact input file. Appending them to the
+    // original settings.xml would invalidate every saved legacy binding even
+    // though none of the selected legacy rules had changed.
+    public static string SettingsSourceFile(string? settingsProfileId)
+        => settingsProfileId is PrioritySettingsProfileId or SumToTenSettingsProfileId
+            or KarmaSettingsProfileId or LifeModulesSettingsProfileId
+                ? "settings-all-sources.xml" : "settings.xml";
+
+    public static string SettingsSourceAnchor(string settingsProfileId)
+        => $"{SettingsSourceFile(settingsProfileId)}#setting:{settingsProfileId}";
+
     /// <summary>
     /// Resolves the default settings profile for a supported SR5 creation
     /// method. Legacy restricted-source profiles remain valid for reopen.
@@ -142,7 +153,7 @@ public static class CharacterCreationBootstrapProfiles
         if (!IsExactCanonicalTuple(buildMethod, settingsProfileId))
             return [];
 
-        string settingsAnchor = $"settings.xml#setting:{settingsProfileId}";
+        string settingsAnchor = SettingsSourceAnchor(settingsProfileId);
         return buildMethod is CharacterCreationBuildMethods.Priority
                 or CharacterCreationBuildMethods.SumToTen
             ? ["metatypes.xml", "priorities.xml", settingsAnchor, "skills.xml"]

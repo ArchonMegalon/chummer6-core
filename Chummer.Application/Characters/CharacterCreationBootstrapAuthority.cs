@@ -181,7 +181,7 @@ public static class CharacterCreationBootstrapAuthority
         metatypeAuthority ??= CharacterCreationMetatypeCatalogAuthority.Unavailable;
         prerequisiteAuthority ??= CharacterCreationPrerequisiteAuthority.Unavailable;
 
-        string settingsAnchor = $"settings.xml#setting:{shape.SettingsProfileId}";
+        string settingsAnchor = CharacterCreationBootstrapProfiles.SettingsSourceAnchor(shape.SettingsProfileId);
         bool profileValid = sourceProfileResolved
                             && string.Equals(
                                 sourceProfile.SettingsProfileId,

@@ -62,7 +62,7 @@ public static class CharacterCreationMysticAdeptPowerPointRules
                 || !int.TryParse(karmaText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int karma)
                 || karma < 0)
                 return false;
-            string anchor = $"settings.xml#setting:{profileId}";
+            string anchor = CharacterCreationBootstrapProfiles.SettingsSourceAnchor(profileId);
             var candidate = new CharacterCreationMysticAdeptPowerPointPolicy(profileId, settingsInputsDigest,
                 karma, exchange, separate, canonicalSourceXml,
                 CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalSourceXml),
