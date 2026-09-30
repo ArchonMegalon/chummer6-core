@@ -11,6 +11,160 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationQualitiesRulesTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Addition_batch_preserves_individual_quotes_budgets_blockers_and_digests(string method)
+    {
+        var disabled = Option("disabled", CharacterCreationQualityType.Positive, 3) with
+        { IsSelectable = false, EligibilityIsExact = false, DisableReasonKey = "requires-choice" };
+        disabled = disabled with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(disabled) };
+        var authority = Authority(
+            Option("positive", CharacterCreationQualityType.Positive, 5),
+            Option("expensive", CharacterCreationQualityType.Positive, 30),
+            Option("negative", CharacterCreationQualityType.Negative, -10),
+            Option("meta-positive", CharacterCreationQualityType.Positive, 5, true),
+            Option("meta-negative", CharacterCreationQualityType.Negative, -5, true), disabled);
+        string[] additions = ["positive", "expensive", "negative", "meta-positive", "meta-negative", "disabled", "missing"];
+        foreach (var policy in new CharacterCreationQualityCostPolicy?[] { null, new(2, true, true) })
+        foreach (int karma in new[] { 0, 25, 100 })
+        foreach (string[] selected in new string[][] { [], ["positive"], ["meta-positive"], ["positive", "positive"] })
+        {
+            var current = authority with { CostPolicy = policy };
+            current = current with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(current) };
+            var binding = Binding(current, karma) with { BuildMethod = method };
+            AssertAdditionQuotesEqual(new(binding, current, selected), additions);
+        }
+        var ready = new CharacterCreationQualitiesInput(Binding(authority), authority, []);
+        Assert.IsTrue(CharacterCreationQualitiesRules.EvaluateAdditions(ready, ["positive"])[0].CanConfirm);
+        Assert.IsFalse(CharacterCreationQualitiesRules.EvaluateAdditions(ready, ["expensive"])[0].CanConfirm);
+        Assert.AreEqual(0, CharacterCreationQualitiesRules.EvaluateAdditions(ready, []).Count);
+    }
+
+    [TestMethod]
+    public void Addition_batch_rejects_stale_binding_and_tampered_unselected_authority()
+    {
+        var chosen = Option("chosen", CharacterCreationQualityType.Positive, 5);
+        var other = Option("other", CharacterCreationQualityType.Positive, 3);
+        var authority = Authority(chosen, other);
+        var binding = Binding(authority);
+        CharacterCreationQualitiesInput[] invalid =
+        [
+            new(binding with { SavedRevision = binding.SavedRevision - 1 }, authority, []),
+            new(binding with { AuthorityDigest = Digest('f') }, authority, []),
+            new(binding with { CharacterCreated = true }, authority, []),
+            new(binding, authority with { Options = [chosen, other with { KarmaCost = 1 }] }, []),
+            new(binding, authority with { Options = [chosen, other, other] }, []),
+            new(binding, authority with { Blockers = ["source-unavailable"] }, [])
+        ];
+        foreach (var input in invalid)
+        {
+            AssertAdditionQuotesEqual(input, ["chosen"]);
+            Assert.IsFalse(CharacterCreationQualitiesRules.EvaluateAdditions(input, ["chosen"])[0].CanConfirm);
+        }
+    }
+
+    [TestMethod]
+    public void Addition_batch_owns_nested_snapshots_and_revalidates_the_next_call()
+    {
+        string[] optionAnchors = ["qualities.xml#chosen"];
+        string[] grantAnchors = ["metatypes.xml#heritage"];
+        string[] authorityAnchors = ["settings.xml#test"];
+        var option = Option("chosen", CharacterCreationQualityType.Positive, 5) with { SourceAnchorIds = optionAnchors };
+        option = option with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(option) };
+        var grant = new CharacterCreationGrantedQuality("heritage", Guid.NewGuid(), "heritage", "Heritage",
+            CharacterCreationQualityType.Negative, 1, -3, false, true, true, "Heritage", grantAnchors, "");
+        grant = grant with { GrantDigest = CharacterCreationQualitiesRules.ComputeGrantDigest(grant) };
+        var authority = Authority(option) with
+        { GrantedQualities = [grant], SourceAnchorIds = authorityAnchors, CostPolicy = new(2, true, true) };
+        authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        var input = new CharacterCreationQualitiesInput(Binding(authority), authority, []);
+        AssertAdditionQuotesEqual(input, ["chosen"]);
+        var result = CharacterCreationQualitiesRules.EvaluateAdditions(input, ["chosen"]);
+        Assert.IsTrue(result[0].CanConfirm);
+        string before = JsonSerializer.Serialize(result);
+        optionAnchors[0] = "forged-option";
+        grantAnchors[0] = "forged-grant";
+        authorityAnchors[0] = "forged-authority";
+        Assert.AreEqual(before, JsonSerializer.Serialize(result), "No quote may retain caller-owned nested lists.");
+        Assert.IsFalse(CharacterCreationQualitiesRules.EvaluateAdditions(input, ["chosen"])[0].CanConfirm,
+            "A previous batch must not authorize changed source bytes.");
+    }
+
+    [TestMethod]
+    public void Addition_batch_supports_cancellation_and_rejects_oversized_inputs()
+    {
+        var authority = Authority(Option("chosen", CharacterCreationQualityType.Positive, 5));
+        var input = new CharacterCreationQualitiesInput(Binding(authority), authority, []);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.ThrowsExactly<OperationCanceledException>(() =>
+            CharacterCreationQualitiesRules.EvaluateAdditions(input, ["chosen"], cancellation.Token));
+        using var duringCopy = new CancellationTokenSource();
+        var additions = new ObservedList<string>(["chosen"], duringCopy.Cancel);
+        Assert.ThrowsExactly<OperationCanceledException>(() =>
+            CharacterCreationQualitiesRules.EvaluateAdditions(input, additions, duringCopy.Token));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            CharacterCreationQualitiesRules.EvaluateAdditions(input, new string[65_537]));
+        Assert.ThrowsExactly<ArgumentException>(() => CharacterCreationQualitiesRules.EvaluateAdditions(
+            input with { SelectedOptionIds = new string[65_537] }, ["chosen"]));
+        Assert.ThrowsExactly<ArgumentException>(() => CharacterCreationQualitiesRules.EvaluateAdditions(
+            input with { Authority = authority with { Options = new CharacterCreationQualityCatalogOption[65_537] } }, ["chosen"]));
+    }
+
+    [TestMethod]
+    public void Addition_batch_reads_caller_catalog_once_and_reduces_catalog_quote_work()
+    {
+        var authority = Authority(Enumerable.Range(0, 256)
+            .Select(index => Option("option-" + index, CharacterCreationQualityType.Positive, index % 30)).ToArray());
+        var options = new ObservedList<CharacterCreationQualityCatalogOption>(authority.Options, () => { });
+        authority = authority with { Options = options };
+        var input = new CharacterCreationQualitiesInput(Binding(authority), authority, []);
+        var additions = authority.Options.Select(option => option.OptionId).ToArray();
+        _ = CharacterCreationQualitiesRules.Evaluate(input);
+        _ = CharacterCreationQualitiesRules.EvaluateAdditions(input, additions);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var individual = additions.Select(id => CharacterCreationQualitiesRules.Evaluate(input with { SelectedOptionIds = [id] })).ToArray();
+        double individualMs = timer.Elapsed.TotalMilliseconds;
+        long individualBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        options.Enumerations = 0;
+        before = GC.GetAllocatedBytesForCurrentThread();
+        timer.Restart();
+        var batch = CharacterCreationQualitiesRules.EvaluateAdditions(input, additions);
+        double batchMs = timer.Elapsed.TotalMilliseconds;
+        long batchBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(1, options.Enumerations, "Copy caller data once; never reuse it per quote.");
+        Assert.AreEqual(JsonSerializer.Serialize(individual), JsonSerializer.Serialize(batch));
+        Assert.IsLessThan(individualBytes / 4, batchBytes, "Shared catalog validation must not allocate once per option.");
+        Console.WriteLine($"quality-batch synthetic options={additions.Length}: individual={individualMs:F2}ms/{individualBytes}B; batch={batchMs:F2}ms/{batchBytes}B");
+    }
+
+    private static void AssertAdditionQuotesEqual(CharacterCreationQualitiesInput input, string[] additions)
+    {
+        var batch = CharacterCreationQualitiesRules.EvaluateAdditions(input, additions);
+        Assert.AreEqual(additions.Length, batch.Count);
+        for (int index = 0; index < additions.Length; index++)
+        {
+            var expected = CharacterCreationQualitiesRules.Evaluate(input with
+            { SelectedOptionIds = [.. input.SelectedOptionIds, additions[index]] });
+            Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(batch[index]), additions[index]);
+        }
+    }
+
+    private sealed class ObservedList<T>(IReadOnlyList<T> values, Action onRead) : IReadOnlyList<T>
+    {
+        public int Enumerations { get; set; }
+        public int Count => values.Count;
+        public T this[int index] => values[index];
+        public IEnumerator<T> GetEnumerator()
+        {
+            Enumerations++;
+            foreach (T item in values) { onRead(); yield return item; }
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    [TestMethod]
     public void Free_quality_allowances_are_rounded_after_summing_and_before_caps()
     {
         CharacterCreationQualityCostItem[] items = [new(20, true, true, false), new(-20, true, true, false),
