@@ -1,6 +1,7 @@
 namespace Chummer.Contracts.Characters;
 
-/// <summary>Explicit re-review of a saved pre-TalentAccess Skills draft. Historical
+/// <summary>Explicit re-review of a saved pre-TalentAccess Skills draft or one
+/// predating a later Attributes edit under the same source authority. Historical
 /// choices are not current legality; only the current preview may be confirmed.</summary>
 public static class CharacterCreationSkillsReReviewSchemas
 {
