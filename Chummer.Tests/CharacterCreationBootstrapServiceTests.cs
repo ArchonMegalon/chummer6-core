@@ -4883,6 +4883,12 @@ public sealed class CharacterCreationBootstrapServiceTests
             if (includeMagic)
                 foreach (string name in new[] { "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml" })
                     File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
+            // This fixture intentionally tests the SR5/RF subset unless fullSources
+            // is requested. Do not let the new application default implicitly
+            // enable optional rules (for example HT free grids) in these cases.
+            if (!fullSources)
+                EditSettings(row => row.Element("books")!.ReplaceWith(
+                    new XElement("books", new XElement("book", "SR5"), new XElement("book", "RF"))));
             if (budget != 800) SetBudget(budget);
             if (qualityMultiplier != 1) EditSettings(row => row.Element("karmacost")!.Element("karmaquality")!.Value =
                 qualityMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture));
