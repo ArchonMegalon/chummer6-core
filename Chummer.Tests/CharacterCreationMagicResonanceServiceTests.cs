@@ -193,6 +193,8 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
                 coldAttributesService.Confirm(new(newer.Binding, newerAllocations, newer.PreviewDigest, true)).Outcome);
             long changedRevision = coldStore.Get(id).Value!.ContentRevision;
+            Assert.IsNull(coldService.LoadReReview(new(id)).Value,
+                "Changed effective Magic/power budgets cannot enter unchanged-semantics re-review.");
             Assert.AreEqual(receipt, coldService.Confirm(request).Value);
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
                 coldService.Confirm(request with { IdempotencyKey = "new-command-with-stale-budget" }).Outcome);

@@ -231,6 +231,12 @@ public static class ServiceCollectionExtensions
             CharacterCreationMagicResonanceService>();
         services.AddSingleton<IOwnerBoundCharacterCreationMagicResonanceService,
             OwnerBoundCharacterCreationMagicResonanceService>();
+        services.AddSingleton<ICharacterCreationMagicResonanceReReviewService>(provider =>
+            (ICharacterCreationMagicResonanceReReviewService)provider
+                .GetRequiredService<ICharacterCreationMagicResonanceService>());
+        services.AddSingleton<IOwnerBoundCharacterCreationMagicResonanceReReviewService>(provider =>
+            (IOwnerBoundCharacterCreationMagicResonanceReReviewService)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationMagicResonanceService>());
         services.AddSingleton<CharacterCreationContactsService>();
         services.AddSingleton<ICharacterCreationContactsService>(provider =>
             provider.GetRequiredService<CharacterCreationContactsService>());

@@ -12,8 +12,34 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationMagicResonanceService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationMagicResonanceService
+    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationMagicResonanceService,
+    IOwnerBoundCharacterCreationMagicResonanceReReviewService
 {
+    public CharacterCreationFoundationResult<CharacterCreationMagicResonanceReReviewState> LoadReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.LoadReReview(request));
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationMagicResonanceReReviewPreview> PreviewReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceReReviewPreviewRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Binding);
+        ArgumentNullException.ThrowIfNull(request.Binding.Current);
+        return Invoke(expectedOwner, request.Binding.Current.WorkspaceId, service => service.PreviewReReview(request));
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationMagicResonanceReceipt> ConfirmReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceReReviewConfirmRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Binding);
+        ArgumentNullException.ThrowIfNull(request.Binding.Current);
+        return Invoke(expectedOwner, request.Binding.Current.WorkspaceId, service => service.ConfirmReReview(request));
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceLoadRequest request)
     {
