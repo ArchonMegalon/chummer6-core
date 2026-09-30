@@ -92,6 +92,53 @@ public sealed partial class CharacterCreationSkillsServiceTests
             Assert.AreEqual(other.ContentRevision, cold.Get(ownerB, id).Value!.ContentRevision);
             Assert.IsFalse(cold.Get(id).Success);
             Assert.AreEqual(0, owners.ActiveLeases);
+
+            // A later Attributes edit invalidates the saved Skills binding. The
+            // review must use the same real owner partition, never legacy Get(id).
+            CharacterCreationAttributeAllocation[] changedPoints = [new("INT", 3, 0), new("LOG", 2, 0)];
+            var nextAttributes = attributes.Preview(fresh, new(attributes.Load(fresh, new(id)).Value!.Binding, changedPoints)).Value!;
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, attributes.Confirm(fresh,
+                new(nextAttributes.Binding, changedPoints, nextAttributes.PreviewDigest, true)).Outcome);
+            var beforeReview = store.Get(ownerA, id).Value!;
+            IOwnerBoundCharacterCreationSkillsReReviewService reviewService = reopened;
+            var review = reviewService.LoadReReview(fresh, new(id));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, review.Outcome, string.Join(",", review.Blockers));
+            Assert.IsNull(new CharacterCreationSkillsService(cold, resolver).LoadReReview(new(id)).Value);
+            var proposal = reviewService.PreviewReReview(fresh, new(review.Value!.Binding, choices, []));
+            Assert.IsTrue(proposal.Value!.CurrentPreview.CanConfirm, string.Join(",", proposal.Blockers));
+            var reviewCommand = new CharacterCreationSkillsReReviewConfirmRequest(review.Value.Binding, choices, [],
+                proposal.Value.PreviewDigest, "owner-bound-skills-rereview", true, true);
+            foreach (var denied in new[] { default(OwnerContextStamp), fresh with { Owner = ownerB },
+                         fresh with { AuthorityInstanceId = "foreign" } })
+            {
+                Assert.IsNull(reviewService.LoadReReview(denied, new(id)).Value);
+                Assert.IsNull(reviewService.PreviewReReview(denied, new(review.Value.Binding, choices, [])).Value);
+                Assert.IsNull(reviewService.ConfirmReReview(denied, reviewCommand).Value);
+            }
+            Assert.IsNull(reviewService.ConfirmReReview(fresh, reviewCommand with { ExplicitlyReviewedChanges = false }).Value);
+            owners.Set(ownerB);
+            owners.Set(ownerA);
+            Assert.IsNull(reviewService.LoadReReview(fresh, new(id)).Value);
+            Assert.IsNull(reviewService.PreviewReReview(fresh, new(review.Value.Binding, choices, [])).Value);
+            Assert.IsNull(reviewService.ConfirmReReview(fresh, reviewCommand).Value,
+                "An old review must not survive an A→B→A owner transition.");
+            Assert.AreEqual(beforeReview.Document.AuxiliaryStateDigest, store.Get(ownerA, id).Value!.Document.AuxiliaryStateDigest);
+            var reviewOwner = owners.Capture();
+            var reviewed = reviewService.ConfirmReReview(reviewOwner, reviewCommand);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, reviewed.Outcome, string.Join(",", reviewed.Blockers));
+            var reviewedCold = new FileWorkspaceStore(directory);
+            var coldReviewService = new OwnerBoundCharacterCreationSkillsService(reviewedCold, owners, resolver);
+            Assert.AreEqual(reviewed.Value!.ReceiptDigest, coldReviewService.ConfirmReReview(reviewOwner, reviewCommand).Value!.ReceiptDigest);
+            var final = reviewedCold.Get(ownerA, id).Value!;
+            Assert.AreEqual(beforeReview.ContentRevision + 1, final.ContentRevision);
+            Assert.AreEqual(final.ContentRevision, final.SavedRevision);
+            Assert.AreEqual(saved.Value.ReceiptDigest, final.Document.AuxiliaryState.CharacterCreationSkillsReceipts![0].ReceiptDigest);
+            Assert.AreEqual(beforeReview.Document.Content, final.Document.Content);
+            Assert.AreEqual(beforeReview.Document.AuxiliaryState.CharacterCreationAttributesDraft!.DraftDigest,
+                final.Document.AuxiliaryState.CharacterCreationAttributesDraft!.DraftDigest);
+            Assert.AreEqual(other.Document.AuxiliaryStateDigest, reviewedCold.Get(ownerB, id).Value!.Document.AuxiliaryStateDigest);
+            Assert.IsFalse(reviewedCold.Get(id).Success);
+            Assert.AreEqual(0, owners.ActiveLeases);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }

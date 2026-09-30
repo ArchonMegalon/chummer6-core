@@ -12,7 +12,8 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationSkillsService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationSkillsService
+    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationSkillsService,
+    IOwnerBoundCharacterCreationSkillsReReviewService
 {
     public CharacterCreationFoundationResult<CharacterCreationSkillsState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request)
@@ -35,6 +36,31 @@ public sealed class OwnerBoundCharacterCreationSkillsService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Binding);
         return Invoke(expectedOwner, request.Binding.WorkspaceId, service => service.Confirm(request));
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationSkillsReReviewState> LoadReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.LoadReReview(request));
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationSkillsReReviewPreview> PreviewReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsReReviewPreviewRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Binding);
+        ArgumentNullException.ThrowIfNull(request.Binding.Current);
+        return Invoke(expectedOwner, request.Binding.Current.WorkspaceId, service => service.PreviewReReview(request));
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationSkillsReceipt> ConfirmReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsReReviewConfirmRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Binding);
+        ArgumentNullException.ThrowIfNull(request.Binding.Current);
+        return Invoke(expectedOwner, request.Binding.Current.WorkspaceId, service => service.ConfirmReReview(request));
     }
 
     private CharacterCreationFoundationResult<T> Invoke<T>(OwnerContextStamp expectedOwner,
