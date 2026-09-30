@@ -8,7 +8,8 @@ namespace Chummer.Application.Characters;
 /// Deterministic, draft-only SR5 Standard Priority Magic/Resonance step. This service
 /// advances only the workspace auxiliary ledger; character XML is never a mutation target.
 /// </summary>
-public sealed class CharacterCreationMagicResonanceService : ICharacterCreationMagicResonanceService
+public sealed partial class CharacterCreationMagicResonanceService : ICharacterCreationMagicResonanceService,
+    ICharacterCreationMagicResonanceReReviewService
 {
     private readonly IWorkspaceStore _store;
     private readonly ICharacterSourceDataResolver _resolver;
@@ -58,6 +59,11 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
 
     public CharacterCreationFoundationResult<CharacterCreationMagicResonanceReceipt> Confirm(
         CharacterCreationMagicResonanceConfirmRequest request)
+        => ConfirmCore(request, null);
+
+    private CharacterCreationFoundationResult<CharacterCreationMagicResonanceReceipt> ConfirmCore(
+        CharacterCreationMagicResonanceConfirmRequest request,
+        CharacterCreationMagicResonanceReReviewBinding? reReview)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!request.ExplicitlyConfirmed)
@@ -78,7 +84,17 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 CharacterCreationMagicResonanceBlockers.WorkspaceUnavailable);
 
         string keyDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(request.IdempotencyKey);
-        string commandDigest = ComputeCommandDigest(request);
+        string commandDigest = reReview is null ? ComputeCommandDigest(request)
+            : CharacterCreationMagicResonanceDigest.Compute(new
+            {
+                Schema = CharacterCreationMagicResonanceReReviewSchemas.CommandV1,
+                ReReview = reReview,
+                request.Binding,
+                Selections = NormalizeSelections(request.Selections),
+                request.PreviewDigest,
+                ExplicitlyConfirmed = true,
+                ExplicitlyReviewedChanges = true
+            });
         bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
             currentWorkspace, out var history, out long historyRevision);
         IReadOnlyList<CharacterCreationMagicResonanceReceipt>? ledger = history.CharacterCreationMagicResonanceReceipts;
@@ -99,12 +115,14 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
 
         PreviewEvaluation evaluation = Evaluate(new CharacterCreationMagicResonancePreviewRequest(
             request.Binding,
-            request.Selections));
+            request.Selections), reReview);
         if (evaluation.Result.Value is not { } preview
             || evaluation.Workspace is not { } workspace
             || evaluation.Draft is not { } draft)
             return new(evaluation.Result.Outcome, null, evaluation.Result.Blockers);
-        if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(preview.PreviewDigest, request.PreviewDigest))
+        string admittedPreviewDigest = reReview is null ? preview.PreviewDigest
+            : BuildReReviewPreview(reReview, preview).PreviewDigest;
+        if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(admittedPreviewDigest, request.PreviewDigest))
             return Blocked<CharacterCreationMagicResonanceReceipt>(
                 CharacterCreationFoundationOutcomes.Conflict,
                 CharacterCreationMagicResonanceBlockers.PreviewDigestMismatch);
@@ -119,7 +137,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         draft = draft with
         {
             LastIdempotencyKeyDigest = keyDigest,
-            LastPreviewDigest = preview.PreviewDigest,
+            LastPreviewDigest = admittedPreviewDigest,
             LastCommandDigest = commandDigest,
             DraftDigest = string.Empty
         };
@@ -141,7 +159,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             nextContentRevision,
             draft.DraftRevision,
             draft.DraftDigest,
-            preview.PreviewDigest,
+            admittedPreviewDigest,
             keyDigest,
             commandDigest,
             ledger is { Count: > 0 }
@@ -219,7 +237,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         return new(CharacterCreationFoundationOutcomes.Success, receipt, []);
     }
 
-    private PreviewEvaluation Evaluate(CharacterCreationMagicResonancePreviewRequest request)
+    private PreviewEvaluation Evaluate(CharacterCreationMagicResonancePreviewRequest request,
+        CharacterCreationMagicResonanceReReviewBinding? reReview = null)
     {
         WorkspaceStoreReadResult read = _store.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not { } workspace)
@@ -249,6 +268,17 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 CharacterCreationFoundationOutcomes.Conflict, mismatch), null, null);
 
         var blockers = new List<string>(state.Blockers);
+        if (reReview is not null)
+        {
+            if (!TryPrepareReReview(workspace, state, out var currentReview)
+                || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                    CharacterCreationMagicResonanceDigest.Compute(reReview),
+                    CharacterCreationMagicResonanceDigest.Compute(currentReview)))
+                return new(Blocked<CharacterCreationMagicResonancePreview>(
+                    CharacterCreationFoundationOutcomes.Conflict,
+                    CharacterCreationMagicResonanceReReviewSchemas.Stale), null, null);
+            blockers.RemoveAll(item => item == CharacterCreationMagicResonanceBlockers.DraftInvalid);
+        }
         SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, attributes, request.Selections, blockers);
         CharacterCreationMagicResonanceDraft? draft = blockers.Count == 0
             ? BuildDraft(
