@@ -494,6 +494,24 @@ public static class CharacterCreationMagicResonanceDigest
         Prefix + Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty)));
 
+    public static string ComputeSourceNodeDigest(string kind, string inputsDigest, string id, string rawNode)
+    {
+        // Exactly the existing source-node v1 JSON, in ordinal property order.
+        // Hash the fixed scalar shape directly: no anonymous object, JSON DOM,
+        // or second full copy of each catalog row. Do not normalize raw XML.
+        using var buffer = new CreationDigestBufferWriter();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("EffectiveInputsDigest", inputsDigest);
+            writer.WriteString("RawNode", rawNode);
+            writer.WriteString("Schema", $"chummer.sr5.standard_priority_magic_resonance_{kind}_source.v1");
+            writer.WriteString("SourceId", id);
+            writer.WriteEndObject();
+        }
+        return Prefix + buffer.GetDigest();
+    }
+
     public static bool IsCanonical(string? value) =>
         value is { Length: 71 }
         && value.StartsWith(Prefix, StringComparison.Ordinal)

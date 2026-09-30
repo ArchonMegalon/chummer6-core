@@ -19,6 +19,54 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
+    [TestMethod]
+    public void Magic_catalog_preserves_raw_node_hash_normalized_payload_and_admission()
+    {
+        const string id = "d39cb2a3-879e-4e74-b399-505825be2acf";
+        const string inputs = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        foreach (string kind in new[] { "tradition", "stream", "adept-power", "spell", "complex-form" })
+        foreach (string space in new[] { "", " xml:space=\"preserve\"" })
+        foreach (bool bookEnabled in new[] { true, false })
+        foreach (bool unsupported in new[] { false, true })
+        {
+            string raw = $"<option{space} xmlns:extra=\"urn:fixture\">\n  <id>{id}</id>\n"
+                + "  <name>Zoë &amp; 東京 😀</name>\n  <!-- retained -->\n"
+                + "  <source>SR5</source>\n  <page>123</page>\n"
+                + "  <category>Combat</category><points>0.5</points><levels>False</levels>"
+                + "<drain>BOD + WIL</drain><extra:note> escaped &lt;value&gt; </extra:note>"
+                + (unsupported ? "<required><quality>Unresolved</quality></required>" : "")
+                + "\n</option>";
+            XElement row = XElement.Parse(raw, LoadOptions.PreserveWhitespace);
+            string serialized = row.ToString(SaveOptions.DisableFormatting);
+            string canonical = XElement.Parse(serialized, LoadOptions.None).ToString(SaveOptions.DisableFormatting);
+            var blockers = new System.Collections.Generic.List<string>();
+            var options = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
+                [row], kind, inputs, bookEnabled ? ["sr5"] : [], blockers);
+            Assert.AreEqual(0, blockers.Count);
+            Assert.AreEqual(1, options.Length);
+            var option = options[0];
+            Assert.AreEqual(CharacterCreationMagicResonanceDigest.Compute(new
+            {
+                Schema = $"chummer.sr5.standard_priority_magic_resonance_{kind}_source.v1",
+                EffectiveInputsDigest = inputs, SourceId = id, RawNode = serialized
+            }), option.SourceNodeDigest);
+            Assert.AreEqual(canonical, option.CanonicalSourceXml);
+            Assert.AreEqual(CharacterCreationMagicResonanceDigest.ComputeUtf8(canonical), option.CanonicalSourceXmlDigest);
+            if (space.Length == 0)
+                Assert.AreNotEqual(serialized, canonical, "The raw digest must not silently bind normalized XML.");
+            Assert.AreEqual(kind, option.Identity.Kind);
+            Assert.AreEqual(id, option.Identity.SourceId);
+            Assert.AreEqual("Zoë & 東京 😀", option.Name);
+            Assert.AreEqual(bookEnabled && !unsupported, option.IsEnabled);
+            var expected = new System.Collections.Generic.List<string>();
+            if (!bookEnabled) expected.Add(CharacterCreationMagicResonanceBlockers.OptionDisabled);
+            if (unsupported) expected.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
+            CollectionAssert.AreEquivalent(expected.ToArray(), option.Blockers.ToArray());
+            CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog([row, row], kind, inputs, ["SR5"], blockers);
+            CollectionAssert.Contains(blockers, CharacterCreationMagicResonanceBlockers.AuthorityUnavailable);
+        }
+    }
+
     private const string SettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
     private const string CanonicalSumToTenSettingsId = "3509a807-68ee-4c18-b7d5-b130313b4b77";
