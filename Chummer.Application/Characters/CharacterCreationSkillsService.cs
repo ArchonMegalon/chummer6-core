@@ -551,7 +551,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         IReadOnlyList<CharacterCreationSkillAllocation>? requested,
         IReadOnlyList<CharacterCreationSkillGroupAllocation>? requestedGroups,
         ICollection<string> blockers,
-        SkillsEvaluationSemantics semantics = SkillsEvaluationSemantics.CurrentSourceBound)
+        SkillsEvaluationSemantics semantics = SkillsEvaluationSemantics.CurrentSourceBound,
+        int? recordedKnowledgePointTotal = null)
     {
         requested ??= [];
         requestedGroups ??= [];
@@ -732,7 +733,10 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                 blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
             contributionPoints = SafeAdd(contributionPoints, contribution.Points, blockers);
         }
-        int knowledgeTotal = Math.Max(
+        // The private history recognizer may replay a receipt-bound recorded
+        // budget. Ordinary and re-review previews always use actual current INT
+        // and LOG; no request or public contract can override this calculation.
+        int knowledgeTotal = recordedKnowledgePointTotal ?? Math.Max(
             0,
             SafeAdd(
                 SafeMultiply(SafeAdd(intuition, logic, blockers), 2, blockers),

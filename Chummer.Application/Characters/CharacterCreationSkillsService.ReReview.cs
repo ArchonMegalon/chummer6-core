@@ -86,14 +86,14 @@ public sealed partial class CharacterCreationSkillsService
         binding = null;
         var historical = state.PendingDraft;
         var ledger = workspace.Document.AuxiliaryState.CharacterCreationSkillsReceipts;
-        // This migration recognizes the known pre-TalentAccess catalog/runtime,
-        // not arbitrary engine, source, prerequisite or attribute drift.
+        // Recognize only pre-TalentAccess history or a later Attributes edit
+        // under the same sources. Neither path admits arbitrary authority drift.
         if (historical is null || historical.DraftRevision is <= 0 or long.MaxValue
             || historical.Schema != CharacterCreationSkillsSchemas.DraftV1
             || historical.WorkspaceId != workspace.Id
             || historical.BaseContentRevision <= 0 || historical.BaseContentRevision >= workspace.ContentRevision
             || state.PrerequisiteDraft is not { } prerequisite || state.AttributesDraft is not { } attributes
-            || catalog.TalentAccess is not null || state.Authority.TalentAccess is null
+            || catalog.TalentAccess is not null
             || !CharacterCreationSkillsDraftIntegrity.IsValidAuthority(catalog)
             || !CharacterCreationSkillsDraftIntegrity.IsValidAuthority(state.Authority)
             || !state.Blockers.Contains(CharacterCreationSkillsBlockers.DraftInvalid)
@@ -103,8 +103,6 @@ public sealed partial class CharacterCreationSkillsService
             || historical.Skills is null || historical.SkillGroups is null
             || !CharacterCreationSkillsDigest.EqualsFixedTime(historical.DraftDigest,
                 CharacterCreationSkillsDraftIntegrity.ComputeDigest(historical))
-            || !CharacterCreationSkillsDigest.EqualsFixedTime(historical.SkillsAuthorityDigest, catalog.AuthorityDigest)
-            || CharacterCreationSkillsDigest.EqualsFixedTime(catalog.AuthorityDigest, state.Authority.AuthorityDigest)
             || ledger is not { Count: > 0 }
             || !CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(ledger, workspace.Id, workspace.ContentRevision))
             return false;
@@ -121,13 +119,36 @@ public sealed partial class CharacterCreationSkillsService
             || last.KnowledgePointsRemaining != historical.KnowledgePointTotal - historical.KnowledgePointUsed
             || last.KnowledgePointOverflowToActive != historical.KnowledgePointOverflowToActive)
             return false;
+        bool prePolicy = state.Authority.TalentAccess is not null
+            && CharacterCreationSkillsDigest.EqualsFixedTime(historical.SkillsAuthorityDigest, catalog.AuthorityDigest)
+            && !CharacterCreationSkillsDigest.EqualsFixedTime(catalog.AuthorityDigest, state.Authority.AuthorityDigest);
+        bool attributesChanged = !prePolicy
+            && CharacterCreationSkillsDigest.EqualsFixedTime(historical.SkillsAuthorityDigest, state.Authority.AuthorityDigest)
+            && historical.AttributesDraftRevision > 0
+            && historical.AttributesDraftRevision < attributes.DraftRevision
+            && CharacterCreationSkillsDigest.IsCanonical(historical.AttributesDraftDigest)
+            && !CharacterCreationSkillsDigest.EqualsFixedTime(historical.AttributesDraftDigest, attributes.DraftDigest)
+            && last.ContentRevision <= attributes.BaseContentRevision
+            && HasPlausibleRecordedKnowledgeBudget(historical, state.Authority, attributes);
+        if (!prePolicy && !attributesChanged) return false;
+
+        var historicalAuthority = prePolicy ? catalog : state.Authority;
         var historicalBlockers = new List<string>();
-        var historicalProjection = EvaluateAllocations(catalog, prerequisite,
+        var historicalProjection = EvaluateAllocations(historicalAuthority, prerequisite,
             state.SelectedActiveSkillPoints, state.SelectedSkillGroupPoints, state.IntuitionUnaugmented,
             state.LogicUnaugmented, state.MovementCapability, historical.Allocations, historical.GroupAllocations,
-            historicalBlockers, SkillsEvaluationSemantics.PreTalentAccessHistory);
-        var expected = BuildDraft(workspace, prerequisite, attributes, catalog,
+            historicalBlockers, prePolicy ? SkillsEvaluationSemantics.PreTalentAccessHistory : SkillsEvaluationSemantics.CurrentSourceBound,
+            recordedKnowledgePointTotal: attributesChanged ? historical.KnowledgePointTotal : null);
+        var expected = BuildDraft(workspace, prerequisite, attributes, historicalAuthority,
             state.Binding.ContributionInputsDigest, historicalProjection);
+        if (attributesChanged)
+            expected = expected with
+            {
+                // Comparison only: old attribute bytes are not retained. The
+                // old tokens and recorded budget never become current authority.
+                AttributesDraftRevision = historical.AttributesDraftRevision,
+                AttributesDraftDigest = historical.AttributesDraftDigest
+            };
         if (historicalBlockers.Count != 0
             || !CharacterCreationSkillsDraftIntegrity.HasSameLogicalPayload(historical, expected))
             return false;
@@ -135,6 +156,21 @@ public sealed partial class CharacterCreationSkillsService
             historical.DraftDigest, last.ReceiptDigest, string.Empty);
         binding = binding with { ContextDigest = CharacterCreationSkillsDigest.Compute(binding) };
         return true;
+    }
+
+    private static bool HasPlausibleRecordedKnowledgeBudget(CharacterCreationSkillsDraft historical,
+        CharacterCreationSkillsAuthority authority, CharacterCreationAttributesDraft attributes)
+    {
+        var intuition = attributes.Attributes.SingleOrDefault(item => item.AttributeId == "INT");
+        var logic = attributes.Attributes.SingleOrDefault(item => item.AttributeId == "LOG");
+        if (intuition is null || logic is null) return false;
+        long contribution = authority.KnowledgePointContributions.Sum(item => (long)item.Points);
+        long attributePoints = historical.KnowledgePointTotal - contribution;
+        // Only INT + LOG affects this budget. Check the recorded amount against
+        // unchanged source caps, without fabricating historical attribute values.
+        return attributePoints >= 2L * (intuition.Minimum + (long)logic.Minimum)
+            && attributePoints <= 2L * (intuition.Maximum + (long)logic.Maximum)
+            && attributePoints % 2 == 0;
     }
 
     private static CharacterCreationSkillsReReviewPreview BuildReReviewPreview(
