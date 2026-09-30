@@ -225,6 +225,80 @@ public sealed class CharacterCreationQualitiesRulesTests
             CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog));
     }
 
+    [TestMethod]
+    public void Magic_digest_preserves_historical_scalar_tokens_escaping_and_property_order()
+    {
+        string[] documents =
+        [
+            "null", "true", "false", "[]", "{}",
+            """{"z":[1.00,-0,1e+42,1E-42,18446744073709551615],"a":null}""",
+            """{"z":"ä español 日本語 😀 <xml>&\"\\\n\t\u2028","a":{"z":false,"a":true}}""",
+            """{"a":"\u0061\u003C\/","A":"a</","z":[null,"",{},[]]}"""
+        ];
+        foreach (string json in documents)
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            Assert.AreEqual(ReferenceCanonicalDigest(document.RootElement),
+                CharacterCreationMagicResonanceDigest.Compute(document.RootElement), json);
+        }
+        foreach (string json in new[] { """{"value":"\uD800"}""", """{"\uDC00":1}""" })
+        {
+            using JsonDocument invalid = JsonDocument.Parse(json);
+            Assert.ThrowsExactly<JsonException>(() => ReferenceCanonicalDigest(invalid.RootElement));
+            Assert.ThrowsExactly<JsonException>(() => CharacterCreationMagicResonanceDigest.Compute(invalid.RootElement));
+        }
+        Assert.AreEqual(ReferenceCanonicalDigest("after invalid input"),
+            CharacterCreationMagicResonanceDigest.Compute("after invalid input"));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Pooled_creation_digest_reads_changed_collections_without_reusing_previous_state(bool magic)
+    {
+        string[] anchors = ["first", "second"];
+        var authority = Authority(Option("pooled", CharacterCreationQualityType.Positive, 5))
+            with { SourceAnchorIds = anchors, AuthorityDigest = string.Empty };
+        string Compute() => magic ? CharacterCreationMagicResonanceDigest.Compute(authority)
+            : CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority);
+        string original = Compute();
+        anchors[1] = "changed ä <source>&";
+        string changed = Compute();
+        Assert.AreNotEqual(original, changed);
+        Assert.AreEqual(ReferenceCanonicalDigest(authority), changed);
+        anchors[1] = "second";
+        Assert.AreEqual(original, Compute());
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Pooled_creation_digest_preserves_large_catalog_bytes_with_less_temporary_allocation(bool magic)
+    {
+        string xml = "<quality>" + string.Concat(Enumerable.Repeat("ä 日本語 😀 <bonus>&\"\\\n", 400)) + "</quality>";
+        var option = Option("large", CharacterCreationQualityType.Positive, 5) with { SourceNodeXml = xml };
+        Assert.AreEqual(ReferenceOptionDigest(option), CharacterCreationQualitiesRules.ComputeOptionDigest(option));
+        var authority = Authority(Enumerable.Range(0, 24)
+            .Select(index => option with { OptionId = "option-" + index }).ToArray())
+            with { AuthorityDigest = string.Empty };
+        string Compute() => magic ? CharacterCreationMagicResonanceDigest.Compute(authority)
+            : CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority);
+        // Warm both implementations, then compare allocations, not elapsed time.
+        // The oracle deliberately retains the historical whole-output buffer.
+        string expected = ReferenceCanonicalDigest(authority);
+        Assert.AreEqual(expected, Compute());
+        long start = GC.GetAllocatedBytesForCurrentThread();
+        string reference = ReferenceCanonicalDigest(authority);
+        long historicalBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        start = GC.GetAllocatedBytesForCurrentThread();
+        string actual = Compute();
+        long pooledBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        Assert.AreEqual(reference, actual);
+        Assert.IsTrue(pooledBytes < historicalBytes * 0.8,
+            $"Expected fewer temporary allocations for a large catalog: pooled={pooledBytes}, historical={historicalBytes}.");
+        Console.WriteLine($"Creation digest allocation: magic={magic}, pooled={pooledBytes}, historical={historicalBytes}");
+    }
+
     private static string ReferenceOptionDigest(CharacterCreationQualityCatalogOption option)
         => ReferenceCanonicalDigest(option with { OptionDigest = string.Empty });
 
@@ -255,6 +329,9 @@ public sealed class CharacterCreationQualitiesRulesTests
                     break;
                 case JsonValueKind.String:
                     writer.WriteStringValue(value.GetString());
+                    break;
+                case JsonValueKind.Number:
+                    writer.WriteRawValue(value.GetRawText(), skipInputValidation: true);
                     break;
                 default:
                     value.WriteTo(writer);

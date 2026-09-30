@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -814,10 +813,10 @@ internal static class CharacterCreationQualitiesDigest
         // scalar shape in ordinal property order instead of creating a record,
         // serializing/parsing a DOM, sorting it and escaping its XML twice.
         // No memoization: caller-owned strings/collections are read each time.
-        var buffer = new ArrayBufferWriter<byte>();
+        using var buffer = new CreationDigestBufferWriter();
         using (var writer = new Utf8JsonWriter(buffer))
             WriteOption(option, writer, string.Empty);
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        return Prefix + buffer.GetDigest();
     }
 
     public static string ComputeKarmaCatalog(CharacterCreationKarmaQualitiesCatalog catalog)
@@ -826,7 +825,7 @@ internal static class CharacterCreationQualitiesDigest
         // The catalog can contain megabytes of repeated source XML. Preserve
         // its historical canonical bytes, but do not build and re-escape a DOM
         // for every option. This still reads every field on every invocation.
-        var buffer = new ArrayBufferWriter<byte>();
+        using var buffer = new CreationDigestBufferWriter();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
@@ -844,11 +843,12 @@ internal static class CharacterCreationQualitiesDigest
                 writer.WriteEndArray();
             }
             writer.WritePropertyName(nameof(catalog.Policy));
-            WriteCanonical(JsonSerializer.SerializeToElement(catalog.Policy), writer);
+            using JsonDocument policy = JsonSerializer.SerializeToDocument(catalog.Policy);
+            WriteCanonical(policy.RootElement, writer);
             writer.WriteString(nameof(catalog.Schema), catalog.Schema);
             writer.WriteEndObject();
         }
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        return Prefix + buffer.GetDigest();
     }
 
     private static void WriteOption(CharacterCreationQualityCatalogOption option, Utf8JsonWriter writer, string? digest)
@@ -889,11 +889,11 @@ internal static class CharacterCreationQualitiesDigest
 
     public static string Compute<T>(T value)
     {
-        JsonElement root = JsonSerializer.SerializeToElement(value);
-        var buffer = new ArrayBufferWriter<byte>();
+        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        using var buffer = new CreationDigestBufferWriter();
         using (var writer = new Utf8JsonWriter(buffer))
-            WriteCanonical(root, writer);
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+            WriteCanonical(document.RootElement, writer);
+        return Prefix + buffer.GetDigest();
     }
 
     public static string ComputeUtf8(string value) => Prefix + Convert.ToHexStringLower(
@@ -938,10 +938,8 @@ internal static class CharacterCreationQualitiesDigest
                 writer.WriteEndArray();
                 break;
             case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
             case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
+                element.WriteTo(writer);
                 break;
             case JsonValueKind.True:
                 writer.WriteBooleanValue(true);

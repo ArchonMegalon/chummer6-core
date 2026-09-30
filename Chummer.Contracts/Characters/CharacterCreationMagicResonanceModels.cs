@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -482,13 +481,13 @@ public static class CharacterCreationMagicResonanceDigest
 
     public static string Compute<T>(T value)
     {
-        JsonElement root = JsonSerializer.SerializeToElement(value);
-        ArrayBufferWriter<byte> buffer = new();
+        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        using var buffer = new CreationDigestBufferWriter();
         using (var writer = new Utf8JsonWriter(buffer))
         {
-            WriteCanonical(root, writer);
+            WriteCanonical(document.RootElement, writer);
         }
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        return Prefix + buffer.GetDigest();
     }
 
     public static string ComputeUtf8(string value) =>
@@ -566,10 +565,10 @@ public static class CharacterCreationMagicResonanceDigest
                 writer.WriteEndArray();
                 break;
             case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
             case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
+                // Preserve validated escaping/numeric tokens without temporary
+                // UTF-16 copies of each catalog's embedded source XML.
+                element.WriteTo(writer);
                 break;
             case JsonValueKind.True:
                 writer.WriteBooleanValue(true);
