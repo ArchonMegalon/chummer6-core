@@ -5231,6 +5231,53 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(string.Empty, unsupportedProfileId);
     }
 
+    [DataTestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CharacterCreationBootstrapProfiles.LegacyPrioritySettingsProfileId)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CharacterCreationBootstrapProfiles.LegacySumToTenSettingsProfileId)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CharacterCreationBootstrapProfiles.LegacyKarmaSettingsProfileId)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CharacterCreationBootstrapProfiles.LegacyLifeModulesSettingsProfileId)]
+    public void New_runner_defaults_enable_all_sources_without_changing_existing_profile_policy(string method, string legacyId)
+    {
+        string coreRoot = FindCoreRoot();
+        var settings = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data", "settings.xml"));
+        string[] books = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data", "books.xml"))
+            .Descendants("book").Select(book => book.Element("code")?.Value)
+            .OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        Assert.IsTrue(books.Length > 2);
+        Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(method, out string currentId));
+        Assert.AreNotEqual(legacyId, currentId);
+        XElement Profile(string id) => settings.Descendants("setting").Single(row => row.Element("id")?.Value == id);
+        var current = Profile(currentId);
+        var legacy = Profile(legacyId);
+        CollectionAssert.AreEqual(books, current.Element("books")!.Elements("book").Select(book => book.Value).Order(StringComparer.Ordinal).ToArray());
+        CollectionAssert.AreEquivalent(method == CharacterCreationBuildMethods.Priority ? new[] { "SR5" } : new[] { "SR5", "RF" },
+            legacy.Element("books")!.Elements("book").Select(book => book.Value).ToArray());
+        XElement Policy(XElement row) => new("policy", row.Elements().Where(field => field.Name.LocalName is not ("id" or "name" or "books")));
+        Assert.IsTrue(XNode.DeepEquals(Policy(current), Policy(legacy)), "Enabling sources must not alter costs, limits or other rules.");
+
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(coreRoot);
+        var service = CreateService(store, resolver, CreateFileQueries());
+        foreach (string id in new[] { currentId, legacyId })
+        {
+            var result = service.Create(CanonicalRequest() with { BuildMethod = method, SettingsProfileId = id });
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var saved = store.Get(result.Value!.WorkspaceId).Value!;
+            Assert.AreEqual(id, XDocument.Parse(saved.Document.Content).Root!.Element("settings")!.Value);
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryValidatePending(saved, resolver, out var blockers), string.Join(",", blockers));
+            var context = resolver.TryCreateContext(saved.Document.Content);
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out var authority));
+            CollectionAssert.AreEquivalent(Profile(id).Element("books")!.Elements("book").Select(book => book.Value).ToArray(),
+                authority.EnabledSourcebooks.ToArray());
+            CollectionAssert.Contains(result.Value.Binding.SourceAnchorIds.ToList(), $"settings.xml#setting:{id}");
+            AssertJsonEqual(saved, store.Get(result.Value.WorkspaceId).Value!);
+        }
+        Assert.IsFalse(CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(method,
+            method == CharacterCreationBuildMethods.Priority ? CharacterCreationBootstrapProfiles.LegacyKarmaSettingsProfileId
+                : CharacterCreationBootstrapProfiles.LegacyPrioritySettingsProfileId));
+    }
+
     [TestMethod]
     public void Generic_character_validation_accepts_the_pending_priority_shape_without_trusting_the_marker()
     {
