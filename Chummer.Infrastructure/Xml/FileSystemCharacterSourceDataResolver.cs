@@ -891,17 +891,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
             ContentOverlayCatalog catalog = admittedCatalog ?? FreezeContentOverlayCatalog(_overlays.GetCatalog());
             sourceInputs.BindCatalog(catalog);
-            if (!TryLoadEffectiveDocument(catalog, "settings.xml", out XDocument? settingsDocument)
+            string settingsKey = ReadValue(character, "settings");
+            string settingsFile = CharacterCreationBootstrapProfiles.SettingsSourceFile(settingsKey);
+            if (!TryLoadEffectiveDocument(catalog, settingsFile, out XDocument? settingsDocument)
                 || settingsDocument?.Root is null)
             {
                 return null;
             }
-            if (!TryComputeEffectiveInputDigest(catalog, "settings.xml", out string settingsInputsDigest))
+            if (!TryComputeEffectiveInputDigest(catalog, settingsFile, out string settingsInputsDigest))
             {
                 return null;
             }
 
-            string settingsKey = ReadValue(character, "settings");
             XElement[] settingsMatches = settingsDocument.Root
                 .Element("settings")?
                 .Elements("setting")
@@ -1843,6 +1844,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
         private readonly IReadOnlySet<string> _enabledSourcebooks;
         private readonly string _settingsProfileId;
+        private string SettingsFile => CharacterCreationBootstrapProfiles.SettingsSourceFile(_settingsProfileId);
+        private string SettingsAnchor => CharacterCreationBootstrapProfiles.SettingsSourceAnchor(_settingsProfileId);
         private readonly string _rawProfileInputsDigest;
         private readonly string _selectedCustomDataInputsDigest;
         private readonly string _rawMetatypesXmlDigest;
@@ -2037,7 +2040,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && _buildPoints.HasValue,
                 BudgetBlockers: _lifeModuleBudgetBlockers,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
-                SourceAnchorIds: [$"settings.xml#setting:{_settingsProfileId}"]);
+                SourceAnchorIds: [SettingsAnchor]);
             return true;
         }
 
@@ -2058,7 +2061,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && ruleset.Value != RulesetDefaults.Sr5)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _enabledSourcebooks.Count == 0
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
                 || skillsDigest != _effectiveSkillsInputsDigest)
@@ -2119,7 +2122,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _karmaAttribute.Value, _maxNumberMaxAttributesCreate.Value,
                 _alternateMetatypeAttributeKarma.Value, _reverseAttributePriorityOrder.Value,
                 _rawProfileInputsDigest,
-                [$"settings.xml#setting:{_settingsProfileId}"], string.Empty);
+                [SettingsAnchor], string.Empty);
             policy = result with
             {
                 AuthorityDigest = CharacterCreationAttributePolicyAuthority.ComputeDigest(result)
@@ -2142,9 +2145,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             policy = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod != method
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
                 || method == CharacterCreationBuildMethods.LifeModules && ReadValue(settings, "buildmethod") != method
                 || !TryReadKarmaCost(settings, "karmanewactiveskill", out int newActive)
@@ -2171,7 +2174,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 newActive, improveActive, newKnowledge, improveKnowledge, newGroup, improveGroup,
                 specialization, knowledgeSpecialization, activeCap, knowledgeCap, expression,
                 useBroken, strict, specBreak, pointSpecs, compensate,
-                [$"settings.xml#setting:{_settingsProfileId}"], string.Empty);
+                [SettingsAnchor], string.Empty);
             policy = result with { AuthorityDigest = CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(result) };
             return true;
         }
@@ -2191,9 +2194,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             policy = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod != method
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
                 || method == CharacterCreationBuildMethods.LifeModules && ReadValue(settings, "buildmethod") != method
                 || !TryReadOptionalStrictBoolean(settings, "unrestrictednuyen", false, out bool unrestricted))
@@ -2223,7 +2226,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
             var result = new CharacterCreationKarmaResourcesPolicy(schema,
                 _settingsProfileId, _rawProfileInputsDigest, expression, maximum,
-                [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationResourcesSourceAnchors.LegacyTotal,
+                [SettingsAnchor, CharacterCreationResourcesSourceAnchors.LegacyTotal,
                     CharacterCreationResourcesSourceAnchors.LegacyMaximumInvestment], string.Empty);
             result = result with { AuthorityDigest = CharacterCreationKarmaResourcesRules.ComputePolicyDigest(result) };
             if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidSpendingPolicy(result, schema)) return false;
@@ -2254,9 +2257,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
                     or CharacterCreationBuildMethods.LifeModules)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null) return false;
             var expressions = settings.Elements("contactpointsexpression").Take(2).ToArray();
             string expression;
@@ -2287,7 +2290,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (rates.Length > 1 || rates.Length == 1 && !TryParseNonNegativeIntElement(rates[0], out groupMultiplier)) return false;
             var result = new CharacterCreationKarmaContactsPolicy(CharacterCreationKarmaContactsPolicy.SchemaV1,
                 _settingsProfileId, _rawProfileInputsDigest, expression, groupMultiplier,
-                [$"settings.xml#setting:{_settingsProfileId}",
+                [SettingsAnchor,
                     "Chummer/Backend/Character Settings/CharacterSettings.cs#ContactPointsExpression",
                     "Chummer/Backend/Characters/Character.cs#ContactPoints",
                     CharacterCreationContactSourceAnchors.ContactPointCost,
@@ -2313,9 +2316,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
                     or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.LifeModules)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null) return false;
 
             // CharacterSettings defaults apply only to absent nodes, never to
@@ -2334,7 +2337,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out nuyen) || nuyen < 0)) return false;
             var result = new CharacterCreationKarmaCarryoverPolicy(CharacterCreationKarmaCarryoverPolicy.SchemaV1,
                 _settingsProfileId, _rawProfileInputsDigest, karma, nuyen,
-                [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationKarmaFinalizationBudgetRules.CarryoverAnchor], string.Empty);
+                [SettingsAnchor, CharacterCreationKarmaFinalizationBudgetRules.CarryoverAnchor], string.Empty);
             result = result with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(result) };
             if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(result)) return false;
             policy = result;
@@ -2376,7 +2379,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || lifestyles.Length > 1 || lifestyles.Length == 1
                     && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryEnumerateTargets("lifestyles.xml", ["lifestyles"], "lifestyle", out var rows)) return false;
@@ -2426,10 +2429,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             catalog = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
                 || !TryReadKarmaCost(settings, "karmaquality", out int multiplier)
                 || multiplier <= 0
@@ -2437,7 +2440,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || _character.Element("qualityrestriction") is not null
                 || _character.Element("qualities")?.Elements("quality").Any() == true)
                 return false;
-            string profileAnchor = $"settings.xml#setting:{_settingsProfileId}";
+            string profileAnchor = SettingsAnchor;
             var options = new List<CharacterCreationKarmaTalentOption>
             {
                 CharacterCreationKarmaTalentAuthority.Mundane(profileAnchor)
@@ -2550,9 +2553,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             anchors = [];
             if (_buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
                 || _sourceInputs.HasSourceDrift
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
                 || !(_buildMethod == CharacterCreationBuildMethods.Karma
                     ? CharacterCreationKarmaMagicRules.TryCreatePolicy(_settingsProfileId, settingsDigest,
@@ -2690,10 +2693,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             catalog = null;
             if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out var settings) || settings is null
                 || ReadValue(settings, "buildmethod") != CharacterCreationBuildMethods.LifeModules
                 || !TryReadKarmaCost(settings, "karmaquality", out int multiplier) || multiplier <= 0
@@ -2701,7 +2704,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || _character.Element("qualityrestriction") is not null
                 || _character.Element("qualities")?.Elements("quality").Any() == true)
                 return false;
-            string profileAnchor = $"settings.xml#setting:{_settingsProfileId}";
+            string profileAnchor = SettingsAnchor;
             var options = new List<CharacterCreationKarmaTalentOption>
             {
                 CharacterCreationKarmaTalentAuthority.Mundane(profileAnchor)
@@ -2765,7 +2768,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
-                    "settings.xml",
+                    SettingsFile,
                     out string currentSettingsInputsDigest)
                 || !TryComputeRawBaseFileDigest(
                     _catalog,
@@ -2938,7 +2941,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 ReverseAttributePriorityOrder: _reverseAttributePriorityOrder,
                 SourceAnchorIds:
                 [
-                    $"settings.xml#setting:{_settingsProfileId}",
+                    SettingsAnchor,
                     "priorities.xml",
                     "metatypes.xml",
                     "skills.xml",
@@ -3163,10 +3166,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 .ToArray();
             string[] anchors = prerequisite.SourceAnchorIds
                 .Concat(CharacterCreationResourcesSourceAnchors.All)
-                .Concat([$"settings.xml#setting:{_settingsProfileId}:chargenkarmatonuyenexpression",
-                    $"settings.xml#setting:{_settingsProfileId}:nuyenperbpwftm",
-                    $"settings.xml#setting:{_settingsProfileId}:nuyenmaxbp",
-                    $"settings.xml#setting:{_settingsProfileId}:availability"])
+                .Concat([$"{SettingsAnchor}:chargenkarmatonuyenexpression",
+                    $"{SettingsAnchor}:nuyenperbpwftm",
+                    $"{SettingsAnchor}:nuyenmaxbp",
+                    $"{SettingsAnchor}:availability"])
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(anchor => anchor, StringComparer.Ordinal)
                 .ToArray();
@@ -3391,7 +3394,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 options,
                 [
                     CharacterCreationGearSourceAnchors.Catalog,
-                    $"settings.xml#setting:{_settingsProfileId}:availability"
+                    $"{SettingsAnchor}:availability"
                 ],
                 normalized,
                 IsAuthoritative: normalized.Length == 0,
@@ -3462,7 +3465,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     ["weaponmounts"],
                     "weaponmount",
                     out XElement[] weaponMountRows)
-                || !TryLoadEffectiveDocument(_catalog, "settings.xml", out XDocument? settingsDocument)
+                || !TryLoadEffectiveDocument(_catalog, SettingsFile, out XDocument? settingsDocument)
                 || settingsDocument?.Root is null)
             {
                 return false;
@@ -3712,7 +3715,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             catalog = null;
             if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
                 || skillsDigest != _effectiveSkillsInputsDigest
@@ -3744,7 +3747,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var result = new CharacterCreationSkillsCatalog(CharacterCreationSkillsCatalog.SchemaV1,
                 _settingsProfileId, _rawProfileInputsDigest, skillsDigest, weaponsDigest,
                 active, knowledge, ProjectSkillGroups(active),
-                [$"settings.xml#setting:{_settingsProfileId}", "skills.xml", "weapons.xml"], string.Empty)
+                [SettingsAnchor, "skills.xml", "weapons.xml"], string.Empty)
             {
                 ActiveSkillSourceOrder = activeRows.Select(row => ReadValue(row, "id").ToLowerInvariant())
                     .Where(id => active.Any(skill => skill.SourceSkillId == id)).ToArray()
@@ -3823,10 +3826,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     out string currentSkillsInputsDigest)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
-                    "settings.xml",
+                    SettingsFile,
                     out string currentSettingsInputsDigest)
                 || !TryResolveTarget(
-                    "settings.xml",
+                    SettingsFile,
                     ["settings"],
                     "setting",
                     _settingsProfileId,
@@ -3961,14 +3964,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     ?
                     [
                         "priorities.xml#category:Skills",
-                        $"settings.xml#setting:{_settingsProfileId}",
+                        SettingsAnchor,
                         "skills.xml"
                     ]
                     :
                     [
                         "character.xml#improvements",
                         "priorities.xml#category:Skills",
-                        $"settings.xml#setting:{_settingsProfileId}",
+                        SettingsAnchor,
                         "skills.xml"
                     ],
                 Blockers: orderedBlockers,
@@ -4134,10 +4137,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     out string sourceDigest)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
-                    "settings.xml",
+                    SettingsFile,
                     out string settingsInputsDigest)
                 || !TryResolveTarget(
-                    "settings.xml",
+                    SettingsFile,
                     ["settings"],
                     "setting",
                     _settingsProfileId,
@@ -4417,7 +4420,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 SourceAnchorIds:
                 [
                     "qualities.xml",
-                    $"settings.xml#setting:{_settingsProfileId}"
+                    SettingsAnchor
                 ],
                 Blockers: blockers.Distinct(StringComparer.Ordinal)
                     .OrderBy(static item => item, StringComparer.Ordinal)
@@ -4447,7 +4450,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || (!CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
                     && _buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules))
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
                 || !TryHasSelectedCustomDataInputFor(_customDirectories, "lifestyles.xml", out _))
             {
                 return false;
@@ -4471,7 +4474,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             // Reuse only after live-byte admission above, and return detached
             // collections. Drift still produces the existing blocked projection.
             if (!TryResolveTarget(
-                    "settings.xml",
+                    SettingsFile,
                     ["settings"],
                     "setting",
                     _settingsProfileId,
@@ -4793,7 +4796,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 freeGridsEnabled,
                 [
                     "lifestyles.xml",
-                    $"settings.xml#setting:{_settingsProfileId}",
+                    SettingsAnchor,
                     "character.xml#improvements"
                 ],
                 normalized,
@@ -4918,8 +4921,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeEffectiveInputDigest(_catalog, "complexforms.xml", out string complexFormsDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualitiesDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string gearDigest)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string magicSettingsDigest)
-                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string magicSettingsDigest)
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
                     string.Empty, out XElement? magicSettings)
                 || magicSettings is null
                 || !TryComputeSelectedCustomDataInputsDigest(
@@ -4975,7 +4978,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 customDataInputsDigest,
                 _enabledSourcebooks.OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToArray(),
                 [
-                    $"settings.xml#setting:{_settingsProfileId}",
+                    SettingsAnchor,
                     "priorities.xml#category:Talent",
                     "metatypes.xml",
                     "traditions.xml",
@@ -5487,7 +5490,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || string.IsNullOrWhiteSpace(_rawProfileInputsDigest)
                 || string.IsNullOrWhiteSpace(_selectedCustomDataInputsDigest)
-                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string currentSettingsInputsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string currentSettingsInputsDigest)
                 || !TryComputeSelectedCustomDataInputsDigest(
                     _customDirectories,
                     out string currentCustomDataInputsDigest)
@@ -5586,7 +5589,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 SourceAnchorIds:
                 [
                     "metatypes.xml",
-                    $"settings.xml#setting:{_settingsProfileId}",
+                    SettingsAnchor,
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
                 ],
                 Blockers: orderedBlockers,

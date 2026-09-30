@@ -52,13 +52,15 @@ public static class CharacterCreationBootstrapProfiles
     }
 
     public static bool IsExactCanonicalTuple(string rulesetId, string? buildMethod, string? settingsProfileId)
-        => TryResolveCanonicalSettingsProfileId(rulesetId, buildMethod, out string expected)
-           && string.Equals(settingsProfileId, expected, StringComparison.Ordinal);
+        => rulesetId == RulesetDefaults.Sr5
+            ? IsExactCanonicalTuple(buildMethod, settingsProfileId)
+            : TryResolveCanonicalSettingsProfileId(rulesetId, buildMethod, out string expected)
+              && string.Equals(settingsProfileId, expected, StringComparison.Ordinal);
 
     public static string SettingsSourceAnchor(string rulesetId, string settingsProfileId)
         => rulesetId switch
         {
-            RulesetDefaults.Sr5 => $"settings.xml#setting:{settingsProfileId}",
+            RulesetDefaults.Sr5 => SettingsSourceAnchor(settingsProfileId),
             RulesetDefaults.Sr6 => Sr6CharacterCreationBootstrapProfiles.SettingsSourceAnchor(settingsProfileId),
             _ => string.Empty
         };
@@ -81,17 +83,40 @@ public static class CharacterCreationBootstrapProfiles
     }
 
     public const string PrioritySettingsProfileId =
-        "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
+        "497f868a-962a-45d6-8e1f-571088607fd7";
     public const string SumToTenSettingsProfileId =
-        "3509a807-68ee-4c18-b7d5-b130313b4b77";
+        "4581a4cd-c04b-4e15-aae0-2bf1f42b2e19";
     public const string KarmaSettingsProfileId =
-        "fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef";
+        "2b152ce1-0f60-4cc3-82b6-bcffbcbdb25c";
     public const string LifeModulesSettingsProfileId =
+        "a75e2db7-54b3-4631-9d3a-e6c697a9018a";
+
+    // Existing runner documents and receipts retain their exact original source
+    // policy. Only newly created runners default to the all-source profiles.
+    public const string LegacyPrioritySettingsProfileId =
+        "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
+    public const string LegacySumToTenSettingsProfileId =
+        "3509a807-68ee-4c18-b7d5-b130313b4b77";
+    public const string LegacyKarmaSettingsProfileId =
+        "fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef";
+    public const string LegacyLifeModulesSettingsProfileId =
         "8a31af6d-7137-4284-872b-7d8087e156c6";
 
+    // New defaults have their own exact input file. Appending them to the
+    // original settings.xml would invalidate every saved legacy binding even
+    // though none of the selected legacy rules had changed.
+    public static string SettingsSourceFile(string? settingsProfileId)
+        => settingsProfileId is PrioritySettingsProfileId or SumToTenSettingsProfileId
+            or KarmaSettingsProfileId or LifeModulesSettingsProfileId
+                ? "settings-all-sources.xml" : "settings.xml";
+
+    public static string SettingsSourceAnchor(string settingsProfileId)
+        => $"{SettingsSourceFile(settingsProfileId)}#setting:{settingsProfileId}";
+
     /// <summary>
-    /// Resolves the one canonical settings profile that Core permits for a
-    /// supported SR5 creation method. Presentation callers must use this
+    /// Resolves the default settings profile for a supported SR5 creation
+    /// method. Legacy restricted-source profiles remain valid for reopen.
+    /// Presentation callers must use this
     /// mapping instead of copying profile identifiers into a UI repository.
     /// </summary>
     public static bool TryResolveCanonicalSettingsProfileId(
@@ -111,7 +136,15 @@ public static class CharacterCreationBootstrapProfiles
 
     public static bool IsExactCanonicalTuple(string? buildMethod, string? settingsProfileId)
         => TryResolveCanonicalSettingsProfileId(buildMethod, out string expected)
-           && string.Equals(settingsProfileId, expected, StringComparison.Ordinal);
+           && (string.Equals(settingsProfileId, expected, StringComparison.Ordinal)
+               || string.Equals(settingsProfileId, buildMethod switch
+               {
+                   CharacterCreationBuildMethods.Priority => LegacyPrioritySettingsProfileId,
+                   CharacterCreationBuildMethods.SumToTen => LegacySumToTenSettingsProfileId,
+                   CharacterCreationBuildMethods.Karma => LegacyKarmaSettingsProfileId,
+                   CharacterCreationBuildMethods.LifeModules => LegacyLifeModulesSettingsProfileId,
+                   _ => string.Empty
+               }, StringComparison.Ordinal));
 
     public static string[] ExpectedSourceAnchorIds(
         string buildMethod,
@@ -120,7 +153,7 @@ public static class CharacterCreationBootstrapProfiles
         if (!IsExactCanonicalTuple(buildMethod, settingsProfileId))
             return [];
 
-        string settingsAnchor = $"settings.xml#setting:{settingsProfileId}";
+        string settingsAnchor = SettingsSourceAnchor(settingsProfileId);
         return buildMethod is CharacterCreationBuildMethods.Priority
                 or CharacterCreationBuildMethods.SumToTen
             ? ["metatypes.xml", "priorities.xml", settingsAnchor, "skills.xml"]

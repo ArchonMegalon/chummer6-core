@@ -46,7 +46,7 @@ public static class CharacterCreationKarmaSkillAccessRules
         if (talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId)
         {
             if (!CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(talent,
-                CharacterCreationKarmaTalentAuthority.Mundane($"settings.xml#setting:{catalog.SettingsProfileId}")))
+                CharacterCreationKarmaTalentAuthority.Mundane(CharacterCreationBootstrapProfiles.SettingsSourceAnchor(catalog.SettingsProfileId))))
                 return null;
         }
         else
