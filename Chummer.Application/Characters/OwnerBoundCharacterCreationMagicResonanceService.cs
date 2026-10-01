@@ -75,9 +75,14 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
 
         using (lease)
         {
+            // Magic and its nested Attributes load share source construction only
+            // inside this admitted synchronous operation. Each lookup still
+            // admits live source inputs; no context survives the owner lease.
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
             // No ambient fallback, duplicated rules, or lease carried across await.
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
-            return action(new CharacterCreationMagicResonanceService(view, sourceResolver));
+            return action(new CharacterCreationMagicResonanceService(view, sourceScope ?? sourceResolver));
         }
     }
 }
