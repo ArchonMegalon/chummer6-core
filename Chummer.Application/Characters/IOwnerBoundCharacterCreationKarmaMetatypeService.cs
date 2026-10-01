@@ -23,6 +23,11 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         CharacterCreationMagicResonanceSelections? magicSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
+    CharacterCreationFoundationResult<CharacterCreationKarmaQualityPreviews> PreviewQualitySelections(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaQualityPreviewRequest request,
+        CancellationToken cancellationToken = default)
+        => new(CharacterCreationFoundationOutcomes.Blocked, null,
+            [CharacterCreationKarmaMetatypeBlockers.QualitiesAuthorityRequired]);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
     CharacterCreationFoundationResult<CharacterCreationStartingNuyenSource> LoadFinalizationStartingCash(
