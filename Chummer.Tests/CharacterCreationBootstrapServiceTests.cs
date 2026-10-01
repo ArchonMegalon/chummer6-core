@@ -2382,6 +2382,170 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
+    public void Karma_quality_batch_matches_individual_budget_quotes_with_one_fresh_context()
+    {
+        using var fixture = new KarmaDiskFixture(budget: 10, includeSkills: true, configureSettings: EnableQualityBook);
+        var state = fixture.Service.Load(fixture.Id, includeSkills: true, includeQualities: true).Value!;
+        string negative = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands").OptionId;
+        string positive = state.QualitiesCatalog.Options.Single(item => item.Name == "Overclocker").OptionId;
+        var pistols = state.SkillsCatalog!.ActiveSkills.Single(item => item.Name == "Pistols");
+        var skills = new CharacterCreationKarmaSkillsSelection(
+            [NativeEnglish(state.SkillsCatalog), new(pistols.SourceSkillId, pistols.Kind, 3)], []);
+        IReadOnlyList<IReadOnlyList<string>> choices = new IReadOnlyList<string>[]
+            { new[] { negative }, new[] { positive }, new[] { negative, positive }, new[] { "invented" } };
+        var request = new CharacterCreationKarmaQualityPreviewRequest(state.Binding, HumanId, choices,
+            "mundane", [], skills, 2.5m);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        long individualStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        long individualAllocated = GC.GetAllocatedBytesForCurrentThread();
+        var expected = choices.Select(ids => fixture.Service.Preview(state.Binding, HumanId, "mundane", [], skills, 2.5m, ids)).ToArray();
+        long individualBytes = GC.GetAllocatedBytesForCurrentThread() - individualAllocated;
+        double individualMs = System.Diagnostics.Stopwatch.GetElapsedTime(individualStarted).TotalMilliseconds;
+        Assert.IsTrue(expected[0].Value!.CanSelect);
+        Assert.IsFalse(expected[1].Value?.CanSelect == true);
+        var resolver = new KarmaBatchResolver(fixture.Resolver);
+        var service = new CharacterCreationKarmaMetatypeService(fixture.Store, resolver);
+        long batchStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        long batchAllocated = GC.GetAllocatedBytesForCurrentThread();
+        var actual = service.PreviewQualitySelections(request);
+        long batchBytes = GC.GetAllocatedBytesForCurrentThread() - batchAllocated;
+        double batchMs = System.Diagnostics.Stopwatch.GetElapsedTime(batchStarted).TotalMilliseconds;
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, actual.Outcome, string.Join(",", actual.Blockers));
+        AssertJsonEqual(expected, actual.Value!.Results);
+        Assert.AreEqual(1, resolver.Calls, "One page must not reconstruct its source context for each quality.");
+        Console.WriteLine($"Karma quality candidates={choices.Count}: individual={individualMs:F0}ms/{individualBytes}B; batch={batchMs:F0}ms/{batchBytes}B");
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        AssertJsonEqual(actual, service.PreviewQualitySelections(request));
+        Assert.AreEqual(2, resolver.Calls, "The next page must obtain new source authority, not retain a cache.");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_quality_batch_preserves_complete_magic_contacts_lifestyles_and_saved_graph(bool saved)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true, includeMagic: true);
+        var state = fixture.Service.Load(fixture.Id, true, true, true, true, true).Value!;
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new("MAG", 2)];
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        var low = KarmaLifestyle(state.LifestylesAuthority!, "Low");
+        var contact = KarmaContact(2, 2);
+        var spell = MagicOption(state.MagicCatalog!, "spell");
+        var magic = new CharacterCreationMagicResonanceSelections(MagicOption(state.MagicCatalog!, "tradition").Identity,
+            null, [], [spell.Identity], []);
+        if (saved)
+        {
+            var pending = fixture.Service.Preview(state.Binding, HumanId, MagicianId, attributes, skills, 10, [], [],
+                [contact], [low], low.LifestyleId, magic).Value!;
+            Assert.IsTrue(pending.CanSelect, string.Join(",", pending.Blockers));
+            Assert.IsNotNull(fixture.Service.Confirm(new(state.Binding, HumanId, pending.QuoteDigest, Guid.NewGuid(), true,
+                MagicianId, attributes, skills, 10, [], [], [contact], [low], low.LifestyleId, magic)).Value);
+            state = fixture.Service.Load(fixture.Id, true, true, true, true, true).Value!;
+        }
+        string negative = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands").OptionId;
+        IReadOnlyList<IReadOnlyList<string>> choices = new IReadOnlyList<string>[] { [], new[] { negative }, new[] { "invented" } };
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var expected = choices.Select(ids => fixture.Service.Preview(state.Binding, HumanId, MagicianId, attributes,
+            skills, 10, ids, [], [contact], [low], low.LifestyleId, magic)).ToArray();
+        Assert.AreEqual(5, expected[0].Value!.Magic!.Cost.TotalKarma);
+        Assert.AreEqual(1, expected[0].Value!.Contacts!.KarmaUsed);
+        Assert.AreEqual(2000m, expected[0].Value!.Lifestyles!.LifestyleNuyenUsed);
+        var resolver = new KarmaBatchResolver(fixture.Resolver);
+        var service = new CharacterCreationKarmaMetatypeService(fixture.Store, resolver);
+        var request = new CharacterCreationKarmaQualityPreviewRequest(state.Binding, HumanId, choices, MagicianId,
+            attributes, skills, 10, [], [contact], [low], low.LifestyleId, magic);
+        var result = service.PreviewQualitySelections(request);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        AssertJsonEqual(expected, result.Value.Results);
+        Assert.AreEqual(1, resolver.Calls);
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_quality_batch_rejects_stale_sources_and_workspace_without_writing()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var negative = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands");
+        var request = new CharacterCreationKarmaQualityPreviewRequest(state.Binding, HumanId,
+            new IReadOnlyList<string>[] { new[] { negative.OptionId } }, "mundane", []);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var stale = fixture.Service.PreviewQualitySelections(request with
+            { Binding = state.Binding with { ContentRevision = state.Binding.ContentRevision + 1 } });
+        Assert.IsNull(stale.Value);
+        CollectionAssert.Contains(stale.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+        Assert.IsNotNull(fixture.Service.PreviewQualitySelections(request).Value);
+        fixture.EditQuality(negative.SourceId.ToString("D"), row => row.SetElementValue("karma", -8));
+        Assert.IsNull(fixture.Service.PreviewQualitySelections(request).Value,
+            "A previous page must not admit changed sources under its old binding.");
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_quality_batch_bounds_cancels_and_freezes_inputs_before_loading()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        string negative = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands").OptionId;
+        string[] ids = [negative];
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new("BOD", 1)];
+        IReadOnlyList<string>[] choices = [ids];
+        var request = new CharacterCreationKarmaQualityPreviewRequest(state.Binding, HumanId, choices, "mundane", attributes);
+        var expected = fixture.Service.Preview(state.Binding, HumanId, "mundane", attributes, qualityOptionIds: ids);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var resolver = new KarmaBatchResolver(fixture.Resolver);
+        var service = new CharacterCreationKarmaMetatypeService(fixture.Store, resolver);
+        Assert.IsNull(service.PreviewQualitySelections(request with { QualitySelections = [] }).Value);
+        Assert.IsNull(service.PreviewQualitySelections(request with
+            { QualitySelections = Enumerable.Repeat<IReadOnlyList<string>>([], CharacterCreationKarmaQualityPreviewRequest.MaximumCandidates + 1).ToArray() }).Value);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        Assert.ThrowsExactly<OperationCanceledException>(() => service.PreviewQualitySelections(request, cancelled.Token));
+        Assert.AreEqual(0, resolver.Calls, "Rejected or pre-cancelled requests must do no rule loading.");
+        using var duringLoad = new CancellationTokenSource();
+        resolver.BeforeCreate = duringLoad.Cancel;
+        Assert.ThrowsExactly<OperationCanceledException>(() => service.PreviewQualitySelections(request, duringLoad.Token));
+        resolver.BeforeCreate = () => { ids[0] = "invented"; choices[0] = []; attributes[0] = new("BOD", 100); };
+        var result = service.PreviewQualitySelections(request);
+        AssertJsonEqual(expected, result.Value!.Results.Single());
+        resolver.BeforeCreate = null;
+        Assert.IsFalse(service.PreviewQualitySelections(request).Value?.Results.Single().Value?.CanSelect == true,
+            "The next call must not reuse the previous request snapshot.");
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_quality_batch_requires_exact_owner_and_disposes_cancelled_lease()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var request = new CharacterCreationKarmaQualityPreviewRequest(state.Binding, HumanId,
+            new IReadOnlyList<string>[] { Array.Empty<string>() }, "mundane", []);
+        var owner = new LocalOwnerContextAccessor();
+        var resolver = new KarmaBatchResolver(fixture.Resolver);
+        var service = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, owner, resolver);
+        Assert.IsNull(service.PreviewQualitySelections(new LocalOwnerContextAccessor().Capture(), request).Value);
+        Assert.AreEqual(0, resolver.Calls);
+        using var cancellation = new CancellationTokenSource();
+        resolver.BeforeCreate = cancellation.Cancel;
+        Assert.ThrowsExactly<OperationCanceledException>(() => service.PreviewQualitySelections(owner.Capture(), request, cancellation.Token));
+        resolver.BeforeCreate = null;
+        Assert.IsNotNull(service.PreviewQualitySelections(owner.Capture(), request).Value);
+    }
+
+    private sealed class KarmaBatchResolver(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
+    {
+        public int Calls { get; private set; }
+        public Action? BeforeCreate { get; set; }
+        public ICharacterSourceDataContext? TryCreateContext(string xml)
+        {
+            Calls++;
+            BeforeCreate?.Invoke();
+            return inner.TryCreateContext(xml);
+        }
+    }
+
+    [TestMethod]
     public void Karma_qualities_fund_skills_and_resources_from_the_same_pool_and_cold_reopen()
     {
         using var fixture = new KarmaDiskFixture(budget: 10, includeSkills: true);

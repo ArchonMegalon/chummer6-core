@@ -35,6 +35,17 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request)
         => Invoke(expectedOwner, request.Binding.WorkspaceId, service => service.Confirm(request));
 
+    public CharacterCreationFoundationResult<CharacterCreationKarmaQualityPreviews> PreviewQualitySelections(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaQualityPreviewRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Binding);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Invoke(expectedOwner, request.Binding.WorkspaceId,
+            service => service.PreviewQualitySelections(request, cancellationToken));
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal)
         => Invoke(expectedOwner, binding.WorkspaceId, service => service.PreviewFinalizationBudget(binding, foundationQuoteDigest, diceTotal));

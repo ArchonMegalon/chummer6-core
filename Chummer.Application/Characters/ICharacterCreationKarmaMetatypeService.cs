@@ -18,6 +18,10 @@ public interface ICharacterCreationKarmaMetatypeService
         CharacterCreationMagicResonanceSelections? magicSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request);
+    CharacterCreationFoundationResult<CharacterCreationKarmaQualityPreviews> PreviewQualitySelections(
+        CharacterCreationKarmaQualityPreviewRequest request, CancellationToken cancellationToken = default)
+        => new(CharacterCreationFoundationOutcomes.Blocked, null,
+            [CharacterCreationKarmaMetatypeBlockers.QualitiesAuthorityRequired]);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
         CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
     CharacterCreationFoundationResult<CharacterCreationStartingNuyenSource> LoadFinalizationStartingCash(
