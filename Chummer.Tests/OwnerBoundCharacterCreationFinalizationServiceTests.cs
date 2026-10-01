@@ -34,6 +34,189 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     public static void Cleanup() => s_source?.Dispose();
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Magic_operation_scope_preserves_full_state_preview_and_fresh_admission(bool linked)
+    {
+        using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
+        var before = fixture.CaptureAllPartitions();
+        var stamp = fixture.Owner.Capture();
+        var baselineStore = new ScopedAtomicStore(fixture);
+        var baselineResolver = new ObservedResolver(fixture, s_source.Resolver);
+        var baseline = new OwnerBoundCharacterCreationMagicResonanceService(
+            baselineStore, fixture.Owner, baselineResolver);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        var expected = baseline.Load(stamp, new(fixture.Id));
+        long baselineAllocated = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+        double baselineMs = clock.Elapsed.TotalMilliseconds;
+        Assert.IsNotNull(expected.Value);
+        Assert.IsTrue(expected.Value.CanEdit, JsonSerializer.Serialize(expected));
+        Assert.IsNotNull(expected.Value.PendingDraft);
+        int baselineCalls = baselineResolver.Calls;
+
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationMagicResonanceService(store, fixture.Owner, resolver);
+        clock.Restart();
+        allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        var actual = service.Load(stamp, new(fixture.Id));
+        long scopedAllocated = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+        double scopedMs = clock.Elapsed.TotalMilliseconds;
+        AssertJsonEquals(expected, actual); // Every catalog row, budget, binding and digest.
+        Assert.AreEqual(baselineStore.Reads, store.Reads, "Keep all workspace/domain validation.");
+        var loadScope = resolver.Scopes.Single();
+        Assert.AreEqual(baselineCalls, loadScope.Calls);
+        Assert.IsTrue(baselineCalls > 1, "Exercise the nested Attributes context request.");
+        Assert.HasCount(1, loadScope.UniqueContexts);
+        Assert.IsTrue(loadScope.Disposed);
+
+        // A duplicate saved selection must retain its existing rejection, not
+        // become confirmable as a side effect of resolver reuse.
+        var previewRequest = new CharacterCreationMagicResonancePreviewRequest(
+            expected.Value.Binding, expected.Value.PendingDraft.Selections);
+        AssertJsonEquals(baseline.Preview(stamp, previewRequest), service.Preview(stamp, previewRequest));
+        AssertJsonEquals(baseline.LoadReReview(stamp, new(fixture.Id)), service.LoadReReview(stamp, new(fixture.Id)));
+        AssertJsonEquals(expected, service.Load(stamp, new(fixture.Id)));
+        Assert.HasCount(4, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.HasCount(1, resolver.Scopes[3].UniqueContexts);
+        Assert.AreNotSame(loadScope.UniqueContexts[0], resolver.Scopes[3].UniqueContexts[0],
+            "Never retain source context between operations.");
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Commits);
+        fixture.AssertPartitionsUnchanged(before);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        Console.WriteLine($"magic-operation-scope requests={baselineCalls} scopedContexts=1 "
+            + $"baselineMs={baselineMs:F3} scopedMs={scopedMs:F3} "
+            + $"baselineAllocatedBytes={baselineAllocated} scopedAllocatedBytes={scopedAllocated}; "
+            + "managed diagnostic only");
+    }
+
+    [TestMethod]
+    [DataRow("owner-B")]
+    [DataRow("owner-ABA")]
+    [DataRow("foreign-issuer")]
+    public void Magic_operation_scope_is_not_created_before_owner_admission(string denial)
+    {
+        using var fixture = new Fixture(AccountA);
+        var original = fixture.Owner.Capture();
+        if (denial == "foreign-issuer") original = new TestOwner(AccountA).Capture();
+        else
+        {
+            fixture.Owner.Transition(AccountB);
+            if (denial == "owner-ABA") fixture.Owner.Transition(AccountA);
+        }
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationMagicResonanceService(store, fixture.Owner, resolver);
+        var result = service.Load(original, new(fixture.Id));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+        Assert.IsNull(result.Value);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.StaleWorkspaceRevision);
+        Assert.IsEmpty(resolver.Scopes);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Reads);
+        Assert.AreEqual(0, store.Commits);
+        fixture.AssertPartitionsUnchanged(before);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Magic_operation_scope_and_owner_lease_are_disposed_on_failure(bool duringCreation)
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+        {
+            FailCreate = duringCreation,
+            FailQuery = !duringCreation
+        };
+        var service = new OwnerBoundCharacterCreationMagicResonanceService(store, fixture.Owner, resolver);
+        Assert.ThrowsExactly<OperationSourceTestException>(() => service.Load(fixture.Owner.Capture(), new(fixture.Id)));
+        Assert.AreEqual(1, resolver.InjectedFailures);
+        Assert.HasCount(duringCreation ? 0 : 1, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, store.Commits);
+        fixture.AssertPartitionsUnchanged(before);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Magic_operation_scope_preserves_confirm_cold_reopen_and_replay(bool linked)
+    {
+        var owner = linked ? AccountA : OwnerScope.LocalSingleUser;
+        using var baselineFixture = new Fixture(owner);
+        using var fixture = new Fixture(owner);
+        var unchanged = fixture.CaptureOtherPartitions();
+        var before = fixture.Read(owner);
+        var baselineStore = new ScopedAtomicStore(baselineFixture);
+        var baseline = new OwnerBoundCharacterCreationMagicResonanceService(baselineStore,
+            baselineFixture.Owner, new ObservedResolver(baselineFixture, s_source.Resolver));
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationMagicResonanceService(store, fixture.Owner, resolver);
+        var stamp = fixture.Owner.Capture();
+        var baselineStamp = baselineFixture.Owner.Capture();
+        var loaded = service.Load(stamp, new(fixture.Id));
+        AssertJsonEquals(baseline.Load(baselineStamp, new(fixture.Id)), loaded);
+        Assert.IsNotNull(loaded.Value);
+        Assert.IsNotNull(loaded.Value.PendingDraft);
+        var saved = loaded.Value.PendingDraft.Selections;
+        Assert.IsNotEmpty(saved.Spells);
+        var replacement = loaded.Value.Authority.Spells.First(option => option.IsEnabled
+            && !saved.Spells.Contains(option.Identity)).Identity;
+        var selections = saved with { Spells = saved.Spells.Skip(1).Append(replacement).ToArray() };
+        var preview = service.Preview(stamp, new(loaded.Value.Binding, selections));
+        AssertJsonEquals(baseline.Preview(baselineStamp, new(loaded.Value.Binding, selections)), preview);
+        Assert.IsNotNull(preview.Value);
+        Assert.IsTrue(preview.Value.CanConfirm, JsonSerializer.Serialize(preview));
+        var command = new CharacterCreationMagicResonanceConfirmRequest(loaded.Value.Binding,
+            selections, preview.Value.PreviewDigest, "magic-scope-replace-spell", true);
+        var confirmed = service.Confirm(stamp, command);
+        AssertJsonEquals(baseline.Confirm(baselineStamp, command), confirmed);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+        Assert.IsNotNull(confirmed.Value);
+        Assert.AreEqual(1, store.Commits);
+        Assert.AreEqual(baselineStore.Reads, store.Reads);
+        var after = fixture.Read(owner);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        AssertJsonEquals(baselineFixture.Read(owner).Document.AuxiliaryState, after.Document.AuxiliaryState);
+        // The existing domain canonicalizes selection order in the reviewed preview.
+        AssertJsonEquals(preview.Value.Selections,
+            after.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!.Selections);
+        Assert.HasCount(3, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed && scope.UniqueContexts.Count == 1));
+
+        var coldStore = new ScopedAtomicStore(fixture); // Every read opens a new FileWorkspaceStore.
+        var coldResolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var cold = new OwnerBoundCharacterCreationMagicResonanceService(coldStore, fixture.Owner, coldResolver);
+        var reopened = cold.Load(stamp, new(fixture.Id));
+        Assert.IsNotNull(reopened.Value);
+        Assert.IsTrue(reopened.Value.CanEdit, JsonSerializer.Serialize(reopened));
+        Assert.AreEqual(confirmed.Value.DraftDigest, reopened.Value.PendingDraft!.DraftDigest);
+        var committedBytes = fixture.CapturePartition(owner);
+        AssertJsonEquals(confirmed, cold.Confirm(stamp, command));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
+            cold.Confirm(stamp, command with { PreviewDigest = "changed-preview" }).Outcome);
+        Assert.AreEqual(0, coldStore.Commits);
+        Assert.AreEqual(committedBytes, fixture.CapturePartition(owner));
+        Assert.IsTrue(coldResolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, coldResolver.Scopes[1].Calls, "Replay only reads the durable receipt.");
+        Assert.AreEqual(0, resolver.UnscopedCalls + coldResolver.UnscopedCalls);
+        fixture.AssertOtherPartitionsUnchanged(unchanged);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+    }
+
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
