@@ -334,7 +334,76 @@ public static class CharacterCreationQualitiesRules
     public static CharacterCreationQualitiesPreview Evaluate(CharacterCreationQualitiesInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        List<string> blockers = ValidateEnvelope(input.Binding, input.Authority);
+        return EvaluateCore(input, ValidateEnvelope(input.Binding, input.Authority), Catalog(input.Authority));
+    }
+
+    /// <summary>
+    /// Quote each possible addition to one selection using the same rules as Evaluate.
+    /// The entire authority is copied and validated once for this synchronous operation;
+    /// no caller-owned collections, cache or reusable admission token are retained.
+    /// Preview/commit services must still reload and admit the current workspace.
+    /// </summary>
+    public static IReadOnlyList<CharacterCreationQualitiesPreview> EvaluateAdditions(
+        CharacterCreationQualitiesInput input,
+        IReadOnlyList<string> additionalOptionIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(additionalOptionIds);
+        cancellationToken.ThrowIfCancellationRequested();
+        string[] additions = BoundedCopy(additionalOptionIds);
+        string[] selected = BoundedCopy(input.SelectedOptionIds ?? []);
+        CharacterCreationQualitiesAuthority authority = input.Authority with
+        {
+            Options = Array.AsReadOnly(BoundedCopy(input.Authority.Options).Select(option =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return option with { SourceAnchorIds = Array.AsReadOnly(BoundedCopy(option.SourceAnchorIds)) };
+            }).ToArray()),
+            GrantedQualities = Array.AsReadOnly(BoundedCopy(input.Authority.GrantedQualities).Select(grant =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return grant with { SourceAnchorIds = Array.AsReadOnly(BoundedCopy(grant.SourceAnchorIds)) };
+            }).ToArray()),
+            SourceAnchorIds = Array.AsReadOnly(BoundedCopy(input.Authority.SourceAnchorIds)),
+            Blockers = Array.AsReadOnly(BoundedCopy(input.Authority.Blockers))
+        };
+        cancellationToken.ThrowIfCancellationRequested();
+        List<string> envelope = ValidateEnvelope(input.Binding, authority);
+        var catalog = Catalog(authority);
+        var previews = new CharacterCreationQualitiesPreview[additions.Length];
+        for (int index = 0; index < additions.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            previews[index] = EvaluateCore(new(input.Binding, authority, [.. selected, additions[index]]),
+                envelope, catalog);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return Array.AsReadOnly(previews);
+
+        static T[] BoundedCopy<T>(IReadOnlyList<T> values)
+        {
+            ArgumentNullException.ThrowIfNull(values);
+            if (values.Count > 65_536)
+                throw new ArgumentException("The quality quote collection exceeds its bound.", nameof(values));
+            return values.ToArray();
+        }
+    }
+
+    private static Dictionary<string, CharacterCreationQualityCatalogOption> Catalog(
+        CharacterCreationQualitiesAuthority authority)
+        => authority.Options
+            .Where(static option => option is not null && !string.IsNullOrWhiteSpace(option.OptionId))
+            .GroupBy(static option => option.OptionId, StringComparer.Ordinal)
+            .Where(static group => group.Count() == 1)
+            .ToDictionary(static group => group.Key, static group => group.Single(), StringComparer.Ordinal);
+
+    private static CharacterCreationQualitiesPreview EvaluateCore(
+        CharacterCreationQualitiesInput input,
+        IReadOnlyList<string> envelope,
+        Dictionary<string, CharacterCreationQualityCatalogOption> catalog)
+    {
+        List<string> blockers = new(envelope);
         var selected = new List<CharacterCreationQualitySelection>();
         string[] optionIds;
         if (input.SelectedOptionIds is { Count: > 65_536 })
@@ -352,11 +421,6 @@ public static class CharacterCreationQualitiesRules
             blockers.Add(CharacterCreationQualitiesBlockers.DuplicateSelection);
         }
 
-        Dictionary<string, CharacterCreationQualityCatalogOption> catalog = input.Authority.Options
-            .Where(static option => option is not null && !string.IsNullOrWhiteSpace(option.OptionId))
-            .GroupBy(static option => option.OptionId, StringComparer.Ordinal)
-            .Where(static group => group.Count() == 1)
-            .ToDictionary(static group => group.Key, static group => group.Single(), StringComparer.Ordinal);
         foreach (string optionId in optionIds.Distinct(StringComparer.Ordinal))
         {
             if (!catalog.TryGetValue(optionId, out CharacterCreationQualityCatalogOption? option)
