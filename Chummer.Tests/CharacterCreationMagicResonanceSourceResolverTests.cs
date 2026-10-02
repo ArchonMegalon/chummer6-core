@@ -15,6 +15,100 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     private const string StandardPrioritySettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
 
     [TestMethod]
+    [DataRow("Hermetic", "Materialization")]
+    [DataRow("Qabbalism", "Possession")]
+    [DataRow("Vodou", "Possession")]
+    [DataRow("Insect Shaman", "Inhabitation")]
+    [DataRow("Egyptian", "Possession")]
+    [DataRow("Psionic", "Possession")]
+    [DataRow("Santeria", "Possession")]
+    [DataRow("Svetoid", "Possession")]
+    public void Traditions_preserve_source_spirit_form_in_priority_and_purchase_catalogs(string name, string form)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CharacterCreationBootstrapProfiles.PrioritySettingsProfileId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var priority));
+        var karma = LoadKarmaMagic(root);
+        foreach (var option in new[] { priority.Traditions.Single(item => item.Name == name),
+                     karma.Catalogs.Single(slice => slice.Kind == "tradition").Options.Single(item => item.Name == name) })
+        {
+            Assert.IsTrue(option.IsEnabled, name + ": " + string.Join(",", option.Blockers));
+            Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out var projected), name);
+            Assert.AreEqual(option.Identity, projected!.Identity);
+            Assert.AreEqual(option.CanonicalSourceXmlDigest, projected.CanonicalSourceXmlDigest);
+            Assert.AreEqual(form, XElement.Parse(projected.CanonicalSourceXml).Element("spiritform")?.Value ?? "Materialization");
+        }
+        var restricted = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+        Assert.IsTrue(restricted.TryResolveCreationMagicResonanceAuthority(out var legacy));
+        if (name != "Hermetic")
+        {
+            var disabled = legacy.Traditions.Single(item => item.Name == name);
+            Assert.IsFalse(disabled.IsEnabled, "Spirit-form support must not enable a book excluded by the selected profile.");
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(disabled, 1, out _));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("", "Materialization")]
+    [DataRow("<spiritform>Materialization</spiritform>", "Materialization")]
+    [DataRow("<spiritform>Possession</spiritform>", "Possession")]
+    [DataRow("<spiritform>Inhabitation</spiritform>", "Inhabitation")]
+    public void Tradition_spirit_form_defaults_only_when_absent(string field, string expected)
+    {
+        Assert.IsTrue(CharacterTraditionSpiritFormRules.TryRead(XElement.Parse("<tradition>" + field + "</tradition>"), out string actual));
+        Assert.AreEqual(expected, actual);
+    }
+
+    [TestMethod]
+    [DataRow("<spiritform />")]
+    [DataRow("<spiritform>Unknown</spiritform>")]
+    [DataRow("<spiritform>possession</spiritform>")]
+    [DataRow("<spiritform> Possession </spiritform>")]
+    [DataRow("<spiritform>Possession</spiritform><spiritform>Materialization</spiritform>")]
+    [DataRow("<spiritform extra='true'>Possession</spiritform>")]
+    [DataRow("<spiritform><value>Possession</value></spiritform>")]
+    [DataRow("<spiritform xmlns='urn:invalid'>Possession</spiritform>")]
+    [DataRow("<spiritform>Possession<?invalid value?></spiritform>")]
+    [DataRow("<spiritform>Possession<!--uncompiled--></spiritform>")]
+    public void Malformed_tradition_spirit_forms_are_disabled_and_cannot_be_projected(string field)
+    {
+        string root = FindCoreRoot();
+        XElement row = XDocument.Load(Path.Combine(root, "Chummer", "data", "traditions.xml"))
+            .Root!.Element("traditions")!.Elements("tradition").Single(item => item.Element("name")?.Value == "Hermetic");
+        XElement fragment = XElement.Parse("<fragment>" + field + "</fragment>");
+        row.Add(fragment.Elements());
+        Assert.IsFalse(CharacterTraditionSpiritFormRules.TryRead(row, out string form));
+        Assert.AreEqual(string.Empty, form);
+        var blockers = new List<string>();
+        var option = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog([row], "tradition",
+            CharacterCreationMagicResonanceDigest.ComputeUtf8(row.ToString()), ["SR5"], blockers).Single();
+        Assert.IsFalse(option.IsEnabled);
+        CollectionAssert.Contains(option.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option with
+            { IsEnabled = true, Blockers = [] }, 1, out _), "Re-enabling an invalid payload must not bypass validation.");
+    }
+
+    [TestMethod]
+    public void Tradition_spirit_form_support_keeps_prerequisite_bonus_and_empty_drain_blockers()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CharacterCreationBootstrapProfiles.PrioritySettingsProfileId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var authority));
+        foreach (var option in authority.Traditions)
+        {
+            var row = XElement.Parse(option.CanonicalSourceXml);
+            if (row.Element("required") is not null || row.Element("forbidden") is not null
+                || row.Element("bonus") is not null || string.IsNullOrWhiteSpace(row.Element("drain")?.Value))
+            {
+                Assert.IsFalse(option.IsEnabled, option.Name);
+                Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _));
+            }
+        }
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBootstrapProfiles.KarmaSettingsProfileId)]
     [DataRow(CharacterCreationBootstrapProfiles.LegacyKarmaSettingsProfileId)]
     public void Karma_magic_catalog_has_real_profile_prices_and_no_priority_talent_authority(string profileId)
