@@ -12438,6 +12438,7 @@
           <name>Social Active</name>
           <bonus>-3</bonus>
           <exclude>Intimidation</exclude>
+          <condition>Outside the Matrix</condition>
         </skillcategory>
         <specificskill>
           <name>Intimidation</name>
@@ -17965,7 +17966,7 @@
         <skillcategory>
           <name>Social Active</name>
           <bonus>-2</bonus>
-          <condition>With corporate personnel</condition>
+          <condition>With members of the selected corporation</condition>
         </skillcategory>
       </bonus>
       <source>SL</source>
@@ -17982,7 +17983,7 @@
         <skillcategory>
           <name>Social Active</name>
           <bonus>-3</bonus>
-          <condition>With corporate personnel</condition>
+          <condition>With former co-workers or Johnsons from the selected corporation</condition>
         </skillcategory>
       </bonus>
       <source>SL</source>

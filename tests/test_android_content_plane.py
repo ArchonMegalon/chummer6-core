@@ -63,6 +63,62 @@ class CurrentQualityContentTests(unittest.TestCase):
         self.assertEqual({}, category.attrib)
         # No condition, exclusions, rating modifier, or Social-limit modifier.
 
+    def test_chrome_flesh_quasimodo_social_penalty_excludes_matrix_tests(self) -> None:
+        root = ET.parse(REPO_ROOT / "Chummer/data/qualities.xml").getroot()
+        matches = root.findall(
+            "./qualities/quality[id='bd64ccab-5138-475d-8eb1-400ae4a11ac2']"
+        )
+        self.assertEqual(1, len(matches))
+        quality = matches[0]
+        self.assertEqual("Quasimodo", quality.findtext("name"))
+        self.assertEqual("-5", quality.findtext("karma"))
+        self.assertEqual("Negative", quality.findtext("category"))
+        self.assertEqual("CF", quality.findtext("source"))
+        self.assertEqual("59", quality.findtext("page"))
+        bonus = quality.find("bonus")
+        self.assertEqual(["skillcategory", "specificskill"], [e.tag for e in bonus])
+        category = bonus.find("skillcategory")
+        self.assertEqual(
+            ["name", "bonus", "exclude", "condition"], [f.tag for f in category]
+        )
+        self.assertEqual("Social Active", category.findtext("name"))
+        self.assertEqual("-3", category.findtext("bonus"))
+        self.assertEqual("Intimidation", category.findtext("exclude"))
+        self.assertEqual("Outside the Matrix", category.findtext("condition"))
+        # Keep the existing separate Intimidation bonus and dice/rating boundary.
+        skill = bonus.find("specificskill")
+        self.assertEqual(["name", "bonus"], [f.tag for f in skill])
+        self.assertEqual("Intimidation", skill.findtext("name"))
+        self.assertEqual("2", skill.findtext("bonus"))
+
+    def test_corporate_pariah_is_scoped_to_the_selected_affiliation(self) -> None:
+        root = ET.parse(REPO_ROOT / "Chummer/data/qualities.xml").getroot()
+        cases = (
+            ("0d1d5e5d-5a11-4dff-9776-3cf088ab8ea7", "I", "-7", "-2",
+             "With members of the selected corporation"),
+            ("7bce4053-611b-4b58-8e1d-fc9dde20fd9f", "II", "-10", "-3",
+             "With former co-workers or Johnsons from the selected corporation"),
+        )
+        for identity, level, karma, dice, condition in cases:
+            with self.subTest(level=level):
+                matches = root.findall(f"./qualities/quality[id='{identity}']")
+                self.assertEqual(1, len(matches))
+                quality = matches[0]
+                self.assertEqual(f"Corporate Pariah {level}", quality.findtext("name"))
+                self.assertEqual(karma, quality.findtext("karma"))
+                self.assertEqual("Negative", quality.findtext("category"))
+                self.assertEqual("False", quality.findtext("limit"))
+                self.assertEqual("SL", quality.findtext("source"))
+                self.assertEqual("127", quality.findtext("page"))
+                bonus = quality.find("bonus")
+                self.assertEqual(["selecttext", "skillcategory"], [e.tag for e in bonus])
+                self.assertEqual({}, bonus.find("selecttext").attrib)
+                category = bonus.find("skillcategory")
+                self.assertEqual(["name", "bonus", "condition"], [f.tag for f in category])
+                self.assertEqual("Social Active", category.findtext("name"))
+                self.assertEqual(dice, category.findtext("bonus"))
+                self.assertEqual(condition, category.findtext("condition"))
+
 
 class AndroidContentPlaneTests(unittest.TestCase):
     @classmethod
