@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest import mock
 
@@ -27,6 +28,40 @@ def load_script():
 
 
 plane = load_script()
+
+
+class CurrentQualityContentTests(unittest.TestCase):
+    """Guard corrected source data separately from the frozen content export.
+
+    These checks cover catalog semantics, not an Android runtime qualification.
+    The historical export must stay immutable until consumers deliberately repin.
+    """
+
+    def test_liar_penalizes_social_skill_dice_not_limits_or_ratings(self) -> None:
+        root = ET.parse(REPO_ROOT / "Chummer/data/qualities.xml").getroot()
+        matches = root.findall(
+            "./qualities/quality[id='bf50a6c9-f165-451c-8d38-89240f39bb44']"
+        )
+        self.assertEqual(1, len(matches))
+        quality = matches[0]
+        self.assertEqual("Liar", quality.findtext("name"))
+        self.assertEqual("-7", quality.findtext("karma"))
+        self.assertEqual("Negative", quality.findtext("category"))
+        self.assertEqual("RF", quality.findtext("source"))
+        self.assertEqual("156", quality.findtext("page"))
+
+        # Run Faster's penalty applies to every Social skill test. The existing
+        # skillcategory handler treats an omitted applytorating as false; a
+        # limitmodifier would instead reduce the maximum kept hits.
+        bonus = quality.find("bonus")
+        self.assertIsNotNone(bonus)
+        self.assertEqual(["skillcategory"], [effect.tag for effect in bonus])
+        category = bonus.find("skillcategory")
+        self.assertEqual(["name", "bonus"], [field.tag for field in category])
+        self.assertEqual("Social Active", category.findtext("name"))
+        self.assertEqual("-1", category.findtext("bonus"))
+        self.assertEqual({}, category.attrib)
+        # No condition, exclusions, rating modifier, or Social-limit modifier.
 
 
 class AndroidContentPlaneTests(unittest.TestCase):

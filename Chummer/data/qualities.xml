@@ -4119,10 +4119,10 @@
       <karma>-7</karma>
       <category>Negative</category>
       <bonus>
-        <limitmodifier>
-          <limit>Social</limit>
-          <value>-1</value>
-        </limitmodifier>
+        <skillcategory>
+          <name>Social Active</name>
+          <bonus>-1</bonus>
+        </skillcategory>
       </bonus>
       <source>RF</source>
       <page>156</page>
