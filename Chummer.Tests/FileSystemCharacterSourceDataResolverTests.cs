@@ -29,13 +29,22 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         foreach (bool bookEnabled in new[] { true, false })
         foreach (bool unsupported in new[] { false, true })
         {
-            string raw = $"<option{space} xmlns:extra=\"urn:fixture\">\n  <id>{id}</id>\n"
+            // Streams use <tradition> rows too. Preserve each real source
+            // element so this digest test also exercises valid admission.
+            string element = kind switch
+            {
+                "tradition" or "stream" => "tradition",
+                "adept-power" => "power",
+                "complex-form" => "complexform",
+                _ => "spell"
+            };
+            string raw = $"<{element}{space} xmlns:extra=\"urn:fixture\">\n  <id>{id}</id>\n"
                 + "  <name>Zoë &amp; 東京 😀</name>\n  <!-- retained -->\n"
                 + "  <source>SR5</source>\n  <page>123</page>\n"
                 + "  <category>Combat</category><points>0.5</points><levels>False</levels>"
                 + "<drain>BOD + WIL</drain><extra:note> escaped &lt;value&gt; </extra:note>"
                 + (unsupported ? "<required><quality>Unresolved</quality></required>" : "")
-                + "\n</option>";
+                + $"\n</{element}>";
             XElement row = XElement.Parse(raw, LoadOptions.PreserveWhitespace);
             string serialized = row.ToString(SaveOptions.DisableFormatting);
             string canonical = XElement.Parse(serialized, LoadOptions.None).ToString(SaveOptions.DisableFormatting);
