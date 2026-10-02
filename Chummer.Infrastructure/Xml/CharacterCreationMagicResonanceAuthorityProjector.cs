@@ -424,7 +424,9 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             if (row.Elements().Any(element => element.Name.LocalName is "required" or "forbidden")
                 || (kind is (CharacterCreationMagicResonanceKinds.Tradition
                         or CharacterCreationMagicResonanceKinds.Stream)
-                    && row.Element("bonus") is not null))
+                    && (row.Element("bonus") is not null
+                        || !TryReadScalar(row, "drain", out _)
+                        || !CharacterTraditionSpiritFormRules.TryRead(row, out _))))
                 local.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
 
             string category = kind switch

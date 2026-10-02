@@ -354,6 +354,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
         Require(!root.Elements("tradition").Any());
         XElement node = OptionSource(tradition, "tradition");
         Require(Scalar(node, "drain").Length > 0);
+        Require(CharacterTraditionSpiritFormRules.TryRead(node, out string spiritForm));
         string kind = tradition.Identity.Kind == CharacterCreationMagicResonanceKinds.Stream ? "RES" : "MAG";
         var spirits = node.Element("spirits");
         Require(spirits is null || !spirits.HasAttributes && spirits.Elements().All(item =>
@@ -361,7 +362,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             && !item.HasElements && !item.HasAttributes));
         XElement saved = Identity("tradition", tradition, digest);
         saved.Add(new XElement("traditiontype", kind), new XElement("extra"),
-            new XElement("spiritform", "Materialization"), new XElement("drain", Scalar(node, "drain")),
+            new XElement("spiritform", spiritForm), new XElement("drain", Scalar(node, "drain")),
             new XElement("source", tradition.SourceBook), new XElement("page", tradition.Page));
         foreach (string field in new[] { "spiritcombat", "spiritdetection", "spirithealth", "spiritillusion", "spiritmanipulation" })
             saved.Add(new XElement(field, spirits is null ? string.Empty : Scalar(spirits, field)));
@@ -430,7 +431,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             && Scalar(node, "name") == source.Name && Scalar(node, "source") == source.SourceBook && Scalar(node, "page") == source.Page);
         string[] allowed = name switch
         {
-            "tradition" => ["id", "name", "drain", "source", "page", "spirits", "bonus"],
+            "tradition" => ["id", "name", "drain", "source", "page", "spirits", "spiritform", "bonus"],
             "power" => ["id", "name", "points", "levels", "limit", "source", "page", "action", "adeptway", "adeptwayrequires", "bonus", "maxlevel", "maxlevels"],
             "spell" => ["id", "name", "page", "source", "category", "damage", "descriptor", "duration", "dv", "range", "type", "useskill", "bonus"],
             "complexform" => ["id", "name", "target", "duration", "fv", "source", "page", "bonus"],

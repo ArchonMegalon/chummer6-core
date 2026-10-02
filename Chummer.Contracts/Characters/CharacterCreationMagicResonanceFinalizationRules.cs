@@ -563,6 +563,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                    expectedRoot,
                    out XElement? source)
                && source is not null
+               && (expectedRoot != "tradition" || CharacterTraditionSpiritFormRules.TryRead(source, out _))
                && source.Elements().All(element => AllowedElements(option.Identity.Kind).Contains(
                    element.Name.LocalName, StringComparer.Ordinal));
     }
@@ -871,7 +872,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
     ];
 
     private static readonly string[] TraditionElements =
-        ["id", "name", "drain", "source", "page", "spirits", "bonus", "required", "forbidden"];
+        ["id", "name", "drain", "source", "page", "spirits", "spiritform", "bonus", "required", "forbidden"];
 
     private static readonly string[] PowerElements =
     [
