@@ -641,7 +641,7 @@ public static class CharacterCreationQualitiesRules
         CharacterCreationQualitiesDigest.Compute(grant with { GrantDigest = string.Empty });
 
     public static string ComputeAuthorityDigest(CharacterCreationQualitiesAuthority authority) =>
-        CharacterCreationQualitiesDigest.Compute(authority with { AuthorityDigest = string.Empty });
+        CharacterCreationQualitiesDigest.ComputeAuthority(authority);
 
     public static string ComputeReceiptDigest(CharacterCreationQualitiesDraftReceipt receipt) =>
         CharacterCreationQualitiesDigest.Compute(receipt with { ReceiptDigest = string.Empty });
@@ -650,7 +650,7 @@ public static class CharacterCreationQualitiesRules
         CharacterCreationQualitiesDigest.Compute(draft with { DraftDigest = string.Empty });
 
     public static string ComputeStateDigest(CharacterCreationQualitiesState state) =>
-        CharacterCreationQualitiesDigest.Compute(state with { SnapshotDigest = string.Empty });
+        CharacterCreationQualitiesDigest.ComputeState(state);
 
     public static string ComputeIdempotencyKeyDigest(string idempotencyKey) =>
         CharacterCreationQualitiesDigest.ComputeUtf8(idempotencyKey);
@@ -868,6 +868,88 @@ public static class CharacterCreationQualitiesRules
 internal static class CharacterCreationQualitiesDigest
 {
     private const string Prefix = "sha256:";
+
+    public static string ComputeAuthority(CharacterCreationQualitiesAuthority authority)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        using var buffer = new CreationDigestBufferWriter();
+        using (var writer = new Utf8JsonWriter(buffer))
+            WriteAuthority(authority, writer, string.Empty);
+        return Prefix + buffer.GetDigest();
+    }
+
+    public static string ComputeState(CharacterCreationQualitiesState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        using var buffer = new CreationDigestBufferWriter();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            WriteProperty(writer, nameof(state.AttributesDraft), state.AttributesDraft);
+            writer.WritePropertyName(nameof(state.Authority));
+            if (state.Authority is null) writer.WriteNullValue();
+            else WriteAuthority(state.Authority, writer, state.Authority.AuthorityDigest);
+            WriteProperty(writer, nameof(state.Binding), state.Binding);
+            WriteProperty(writer, nameof(state.Blockers), state.Blockers);
+            writer.WriteBoolean(nameof(state.CanEdit), state.CanEdit);
+            WriteProperty(writer, nameof(state.PendingDraft), state.PendingDraft);
+            WriteProperty(writer, nameof(state.PrerequisiteDraft), state.PrerequisiteDraft);
+            WriteProperty(writer, nameof(state.Preview), state.Preview);
+            writer.WriteString(nameof(state.Schema), state.Schema);
+            writer.WriteString(nameof(state.SnapshotDigest), string.Empty);
+            writer.WriteEndObject();
+        }
+        return Prefix + buffer.GetDigest();
+    }
+
+    private static void WriteAuthority(CharacterCreationQualitiesAuthority authority,
+        Utf8JsonWriter writer, string? digest)
+    {
+        // Exactly the historical v1 JSON in ordinal property order. The large
+        // option catalog is already a fixed shape: do not serialize, parse and
+        // escape its source XML twice for each authority/state validation.
+        // Read every field every time, including embedded option/grant digests;
+        // this is not a cache or a substitute for any source/owner admission.
+        writer.WriteStartObject();
+        writer.WriteString(nameof(authority.AuthorityDigest), digest);
+        WriteProperty(writer, nameof(authority.Blockers), authority.Blockers);
+        if (authority.CostPolicy is not null)
+            WriteProperty(writer, nameof(authority.CostPolicy), authority.CostPolicy);
+        writer.WriteString(nameof(authority.GmPolicyDigest), authority.GmPolicyDigest);
+        WriteProperty(writer, nameof(authority.GrantedQualities), authority.GrantedQualities);
+        writer.WriteBoolean(nameof(authority.IsAuthoritative), authority.IsAuthoritative);
+        writer.WriteBoolean(nameof(authority.MayExceedNegativeQualityLimit), authority.MayExceedNegativeQualityLimit);
+        writer.WriteBoolean(nameof(authority.MayExceedPositiveQualityLimit), authority.MayExceedPositiveQualityLimit);
+        writer.WriteNumber(nameof(authority.MetagenicLimit), authority.MetagenicLimit);
+        writer.WritePropertyName(nameof(authority.Options));
+        if (authority.Options is null) writer.WriteNullValue();
+        else
+        {
+            writer.WriteStartArray();
+            foreach (var option in authority.Options)
+            {
+                if (option is null) writer.WriteNullValue();
+                else WriteOption(option, writer, option.OptionDigest);
+            }
+            writer.WriteEndArray();
+        }
+        writer.WriteString(nameof(authority.ProfileDigest), authority.ProfileDigest);
+        writer.WriteNumber(nameof(authority.QualityKarmaLimit), authority.QualityKarmaLimit);
+        writer.WriteString(nameof(authority.RulesetId), authority.RulesetId);
+        writer.WriteString(nameof(authority.RuntimeDigest), authority.RuntimeDigest);
+        writer.WriteString(nameof(authority.Schema), authority.Schema);
+        writer.WriteString(nameof(authority.SettingsProfileId), authority.SettingsProfileId);
+        WriteProperty(writer, nameof(authority.SourceAnchorIds), authority.SourceAnchorIds);
+        writer.WriteString(nameof(authority.SourceDigest), authority.SourceDigest);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteProperty<T>(Utf8JsonWriter writer, string name, T value)
+    {
+        writer.WritePropertyName(name);
+        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        WriteCanonical(document.RootElement, writer);
+    }
 
     public static string ComputeOption(CharacterCreationQualityCatalogOption option)
     {
