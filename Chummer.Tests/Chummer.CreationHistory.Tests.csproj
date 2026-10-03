@@ -25,6 +25,7 @@
     <Compile Include="CharacterCreationMagicResonanceServiceTests.cs" />
     <Compile Include="CharacterCreationMagicResonanceSourceResolverTests.cs" />
     <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
+    <Compile Include="OwnerBoundCreationQualitiesTests.cs" />
     <Compile Include="CharacterCreationResourcesServiceTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.cs" />
     <Compile Include="CharacterCreationContactsServiceTests.cs" />
