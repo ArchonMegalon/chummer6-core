@@ -50,12 +50,18 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
 
         using (lease)
         {
+            // Qualities, prerequisites and attributes share source construction
+            // only within this synchronous admitted operation. Each lookup still
+            // validates live inputs; no source context survives the owner lease.
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            ICharacterSourceDataResolver operationResolver = sourceScope ?? sourceResolver;
             // No ambient fallback and no lease across await. Every dependent
             // evaluator reads the same exact owner/workspace observation.
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
-            var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, sourceResolver);
-            var attributes = new CharacterCreationAttributesService(view, sourceResolver);
-            return action(new CharacterCreationQualitiesService(view, sourceResolver, prerequisites, attributes));
+            var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, operationResolver);
+            var attributes = new CharacterCreationAttributesService(view, operationResolver);
+            return action(new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes));
         }
     }
 }
