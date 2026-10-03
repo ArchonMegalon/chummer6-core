@@ -456,6 +456,99 @@ public sealed class CharacterCreationQualitiesRulesTests
     private static string ReferenceOptionDigest(CharacterCreationQualityCatalogOption option)
         => ReferenceCanonicalDigest(option with { OptionDigest = string.Empty });
 
+    [TestMethod]
+    public void Quality_authority_and_state_digests_preserve_all_canonical_fields()
+    {
+        foreach (string? text in new[] { null, "", "Zoë 東京 😀 <>&\"\\\r\n\t", "\ud800" })
+        foreach (bool optional in new[] { false, true })
+        {
+            var option = Option("first", (CharacterCreationQualityType)7, -3) with
+            {
+                Name = text!, SourceNodeXml = text!, FollowUpChoiceId = text,
+                SourceAnchorIds = ["second", text!, "first"], ResolvedArmCount = optional ? 4 : null
+            };
+            var authority = Authority(option, option with { OptionId = "second" }, null!) with
+            {
+                Schema = text!, RulesetId = text!, SettingsProfileId = text!,
+                QualityKarmaLimit = -9, MayExceedPositiveQualityLimit = true,
+                MayExceedNegativeQualityLimit = true, MetagenicLimit = 17,
+                SourceDigest = text!, ProfileDigest = text!, GmPolicyDigest = text!, RuntimeDigest = text!,
+                IsAuthoritative = false, Blockers = ["z", text!, "a"], SourceAnchorIds = [text!, "z", "a"],
+                CostPolicy = optional ? new(2, true, true) : null,
+                GrantedQualities = [new("grant", option.SourceId, text!, text!, (CharacterCreationQualityType)7,
+                    2, -3, true, false, true, text!, [text!], "retained-grant-digest"), null!]
+            };
+            AssertQualityDigests(authority);
+            AssertQualityDigests(authority with { Options = null!, GrantedQualities = null!,
+                Blockers = null!, SourceAnchorIds = null! });
+        }
+    }
+
+    [TestMethod]
+    public void Quality_authority_and_state_digests_observe_nested_mutation_and_order()
+    {
+        var first = Option("first", CharacterCreationQualityType.Positive, 3);
+        CharacterCreationQualityCatalogOption[] options = [first, first with { OptionId = "second" }];
+        string[] anchors = ["a", "b"];
+        var authority = Authority(options) with { SourceAnchorIds = anchors };
+        string before = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority);
+        options[0] = first with { OptionDigest = "changed embedded digest", SourceNodeXml = "<changed />" };
+        Assert.AreNotEqual(before, CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+        AssertQualityDigests(authority);
+        before = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority);
+        Array.Reverse(options);
+        Assert.AreNotEqual(before, CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+        AssertQualityDigests(authority);
+        before = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority);
+        Array.Reverse(anchors);
+        Assert.AreNotEqual(before, CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+        AssertQualityDigests(authority);
+        Parallel.For(0, 8, _ => AssertQualityDigests(authority));
+    }
+
+    [TestMethod]
+    public void Quality_authority_and_state_hashing_avoid_catalog_DOM_allocations()
+    {
+        var option = Option("large", CharacterCreationQualityType.Positive, 3) with
+        { SourceNodeXml = new string('x', 12_000) + "é😀<>&\"" };
+        var authority = Authority(Enumerable.Range(0, 160)
+            .Select(index => option with { OptionId = index.ToString() }).ToArray());
+        var state = DigestState(authority);
+        Check(() => ReferenceCanonicalDigest(authority with { AuthorityDigest = string.Empty }),
+            () => CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+        Check(() => ReferenceCanonicalDigest(state with { SnapshotDigest = string.Empty }),
+            () => CharacterCreationQualitiesRules.ComputeStateDigest(state));
+        static void Check(Func<string> reference, Func<string> current)
+        {
+            Assert.AreEqual(reference(), current());
+            long start = GC.GetAllocatedBytesForCurrentThread();
+            string expected = reference();
+            long baseline = GC.GetAllocatedBytesForCurrentThread() - start;
+            start = GC.GetAllocatedBytesForCurrentThread();
+            string actual = current();
+            long measured = GC.GetAllocatedBytesForCurrentThread() - start;
+            Assert.AreEqual(expected, actual);
+            Console.WriteLine($"Quality catalog digest allocation: direct={measured}; DOM={baseline}");
+            Assert.IsTrue(measured < 128_000 && measured < baseline / 4,
+                $"Catalog hashing still allocates a full DOM: {measured} bytes versus {baseline}.");
+        }
+    }
+
+    private static void AssertQualityDigests(CharacterCreationQualitiesAuthority authority)
+    {
+        Assert.AreEqual(ReferenceCanonicalDigest(authority with { AuthorityDigest = string.Empty }),
+            CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+        var state = DigestState(authority);
+        Assert.AreEqual(ReferenceCanonicalDigest(state with { SnapshotDigest = string.Empty }),
+            CharacterCreationQualitiesRules.ComputeStateDigest(state));
+        Assert.AreEqual(ReferenceCanonicalDigest(state with { Authority = null!, SnapshotDigest = string.Empty }),
+            CharacterCreationQualitiesRules.ComputeStateDigest(state with { Authority = null! }));
+    }
+
+    private static CharacterCreationQualitiesState DigestState(CharacterCreationQualitiesAuthority authority)
+        => new(CharacterCreationQualitiesSchemas.StateV1, Binding(authority), authority,
+            null, null, null, null!, ["z", "a"], true, "ignored-state-digest");
+
     private static string ReferenceCanonicalDigest<T>(T value)
     {
         var root = JsonSerializer.SerializeToElement(value);
