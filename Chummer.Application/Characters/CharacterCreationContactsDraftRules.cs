@@ -139,12 +139,24 @@ public static class CharacterCreationContactsDraftRules
             && Equal(left.Policy, right.Policy) && Equal(left.CarryoverPolicy, right.CarryoverPolicy);
 
     private static bool HasCurrentQualityAuthority(WorkspaceStoredDocument workspace, ICharacterSourceDataContext context)
-        => workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft is { } prerequisite
-            && workspace.Document.AuxiliaryState.CharacterCreationQualitiesDraft is { } qualities
-            && context.TryResolveCreationQualitiesAuthority(out var authority)
-            && authority.IsAuthoritative && authority.Blockers.Count == 0
-            && CharacterCreationTalentQualityGrants.TryBind(prerequisite, context, authority, out authority)
-            && authority.AuthorityDigest == qualities.AuthorityDigest;
+    {
+        if (workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft is not { } prerequisite
+            || workspace.Document.AuxiliaryState.CharacterCreationQualitiesDraft is not { } qualities
+            || !context.TryResolveCreationQualitiesAuthority(prerequisite, out var authority)
+            || !authority.IsAuthoritative || authority.Blockers.Count != 0
+            || !CharacterCreationTalentQualityGrants.TryBind(prerequisite, context, authority, out authority))
+            return false;
+        if (CharacterCreationQualitiesRules.DigestsEqual(authority.AuthorityDigest, qualities.AuthorityDigest))
+            return true;
+
+        // Match the Qualities editor's exact legacy-catalog compatibility. A
+        // saved draft is never migrated or repriced: current source bytes must
+        // still reproduce the authority that originally admitted its choices.
+        return context.TryResolveCreationQualitiesAuthority(out var legacy)
+            && legacy.IsAuthoritative && legacy.Blockers.Count == 0
+            && CharacterCreationTalentQualityGrants.TryBind(prerequisite, context, legacy, out legacy)
+            && CharacterCreationQualitiesRules.DigestsEqual(legacy.AuthorityDigest, qualities.AuthorityDigest);
+    }
 
     internal static bool TryReadSelections(XElement root, out CharacterCreationKarmaContactSelection[] selections)
     {

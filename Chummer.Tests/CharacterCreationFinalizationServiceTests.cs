@@ -1956,6 +1956,80 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, result.Outcome, string.Join(",", result.Blockers));
     }
 
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, false)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, false)]
+    [DataRow(CharacterCreationBuildMethods.Priority, true)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, true)]
+    public void Contacts_accept_the_exact_saved_current_or_legacy_quality_catalog_after_cold_reopen(
+        string method, bool legacyCatalog)
+    {
+        using ReadyContext context = ReadyContext.Create(true, buildMethod: method,
+            legacyQualityCatalog: legacyCatalog);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var qualityDraft = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        var resolver = legacyCatalog ? ((LegacyQualityCatalogResolver)context.Resolver).Inner : context.Resolver;
+        var store = new FileWorkspaceStore(context.Directory);
+        var contacts = new CharacterCreationContactsService(store, resolver);
+        var loaded = contacts.Load(new(context.WorkspaceId));
+        Assert.IsTrue(loaded.Success, string.Join(",", loaded.Blockers));
+        var state = loaded.Value!;
+        Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+        Assert.IsTrue(state.ContactBudget.IsExact);
+        Assert.IsNotNull(state.NewContactTemplate);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest,
+            "Loading Contacts must not migrate the saved quality catalog.");
+
+        var edit = new CharacterCreationContactEdit(Guid.NewGuid(),
+            state.NewContactTemplate.Identity with { Name = "Street Medic" }, Connection: 1, Loyalty: 1)
+            { ChangeKind = CharacterCreationContactChangeKind.Add };
+        var preview = contacts.Preview(new(state.Binding, edit));
+        Assert.IsTrue(preview.Success, string.Join(",", preview.Blockers));
+        Assert.AreEqual(CharacterCreationContactsSchemas.DraftWritePlanV1, preview.Value!.WritePlan.Schema);
+        var command = new CharacterCreationContactConfirmRequest(state.Binding, edit,
+            preview.Value.PreviewDigest, "exact-quality-contact", true);
+        var applied = contacts.Confirm(command);
+        Assert.AreEqual(CharacterCreationContactOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+
+        var coldStore = new FileWorkspaceStore(context.Directory);
+        var coldContacts = new CharacterCreationContactsService(coldStore, resolver);
+        var cold = coldContacts.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(cold.CanEdit, string.Join(",", cold.Blockers));
+        Assert.AreEqual("Street Medic", cold.Contacts.Single().Identity.Name);
+        Assert.AreEqual(2, cold.ContactBudget.Used);
+        var saved = coldStore.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(before.Document.Content, saved.Document.Content, "Contact drafts must not mutate pending character XML.");
+        Assert.AreEqual(qualityDraft.DraftDigest, saved.Document.AuxiliaryState.CharacterCreationQualitiesDraft!.DraftDigest);
+        Assert.AreEqual(qualityDraft.AuthorityDigest, saved.Document.AuxiliaryState.CharacterCreationQualitiesDraft!.AuthorityDigest);
+        Assert.AreEqual(CharacterCreationContactOutcomes.Replayed, coldContacts.Confirm(command).Outcome);
+        Assert.AreEqual(saved.ContentRevision, coldStore.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Contacts_reject_changed_quality_sources_without_rewriting_the_saved_draft()
+    {
+        using ReadyContext context = ReadyContext.Create(true, amendSettings: _ => { });
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var service = new CharacterCreationContactsService(context.Store, context.Resolver);
+        var initial = service.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(initial.CanEdit, string.Join(",", initial.Blockers));
+        string path = Path.Combine(context.Directory, "source", "data", "qualities.xml");
+        XDocument source = XDocument.Load(path);
+        var quality = source.Root!.Element("qualities")!.Elements("quality")
+            .Single(item => item.Element("name")?.Value == "Ambidextrous");
+        quality.SetElementValue("karma", "5");
+        source.Save(path);
+        var blocked = new CharacterCreationContactsService(new FileWorkspaceStore(context.Directory), context.Resolver)
+            .Load(new(context.WorkspaceId)).Value!;
+        Assert.IsFalse(blocked.CanEdit);
+        CollectionAssert.Contains(blocked.Blockers.ToArray(), CharacterCreationContactsBlockers.BudgetAuthorityRequired);
+        var after = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
     private sealed class LegacyQualityCatalogResolver(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
     {
         internal ICharacterSourceDataResolver Inner => inner;
