@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="CharacterCreationBootstrapServiceTests.cs" />
     <Compile Include="CharacterCreationMetatypeCatalogAuthorityTests.cs" />
+    <Compile Include="CharacterCreationTalentRestrictionAuthorityTests.cs" />
     <Compile Include="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="CharacterCreationContactsServiceTests.cs" />
     <Compile Include="CharacterCreationQualitiesRulesTests.cs" />

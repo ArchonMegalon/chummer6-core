@@ -198,9 +198,15 @@ internal static class CharacterCreationAwakenedLegacyProjector
 
     internal static string CompileBonus(XElement? bonus, string forced, IReadOnlyList<string> chosenGroups,
         CharacterCreationTalentQualitySource quality, string id, HashSet<string> flags, List<XElement> improvements,
-        List<(XElement Saved, CharacterCreationTalentGearSource Source)> gears)
+        List<(XElement Saved, CharacterCreationTalentGearSource Source)> gears,
+        CharacterCreationTalentRestrictionPlan? restrictions = null)
     {
         string extra = string.Empty;
+        if (restrictions is not null)
+            Require(CharacterCreationTalentRestrictionAuthority.HasPairedPrompts(quality)
+                && restrictions.QualitySourceId == quality.SourceId
+                && restrictions.QualitySourceNodeDigest == quality.SourceNodeDigest
+                && XElement.DeepEquals(bonus, Parse(quality.CanonicalSourceXml, "quality").Element("bonus")));
         if (bonus is null) { Require(forced.Length == 0); return extra; }
         Require(bonus.Attributes().All(item => item.Name == "useselected" && bool.TryParse(item.Value, out _)));
         Require(!bonus.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value)));
@@ -209,7 +215,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
         int gearIndex = 0;
         foreach (XElement effect in bonus.Elements())
         {
-            Require(!effect.HasAttributes);
+            Require(!effect.HasAttributes && effect.Name.Namespace == XNamespace.None);
             switch (effect.Name.LocalName)
             {
                 case "addgear":
@@ -262,11 +268,28 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     improvements.Add(Improvement("SpecialSkills", chosen, id, "Quality"));
                     break;
                 case "blockspelldescriptor":
-                case "limitspellcategory":
                     Require(!effect.HasElements && !string.IsNullOrWhiteSpace(effect.Value));
-                    improvements.Add(Improvement(effect.Name.LocalName == "blockspelldescriptor" ? "BlockSpellDescriptor" : "LimitSpellCategory",
-                        effect.Value, id, "Quality"));
+                    improvements.Add(Improvement("BlockSpellDescriptor", effect.Value, id, "Quality"));
                     if (useSelected) extra = effect.Value;
+                    break;
+                case "limitspellcategory":
+                    Require(!effect.HasElements);
+                    if (string.IsNullOrWhiteSpace(effect.Value))
+                    {
+                        Require(restrictions is not null);
+                        improvements.Add(Improvement("LimitSpellCategory", restrictions!.Spell.Value, id, "Quality"));
+                        // Legacy's prompted spell category does not set SelectedValue.
+                    }
+                    else
+                    {
+                        improvements.Add(Improvement("LimitSpellCategory", effect.Value, id, "Quality"));
+                        if (useSelected) extra = effect.Value;
+                    }
+                    break;
+                case "limitspiritcategory":
+                    Require(!effect.HasElements && string.IsNullOrWhiteSpace(effect.Value) && restrictions is not null);
+                    improvements.Add(Improvement("LimitSpiritCategory", restrictions!.Spirit.Name, id, "Quality"));
+                    if (useSelected) extra = extra.Length == 0 ? restrictions.Spirit.Name : extra + ", " + restrictions.Spirit.Name;
                     break;
                 case "pathogencontactresist":
                 case "pathogeningestionresist":

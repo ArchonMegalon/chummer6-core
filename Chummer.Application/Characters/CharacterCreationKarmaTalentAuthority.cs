@@ -8,7 +8,7 @@ namespace Chummer.Application.Characters;
 /// <summary>
 /// Quotes pending talent qualities from effective source rows. Full rows are retained
 /// for later effect materialization, not represented as already-applied grants.
-/// Only prompt-free talent semantics with an exclusion-only requirement graph are admitted.
+/// Prompts require a source-bound typed catalog; other unsupported semantics stay blocked.
 /// </summary>
 public static class CharacterCreationKarmaTalentAuthority
 {
@@ -30,7 +30,8 @@ public static class CharacterCreationKarmaTalentAuthority
         => new(CharacterCreationKarmaTalentCatalog.MundaneOptionId, "Mundane", 0, null,
             string.Empty, CharacterCreationQualitiesRules.ComputeSourceNodeDigest(string.Empty), true, [], [profileAnchor]);
 
-    public static CharacterCreationKarmaTalentOption? Project(XElement row, int multiplier, bool bookEnabled)
+    public static CharacterCreationKarmaTalentOption? Project(XElement row, int multiplier, bool bookEnabled,
+        CharacterCreationTalentRestrictionCatalog? restrictions = null)
     {
         if (!Guid.TryParseExact(Value(row, "id"), "D", out var id) || id == Guid.Empty)
             return null;
@@ -57,12 +58,13 @@ public static class CharacterCreationKarmaTalentAuthority
             && IsBoolean(row, "implemented", true, required: false)
             && row.Element("onlyprioritygiven") is { } marker && string.IsNullOrWhiteSpace(marker.Value)
             && attribute is "MAG" or "RES"
-            && ValidBonus(row.Element("bonus")) && ValidExclusions(row.Element("forbidden"));
+            && (restrictions is null || CharacterCreationTalentRestrictionAuthority.MatchesSource(row, restrictions))
+            && ValidBonus(row.Element("bonus"), restrictions is not null) && ValidExclusions(row.Element("forbidden"));
         string[] blockers = !bookEnabled ? [CharacterCreationKarmaTalentCatalog.SourceDisabled]
             : !supported ? [CharacterCreationKarmaTalentCatalog.UnsupportedSource] : [];
         return new(id.ToString("D"), name, cost, attribute, xml,
             CharacterCreationQualitiesRules.ComputeSourceNodeDigest(xml), blockers.Length == 0, blockers,
-            [$"qualities.xml#quality:{id:D}", $"{book}:{page}"]);
+            [$"qualities.xml#quality:{id:D}", $"{book}:{page}"]) { Restrictions = restrictions };
     }
 
     public static bool IsCompatible(CharacterCreationKarmaTalentOption talent,
@@ -91,7 +93,7 @@ public static class CharacterCreationKarmaTalentAuthority
         }
     }
 
-    private static bool ValidBonus(XElement? bonus)
+    private static bool ValidBonus(XElement? bonus, bool pairedRestrictions)
     {
         if (bonus is null || bonus.Attributes().Any(attribute => attribute.Name != "useselected"
                 || !bool.TryParse(attribute.Value, out bool value) || value)
@@ -114,8 +116,13 @@ public static class CharacterCreationKarmaTalentAuthority
                     if (effect.HasElements || string.IsNullOrWhiteSpace(effect.Value)) return false;
                     break;
                 case "blockspelldescriptor":
-                case "limitspellcategory":
                     if (effect.HasElements || string.IsNullOrWhiteSpace(effect.Value)) return false;
+                    break;
+                case "limitspellcategory":
+                    if (effect.HasElements || string.IsNullOrWhiteSpace(effect.Value) && !pairedRestrictions) return false;
+                    break;
+                case "limitspiritcategory":
+                    if (!pairedRestrictions || effect.HasElements || !string.IsNullOrWhiteSpace(effect.Value)) return false;
                     break;
                 case "addgear":
                     if (!Fields(effect, "name", "category") || Value(effect, "name") != "Living Persona"

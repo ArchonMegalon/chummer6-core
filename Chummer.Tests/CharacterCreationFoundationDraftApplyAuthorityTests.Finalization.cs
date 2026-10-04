@@ -70,6 +70,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     [TestMethod]
     [DataRow("mundane")]
     [DataRow(MagicianTalentId)]
+    [DataRow(ApprenticeTalentId)]
     public void Life_module_atomic_finalization_enters_career_and_recovers_once_after_cold_reopen(string talentId)
     {
         string directory = CreateTempDirectory();

@@ -18,12 +18,22 @@ public static class CharacterCreationLifeModuleTalentAuthority
                 { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 32 * 1024 });
             XElement[] unlocks = XElement.Load(reader).Element("bonus")?.Elements("unlockskills").ToArray() ?? [];
             if (unlocks.Length == 0) return true;
-            if (unlocks.Length != 1) return false;
-            string[] values = unlocks[0].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (values.Length == 0 || values.Any(value =>
-                !CharacterCreationSkillsAccessRules.TryChooseUnlock(unlocks[0], [value], string.Empty, out var actual) || actual != value))
-                return false;
-            choices = values;
+            string[]? prompt = null;
+            foreach (var unlock in unlocks)
+            {
+                string[] values = unlock.Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                if (values.Length == 0 || values.Any(value =>
+                    !CharacterCreationSkillsAccessRules.TryChooseUnlock(unlock, [value], string.Empty, out var actual) || actual != value))
+                    return false;
+                // Separate effects are cumulative grants, not alternatives. Apprentice
+                // unlocks both Sorcery and Conjuring without asking the player to pick one.
+                // Preserve the historical single fixed-unlock catalog shape.
+                if (unlocks.Length == 1) { choices = values; return true; }
+                if (values.Length == 1) continue;
+                if (prompt is not null) return false; // One typed chooser cannot answer two prompts.
+                prompt = values;
+            }
+            choices = prompt ?? [];
             return true;
         }
         catch (XmlException) { return false; }
