@@ -124,12 +124,13 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     private static LifeCharacterProjectionBinding LifeCharacterProjectionFixture(string directory, string talentId,
         string? pendingXmlTail = null, bool expectProjection = true, bool withOrigin = false)
     {
-        var fixture = withOrigin ? SeedFullOriginGraph(directory) : SeedFullGraph(directory, pendingXmlTail: pendingXmlTail);
+        var fixture = withOrigin ? SeedFullOriginGraph(directory) : SeedFullGraph(directory, pendingXmlTail: pendingXmlTail,
+            settingsProfileId: talentId == ApprenticeTalentId ? CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId : null);
         var (effects, baseline) = BuildFullGraph(fixture.Store, fixture.Id);
         var service = CreateService(fixture.Store);
         var prompt = baseline.ModuleSequence!.QualityLevels.Single().InstancePrompt!;
         var request = QualityInstanceRequest(service, fixture.Id, new Dictionary<string, string> { [prompt.PromptId] = "Renraku" })
-            with { TalentSelection = new(talentId), AttributePurchases = talentId == "mundane" ? []
+            with { TalentSelection = talentId == ApprenticeTalentId ? ApprenticeChoice() : new(talentId), AttributePurchases = talentId == "mundane" ? []
                 : [new(talentId == TechnomancerTalentId ? "RES" : "MAG", 3)] };
         var opened = service.PreviewFinalization(request).Value!;
         var native = opened.SkillsCatalog!.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
@@ -142,10 +143,11 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         var magic = options.MagicCatalog!;
         request = request with { GearSelection = [new(item.OptionId, item.PackageQuantity)], LifestyleSelection = [low],
             StartingLifestyleId = low.LifestyleId,
-            MagicSelection = new(talentId is MagicianTalentId or MysticTalentId ? LifeMagicOption(magic, "tradition").Identity : null,
+            MagicSelection = new(talentId is MagicianTalentId or MysticTalentId or ApprenticeTalentId ? LifeMagicOption(magic, "tradition").Identity : null,
                 talentId == TechnomancerTalentId ? LifeMagicOption(magic, "stream").Identity : null,
                 talentId is AdeptTalentId or MysticTalentId ? [new(LifeMagicOption(magic, "adept-power", row => row.PointCost <= 1m).Identity, 1)] : [],
-                talentId is MagicianTalentId or MysticTalentId ? [LifeMagicOption(magic, "spell").Identity] : [],
+                talentId == ApprenticeTalentId ? [LifeMagicOption(magic, "spell", row => row.Category == "Combat").Identity]
+                    : talentId is MagicianTalentId or MysticTalentId ? [LifeMagicOption(magic, "spell").Identity] : [],
                 talentId == TechnomancerTalentId ? [LifeMagicOption(magic, "complex-form").Identity] : [])
                 { MysticAdeptPowerPoints = talentId == MysticTalentId ? 1 : 0 } };
         var preview = service.PreviewFinalization(request).Value!;

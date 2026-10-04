@@ -36,7 +36,8 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
                 return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.SelectionInvalid);
             var projected = talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
                 ? CharacterCreationKarmaTalentAuthority.Mundane(CharacterCreationBootstrapProfiles.SettingsSourceAnchor(catalog.SettingsProfileId))
-                : CharacterCreationKarmaTalentAuthority.Project(XElement.Parse(talent.SourceNodeXml), catalog.KarmaQuality, true);
+                : CharacterCreationKarmaTalentAuthority.Project(XElement.Parse(talent.SourceNodeXml), catalog.KarmaQuality, true,
+                    talent.Restrictions);
             if (!CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(talent, projected)
                 || !CharacterCreationLifeModuleTalentAuthority.TryProjectUnlockChoices(talent, out var expectedUnlocks)
                 || !unlockChoices.SequenceEqual(expectedUnlocks, StringComparer.Ordinal))
@@ -45,6 +46,10 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
                 return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.SelectionInvalid);
             if (unlockChoices.Count > 1 && selection.SkillUnlock is null)
                 return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.SkillUnlockRequired);
+            if (talent.Restrictions is null && selection.Restrictions is not null)
+                return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.SelectionInvalid);
+            if (talent.Restrictions is not null && selection.Restrictions is null)
+                return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.RestrictionsRequired);
 
             XElement root = XDocument.Parse(characterXml).Root ?? throw new InvalidDataException();
             string[] flagNames = ["magenabled", "resenabled", "depenabled", "magician", "adept", "technomancer", "ai"];
@@ -83,10 +88,15 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
                     || source.EffectiveSourceDigest != catalog.SourceInputsDigest || source.CanonicalSourceXml != talent.SourceNodeXml
                     || talent.SourceNodeDigest != CharacterCreationQualitiesRules.ComputeSourceNodeDigest(talent.SourceNodeXml))
                     return Failed(catalog, CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+                CharacterCreationTalentRestrictionPlan? restrictions = null;
+                if (talent.Restrictions is not null && !CharacterCreationTalentRestrictionAuthority.TryChoose(
+                    source, talent.Restrictions, selection.Restrictions, out restrictions))
+                    return Failed(catalog, CharacterCreationLifeModuleTalentCatalog.SelectionInvalid);
                 string id = CharacterCreationFinalizationProjector.StableGuid(Digest(new
                     { Semantics = "life-module-talent-owner/v1", effects.PlanDigest, Racial = racial.PlanDigest, selection, source })).ToString("D");
                 string extra = CharacterCreationAwakenedLegacyProjector.CompileBonus(XElement.Parse(source.CanonicalSourceXml).Element("bonus"),
-                    string.Empty, selection.SkillUnlock is null ? [] : [selection.SkillUnlock], source, id, flags, improvements, gear);
+                    string.Empty, selection.SkillUnlock is null ? [] : [selection.SkillUnlock], source, id, flags, improvements, gear,
+                    restrictions);
                 if (!CharacterCreationLegacySourceProjector.TryBuildGrantedQualityInstance(source, id, extra, "Selected", out var saved))
                     return Failed(catalog, CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                 qualities.Add(saved);

@@ -72,7 +72,7 @@ internal static partial class CharacterCreationLifeModuleSkillsRules
     private static bool IsSkillIndependent(string type) => type is
         "Attributelevel" or "Attribute" or "FreePositiveQualities" or "FreeNegativeQualities"
         or "QualityLevel" or "SpecificQuality" or "Notoriety" or "TrustFund" or "DamageResistance"
-        or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "SpecialTab" or "BlockSpellDescriptor" or "LimitSpellCategory"
+        or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "SpecialTab" or "BlockSpellDescriptor" or "LimitSpellCategory" or "LimitSpiritCategory"
         or "PathogenContactResist" or "PathogenIngestionResist" or "PathogenInhalationResist" or "PathogenInjectionResist"
         or "ToxinContactResist" or "ToxinIngestionResist" or "ToxinInhalationResist" or "ToxinInjectionResist";
 

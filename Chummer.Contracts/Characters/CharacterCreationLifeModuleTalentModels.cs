@@ -1,7 +1,11 @@
 namespace Chummer.Contracts.Characters;
 
 /// <summary>Explicit purchase after the complete module sequence; null is not Mundane.</summary>
-public sealed record CharacterCreationLifeModuleTalentSelection(string OptionId, string? SkillUnlock = null);
+public sealed record CharacterCreationLifeModuleTalentSelection(string OptionId, string? SkillUnlock = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationTalentRestrictionSelection? Restrictions { get; init; }
+}
 
 /// <summary>Life Modules policy authority, reusing the source-quality option payload
 /// shared with Karma. This is not a Karma foundation or Priority grant catalog.</summary>
@@ -17,6 +21,7 @@ public sealed record CharacterCreationLifeModuleTalentCatalog(
     public const string SelectionInvalid = "creation-life-module-talent-selection-invalid";
     public const string QualityConflict = "creation-life-module-talent-quality-conflict";
     public const string SkillUnlockRequired = "creation-life-module-talent-skill-unlock-required";
+    public const string RestrictionsRequired = "creation-life-module-talent-restrictions-required";
 }
 
 public sealed record CharacterCreationLifeModuleTalentWriteSummary(

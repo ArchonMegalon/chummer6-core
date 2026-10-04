@@ -2527,7 +2527,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 Options = source.Talents.Options.Select(option => option with
                 {
                     SourceAnchorIds = option.SourceAnchorIds.ToArray(),
-                    Blockers = option.Blockers.ToArray()
+                    Blockers = option.Blockers.ToArray(),
+                    Restrictions = option.Restrictions is { } restrictions ? restrictions with
+                    {
+                        SpellCategories = restrictions.SpellCategories.ToArray(),
+                        SpiritCategories = restrictions.SpiritCategories.ToArray()
+                    } : null
                 }).ToArray(),
                 SkillUnlockChoices = source.Talents.SkillUnlockChoices.ToDictionary(
                     pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
@@ -2718,7 +2723,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 // the effective file digest still binds the original source bytes.
                 var canonical = XElement.Parse(row.ToString(SaveOptions.DisableFormatting), LoadOptions.None);
                 var option = CharacterCreationKarmaTalentAuthority.Project(canonical, multiplier,
-                    _enabledSourcebooks.Contains(ReadValue(row, "source")));
+                    _enabledSourcebooks.Contains(ReadValue(row, "source")),
+                    ResolveTalentRestrictions(canonical, qualityDigest));
                 if (option is null) return false;
                 if (!CharacterCreationLifeModuleTalentAuthority.TryProjectUnlockChoices(option, out var choices))
                     option = option with { IsEnabled = false,
@@ -2731,9 +2737,39 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var result = new CharacterCreationLifeModuleTalentCatalog(
                 CharacterCreationLifeModuleTalentCatalog.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
                 qualityDigest, multiplier, options.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray(), unlocks,
-                [profileAnchor, "qualities.xml"], string.Empty);
+                options.Any(option => option.Restrictions is not null)
+                    ? [profileAnchor, "qualities.xml", "spells.xml", "traditions.xml"]
+                    : [profileAnchor, "qualities.xml"], string.Empty);
             catalog = result with { AuthorityDigest = CharacterCreationLifeModuleTalentAuthority.ComputeDigest(result) };
             return true;
+        }
+
+        private CharacterCreationTalentRestrictionCatalog? ResolveTalentRestrictions(XElement quality, string qualityDigest)
+        {
+            // Only the paired, explicitly typed prompts can be answered by this catalog.
+            // Ordinary talents need not load either extra source file.
+            if (quality.Element("bonus")?.Element("limitspellcategory") is not { } spellPrompt
+                || quality.Element("bonus")?.Element("limitspiritcategory") is null
+                || !string.IsNullOrWhiteSpace(spellPrompt.Value)) return null;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                [(Reference: ReadValue(quality, "id"), Selection: string.Empty)], [quality], [], qualityDigest, string.Empty,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (blockers.Count != 0 || sources.Length != 1
+                || !TryComputeEffectiveInputDigest(_catalog, "spells.xml", out string spellsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "traditions.xml", out string spiritsDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "traditions.xml", out string customSpiritsDigest)
+                // Category-only legacy amendments have no id/name target locator.
+                // Do not silently offer an unamended base category as effective truth.
+                || !TryHasSelectedCustomDataInputFor(_customDirectories, "spells.xml", out bool customSpells) || customSpells
+                || !TryLoadEffectiveDocument(_catalog, "spells.xml", out var spells)
+                || spells?.Root?.Elements("categories").ToArray() is not [var categories]
+                || !TryEnumerateTargets("traditions.xml", ["spirits"], "spirit", out var spirits)
+                || !CharacterCreationTalentRestrictionAuthority.TryProjectCatalog(sources[0], categories, spirits,
+                    spellsDigest, CharacterCreationMagicResonanceDigest.Compute(
+                        new { Effective = spiritsDigest, Custom = customSpiritsDigest }), out var restrictions)
+                || _sourceInputs.HasSourceDrift) return null;
+            return restrictions;
         }
 
         public bool TryResolveCreationLifeModuleTalentSource(string optionId, out CharacterCreationTalentQualitySource? source)

@@ -10,7 +10,11 @@ public sealed record CharacterCreationKarmaTalentOption(
     string SourceNodeDigest,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationTalentRestrictionCatalog? Restrictions { get; init; }
+}
 
 public sealed record CharacterCreationKarmaTalentCatalog(
     string Schema,

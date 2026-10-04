@@ -121,7 +121,7 @@ internal static class CharacterCreationLifeModuleQualityCostsRules
         or "SkillCategoryPointCostMultiplier" or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "Skill"
         or "PathogenContactResist" or "PathogenIngestionResist" or "PathogenInhalationResist" or "PathogenInjectionResist"
         or "ToxinContactResist" or "ToxinIngestionResist" or "ToxinInhalationResist" or "ToxinInjectionResist"
-        or "SpecialTab" or "SpecialSkills" or "BlockSpellDescriptor" or "LimitSpellCategory";
+        or "SpecialTab" or "SpecialSkills" or "BlockSpellDescriptor" or "LimitSpellCategory" or "LimitSpiritCategory";
 
     private static XElement Read(string xml, string name)
     {
