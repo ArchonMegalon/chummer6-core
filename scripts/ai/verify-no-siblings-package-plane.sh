@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20261003.3.sh9fb784271f3f0"
-runtime_source_commit="9fb784271f3f0e0cd926565b148ff31bd7ca6565"
+candidate_version="0.0.0-packageplane.candidate.v20261004.1.sh5d1a1d74e9027"
+runtime_source_commit="5d1a1d74e9027895d68fa48162f310e663521d35"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -536,6 +536,14 @@ public static class BoundaryProbe
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+
+    public static CharacterCreationTalentRestrictionSelection SelectTalentCategories(
+        string spellCategory, string spiritSourceId)
+        => new(spellCategory, spiritSourceId);
+
+    public static IReadOnlyList<CharacterCreationTalentSpiritCategory> TalentSpiritChoices(
+        CharacterCreationTalentRestrictionCatalog catalog)
+        => catalog.SpiritCategories;
 
     // Compile the actual phone-facing contracts from packages, without source
     // siblings. These signatures are not a device or provider execution claim.
