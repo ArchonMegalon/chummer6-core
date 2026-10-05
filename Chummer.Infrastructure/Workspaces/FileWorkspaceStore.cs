@@ -1196,7 +1196,8 @@ public sealed partial class FileWorkspaceStore :
         CharacterWorkspaceId id,
         string path,
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger,
-        bool continuationRead = false)
+        bool continuationRead = false,
+        bool localAdoptionRead = false)
     {
         delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
@@ -1262,6 +1263,17 @@ public sealed partial class FileWorkspaceStore :
             if (localHistory is not null)
                 return CorruptRead();
             localHistory = CreateLocalHistory();
+        }
+
+        if (localHistory.LocalAdoption is { } adoption)
+        {
+            if (adoption.WorkspaceId != id) return CorruptRead();
+            // A durable claim retires local access even before its file has
+            // reached the account directory. Unlinking or a second account must
+            // not make the claimed runner available for another adoption.
+            if (adoption.OwnerId != owner.NormalizedValue
+                && !(localAdoptionRead && owner.IsLocalSingleUser))
+                return MissingRead();
         }
 
         IReadOnlyList<int> segmentStarts;
@@ -3207,7 +3219,9 @@ public sealed partial class FileWorkspaceStore :
 internal enum FileWorkspaceStoreFaultStage
 {
     AfterTempFileFlushed,
-    AfterTargetReplaced
+    AfterTargetReplaced,
+    AfterLocalAdoptionClaimed,
+    AfterLocalAdoptionMoved
 }
 
 internal interface IFileWorkspaceStoreFaultInjector

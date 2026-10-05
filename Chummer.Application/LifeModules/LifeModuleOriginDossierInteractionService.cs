@@ -14,11 +14,26 @@ namespace Chummer.Application.LifeModules;
 public sealed class LifeModuleOriginDossierInteractionService
 {
     private readonly LifeModuleOriginDossierService _dossier;
+    private readonly string? _workspaceOwnerId;
+    private readonly string? _narrativeOwnerId;
 
     public LifeModuleOriginDossierInteractionService(
         LifeModuleOriginDossierService dossier)
     {
         _dossier = dossier ?? throw new ArgumentNullException(nameof(dossier));
+    }
+
+    // Only the owner-bound facade may separate current custody from immutable
+    // story lineage, after checking the actual store's adoption/restore receipt.
+    // Do not rewrite accepted turns: their identity also binds retained prose.
+    internal LifeModuleOriginDossierInteractionService(
+        LifeModuleOriginDossierService dossier, string workspaceOwnerId, string narrativeOwnerId)
+        : this(dossier)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceOwnerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(narrativeOwnerId);
+        _workspaceOwnerId = workspaceOwnerId;
+        _narrativeOwnerId = narrativeOwnerId;
     }
 
     public LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> Start(
@@ -118,6 +133,21 @@ public sealed class LifeModuleOriginDossierInteractionService
             []);
     }
 
+    internal LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> AdoptLocalCheckpoint(
+        LifeModuleOriginDossierDraftCheckpoint checkpoint)
+    {
+        // Revalidate the complete old checkpoint and any pending preview against
+        // the same live Core ledger before sealing only its new storage owner.
+        var restored = new LifeModuleOriginDossierInteractionService(_dossier).Restore(checkpoint);
+        if (!IsSuccess(restored.Outcome) || restored.Value is not { } current)
+            return restored;
+        if (_workspaceOwnerId is null || current.Projection.CurrentTurn.OwnerId != _narrativeOwnerId)
+            return Blocked<LifeModuleOriginDossierDraftCheckpoint>(LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.ProjectionInvalid);
+        return new(LifeModuleOriginDossierOutcomes.Success,
+            SealCheckpoint(current.Projection, current.PendingPreview, current.LtdProvenance), []);
+    }
+
     public LifeModuleOriginDossierResult<LifeModuleOriginDossierInteractionAdvance> Confirm(
         LifeModuleOriginDossierDraftCheckpoint checkpoint,
         string expectedPreviewDigest,
@@ -208,14 +238,14 @@ public sealed class LifeModuleOriginDossierInteractionService
         return preview with { PreviewDigest = ComputePreviewDigest(preview) };
     }
 
-    private static LifeModuleOriginDossierDraftCheckpoint SealCheckpoint(
+    private LifeModuleOriginDossierDraftCheckpoint SealCheckpoint(
         OriginStoryArcSeed projection,
         LifeModuleOriginDossierDecisionPreview? pending,
         OriginLtdNarrativeProvenance provenance)
     {
         var checkpoint = new LifeModuleOriginDossierDraftCheckpoint(
             OriginDossierSchemas.DraftCheckpointV1,
-            projection.CurrentTurn.OwnerId,
+            _workspaceOwnerId ?? projection.CurrentTurn.OwnerId,
             projection.CurrentTurn.WorkspaceId,
             projection.CurrentTurn.WorkspaceRevision,
             projection,
@@ -236,7 +266,7 @@ public sealed class LifeModuleOriginDossierInteractionService
         };
     }
 
-    private static bool TryValidateCheckpoint(
+    private bool TryValidateCheckpoint(
         LifeModuleOriginDossierDraftCheckpoint checkpoint)
     {
         OriginStoryArcSeed? projection = checkpoint.Projection;
@@ -246,7 +276,9 @@ public sealed class LifeModuleOriginDossierInteractionService
             || turn is null
             || checkpoint.TimelineChapterDigests is null
             || checkpoint.LtdProvenance is null
-            || !string.Equals(checkpoint.OwnerId, turn.OwnerId, StringComparison.Ordinal)
+            || !string.Equals(checkpoint.OwnerId, _workspaceOwnerId ?? turn.OwnerId, StringComparison.Ordinal)
+            || _narrativeOwnerId is not null
+               && !string.Equals(turn.OwnerId, _narrativeOwnerId, StringComparison.Ordinal)
             || !string.Equals(checkpoint.WorkspaceId, turn.WorkspaceId, StringComparison.Ordinal)
             || checkpoint.WorkspaceRevision != turn.WorkspaceRevision
             || !checkpoint.TimelineChapterDigests.SequenceEqual(

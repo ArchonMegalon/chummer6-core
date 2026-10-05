@@ -9,6 +9,8 @@
     <RunLegacyProbe Condition="'$(RunLegacyProbe)' == ''">false</RunLegacyProbe>
     <RunScopedStoreProbe Condition="'$(RunScopedStoreProbe)' == ''">false</RunScopedStoreProbe>
     <RunInventoryProbe Condition="'$(RunInventoryProbe)' == ''">false</RunInventoryProbe>
+    <RunLocalAdoptionProbe Condition="'$(RunLocalAdoptionProbe)' == ''">false</RunLocalAdoptionProbe>
+    <AssemblyName Condition="'$(RunLocalAdoptionProbe)' == 'true'">Chummer.CreationBootstrap.Tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Fixtures.cs" />
@@ -19,5 +21,9 @@
     <Compile Include="InventoryProbe.cs" Condition="'$(RunInventoryProbe)' == 'true'" />
     <ProjectReference Include="../../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RunLocalAdoptionProbe)' == 'true'">
+    <Compile Remove="Program.cs;MagicResonanceCases.cs;LegacyProbe.cs;ScopedStoreProbe.cs;InventoryProbe.cs" />
+    <Compile Include="LocalAdoptionProbe.cs" />
   </ItemGroup>
 </Project>

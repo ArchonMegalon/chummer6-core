@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20261004.1.sh5d1a1d74e9027"
-runtime_source_commit="5d1a1d74e9027895d68fa48162f310e663521d35"
+candidate_version="0.0.0-packageplane.candidate.v20261005.1.sh5f4e6350791c2"
+runtime_source_commit="5f4e6350791c2c4fd7959da1f07cc1a85ce5446e"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -536,6 +536,21 @@ public static class BoundaryProbe
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+
+    public static WorkspaceLocalAdoptionReview? ReviewLocalRunner(
+        IWorkspaceStore store, IOwnerContextAccessor owners, OwnerContextStamp owner,
+        CharacterWorkspaceId workspace)
+        => new WorkspaceLocalAdoptionService(store, owners).Review(owner, workspace);
+
+    public static WorkspaceLocalAdoptionResult ConfirmLocalRunner(
+        WorkspaceLocalAdoptionService service, OwnerContextStamp owner,
+        WorkspaceLocalAdoptionReview review)
+        => service.Confirm(owner, review, explicitlyConfirmed: true);
+
+    public static LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> AdoptLocalOrigin(
+        IOwnerBoundLifeModuleOriginService service, OwnerContextStamp owner,
+        LifeModuleOriginDossierDraftCheckpoint checkpoint)
+        => service.AdoptLocalCheckpoint(owner, checkpoint);
 
     public static CharacterCreationTalentRestrictionSelection SelectTalentCategories(
         string spellCategory, string spiritSourceId)

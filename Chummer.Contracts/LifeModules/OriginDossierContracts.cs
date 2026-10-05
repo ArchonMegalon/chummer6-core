@@ -378,6 +378,9 @@ public sealed record LifeModuleOriginDossierDecisionPreview(
 /// User-owned, append-only restart checkpoint. It persists the canonical
 /// projection the user actually saw, not a second rules ledger. Restore is
 /// valid only while all authority digests still match the live workspace.
+/// OwnerId binds current workspace custody. After an admitted local adoption,
+/// Projection retains the original narrative owner and accepted chapter hashes;
+/// the owner-bound service verifies that distinction against the durable store.
 /// </summary>
 public sealed record LifeModuleOriginDossierDraftCheckpoint(
     string Schema,
