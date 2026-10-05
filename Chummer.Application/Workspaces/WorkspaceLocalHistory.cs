@@ -17,6 +17,12 @@ public sealed record WorkspaceLocalHistory(
     // snapshots never carry it; ordinary mutations preserve it for recovery.
     public Chummer.Contracts.Workspaces.WorkspaceContinuationRestoreReceipt? LastRestore { get; init; }
 
+    // An installation-local claim. The source is fenced as soon as this is
+    // durably written, including if the following directory handoff is interrupted.
+    // This never appears in a portable continuation snapshot.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkspaceLocalAdoptionReceipt? LocalAdoption { get; init; }
+
     /// <summary>Structural consistency, never proof that the caller owns the record.</summary>
     public bool IsValid(long currentRevision) => currentRevision > 0
         && Guid.TryParseExact(IncarnationId, "N", out Guid incarnation)
@@ -25,6 +31,9 @@ public sealed record WorkspaceLocalHistory(
         && (ImportedThroughRevision == 0
             ? ImportedSnapshotDigest is null
             : DelegatedGmCharacterEditLedgerValidator.IsSha256(ImportedSnapshotDigest))
+        && (LocalAdoption is null || LocalAdoption.IsValid(currentRevision)
+            && LocalAdoption.IncarnationId == IncarnationId
+            && ImportedThroughRevision == 0 && LastRestore is null)
         && (LastRestore is null || (ImportedThroughRevision > 0
             && LastRestore.OperationId != Guid.Empty
             && DelegatedGmCharacterEditLedgerValidator.IsSha256(LastRestore.AdmissionDigest)
