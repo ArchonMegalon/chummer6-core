@@ -2431,6 +2431,117 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         finally { DeleteTempDirectory(root); }
     }
 
+    [TestMethod]
+    public void Life_module_prerequisite_projection_reuses_only_the_detached_method_rejection()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
+        using var operation = resolver.CreateOperationScope();
+        var context = operation.TryCreateContext(xml);
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var first));
+        Assert.IsFalse(first.IsAuthoritative);
+        CollectionAssert.AreEqual(new[] { CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported }, first.Blockers.ToArray());
+        string expected = ProjectionJson(first);
+        var graph = CaptureProjectionCollections(first);
+        AssertProjectionCollectionCoverage(graph);
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        PoisonProjectionCollections(graph);
+
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var second));
+        Assert.AreEqual(expected, ProjectionJson(second));
+        Assert.IsFalse(second.IsAuthoritative, "Reusing an observation must never authorize a Priority editor for Life Modules.");
+        AssertProjectionCollectionsDetached(graph, CaptureProjectionCollections(second));
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount,
+            "The known method rejection should not rebuild the entire Priority catalog on every dependent read.");
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+        PoisonProjectionCollections(CaptureProjectionCollections(second));
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var third));
+        Assert.AreEqual(expected, ProjectionJson(third));
+        Assert.AreEqual(third.AuthorityDigest, CharacterCreationPrerequisiteAuthorityDigest.Compute(third));
+
+        using var freshOperation = resolver.CreateOperationScope();
+        var fresh = freshOperation.TryCreateContext(xml);
+        Assert.IsNotNull(fresh);
+        Assert.AreEqual(0, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount);
+        Assert.IsTrue(fresh.TryResolveCreationPrerequisiteAuthority(out var freshResult));
+        Assert.AreEqual(expected, ProjectionJson(freshResult));
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount);
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("priorities.xml")]
+    [DataRow("metatypes.xml")]
+    [DataRow("skills.xml")]
+    public void Life_module_method_rejection_cache_still_observes_source_drift_and_ABA(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
+            using var operation = resolver.CreateOperationScope();
+            var context = operation.TryCreateContext(xml);
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var initial));
+            string expected = ProjectionJson(initial);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var warmed));
+            Assert.AreEqual(expected, ProjectionJson(warmed));
+            Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount);
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            File.AppendAllText(path, "\n");
+            bool observed = context.TryResolveCreationPrerequisiteAuthority(out var drifted);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            Assert.IsFalse(observed && ProjectionJson(drifted) == expected);
+            Assert.IsNull(operation.TryCreateContext(xml));
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            observed = context.TryResolveCreationPrerequisiteAuthority(out var restored);
+            Assert.IsFalse(observed && ProjectionJson(restored) == expected);
+            Assert.IsNull(operation.TryCreateContext(xml), "Restoring source bytes cannot revive the old observation.");
+            using var freshOperation = resolver.CreateOperationScope();
+            var fresh = freshOperation.TryCreateContext(xml);
+            Assert.IsNotNull(fresh);
+            Assert.IsTrue(fresh.TryResolveCreationPrerequisiteAuthority(out var clean));
+            Assert.AreEqual(expected, ProjectionJson(clean));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Life_module_method_rejection_does_not_cache_additional_invalid_source_blockers()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            string path = Path.Combine(root, "data", "priorities.xml");
+            XDocument document = LoadDigestSource(path);
+            document.Root!.Element("categories")!.Remove();
+            document.Save(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var context = resolver.TryCreateContext($"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>");
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var first));
+            CollectionAssert.Contains(first.Blockers.ToArray(), CharacterCreationPrerequisiteBlockers.PriorityCategoriesInvalid);
+            Assert.IsFalse(first.IsAuthoritative);
+            string expected = ProjectionJson(first);
+            ((string[])first.Blockers)[0] = "caller-poison";
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var second));
+            Assert.AreEqual(expected, ProjectionJson(second));
+            Assert.AreEqual(2, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
     private static CharacterCreationPrerequisiteAuthority ReadPrerequisiteProjection(ICharacterSourceDataContext context)
     {
         Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
