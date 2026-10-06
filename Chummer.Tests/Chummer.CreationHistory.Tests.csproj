@@ -53,6 +53,7 @@
     <Compile Include="WorkspaceAuxiliaryStateStoreTests.cs" />
     <Compile Include="CharacterFileServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationServiceTests.cs" />
+    <Compile Include="LifeModulesServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.*.cs" />
     <Compile Include="CharacterCreationTalentRestrictionAuthorityTests.cs" />

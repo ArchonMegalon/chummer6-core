@@ -507,7 +507,13 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                      .Where(item => item.Name.LocalName is "options" or "option")
                      .Where(item => item.HasElements))
         {
-            AddChoicePrompt(optionsNode, optionsNode.Elements());
+            // Some legacy knowledge effects place rating metadata inside the
+            // options container. It is not a selectable language. Keep the raw
+            // effect unchanged and filter by structure, never by numeric text.
+            IEnumerable<XElement> choices = optionsNode.Elements();
+            if (effect.Name.LocalName == "knowledgeskilllevel" && optionsNode.Parent == effect)
+                choices = choices.Where(item => item.Name.LocalName != "val");
+            AddChoicePrompt(optionsNode, choices);
         }
 
         if (effect.Name.LocalName.Equals("selectquality", StringComparison.OrdinalIgnoreCase))

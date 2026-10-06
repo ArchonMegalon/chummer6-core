@@ -372,6 +372,27 @@ public class LifeModulesServiceTests
     }
 
     [TestMethod]
+    public void Canonical_caribbean_languages_do_not_offer_rating_metadata_as_a_language()
+    {
+        var service = new XmlLifeModulesCatalogService(FindCanonicalLifeModulesPath());
+        LifeModuleLegalOptionDto module = service.GetOptionProjections("Nationality", ["HT"])
+            .Single(item => item.ModuleId == "efdee4d0-f6fb-4d75-816e-859e85ec29d4");
+        LifeModuleFollowUpPromptDto prompt = module.FollowUps.Single(item =>
+            item.Options.Any(option => option.OptionId == "french"));
+
+        CollectionAssert.AreEqual(new[] { "french", "spanish", "dutch", "english" },
+            prompt.Options.Select(option => option.OptionId).ToArray());
+        CollectionAssert.AreEqual(new[] { "French", "Spanish", "Dutch", "English" },
+            prompt.Options.Select(option => option.SourceValue).ToArray());
+        Assert.AreEqual("single-select", prompt.InputKind);
+        Assert.AreEqual("knowledgeskilllevel/options", prompt.ValuePath);
+        Assert.IsTrue(prompt.IsRequired);
+        LifeModuleEffectProjectionDto effect = module.Effects.Single(item => item.EffectId == prompt.EffectId);
+        Assert.AreEqual("0", XElement.Parse(effect.RawXml).Element("options")!.Element("val")!.Value,
+            "Filtering choice metadata must not rewrite the underlying rule effect.");
+    }
+
+    [TestMethod]
     [DataRow("<group> Language </group>", "Language · Any")]
     [DataRow("<group><option><academic>Academic</academic><professional>Professional</professional></option></group>", "Knowledge skill · Any")]
     [DataRow("<group>[Category]</group>", "Knowledge skill · Any")]
