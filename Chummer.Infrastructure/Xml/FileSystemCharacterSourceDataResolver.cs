@@ -3012,7 +3012,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
             // The cache replaces only projection work. Every source load and
             // live admission above still runs, including for an existing entry.
-            if (blockers.Count == 0 && !_sourceInputs.HasSourceDrift)
+            // Life Modules still has no Priority-editor authority. Its stable
+            // method rejection carries a large catalog used by dependent reads;
+            // detach and reuse that observation without promoting it to success.
+            // Any additional profile/source blocker remains non-cacheable.
+            bool reusableMethodRejection = _prerequisiteBuildMethod == CharacterCreationBuildMethods.LifeModules
+                && blockers.Count == 1
+                && blockers[0] == CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported;
+            bool reusableContext = blockers.Count == 0 || reusableMethodRejection;
+            if (reusableContext && !_sourceInputs.HasSourceDrift)
             {
                 PrerequisiteProjectionEntry? cached;
                 lock (_prerequisiteProjectionSync) { cached = _prerequisiteProjection; }
@@ -3033,7 +3041,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _sourceInputs.RecordPrerequisiteProjection();
             var projected = CharacterCreationPrerequisiteAuthorityProjector.Project(
                 document, metatypesDocument, skillsDocument, projectionContext);
-            if (projected.IsAuthoritative && blockers.Count == 0)
+            if ((projected.IsAuthoritative && blockers.Count == 0)
+                || (reusableMethodRejection && !projected.IsAuthoritative
+                && projected.Blockers.Count == 1
+                && projected.Blockers[0] == CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported))
             {
                 // The private graph is never returned, even on the first miss.
                 var detached = CopyPrerequisiteAuthority(projected);
