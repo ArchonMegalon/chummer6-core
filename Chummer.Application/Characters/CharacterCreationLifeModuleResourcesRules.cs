@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Application.Characters;
@@ -75,16 +77,43 @@ internal static class CharacterCreationLifeModuleResourcesRules
             decimal available = checked(totalKarma - effects.ModuleKarmaCost - racial.Metatype.KarmaCost
                 - talent.Talent.KarmaCost - attributes.KarmaUsed - skills.KarmaUsed - qualityCosts.KarmaAdjustmentAfterTalent);
             var blockers = new HashSet<string>(attributes.Blockers.Concat(skills.Blockers).Concat(qualityCosts.Blockers), StringComparer.Ordinal);
-            if (investment.Value > policy.MaximumKarmaInvestment)
+            decimal maximum = ResolveMaximum(policy, effects, racial, talent);
+            if (investment.Value > maximum)
                 blockers.Add(CharacterCreationKarmaResourcesRules.InvestmentLimitExceeded);
             if (investment.Value > available) blockers.Add(CharacterCreationAttributesBlockers.GlobalKarmaExceeded);
             var result = new CharacterCreationLifeModuleResourcesQuote(policy, effects.PlanDigest, racial.PlanDigest,
                 talent.PlanDigest, attributes.QuoteDigest, skills.QuoteDigest, qualityCosts, totalKarma, available, investment.Value,
-                nuyen, checked(available - investment.Value), blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty);
+                nuyen, checked(available - investment.Value), blockers.Order(StringComparer.Ordinal).ToArray(), string.Empty)
+                { MaximumKarmaInvestment = maximum };
             return new(policy, result with { QuoteDigest = Hash(result) }, result.Blockers) { QualityCosts = qualityCosts };
         }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException or System.Xml.XmlException)
         { return Failed(CharacterCreationLifeModuleResourcesQuote.InvestmentInvalid); }
+    }
+
+    private static decimal ResolveMaximum(CharacterCreationKarmaResourcesPolicy policy,
+        CharacterCreationFoundationSequenceWritePlan effects, CharacterCreationLifeModuleMetatypeWritePlan racial,
+        CharacterCreationLifeModuleTalentWritePlan talent)
+    {
+        decimal bonus = 0;
+        foreach (string xml in effects.ImprovementXml.Concat(racial.ImprovementXml).Concat(talent.ImprovementXml))
+        {
+            var item = XElement.Parse(xml);
+            if (item.Element("improvementttype")?.Value != "NuyenMaxBP") continue;
+            if (item.Name != "improvement" || item.Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
+                || item.Element("enabled")?.Value != "1" || item.Element("addtorating")?.Value != "0"
+                || new[] { "condition", "unique", "uniquename", "exclude", "target", "improvedname" }
+                    .Any(name => !string.IsNullOrEmpty(item.Element(name)?.Value))
+                || new[] { "min", "max", "aug", "augmax" }.Any(name => item.Element(name)?.Value != "0")
+                || !decimal.TryParse(item.Element("val")?.Value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture, out decimal value))
+                throw new InvalidOperationException("Unsupported creation resource-cap improvement.");
+            bonus = checked(bonus + value);
+        }
+        // Character.TotalNuyenMaximumBP: settings plus improvements, clamped;
+        // the unrestricted-settings sentinel stays unrestricted.
+        return policy.MaximumKarmaInvestment == int.MaxValue ? int.MaxValue
+            : Math.Clamp(checked(policy.MaximumKarmaInvestment + bonus), 0m, int.MaxValue);
     }
 
     private static string Hash<T>(T value) => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);

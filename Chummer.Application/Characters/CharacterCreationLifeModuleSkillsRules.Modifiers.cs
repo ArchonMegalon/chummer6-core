@@ -25,6 +25,20 @@ internal static partial class CharacterCreationLifeModuleSkillsRules
             // plan but changes neither purchased ratings nor their price.
             if (type == "Skill" && item.Element("addtorating")?.Value == "0"
                 && item.Element("min")?.Value == "0" && item.Element("max")?.Value == "0") continue;
+            // A source-validated conditional pool bonus is retained in the saved
+            // graph, but must not increase purchased ratings or discount them.
+            if (type == "SkillCategory")
+            {
+                if (item.Name != "improvement" || item.Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
+                    || item.Element("enabled")?.Value != "1" || item.Element("addtorating")?.Value != "0"
+                    || string.IsNullOrWhiteSpace(item.Element("condition")?.Value)
+                    || !categories.Contains(item.Element("improvedname")?.Value ?? string.Empty)
+                    || new[] { "min", "max", "aug", "augmax" }.Any(name => item.Element(name)?.Value != "0")
+                    || new[] { "unique", "uniquename", "exclude", "target" }.Any(name => !string.IsNullOrEmpty(item.Element(name)?.Value))
+                    || !decimal.TryParse(item.Element("val")?.Value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture, out _)) return false;
+                continue;
+            }
             if (item.Name != "improvement" || item.Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
                 || item.Element("enabled")?.Value != "1" || item.Element("addtorating")?.Value != "0"
                 || new[] { "condition", "unique", "uniquename", "exclude", "target" }.Any(name => !string.IsNullOrEmpty(item.Element(name)?.Value))
@@ -71,7 +85,7 @@ internal static partial class CharacterCreationLifeModuleSkillsRules
 
     private static bool IsSkillIndependent(string type) => type is
         "Attributelevel" or "Attribute" or "FreePositiveQualities" or "FreeNegativeQualities"
-        or "QualityLevel" or "SpecificQuality" or "Notoriety" or "TrustFund" or "DamageResistance"
+        or "QualityLevel" or "SpecificQuality" or "Notoriety" or "TrustFund" or "DamageResistance" or "NuyenMaxBP"
         or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "SpecialTab" or "BlockSpellDescriptor" or "LimitSpellCategory" or "LimitSpiritCategory"
         or "PathogenContactResist" or "PathogenIngestionResist" or "PathogenInhalationResist" or "PathogenInjectionResist"
         or "ToxinContactResist" or "ToxinIngestionResist" or "ToxinInhalationResist" or "ToxinInjectionResist";

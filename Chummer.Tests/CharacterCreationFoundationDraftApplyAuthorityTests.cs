@@ -33,7 +33,8 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     private const string CanonicalSkillsDigest =
         "sha256:8425a4800fb8309e60ee3fa7e96ed8510f1dced0b578f95b9d43fc93e019fc84";
     private const string CanonicalQualitiesDigest =
-        "sha256:8328663bd404b120b862ae01f8f40dc96a80207cf3f2f294ecc7403b6f905b86";
+        // Reviewed Liar, Quasimodo and Corporate Pariah corrections on 2 October.
+        "sha256:c86f83c3414c7c5f5323320d6dc08c4aea6c4fc075ea90e58c58dc8dd66846c4";
     private const string PrejudicedCommonOutspokenId =
         "9a76f104-a472-4b6a-b5b7-a8f5248f65a9";
     private const string PrejudicedCommonBiasedId =

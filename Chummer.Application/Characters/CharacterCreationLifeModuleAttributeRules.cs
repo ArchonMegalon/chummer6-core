@@ -138,6 +138,7 @@ internal static class CharacterCreationLifeModuleAttributeRules
     private static bool IsAttributeIndependent(string type) => type is
         "SkillLevel" or "SkillGroupLevel" or "FreeKnowledgeSkills" or "FreePositiveQualities" or "FreeNegativeQualities"
         or "QualityLevel" or "SpecificQuality" or "Notoriety" or "TrustFund" or "DamageResistance"
+        or "NuyenMaxBP" or "SkillCategory"
         or "BlockSkillCategoryDefault" or "SkillGroupCategoryDisable" or "SkillCategoryKarmaCostMultiplier"
         or "SkillCategorySpecializationKarmaCostMultiplier" or "SkillGroupCategoryKarmaCostMultiplier"
         or "SkillCategoryPointCostMultiplier" or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "Skill"
