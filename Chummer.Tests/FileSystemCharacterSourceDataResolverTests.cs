@@ -465,6 +465,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [TestMethod]
     [DataRow("skills")]
     [DataRow("life-quality-policy")]
+    [DataRow("life-talents")]
     [DataRow("gear")]
     [DataRow("life-magic")]
     [DataRow("lifestyles")]
@@ -489,7 +490,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
         Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
             "Reuse must still revalidate live source bytes, not just metadata.");
-        Assert.IsTrue(warmBytes < coldBytes / 2,
+        Assert.IsTrue(warmBytes < coldBytes / (kind == "life-talents" ? 10 : 2),
             $"Repeated {kind} projection allocated {warmBytes:N0} bytes versus {coldBytes:N0} on first read.");
         PoisonCompletionProjection(second);
         Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)),
@@ -498,13 +499,18 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
     [TestMethod]
     [DataRow("skills")]
+    [DataRow("life-talents")]
     [DataRow("life-magic")]
     public void Creation_completion_catalog_cache_retains_text_but_detaches_nested_collections(string kind)
     {
         string root = FindCoreRoot();
         var resolver = new FileSystemCharacterSourceDataResolver(
             new FileSystemContentOverlayCatalogService(root, root, null));
-        var context = resolver.TryCreateContext(FoundationEffectsCharacterXml)!;
+        string characterXml = kind == "life-talents"
+            ? FoundationEffectsCharacterXml.Replace(CanonicalLifeModuleSettingsId,
+                "a75e2db7-54b3-4631-9d3a-e6c697a9018a", StringComparison.Ordinal)
+            : FoundationEffectsCharacterXml;
+        var context = resolver.TryCreateContext(characterXml)!;
         object first = ReadCompletionProjection(context, kind);
         string expected = System.Text.Json.JsonSerializer.Serialize(first);
         int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
@@ -519,6 +525,27 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             Assert.AreEqual(left.Count, right.Count);
             if (left.Count > 0) Assert.AreNotSame(left, right);
+        }
+        static void DetachedTalents(CharacterCreationLifeModuleTalentCatalog left,
+            CharacterCreationLifeModuleTalentCatalog right)
+        {
+            Detached(left.SourceAnchorIds, right.SourceAnchorIds);
+            Detached(left.Options, right.Options);
+            Assert.AreNotSame(left.SkillUnlockChoices, right.SkillUnlockChoices);
+            foreach (var pair in left.SkillUnlockChoices)
+                Detached(pair.Value, right.SkillUnlockChoices[pair.Key]);
+            foreach (var (row, other) in left.Options.Zip(right.Options))
+            {
+                Detached(row.SourceAnchorIds, other.SourceAnchorIds);
+                Detached(row.Blockers, other.Blockers);
+                Assert.AreSame(row.SourceNodeXml, other.SourceNodeXml);
+                if (row.Restrictions is { } restrictions)
+                {
+                    Assert.IsNotNull(other.Restrictions);
+                    Detached(restrictions.SpellCategories, other.Restrictions.SpellCategories);
+                    Detached(restrictions.SpiritCategories, other.Restrictions.SpiritCategories);
+                }
+            }
         }
         if (first is CharacterCreationSkillsCatalog skills)
         {
@@ -541,6 +568,12 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 Detached(row.MemberSkillSourceIds, other.MemberSkillSourceIds);
             }
         }
+        else if (first is CharacterCreationLifeModuleTalentCatalog talents)
+        {
+            Assert.IsTrue(talents.Options.Any(option => option.Restrictions is not null),
+                "Exercise detached spell/spirit choices, not just Mundane.");
+            DetachedTalents(talents, (CharacterCreationLifeModuleTalentCatalog)second);
+        }
         else
         {
             var magic = (CharacterCreationLifeModuleMagicCatalog)first;
@@ -548,19 +581,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Detached(magic.SourceAnchorIds, copy.SourceAnchorIds);
             Detached(magic.Policy.SourceAnchorIds, copy.Policy.SourceAnchorIds);
             Detached(magic.Policy.PowerPointPolicy.SourceAnchorIds, copy.Policy.PowerPointPolicy.SourceAnchorIds);
-            Detached(magic.Talents.SourceAnchorIds, copy.Talents.SourceAnchorIds);
-            Detached(magic.Talents.Options, copy.Talents.Options);
-            Assert.AreNotSame(magic.Talents.SkillUnlockChoices, copy.Talents.SkillUnlockChoices);
-            foreach (var pair in magic.Talents.SkillUnlockChoices)
-                Detached(pair.Value, copy.Talents.SkillUnlockChoices[pair.Key]);
+            DetachedTalents(magic.Talents, copy.Talents);
             Assert.AreSame(magic.Policy.CanonicalSourceXml, copy.Policy.CanonicalSourceXml);
             Assert.AreSame(magic.Policy.PowerPointPolicy.CanonicalSourceXml, copy.Policy.PowerPointPolicy.CanonicalSourceXml);
-            foreach (var (row, other) in magic.Talents.Options.Zip(copy.Talents.Options))
-            {
-                Detached(row.SourceAnchorIds, other.SourceAnchorIds);
-                Detached(row.Blockers, other.Blockers);
-                Assert.AreSame(row.SourceNodeXml, other.SourceNodeXml);
-            }
             Detached(magic.Catalogs, copy.Catalogs);
             foreach (var (slice, otherSlice) in magic.Catalogs.Zip(copy.Catalogs))
             {
@@ -643,6 +666,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             var context = resolver.TryCreateContext(xml)!;
             string skills = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "skills"));
             string policy = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-quality-policy"));
+            string talents = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-talents"));
             string gear = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "gear"));
             string magic = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-magic"));
             string lifestyles = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "lifestyles"));
@@ -652,6 +676,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             File.AppendAllText(path, "\n");
             Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleTalents(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationGearAuthority(out var driftedGear) && driftedGear.IsAuthoritative);
             Assert.IsFalse(context.TryResolveCreationLifestylesAuthority(out var driftedLifestyles) && driftedLifestyles.IsAuthoritative);
@@ -659,12 +684,14 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             File.SetLastWriteTimeUtc(path, timestamp);
             Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleQualitiesPolicy(out _));
+            Assert.IsFalse(context.TryResolveCreationLifeModuleTalents(out _));
             Assert.IsFalse(context.TryResolveCreationLifeModuleMagicCatalog(out _));
             Assert.IsFalse(context.TryResolveCreationGearAuthority(out var restoredGear) && restoredGear.IsAuthoritative);
             Assert.IsFalse(context.TryResolveCreationLifestylesAuthority(out var restoredLifestyles) && restoredLifestyles.IsAuthoritative);
             var fresh = resolver.TryCreateContext(xml)!;
             Assert.AreEqual(skills, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "skills")));
             Assert.AreEqual(policy, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-quality-policy")));
+            Assert.AreEqual(talents, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-talents")));
             Assert.AreEqual(gear, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "gear")));
             Assert.AreEqual(magic, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-magic")));
             Assert.AreEqual(lifestyles, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "lifestyles")));
@@ -672,8 +699,58 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         finally { DeleteTempDirectory(root); }
     }
 
+    [TestMethod]
+    [DataRow("qualities.xml")]
+    [DataRow("spells.xml")]
+    [DataRow("traditions.xml")]
+    public void Life_talent_cache_alone_rejects_same_length_byte_drift_and_ABA(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings-all-sources.xml", "priorities.xml", "metatypes.xml",
+                "skills.xml", "qualities.xml", "spells.xml", "traditions.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null,
+                useStrongChangeIdentity: false);
+            string xml = FoundationEffectsCharacterXml.Replace(CanonicalLifeModuleSettingsId,
+                "a75e2db7-54b3-4631-9d3a-e6c697a9018a", StringComparison.Ordinal);
+            var context = resolver.TryCreateContext(xml);
+            Assert.IsNotNull(context);
+            var first = (CharacterCreationLifeModuleTalentCatalog)ReadCompletionProjection(context, "life-talents");
+            Assert.IsTrue(first.Options.Any(option => option.Restrictions is not null));
+            string expected = System.Text.Json.JsonSerializer.Serialize(first);
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "life-talents")));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            byte[] changed = original.ToArray();
+            int whitespace = Array.IndexOf(changed, (byte)'\n');
+            Assert.IsTrue(whitespace >= 0);
+            changed[whitespace] = (byte)' ';
+            File.WriteAllBytes(path, changed);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationLifeModuleTalents(out var drifted));
+            Assert.IsNull(drifted);
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationLifeModuleTalents(out var restored));
+            Assert.IsNull(restored);
+            var fresh = resolver.TryCreateContext(xml);
+            Assert.IsNotNull(fresh);
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-talents")));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
     private static object ReadCompletionProjection(ICharacterSourceDataContext context, string kind)
     {
+        if (kind == "life-talents")
+        {
+            Assert.IsTrue(context.TryResolveCreationLifeModuleTalents(out var talents));
+            Assert.IsNotNull(talents);
+            return talents;
+        }
         if (kind == "skills")
         {
             Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
@@ -708,6 +785,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("skills", true)]
     [DataRow("life-quality-policy", false)]
     [DataRow("life-quality-policy", true)]
+    [DataRow("life-talents", false)]
+    [DataRow("life-talents", true)]
     [DataRow("gear", false)]
     [DataRow("gear", true)]
     [DataRow("life-magic", false)]
@@ -749,6 +828,27 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 list[0] = replace(values[0]);
                 changed = true;
             }
+        }
+        void PoisonTalents(CharacterCreationLifeModuleTalentCatalog talents)
+        {
+            Poison(talents.SourceAnchorIds);
+            foreach (var values in talents.SkillUnlockChoices.Values) Poison(values);
+            if (talents.SkillUnlockChoices is System.Collections.IDictionary { IsReadOnly: false } choices)
+            {
+                choices[talents.SkillUnlockChoices.Keys.First()] = new[] { "caller-poison" };
+                changed = true;
+            }
+            foreach (var row in talents.Options)
+            {
+                Poison(row.SourceAnchorIds);
+                Poison(row.Blockers);
+                if (row.Restrictions is { } restrictions)
+                {
+                    ReplaceFirst(restrictions.SpellCategories, option => option with { Label = "caller-poison" });
+                    ReplaceFirst(restrictions.SpiritCategories, option => option with { Label = "caller-poison" });
+                }
+            }
+            ReplaceFirst(talents.Options, row => row with { KarmaCost = -1 });
         }
         if (projection is CharacterCreationSkillsCatalog catalog)
         {
@@ -806,19 +906,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Poison(magic.SourceAnchorIds);
             Poison(magic.Policy.SourceAnchorIds);
             Poison(magic.Policy.PowerPointPolicy.SourceAnchorIds);
-            Poison(magic.Talents.SourceAnchorIds);
-            foreach (var values in magic.Talents.SkillUnlockChoices.Values) Poison(values);
-            if (magic.Talents.SkillUnlockChoices is System.Collections.IDictionary { IsReadOnly: false } choices)
-            {
-                choices[magic.Talents.SkillUnlockChoices.Keys.First()] = new[] { "caller-poison" };
-                changed = true;
-            }
-            foreach (var row in magic.Talents.Options)
-            {
-                Poison(row.SourceAnchorIds);
-                Poison(row.Blockers);
-            }
-            ReplaceFirst(magic.Talents.Options, row => row with { KarmaCost = -1 });
+            PoisonTalents(magic.Talents);
             foreach (var slice in magic.Catalogs)
             {
                 foreach (var row in slice.Options)
@@ -830,6 +918,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             }
             ReplaceFirst(magic.Catalogs, row => row with { Kind = "caller-poison" });
         }
+        else if (projection is CharacterCreationLifeModuleTalentCatalog talents)
+            PoisonTalents(talents);
         else
             Poison(((CharacterCreationKarmaQualitiesPolicy)projection).SourceAnchorIds);
         return changed;
