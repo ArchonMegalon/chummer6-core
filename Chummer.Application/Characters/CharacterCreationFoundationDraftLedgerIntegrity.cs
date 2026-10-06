@@ -198,7 +198,7 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
                && string.Equals(value, value.Trim(), StringComparison.Ordinal);
     }
 
-    private static string ComputeCanonicalSha256<T>(T value)
+    internal static string ComputeCanonicalSha256<T>(T value)
     {
         using JsonDocument document = JsonSerializer.SerializeToDocument(value);
         return ComputeElementSha256(document.RootElement, canonical: true);

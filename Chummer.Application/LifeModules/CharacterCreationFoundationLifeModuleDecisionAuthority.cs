@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -767,6 +766,7 @@ public static class LifeModuleDecisionAcceptanceIntegrity
         var acceptedIds = new List<string>();
         var facts = new List<OriginCanonicalNarrativeFact>();
         LifeModuleDecisionAuthorityStep? previousStep = null;
+        string? previousTurnDigest = null;
         foreach (LifeModuleDecisionAcceptance acceptance in ledger)
         {
             LifeModuleAcceptedDecisionReceipt? receipt = acceptance?.Receipt;
@@ -779,7 +779,8 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                 || receipt.PreviousWorkspaceRevision != previousRevision
                 || receipt.WorkspaceRevision != previousRevision + 1
                 || next.WorkspaceRevision != receipt.WorkspaceRevision
-                || !LifeModuleOriginDossierService.TryCreateTurn(next, out _)
+                || !LifeModuleOriginDossierService.TryCreateTurn(next, out var nextTurn)
+                || nextTurn is null
                 || next.AcceptedDecisionIds.Count == 0
                 || string.IsNullOrWhiteSpace(receipt.DecisionId)
                 || string.IsNullOrWhiteSpace(receipt.ChoiceId)
@@ -836,12 +837,16 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                     || !FixedEquals(receipt.RuntimeDigest, previousStep.RuntimeDigest)
                     || !FixedEquals(receipt.PreviousDecisionDigest, previousStep.DecisionDigest)
                     || !FixedEquals(receipt.PreviousMechanicsSnapshotDigest, previousStep.MechanicsSnapshotDigest)
-                    || !LifeModuleOriginDossierService.TryCreateTurn(previousStep, out var previousTurn)
-                    || previousTurn is null || !FixedEquals(next.PreviousTurnDigest, previousTurn.SeedDigest))
+                    || !FixedEquals(next.PreviousTurnDigest, previousTurnDigest))
                     return false;
             }
             previousRevision = receipt.WorkspaceRevision;
             previousStep = next;
+            // This exact turn was projected and validated above during this
+            // invocation. Bind its successor to that computed digest rather
+            // than rebuilding all historical choices again. No caller-supplied
+            // digest or result from an earlier invocation is trusted.
+            previousTurnDigest = nextTurn.SeedDigest;
         }
         return previousRevision <= currentWorkspaceRevision;
     }
@@ -850,13 +855,10 @@ public static class LifeModuleDecisionAcceptanceIntegrity
         => ComputeCanonicalDigest(receipt with { ReceiptDigest = string.Empty });
 
     public static string ComputeCanonicalDigest(object value)
-    {
-        JsonElement root = JsonSerializer.SerializeToElement(value);
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-            WriteCanonical(root, writer);
-        return Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
-    }
+        // Every call still captures the current value and hashes the same
+        // canonical bytes. Reuse cleared sorting/output rentals instead of
+        // repeatedly allocating the entire accepted Origin history on reads.
+        => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalSha256(value);
 
     public static bool IsDigest(string? value)
         => value is { Length: 64 }
@@ -868,41 +870,4 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                System.Text.Encoding.ASCII.GetBytes(left!),
                System.Text.Encoding.ASCII.GetBytes(right!));
 
-    private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                foreach (JsonProperty property in element.EnumerateObject()
-                             .OrderBy(item => item.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(property.Value, writer);
-                }
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (JsonElement item in element.EnumerateArray())
-                    WriteCanonical(item, writer);
-                writer.WriteEndArray();
-                break;
-            case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
-            case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
-                break;
-            case JsonValueKind.True:
-                writer.WriteBooleanValue(true);
-                break;
-            case JsonValueKind.False:
-                writer.WriteBooleanValue(false);
-                break;
-            default:
-                writer.WriteNullValue();
-                break;
-        }
-    }
 }

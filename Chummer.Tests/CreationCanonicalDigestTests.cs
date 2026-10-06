@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Chummer.Application.Characters;
+using Chummer.Application.LifeModules;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -11,6 +12,79 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class CreationCanonicalDigestTests
 {
+    [TestMethod]
+    public void Origin_acceptance_digest_preserves_legacy_bytes_and_duplicate_key_order()
+    {
+        foreach (string json in new[]
+        {
+            "null", "[]", "{}", "[true,false,1,1.0,1e+20,1E+20,-0]",
+            """{"z":0,"a":1,"a":2,"nested":{"é":"Zoë 東京 😀","\u00e9":null}}""",
+            """{"a":"\u0061\u002f","b":"<>&\"\\\r\n\t"}"""
+        })
+        {
+            using var document = JsonDocument.Parse(json);
+            string expected = LegacyDigest(document.RootElement);
+            Assert.AreEqual(expected, LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(document.RootElement));
+            Parallel.For(0, 8, _ => Assert.AreEqual(expected,
+                LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(document.RootElement)));
+        }
+    }
+
+    [TestMethod]
+    public void Origin_acceptance_digest_observes_mutation_and_returns_no_shared_authority()
+    {
+        var value = State(3);
+        string before = LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value);
+        var values = (Dictionary<string, string>)value.CharacterCreationFoundationDraft!.FollowUpValues;
+        string original = values["choice-1"];
+        values["choice-1"] += "changed";
+        Assert.AreNotEqual(before, LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value));
+        Assert.AreEqual(LegacyDigest(value), LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value));
+        values["choice-1"] = original;
+        Assert.AreEqual(before, LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value));
+        var singleSnapshot = new RawEqualityValue("""{"z":2,"a":1}""");
+        LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(singleSnapshot);
+        Assert.AreEqual(1, singleSnapshot.Writes);
+    }
+
+    [TestMethod]
+    public void Origin_acceptance_digest_rejects_invalid_unicode_and_recovers_rented_buffers()
+    {
+        foreach (string json in new[] { """{"value":"\uD800"}""", """{"\uDC00":1}""" })
+        {
+            using var document = JsonDocument.Parse(json);
+            Assert.ThrowsExactly<JsonException>(() => LegacyDigest(document.RootElement));
+            Assert.ThrowsExactly<JsonException>(() =>
+                LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(document.RootElement));
+        }
+        var value = new { valid = "after failed hashing" };
+        Assert.AreEqual(LegacyDigest(value), LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value));
+    }
+
+    [TestMethod]
+    public void Origin_acceptance_digest_avoids_repeated_graph_and_sorting_allocations()
+    {
+        var value = Enumerable.Range(0, 1024).Select(i => new
+        {
+            z = i, y = i + 1, x = i + 2, w = i + 3,
+            nested = new { d = true, c = false, b = i, a = "catalog" },
+            b = "name", a = "source"
+        }).ToArray();
+        string expected = LegacyDigest(value);
+        Assert.AreEqual(expected, LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value));
+        long legacy = Allocations(() => LegacyDigest(value));
+        long actual = Allocations(() => LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value));
+        Console.WriteLine($"Origin acceptance digest warm allocations: actual={actual}; legacy={legacy}.");
+        Assert.IsTrue(actual < legacy / 3, $"Expected bounded sorting/hash buffers: {actual:N0} versus {legacy:N0} bytes.");
+        foreach (int size in new[] { 300_000, 1, 65_536, 0 })
+        {
+            var text = new { z = new string('x', size) + "é😀<>&\"", a = new[] { 1, 2, 3 } };
+            string digest = LegacyDigest(text);
+            Parallel.For(0, 4, _ => Assert.AreEqual(digest,
+                LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(text)));
+        }
+    }
+
     [TestMethod]
     public void Magic_source_node_digest_preserves_raw_XML_and_legacy_canonical_bytes()
     {
