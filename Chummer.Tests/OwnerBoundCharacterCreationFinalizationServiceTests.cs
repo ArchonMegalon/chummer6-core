@@ -65,6 +65,17 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         double scopedMs = clock.Elapsed.TotalMilliseconds;
         AssertJsonEquals(expected, actual); // Every catalog row, budget, binding and digest.
         Assert.AreEqual(baselineStore.Reads, store.Reads, "Keep all workspace/domain validation.");
+        Assert.AreEqual(1, store.Reads, "The nested Attributes projection shares this single store observation.");
+        Assert.IsTrue(fixture.Owner.TryAcquire(stamp, out var freshLease));
+        using (freshLease)
+        using (var freshSources = ((ICharacterSourceDataResolverOperationScopeFactory)s_source.Resolver).CreateOperationScope())
+        {
+            var freshStore = new ScopedAtomicStore(fixture);
+            var freshView = new OwnerBoundCreationWorkspaceStore(freshStore, freshLease!, stamp, fixture.Id);
+            var freshLoad = new CharacterCreationMagicResonanceService(freshView, freshSources).Load(new(fixture.Id));
+            AssertJsonEquals(freshLoad, actual);
+            Assert.AreEqual(2, freshStore.Reads, "The reference graph must still exercise repeated reads.");
+        }
         var loadScope = resolver.Scopes.Single();
         Assert.AreEqual(baselineCalls, loadScope.Calls);
         Assert.IsTrue(baselineCalls > 1, "Exercise the nested Attributes context request.");

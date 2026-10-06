@@ -44,7 +44,7 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
         OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceLoadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return Invoke(expectedOwner, request.WorkspaceId, service => service.Load(request));
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.Load(request), reuseReadObservation: true);
     }
 
     public CharacterCreationFoundationResult<CharacterCreationMagicResonancePreview> Preview(
@@ -65,7 +65,8 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
 
     private CharacterCreationFoundationResult<T> Invoke<T>(OwnerContextStamp expectedOwner,
         CharacterWorkspaceId workspaceId,
-        Func<CharacterCreationMagicResonanceService, CharacterCreationFoundationResult<T>> action)
+        Func<CharacterCreationMagicResonanceService, CharacterCreationFoundationResult<T>> action,
+        bool reuseReadObservation = false)
         where T : class
     {
         if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
@@ -81,7 +82,7 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
             using ICharacterSourceDataResolverOperationScope? sourceScope =
                 (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
             // No ambient fallback, duplicated rules, or lease carried across await.
-            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId, reuseReadObservation);
             return action(new CharacterCreationMagicResonanceService(view, sourceScope ?? sourceResolver));
         }
     }
