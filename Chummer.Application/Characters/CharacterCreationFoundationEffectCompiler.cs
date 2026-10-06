@@ -49,7 +49,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                 Schema = CharacterCreationFoundationSchemas.EffectCompilationV1,
                 RulesetId = rulesetId,
                 CompilerSemantics,
-                ContinuationDraftSemantics = "ordered-occurrence-inputs-parent-ledger-bound-v2;confirmed-knowledge-inputs-v1",
+                ContinuationDraftSemantics = "ordered-occurrence-inputs-parent-ledger-bound-v2;confirmed-knowledge-inputs-v1;corporate-addqualities-v1-explicit-legacy-ignored-nested-level;dependent-chargenonly-nuyenmaxbp-and-conditional-skillcategory-v1",
                 SupportedEffectKinds = new[]
                 {
                     "attributelevel:v1",
@@ -396,11 +396,14 @@ internal static partial class CharacterCreationFoundationEffectCompiler
             compositeEffectIndexes.Add(index);
             if (effect.PromptIds.Count > 0
                 || qualitySourceAuthority is null
-                || !TryReadAddQualityNames(projection, out string[] qualityNames))
+                || !TryReadAddQualityNames(projection, out string[] qualityNames, out var ignoredMetadata))
             {
                 complete = false;
                 continue;
             }
+            // WithCompilationStatus below rehashes this exact metadata into the
+            // instruction. The retained source projection is never rewritten.
+            effects[index] = effect with { IgnoredSourceMetadata = ignoredMetadata };
 
             for (int addQualityIndex = 0; addQualityIndex < qualityNames.Length;
                  addQualityIndex++)
@@ -604,9 +607,11 @@ internal static partial class CharacterCreationFoundationEffectCompiler
 
     private static bool TryReadAddQualityNames(
         LifeModuleEffectProjectionDto projection,
-        out string[] qualityNames)
+        out string[] qualityNames,
+        out IReadOnlyDictionary<string, string> ignoredMetadata)
     {
         qualityNames = [];
+        ignoredMetadata = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!projection.IsFullyTyped
             || !string.Equals(projection.Domain, "quality", StringComparison.Ordinal)
             || projection.BudgetId is not null
@@ -621,6 +626,19 @@ internal static partial class CharacterCreationFoundationEffectCompiler
         {
             XElement element = XElement.Parse(projection.RawXml, LoadOptions.None);
             XElement[] children = element.Elements().ToArray();
+            // Both Chummer5 addqualities handlers select direct addquality nodes
+            // only. Corp Silver Spooner's trailing level is therefore ignored,
+            // not a contribution. Preserve and disclose this one known source
+            // anomaly; do not flatten it into a new, conflicting SINner tier.
+            bool ignoredCorporateLevel = children.Length == 3
+                && children[0].Name == "addquality" && children[0].Value == "Born Rich"
+                && children[1].Name == "addquality" && children[1].Value == "Privileged Family Name"
+                && children[2].Name == "qualitylevel" && children[2].Value == "3"
+                && !children[2].HasElements && children[2].Nodes().All(node => node is XText)
+                && children[2].Attributes().Count() == 1
+                && children[2].Attribute("group")?.Value == "SINner";
+            string? ignoredXml = ignoredCorporateLevel ? children[2].ToString(SaveOptions.DisableFormatting) : null;
+            if (ignoredCorporateLevel) children = children[..^1];
             if (element.Name.NamespaceName.Length != 0
                 || !string.Equals(element.Name.LocalName, "addqualities", StringComparison.Ordinal)
                 || element.HasAttributes
@@ -654,11 +672,18 @@ internal static partial class CharacterCreationFoundationEffectCompiler
             {
                 ["addquality"] = string.Join("|", qualityNames)
             };
-            return string.Equals(projection.TargetId, "addqualities", StringComparison.Ordinal)
+            if (ignoredCorporateLevel) expectedParameters["qualitylevel"] = "3";
+            bool valid = string.Equals(projection.TargetId, "addqualities", StringComparison.Ordinal)
                    && projection.AfterValue is null
                    && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                        expectedParameters,
                        projection.Parameters);
+            if (valid && ignoredXml is not null)
+                ignoredMetadata = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["legacy-ignored-nested-qualitylevel"] = ignoredXml
+                };
+            return valid;
         }
         catch (System.Xml.XmlException)
         {
@@ -682,7 +707,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
             "required", "source", "page", "metagenic", "metagenetic", "altnotes",
             "notes", "notesColor", "doublecareer", "canbuywithspellpoints", "print",
             "implemented", "contributetobp", "contributetolimit", "stagedpurchase",
-            "mutant"
+            "mutant", "chargenonly"
         ];
         string[] singletonChildren = allowedChildren;
         string[] scalarChildren =
@@ -717,9 +742,15 @@ internal static partial class CharacterCreationFoundationEffectCompiler
             }.Any(name => source.Element(name) is XElement element
                 && !bool.TryParse(element.Value, out _))
             || source.Element("mutant") is XElement mutant
-                && (mutant.HasAttributes
-                    || mutant.HasElements
+                && (mutant.HasAttributes || mutant.HasElements
                     || !string.IsNullOrWhiteSpace(mutant.Value))
+            // This is a presence marker, not a boolean/expression control.
+            // This planner admits only an uncreated Life Modules draft; it
+            // cannot grant chargen-only qualities to an existing Career runner.
+            || source.Element("chargenonly") is XElement chargenOnly
+                && (chargenOnly.HasAttributes || chargenOnly.HasElements
+                    || chargenOnly.Nodes().Any(node => node is not XText)
+                    || !string.IsNullOrWhiteSpace(chargenOnly.Value))
             || source.Element("notesColor") is XElement notesColor
                 && string.IsNullOrWhiteSpace(notesColor.Value)
             || source.Element("id") is not XElement id
@@ -798,7 +829,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                        && string.IsNullOrWhiteSpace(text.Value));
         }
 
-        if (kind is "notoriety" or "trustfund" or "damageresistance")
+        if (kind is "notoriety" or "trustfund" or "damageresistance" or "nuyenmaxbp")
         {
             return TryReadExactScalar(effect, numeric: true, out _);
         }
@@ -806,6 +837,22 @@ internal static partial class CharacterCreationFoundationEffectCompiler
         if (kind is "blockskillcategorydefaulting" or "skillgroupcategorydisable")
         {
             return TryReadExactScalar(effect, numeric: false, out _);
+        }
+
+        if (kind == "skillcategory")
+        {
+            // First Impression's bonus is conditional, never a permanent rating
+            // or an unconditional dice-pool increase. Admit this exact shape only.
+            return !effect.HasAttributes
+                   && effect.Nodes().All(node => node is XElement
+                       || node is XText text && string.IsNullOrWhiteSpace(text.Value))
+                   && effect.Elements().Count() == 3
+                   && effect.Elements("name").Count() == 1
+                   && effect.Elements("bonus").Count() == 1
+                   && effect.Elements("condition").Count() == 1
+                   && TryReadExactScalar(effect.Element("name")!, numeric: false, out _)
+                   && TryReadExactScalar(effect.Element("bonus")!, numeric: true, out _)
+                   && TryReadExactScalar(effect.Element("condition")!, numeric: false, out _);
         }
 
         if (kind is "skillcategorykarmacostmultiplier"

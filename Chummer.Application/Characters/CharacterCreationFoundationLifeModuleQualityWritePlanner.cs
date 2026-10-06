@@ -768,7 +768,8 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
         string improvedName;
         string value;
         string improvementType;
-        if (kind is "notoriety" or "trustfund" or "damageresistance")
+        string condition = string.Empty;
+        if (kind is "notoriety" or "trustfund" or "damageresistance" or "nuyenmaxbp")
         {
             improvedName = string.Empty;
             value = decimal.Parse(
@@ -780,8 +781,17 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
             {
                 "notoriety" => "Notoriety",
                 "trustfund" => "TrustFund",
+                "nuyenmaxbp" => "NuyenMaxBP",
                 _ => "DamageResistance"
             };
+        }
+        else if (kind == "skillcategory")
+        {
+            improvedName = effect.Element("name")!.Value;
+            value = decimal.Parse(effect.Element("bonus")!.Value, NumberStyles.Any,
+                CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+            improvementType = "SkillCategory";
+            condition = effect.Element("condition")!.Value;
         }
         else if (kind is "blockskillcategorydefaulting" or "skillgroupcategorydisable")
         {
@@ -824,6 +834,7 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
             improvementType,
             value,
             defaultNotesColor);
+        improvement.Element("condition")!.Value = condition;
         return true;
     }
 
