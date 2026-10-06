@@ -71,6 +71,18 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 CollectionAssert.AreEqual(bytes, File.ReadAllBytes(WorkspacePath(directory, id)));
                 if (ledger.Count > 1)
                 {
+                    var observedChoices = ledger.Select(entry =>
+                        new ObservedOriginChoices(entry.NextStep.LegalChoices)).ToArray();
+                    var observedLedger = ledger.Select((entry, i) => entry with
+                    {
+                        NextStep = entry.NextStep with { LegalChoices = observedChoices[i] }
+                    }).ToArray();
+                    Assert.IsTrue(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
+                        id, persisted.ContentRevision, observedLedger));
+                    foreach (var observed in observedChoices)
+                        Assert.AreEqual(2, observed.Enumerations,
+                            "Each historical turn needs one null scan and one projection, not a second projection at the next entry.");
+
                     var changed = ledger.ToArray();
                     changed[^1] = changed[^1] with
                     {
@@ -83,6 +95,17 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                         NextStep = changed[^1].NextStep with { PreviousTurnDigest = new string('0', 64) }
                     };
                     Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, changed));
+                    changed = ledger.ToArray();
+                    var firstChoices = changed[0].NextStep.LegalChoices.ToArray();
+                    firstChoices[0] = firstChoices[0] with { Label = "changed historical choice" };
+                    changed[0] = changed[0] with
+                    {
+                        NextStep = changed[0].NextStep with { LegalChoices = firstChoices }
+                    };
+                    Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, changed),
+                        "The next entry must still bind the exact freshly projected historical turn.");
+                    Assert.IsTrue(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, ledger),
+                        "No projection from a prior failed or successful invocation may be reused.");
                 }
             }
         }
@@ -90,6 +113,20 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private sealed class ObservedOriginChoices(IReadOnlyList<LifeModuleDecisionAuthorityChoice> values)
+        : IReadOnlyList<LifeModuleDecisionAuthorityChoice>
+    {
+        public int Enumerations { get; private set; }
+        public int Count => values.Count;
+        public LifeModuleDecisionAuthorityChoice this[int index] => values[index];
+        public IEnumerator<LifeModuleDecisionAuthorityChoice> GetEnumerator()
+        {
+            Enumerations++;
+            return values.GetEnumerator();
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     [TestMethod]
