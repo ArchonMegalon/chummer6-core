@@ -532,7 +532,14 @@ public sealed partial class LifeModuleOriginDossierService
             .Select(ProjectChoice)
             .OrderBy(static choice => choice.ChoiceId, StringComparer.Ordinal)
             .ToArray();
-        if (choices.Any(static choice => !TryValidateChoice(choice))
+        // ProjectChoice owns the normalized preview/items/anchor arrays and
+        // has just computed their digests. Check their shape, not the same
+        // hashes a second time. FollowUps is caller-owned, so retain the
+        // second choice digest check when that shared input is present.
+        // Persisted/caller-supplied turns still use TryValidateChoice below.
+        if (choices.Any(static choice => !HasValidChoiceShape(choice)
+                || (choice.FollowUps is not null
+                    && !DigestsEqual(choice.ChoiceDigest, ComputeChoiceDigest(choice))))
             || choices.Select(static choice => choice.ChoiceId)
                 .Distinct(StringComparer.Ordinal).Count() != choices.Length
             || choices.Any(static choice => !IsCanonicalDigest(choice.DecisionCommandDigest)))
@@ -545,7 +552,8 @@ public sealed partial class LifeModuleOriginDossierService
             .OrderBy(static fact => fact.FactId, StringComparer.Ordinal)
             .ThenBy(static fact => fact.FactDigest, StringComparer.Ordinal)
             .ToArray();
-        if (facts.Any(static fact => !IsValidFact(fact))
+        // SealFact likewise owns the normalized fact and its new digest.
+        if (facts.Any(static fact => !HasValidFactShape(fact))
             || facts.Select(static fact => fact.FactId)
                 .Distinct(StringComparer.Ordinal).Count() != facts.Length
             || facts.Any(fact => !step.AcceptedDecisionIds.Contains(
@@ -775,6 +783,17 @@ public sealed partial class LifeModuleOriginDossierService
     }
 
     private static bool TryValidateChoice(LifeModuleNarrativeChoiceSeed choice)
+        => HasValidChoiceShape(choice)
+           && DigestsEqual(choice.MechanicsPreviewDigest, choice.MechanicsPreview.PreviewDigest)
+           && DigestsEqual(
+               choice.MechanicsPreview.PreviewDigest,
+               ComputeMechanicsPreviewDigest(choice.MechanicsPreview))
+           && choice.MechanicsPreview.Items.All(static item =>
+               item is not null
+               && DigestsEqual(item.ItemDigest, ComputeMechanicsPreviewItemDigest(item)))
+           && DigestsEqual(choice.ChoiceDigest, ComputeChoiceDigest(choice));
+
+    private static bool HasValidChoiceShape(LifeModuleNarrativeChoiceSeed choice)
         => choice is not null
            && !string.IsNullOrWhiteSpace(choice.ChoiceId)
            && !string.IsNullOrWhiteSpace(choice.Label)
@@ -791,15 +810,7 @@ public sealed partial class LifeModuleOriginDossierService
            && choice.Blockers is not null
            && choice.Blockers.Count == 0
            && choice.IsLegal
-           && LifeModuleDecisionInputIntegrity.ValidForms(choice.FollowUps)
-           && DigestsEqual(choice.MechanicsPreviewDigest, choice.MechanicsPreview.PreviewDigest)
-           && DigestsEqual(
-               choice.MechanicsPreview.PreviewDigest,
-               ComputeMechanicsPreviewDigest(choice.MechanicsPreview))
-           && choice.MechanicsPreview.Items.All(static item =>
-               item is not null
-               && DigestsEqual(item.ItemDigest, ComputeMechanicsPreviewItemDigest(item)))
-           && DigestsEqual(choice.ChoiceDigest, ComputeChoiceDigest(choice));
+           && LifeModuleDecisionInputIntegrity.ValidForms(choice.FollowUps);
 
     private static string ComputeArcSeedId(LifeModuleNarrativeTurnSeed turn)
         => ComputeDigest(writer =>
@@ -813,14 +824,17 @@ public sealed partial class LifeModuleOriginDossierService
         });
 
     private static bool IsValidFact(OriginCanonicalNarrativeFact fact)
+        => HasValidFactShape(fact)
+           && DigestsEqual(fact.FactDigest, ComputeFactDigest(fact));
+
+    private static bool HasValidFactShape(OriginCanonicalNarrativeFact fact)
         => fact is not null
            && !string.IsNullOrWhiteSpace(fact.FactId)
            && !string.IsNullOrWhiteSpace(fact.FactKind)
            && !string.IsNullOrWhiteSpace(fact.LocalizedSummary)
            && !string.IsNullOrWhiteSpace(fact.AcceptedDecisionId)
            && fact.SourceAnchorIds is not null
-           && fact.SourceAnchorIds.Count != 0
-           && DigestsEqual(fact.FactDigest, ComputeFactDigest(fact));
+           && fact.SourceAnchorIds.Count != 0;
 
     private static string ComputeMechanicsPreviewItemDigest(LifeModuleMechanicsPreviewItem item)
         => ComputeDigest(writer =>

@@ -11,6 +11,171 @@ namespace Chummer.Tests;
 public class LifeModuleOriginDossierServiceTests
 {
     [TestMethod]
+    public void Fresh_turn_projection_bounds_allocations_and_preserves_canonical_output()
+    {
+        var choices = Enumerable.Range(0, 128).Select(index =>
+        {
+            var choice = CreateChoice($"choice-{index:D3}", $"Path {index}");
+            var item = choice.MechanicsPreview.Items[0];
+            return choice with { MechanicsPreview = choice.MechanicsPreview with
+            {
+                Items = Enumerable.Range(0, 12).Select(effect => item with
+                {
+                    EffectId = $"{choice.ChoiceId}:effect:{effect}",
+                    AfterValue = effect.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                }).ToArray()
+            } };
+        }).ToArray();
+        var step = CreateInitialStep(choices);
+        Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var first));
+        string expected = JsonSerializer.Serialize(first);
+        // Captured against the unmodified dc513e29 runtime before this fix.
+        Assert.AreEqual("5fa2c27ee8f09336c1aad321a453b857177459573883675b43d8432e98dba08e", Digest(expected));
+        for (int repeat = 0; repeat < 2; repeat++)
+            Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out _));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var measured));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"Fresh turn projection allocated bytes: {allocated}");
+        Assert.AreEqual(expected, JsonSerializer.Serialize(measured));
+        Assert.IsTrue(allocated < 2_500_000,
+            $"Freshly sealed effects must not be hashed again; allocated {allocated:N0} bytes.");
+        // Public restore still independently revalidates every constructed digest.
+        var service = new LifeModuleOriginDossierService(new FakeDecisionAuthority(step));
+        var projection = AssertSuccess(service.Project("workspace-1"));
+        Assert.AreEqual(JsonSerializer.Serialize(projection),
+            JsonSerializer.Serialize(AssertSuccess(service.Resume(projection))));
+    }
+
+    [TestMethod]
+    public void Fresh_turn_projection_rejects_invalid_choice_and_fact_shapes()
+    {
+        var valid = CreateChoice("choice-a", "Street path");
+        LifeModuleDecisionAuthorityChoice[] invalidChoices =
+        [
+            valid with { ChoiceId = " " }, valid with { Label = " " },
+            valid with { Source = " " }, valid with { IsLegal = false },
+            valid with { DecisionCommandDigest = "not-a-digest" },
+            valid with { SourceAnchorIds = [] }, valid with { Blockers = ["unavailable"] },
+            valid with { MechanicsPreview = valid.MechanicsPreview with { SourceAnchorIds = [] } },
+            valid with { FollowUps = [] }
+        ];
+        foreach (var choice in invalidChoices)
+            Assert.IsFalse(LifeModuleOriginDossierService.TryCreateTurn(CreateInitialStep(choice), out _));
+        Assert.IsFalse(LifeModuleOriginDossierService.TryCreateTurn(CreateInitialStep(valid, valid), out _));
+        var fact = new OriginCanonicalNarrativeFact("fact", "background", "A remembered event.",
+            "decision-1", ["source"], string.Empty);
+        var step = CreateInitialStep(valid) with { AcceptedDecisionIds = ["decision-1"], CanonicalFacts = [fact] };
+        Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out _));
+        foreach (var invalid in new[] { fact with { FactId = " " }, fact with { FactKind = " " },
+            fact with { LocalizedSummary = " " }, fact with { AcceptedDecisionId = "missing" },
+            fact with { SourceAnchorIds = [] } })
+            Assert.IsFalse(LifeModuleOriginDossierService.TryCreateTurn(step with { CanonicalFacts = [invalid] }, out _));
+        Assert.IsFalse(LifeModuleOriginDossierService.TryCreateTurn(step with { CanonicalFacts = [fact, fact] }, out _));
+    }
+
+    [TestMethod]
+    public void Restored_projection_still_rejects_changed_choice_preview_and_effect_digests()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(CreateChoice("choice-a", "Street path")));
+        var service = new LifeModuleOriginDossierService(authority);
+        var projection = AssertSuccess(service.Project("workspace-1"));
+        var choice = projection.CurrentTurn.LegalChoices.Single();
+        var preview = choice.MechanicsPreview;
+        var item = preview.Items.Single();
+        foreach (var changed in new[]
+        {
+            choice with { Label = "Changed path" },
+            choice with { ChoiceDigest = Digest("changed-choice") },
+            choice with { MechanicsPreviewDigest = Digest("changed-preview-binding") },
+            choice with { MechanicsPreview = preview with { KarmaCost = preview.KarmaCost + 1 } },
+            choice with { MechanicsPreview = preview with { PreviewDigest = Digest("changed-preview") } },
+            choice with { MechanicsPreview = preview with { Items = [item with { AfterValue = "99" }] } },
+            choice with { MechanicsPreview = preview with { Items = [item with { ItemDigest = Digest("changed-effect") }] } }
+        })
+        {
+            var tampered = projection with { CurrentTurn = projection.CurrentTurn with { LegalChoices = [changed] } };
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, service.Resume(tampered).Outcome);
+        }
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+    }
+
+    [TestMethod]
+    public void Fresh_projection_detaches_preview_and_fact_arrays_from_authority_inputs()
+    {
+        var choice = CreateChoice("choice-a", "Street path");
+        string[] anchors = ["source"];
+        LifeModuleMechanicsPreviewItem[] items = [choice.MechanicsPreview.Items.Single() with
+        {
+            SourceAnchorIds = anchors
+        }];
+        var fact = new OriginCanonicalNarrativeFact("fact", "background", "A remembered event.",
+            "decision-1", anchors, string.Empty);
+        OriginCanonicalNarrativeFact[] facts = [fact];
+        var step = CreateInitialStep(choice with
+        {
+            SourceAnchorIds = anchors,
+            MechanicsPreview = choice.MechanicsPreview with { Items = items, SourceAnchorIds = anchors }
+        }) with { AcceptedDecisionIds = ["decision-1"], CanonicalFacts = facts };
+        Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var projected));
+        string original = JsonSerializer.Serialize(projected);
+
+        anchors[0] = "changed-source";
+        items[0] = items[0] with { AfterValue = "99" };
+        facts[0] = fact with { LocalizedSummary = "Changed event." };
+
+        Assert.AreEqual(original, JsonSerializer.Serialize(projected));
+        Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var fresh));
+        Assert.AreNotEqual(original, JsonSerializer.Serialize(fresh));
+    }
+
+    [TestMethod]
+    public void Restored_projection_rejects_mutated_caller_owned_follow_ups()
+    {
+        LifeModuleFollowUpPromptDto[] prompts =
+        [
+            new("city", "Home city", "text", true, [], ["source"], "effect", "city")
+        ];
+        var choice = CreateChoice("choice-a", "Street path") with { FollowUps = prompts };
+        var authority = new FakeDecisionAuthority(CreateInitialStep(choice));
+        var service = new LifeModuleOriginDossierService(authority);
+        var projection = AssertSuccess(service.Project("workspace-1"));
+        AssertSuccess(service.Resume(projection));
+
+        prompts[0] = prompts[0] with { Label = "Changed city question" };
+
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, service.Resume(projection).Outcome);
+        var fresh = AssertSuccess(service.Project("workspace-1"));
+        Assert.AreNotEqual(projection.SeedDigest, fresh.SeedDigest);
+        AssertSuccess(service.Resume(fresh));
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+    }
+
+    [TestMethod]
+    public void Restored_projection_rejects_changed_accepted_facts_without_replaying_mechanics()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(CreateChoice("choice-a", "Street path")));
+        var service = new LifeModuleOriginDossierService(authority);
+        var initial = AssertSuccess(service.Project("workspace-1"));
+        var accepted = AssertSuccess(service.Accept(initial, "choice-a", "origin-turn-1", explicitlyAccepted: true));
+        var projection = accepted.Projection;
+        AssertSuccess(service.Resume(projection));
+        var fact = projection.CurrentTurn.CanonicalFacts.Single();
+        foreach (var changed in new[]
+        {
+            fact with { LocalizedSummary = "Changed event." },
+            fact with { FactDigest = Digest("changed-fact") },
+            fact with { SourceAnchorIds = ["changed-source"] }
+        })
+        {
+            var tampered = projection with { CurrentTurn = projection.CurrentTurn with { CanonicalFacts = [changed] } };
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, service.Resume(tampered).Outcome);
+        }
+        Assert.AreEqual(1, authority.MechanicsMutationCount);
+        Assert.AreEqual(1, authority.AcceptCallCount);
+    }
+
+    [TestMethod]
     public void Project_is_deterministic_and_orders_only_core_legal_choices()
     {
         var authority = new FakeDecisionAuthority(CreateInitialStep(
