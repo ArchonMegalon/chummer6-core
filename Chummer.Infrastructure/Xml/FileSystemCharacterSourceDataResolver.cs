@@ -1837,6 +1837,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private CharacterCreationGearAuthority? _creationGearAuthoritySnapshot;
         private JsonElement? _creationLifestylesAuthoritySnapshot;
         private CharacterCreationLifeModuleMagicCatalog? _lifeModuleMagicCatalogSnapshot;
+        private CharacterCreationLifeModuleTalentCatalog? _lifeModuleTalentCatalogSnapshot;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
@@ -2522,22 +2523,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     SourceAnchorIds = source.Policy.PowerPointPolicy.SourceAnchorIds.ToArray()
                 }
             },
-            Talents = source.Talents with
-            {
-                Options = source.Talents.Options.Select(option => option with
-                {
-                    SourceAnchorIds = option.SourceAnchorIds.ToArray(),
-                    Blockers = option.Blockers.ToArray(),
-                    Restrictions = option.Restrictions is { } restrictions ? restrictions with
-                    {
-                        SpellCategories = restrictions.SpellCategories.ToArray(),
-                        SpiritCategories = restrictions.SpiritCategories.ToArray()
-                    } : null
-                }).ToArray(),
-                SkillUnlockChoices = source.Talents.SkillUnlockChoices.ToDictionary(
-                    pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
-                SourceAnchorIds = source.Talents.SourceAnchorIds.ToArray()
-            },
+            Talents = CopyLifeModuleTalentCatalog(source.Talents),
             Catalogs = source.Catalogs.Select(slice => slice with
             {
                 Options = slice.Options.Select(option => option with
@@ -2696,6 +2682,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules)
+                return false;
+            // Enter revalidates every captured byte, identity and directory,
+            // including lazily resolved spell/spirit restrictions. Reuse only
+            // this exact context's source projection, never a selected talent
+            // or an admitted purchase. No caller owns the retained collections.
+            CharacterCreationLifeModuleTalentCatalog? cached;
+            lock (_completionProjectionSync) { cached = _lifeModuleTalentCatalogSnapshot; }
+            if (cached is { } snapshot)
+            {
+                var detached = CopyLifeModuleTalentCatalog(snapshot);
+                if (_sourceInputs.HasSourceDrift) return false;
+                catalog = detached;
+                return true;
+            }
             if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
@@ -2740,9 +2741,32 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 options.Any(option => option.Restrictions is not null)
                     ? [profileAnchor, "qualities.xml", "spells.xml", "traditions.xml"]
                     : [profileAnchor, "qualities.xml"], string.Empty);
-            catalog = result with { AuthorityDigest = CharacterCreationLifeModuleTalentAuthority.ComputeDigest(result) };
+            result = result with { AuthorityDigest = CharacterCreationLifeModuleTalentAuthority.ComputeDigest(result) };
+            if (_sourceInputs.HasSourceDrift) return false;
+            var frozen = CopyLifeModuleTalentCatalog(result);
+            lock (_completionProjectionSync) { _lifeModuleTalentCatalogSnapshot = frozen; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            catalog = result;
             return true;
         }
+
+        private static CharacterCreationLifeModuleTalentCatalog CopyLifeModuleTalentCatalog(
+            CharacterCreationLifeModuleTalentCatalog source) => source with
+        {
+            Options = source.Options.Select(option => option with
+            {
+                SourceAnchorIds = option.SourceAnchorIds.ToArray(),
+                Blockers = option.Blockers.ToArray(),
+                Restrictions = option.Restrictions is { } restrictions ? restrictions with
+                {
+                    SpellCategories = restrictions.SpellCategories.ToArray(),
+                    SpiritCategories = restrictions.SpiritCategories.ToArray()
+                } : null
+            }).ToArray(),
+            SkillUnlockChoices = source.SkillUnlockChoices.ToDictionary(
+                pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray()
+        };
 
         private CharacterCreationTalentRestrictionCatalog? ResolveTalentRestrictions(XElement quality, string qualityDigest)
         {
