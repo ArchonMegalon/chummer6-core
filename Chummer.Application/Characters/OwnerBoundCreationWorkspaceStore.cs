@@ -11,10 +11,24 @@ namespace Chummer.Application.Characters;
 // still validates the exact typed auxiliary transition; this is not a general write grant.
 internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
-    CharacterWorkspaceId workspaceId) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
+    CharacterWorkspaceId workspaceId, bool reuseReadObservation = false) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability
 {
+    // Opt-in for a single synchronous Load only. Retain the complete validated
+    // store result, not a portable reconstruction; ownership is checked on every
+    // access. Preview/Confirm and subsequent public calls get a fresh view.
+    private bool _reuseReadObservation = reuseReadObservation;
+    private WorkspaceStoreReadResult? _readObservation;
+
+    private void BeginMutation()
+    {
+        // Never let a later write or raced-receipt read use an earlier snapshot,
+        // even if a future caller accidentally enables this view for a mutation.
+        _reuseReadObservation = false;
+        _readObservation = null;
+    }
+
     private bool IsActive
     {
         get
@@ -27,10 +41,13 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
     public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> CommitLifeModuleFinalization(
         CharacterCreationFoundationFinalizationConfirmRequest request, ICharacterSourceDataResolver resolver,
         ILifeModulesCatalogService catalog, ICharacterFileQueries characterFiles)
-        => IsActive && request.Binding.WorkspaceId == workspaceId
+    {
+        BeginMutation();
+        return IsActive && request.Binding.WorkspaceId == workspaceId
             && inner is ICharacterCreationLifeModuleFinalizationAtomicCommitCapability capability
             ? capability.CommitLifeModuleFinalization(owner.Owner, request, resolver, catalog, characterFiles)
             : CharacterCreationLifeModuleFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
 
     public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> CommitLifeModuleFinalization(
         OwnerScope requestedOwner, CharacterCreationFoundationFinalizationConfirmRequest request, ICharacterSourceDataResolver resolver,
@@ -47,10 +64,13 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> CommitKarmaMetatype(
         CharacterCreationKarmaMetatypeConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
-        => IsActive && request.Binding.WorkspaceId == workspaceId
+    {
+        BeginMutation();
+        return IsActive && request.Binding.WorkspaceId == workspaceId
             && inner is ICharacterCreationKarmaMetatypeAtomicCommitCapability capability
             ? capability.CommitKarmaMetatype(owner.Owner, request, sourceResolver)
             : CharacterCreationKarmaMetatypeTransaction.Blocked(CharacterCreationKarmaMetatypeBlockers.PersistenceUnavailable);
+    }
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> CommitKarmaMetatype(
         OwnerScope requestedOwner, CharacterCreationKarmaMetatypeConfirmRequest request,
@@ -60,10 +80,13 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
 
     public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitKarmaFinalization(
         CharacterCreationKarmaFinalizationConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
-        => IsActive && request.Confirmation.Binding.WorkspaceId == workspaceId
+    {
+        BeginMutation();
+        return IsActive && request.Confirmation.Binding.WorkspaceId == workspaceId
             && inner is ICharacterCreationKarmaFinalizationAtomicCommitCapability capability
             ? capability.CommitKarmaFinalization(owner.Owner, request, sourceResolver)
             : CharacterCreationKarmaFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
 
     public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitKarmaFinalization(
         OwnerScope requestedOwner, CharacterCreationKarmaFinalizationConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
@@ -71,12 +94,19 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
             : CharacterCreationKarmaFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
 
     public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
-        => IsActive && id == workspaceId
-            // Return the exact store observation, including LocalHistory.
-            // Copying only portable fields would promote imported receipts.
-            ? owner.Owner.IsLocalSingleUser ? inner.Get(id) : inner.Get(owner.Owner, id)
-            : new(WorkspaceOperationOutcome.Unavailable,
+    {
+        if (!IsActive || id != workspaceId)
+            return new(WorkspaceOperationOutcome.Unavailable,
                 Error: "The finalization owner/workspace admission is unavailable.");
+        if (_readObservation is { } observed)
+            return observed;
+        WorkspaceStoreReadResult read = owner.Owner.IsLocalSingleUser ? inner.Get(id) : inner.Get(owner.Owner, id);
+        // Return the exact observation, including LocalHistory. Copying only
+        // portable fields would promote imported receipts. Failures are not cached.
+        if (_reuseReadObservation && read.Success && read.Value!.Id == workspaceId)
+            _readObservation = read;
+        return read;
+    }
 
     public WorkspaceStoreReadResult Get(OwnerScope requestedOwner, CharacterWorkspaceId id)
         => requestedOwner == owner.Owner ? Get(id)
@@ -87,6 +117,7 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
         CharacterWorkspaceId id, long expectedContentRevision,
         string expectedAuxiliaryStateDigest, WorkspaceDocument document)
     {
+        BeginMutation();
         if (id != workspaceId || !SupportsWorkspaceAuxiliaryStateAtomicCommit)
             return UnavailableMutation();
         return owner.Owner.IsLocalSingleUser

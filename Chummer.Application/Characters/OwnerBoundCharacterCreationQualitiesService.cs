@@ -19,7 +19,7 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
         OwnerContextStamp expectedOwner, CharacterCreationQualitiesLoadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return Invoke(expectedOwner, request.WorkspaceId, service => service.Load(request));
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.Load(request), reuseReadObservation: true);
     }
 
     public CharacterCreationFoundationResult<CharacterCreationQualitiesPreview> Preview(
@@ -40,7 +40,8 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
 
     private CharacterCreationFoundationResult<T> Invoke<T>(OwnerContextStamp expectedOwner,
         CharacterWorkspaceId workspaceId,
-        Func<CharacterCreationQualitiesService, CharacterCreationFoundationResult<T>> action)
+        Func<CharacterCreationQualitiesService, CharacterCreationFoundationResult<T>> action,
+        bool reuseReadObservation = false)
         where T : class
     {
         if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
@@ -58,7 +59,7 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
             ICharacterSourceDataResolver operationResolver = sourceScope ?? sourceResolver;
             // No ambient fallback and no lease across await. Every dependent
             // evaluator reads the same exact owner/workspace observation.
-            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId, reuseReadObservation);
             var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, operationResolver);
             var attributes = new CharacterCreationAttributesService(view, operationResolver);
             return action(new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes));

@@ -10,6 +10,7 @@
     <AssemblyAttribute Include="Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelizeAttribute" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\Chummer.Tests\CreationReadObservationTests.cs" Link="CreationReadObservationTests.cs" />
     <Compile Include="..\Chummer.Tests\SessionActionBudgetServiceTests.cs" Link="SessionActionBudgetServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CalculationReportServiceTests.cs" Link="CalculationReportServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\LifeModulesServiceTests.cs" Link="LifeModulesServiceTests.cs" />

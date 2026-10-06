@@ -94,6 +94,18 @@ public sealed class OwnerBoundCreationQualitiesTests
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
         Assert.AreEqual(JsonSerializer.Serialize(expectedLoad), JsonSerializer.Serialize(loaded),
             "All source authority, bindings, catalog entries, costs and blockers must remain exact.");
+        Assert.IsTrue(owners.TryAcquire(original, out var freshLease));
+        using (freshLease)
+        using (var freshSources = ((ICharacterSourceDataResolverOperationScopeFactory)fixture.Resolver).CreateOperationScope())
+        {
+            var freshView = new OwnerBoundCreationWorkspaceStore(store, freshLease!, original, id);
+            var freshPrerequisites = new CharacterCreationPrerequisiteService(freshView, fixture.Queries, freshSources);
+            var freshAttributes = new CharacterCreationAttributesService(freshView, freshSources);
+            var freshLoad = new CharacterCreationQualitiesService(freshView, freshSources,
+                freshPrerequisites, freshAttributes).Load(new(id));
+            Assert.AreEqual(JsonSerializer.Serialize(freshLoad), JsonSerializer.Serialize(loaded),
+                "One validated read must preserve the full canonical result of repeated fresh reads.");
+        }
         Assert.IsTrue(loadCalls > 1, "The actual baseline must repeat source-context construction.");
         Assert.HasCount(1, resolver.Scopes);
         Assert.AreEqual(loadCalls, resolver.Scopes[0].Calls, "Keep every context admission.");
