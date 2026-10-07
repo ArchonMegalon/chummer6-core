@@ -489,16 +489,31 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             _attributes.Load(new CharacterCreationAttributesLoadRequest(workspace.Id));
         CharacterCreationFoundationResult<CharacterCreationSkillsState> skills =
             _skills.Load(new CharacterCreationSkillsLoadRequest(workspace.Id));
+        // Readiness does not need choice catalogs for drafts that do not exist.
+        // Missing drafts still produce required, incomplete steps below; this
+        // never supplies a snapshot, source anchors, or an actionable plan.
+        // Existing drafts always take the full fresh authority path, including
+        // magic drafts on Mundane characters (which must still be validated).
+        WorkspaceDocumentAuxiliaryState auxiliary = workspace.Document.AuxiliaryState;
         CharacterCreationFoundationResult<CharacterCreationQualitiesState> qualities =
-            _qualities.Load(new CharacterCreationQualitiesLoadRequest(workspace.Id));
+            auxiliary.CharacterCreationQualitiesDraft is null
+                ? new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationFinalizationBlockers.QualitiesDraftRequired])
+                : _qualities.Load(new CharacterCreationQualitiesLoadRequest(workspace.Id));
         CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> magic =
-            _magicResonance.Load(new CharacterCreationMagicResonanceLoadRequest(workspace.Id));
+            auxiliary.CharacterCreationMagicResonanceDraft is null
+                ? new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationFinalizationBlockers.MagicResonanceDraftRequired])
+                : _magicResonance.Load(new CharacterCreationMagicResonanceLoadRequest(workspace.Id));
         bool magicRequired = !CharacterCreationFinalizationProjector.IsMundaneTalent(
             prerequisites.Value?.PendingDraft);
         CharacterCreationResourcesResult<CharacterCreationResourcesState> resources =
             _resources.Load(new CharacterCreationResourcesLoadRequest(workspace.Id));
         CharacterCreationGearResult<CharacterCreationGearState> gear =
-            _gear.Load(new CharacterCreationGearLoadRequest(workspace.Id));
+            auxiliary.CharacterCreationGearDraft is null
+                ? new(CharacterCreationGearOutcomes.Blocked, null,
+                    [CharacterCreationFinalizationBlockers.GearDraftRequired])
+                : _gear.Load(new CharacterCreationGearLoadRequest(workspace.Id));
 
         string[] prerequisiteFinalizationBlockers = prerequisites.Blockers
             .Where(static blocker => !string.Equals(
