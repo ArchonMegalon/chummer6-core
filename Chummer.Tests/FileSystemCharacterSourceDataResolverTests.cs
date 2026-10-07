@@ -746,13 +746,17 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [TestMethod]
     [DataRow(SettingsId, "qualities")]
     [DataRow(SettingsId, "magic")]
+    [DataRow(SettingsId, "skills")]
     [DataRow(CanonicalSumToTenSettingsId, "qualities")]
     [DataRow(CanonicalSumToTenSettingsId, "magic")]
+    [DataRow(CanonicalSumToTenSettingsId, "skills")]
     public void Priority_projection_reuse_preserves_exact_bytes_detaches_lists_and_reduces_allocations(string profile, string kind)
     {
         string root = FindCoreRoot();
         var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
-        var context = resolver.TryCreateContext($"<character><settings>{profile}</settings></character>")!;
+        var context = resolver.TryCreateContext($"<character><settings>{profile}</settings>"
+            + (kind == "skills" ? "<improvements><improvement><improvementttype>FreeKnowledgeSkills</improvementttype><val>2</val></improvement></improvements>" : string.Empty)
+            + "</character>")!;
         long before = GC.GetAllocatedBytesForCurrentThread();
         object first = ReadPriorityProjection(context, kind);
         long coldBytes = GC.GetAllocatedBytesForCurrentThread() - before;
@@ -787,6 +791,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [TestMethod]
     [DataRow("qualities", "qualities.xml")]
     [DataRow("qualities", "settings.xml")]
+    [DataRow("skills", "settings.xml")]
+    [DataRow("skills", "skills.xml")]
+    [DataRow("skills", "weapons.xml")]
     [DataRow("magic", "settings.xml")]
     [DataRow("magic", "priorities.xml")]
     [DataRow("magic", "metatypes.xml")]
@@ -805,6 +812,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "qualities.xml",
                 "gear.xml", "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml");
+            if (kind == "skills") CopyCanonicalDataFiles(root, "weapons.xml");
             var resolver = new FileSystemCharacterSourceDataResolver(
                 new FileSystemContentOverlayCatalogService(root, root, null), null, useStrongChangeIdentity: false);
             var context = resolver.TryCreateContext(CharacterXml())!;
@@ -834,6 +842,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("qualities", true)]
     [DataRow("magic", false)]
     [DataRow("magic", true)]
+    [DataRow("skills", false)]
+    [DataRow("skills", true)]
     public async Task Priority_projection_parallel_readers_remain_detached(string kind, bool warm)
     {
         var context = CreateContext(FindCoreRoot(), CharacterXml())!;
@@ -851,12 +861,23 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadPriorityProjection(context, kind)));
     }
 
-    private static bool HasPriorityProjection(ICharacterSourceDataContext context, string kind) => kind == "qualities"
-        ? context.TryResolveCreationQualitiesAuthority(out var qualities) && qualities.IsAuthoritative
-        : context.TryResolveCreationMagicResonanceAuthority(out var magic) && magic.IsAuthoritative;
+    private static bool HasPriorityProjection(ICharacterSourceDataContext context, string kind) => kind switch
+    {
+        "skills" => context.TryResolveCreationSkillsAuthority(out var skills) && skills.IsAuthoritative,
+        "qualities" => context.TryResolveCreationQualitiesAuthority(out var qualities) && qualities.IsAuthoritative,
+        _ => context.TryResolveCreationMagicResonanceAuthority(out var magic) && magic.IsAuthoritative
+    };
 
     private static object ReadPriorityProjection(ICharacterSourceDataContext context, string kind)
     {
+        if (kind == "skills")
+        {
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var skills));
+            Assert.IsTrue(skills.IsAuthoritative, string.Join(",", skills.Blockers));
+            Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidAuthority(skills));
+            Assert.IsNull(skills.TalentAccess);
+            return skills;
+        }
         if (kind == "qualities")
         {
             Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var qualities));
@@ -870,6 +891,28 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
     private static IEnumerable<System.Collections.IList> PriorityProjectionLists(object result)
     {
+        if (result is CharacterCreationSkillsAuthority skills)
+        {
+            yield return (System.Collections.IList)skills.ActiveSkills;
+            yield return (System.Collections.IList)skills.KnowledgeSkills;
+            yield return (System.Collections.IList)skills.SkillGroups;
+            yield return (System.Collections.IList)skills.KnowledgePointContributions;
+            yield return (System.Collections.IList)skills.SourceAnchorIds;
+            yield return (System.Collections.IList)skills.Blockers;
+            foreach (var skill in skills.ActiveSkills.Concat(skills.KnowledgeSkills))
+            {
+                yield return (System.Collections.IList)skill.Specializations;
+                yield return (System.Collections.IList)skill.SourceAnchorIds;
+            }
+            foreach (var group in skills.SkillGroups)
+            {
+                yield return (System.Collections.IList)group.MemberSkillSourceIds;
+                yield return (System.Collections.IList)group.SourceAnchorIds;
+            }
+            foreach (var contribution in skills.KnowledgePointContributions)
+                yield return (System.Collections.IList)contribution.SourceAnchorIds;
+            yield break;
+        }
         if (result is CharacterCreationQualitiesAuthority qualities)
         {
             yield return (System.Collections.IList)qualities.Options;
@@ -1769,6 +1812,49 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(digest, reloaded!.CatalogDigest);
         Assert.IsFalse(reloaded.ActiveSkills.SelectMany(skill => skill.Specializations)
             .Any(option => option.OptionId == "invented-id"));
+    }
+
+    [TestMethod]
+    public void Creation_skill_projection_preserves_specialization_xml_bytes_and_writer_boundaries()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteSkillsAuthorityFixture(root);
+            CopyCanonicalDataFiles(root, "weapons.xml");
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationSkillsCatalog(out _),
+                "The unmodified fixture must first admit a complete source catalog.");
+            string path = Path.Combine(root, "data", "skills.xml");
+            XDocument xml = XDocument.Load(path);
+            foreach (XElement specs in xml.Descendants("specs"))
+            {
+                specs.Add(
+                    new XElement("spec", "A & B < C > D \"quoted\" 'text' ä 日本語 🐉"),
+                    new XElement("spec", "  Trim name, preserve source\r\nsecond\tline  "),
+                    new XElement("spec", new XCData("CDATA < & >")),
+                    new XElement("spec", "Mixed", new XComment("not the name"),
+                        new XProcessingInstruction("source", "exact"), " content"),
+                    new XElement("spec", new string('x', 20000)),
+                    new XElement("spec", "After large value"));
+            }
+            xml.Save(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+            Assert.IsNotNull(catalog);
+            foreach (var skill in catalog.ActiveSkills.Concat(catalog.KnowledgeSkills))
+            {
+                var kind = skill.Kind == CharacterCreationSkillKinds.Active
+                    ? CharacterCareerSkillKind.Active : CharacterCareerSkillKind.Knowledge;
+                // Career retains its independent per-element ToString path.
+                Assert.IsTrue(context.TryResolveCareerSkillSpecializationSource(skill.SourceSkillId, kind, out var legacy));
+                var expected = legacy.Options.Select(option => new CharacterCreationSkillSpecializationOption(
+                    option.OptionIdentity, option.Name, option.SourceAnchor)).ToArray();
+                Assert.HasCount(6, skill.Specializations);
+                CollectionAssert.AreEqual(expected, skill.Specializations.ToArray(), skill.Name);
+            }
+        }
+        finally { DeleteTempDirectory(root); }
     }
 
     [TestMethod]
