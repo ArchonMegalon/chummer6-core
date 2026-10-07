@@ -1835,6 +1835,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private CharacterCreationMagicResonanceAuthority? _priorityMagicAuthoritySnapshot;
         private CharacterCreationFoundationEffectSources? _foundationEffectSourcesSnapshot;
         private CharacterCreationSkillsCatalog? _creationSkillsCatalogSnapshot;
+        private CharacterCreationSkillsAuthority? _creationSkillsAuthoritySnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
         private CharacterCreationGearAuthority? _creationGearAuthoritySnapshot;
         private JsonElement? _creationLifestylesAuthoritySnapshot;
@@ -3908,17 +3909,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     _settingsProfileId,
                     string.Empty,
                     out XElement? settings)
-                || settings is null
-                || !TryEnumerateTargets(
-                    "skills.xml",
-                    ["skills"],
-                    "skill",
-                    out XElement[] activeRows)
-                || !TryEnumerateTargets(
-                    "skills.xml",
-                    ["knowledgeskills"],
-                    "skill",
-                    out XElement[] knowledgeRows))
+                || settings is null)
             {
                 return false;
             }
@@ -3947,6 +3938,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 // this projection aligned until the same overlay compiler owns both paths.
                 blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
             }
+
+            // Enter revalidates the actual bytes and membership of every input
+            // observed by this context, including weapon-derived specializations.
+            // Reuse only the base projection for this exact character XML; the
+            // service still binds Talent access and checks drafts on every load.
+            CharacterCreationSkillsAuthority? cached;
+            lock (_completionProjectionSync) { cached = _creationSkillsAuthoritySnapshot; }
+            if (blockers.Count == 0 && !_sourceInputs.HasSourceDrift && cached is { } snapshot)
+            {
+                var detached = CopySkillsAuthority(snapshot);
+                if (!_sourceInputs.HasSourceDrift)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+            if (!TryEnumerateTargets("skills.xml", ["skills"], "skill", out XElement[] activeRows)
+                || !TryEnumerateTargets("skills.xml", ["knowledgeskills"], "skill", out XElement[] knowledgeRows))
+                return false;
 
             string knowledgeExpression = ReadUniqueScalar(
                 settings,
@@ -4056,7 +4066,39 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 AuthorityDigest = CharacterCreationSkillsDigest.Compute(
                     projected with { AuthorityDigest = string.Empty })
             };
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                var frozen = CopySkillsAuthority(authority);
+                lock (_completionProjectionSync) { _creationSkillsAuthoritySnapshot = frozen; }
+            }
             return true;
+        }
+
+        private static CharacterCreationSkillsAuthority CopySkillsAuthority(CharacterCreationSkillsAuthority source)
+        {
+            // Only the resolver's unbound base authority enters this cache;
+            // caller-specific TalentAccess is never stored or admitted here.
+            static CharacterCreationSkillCatalogEntry CopySkill(CharacterCreationSkillCatalogEntry skill) => skill with
+            {
+                Specializations = skill.Specializations.ToArray(),
+                SourceAnchorIds = skill.SourceAnchorIds.ToArray()
+            };
+            return source with
+            {
+                ActiveSkills = source.ActiveSkills.Select(CopySkill).ToArray(),
+                KnowledgeSkills = source.KnowledgeSkills.Select(CopySkill).ToArray(),
+                SkillGroups = source.SkillGroups.Select(group => group with
+                {
+                    MemberSkillSourceIds = group.MemberSkillSourceIds.ToArray(),
+                    SourceAnchorIds = group.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                KnowledgePointContributions = source.KnowledgePointContributions.Select(contribution => contribution with
+                {
+                    SourceAnchorIds = contribution.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+                Blockers = source.Blockers.ToArray()
+            };
         }
 
         private static bool TryResolveQualityCostPolicy(
@@ -5371,6 +5413,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 }
                 return weapons;
             }
+            // XElement.ToString creates an XML writer (and its buffers) for
+            // every specialization. Reuse only those buffers within this one
+            // projection, not the source bytes, option identities or results.
+            using var specializationWriter = new SpecializationXmlWriter();
+            Func<XElement, string> serializeSpecialization = specializationWriter.Serialize;
             foreach (XElement row in rows)
             {
                 if (!HasStrictAllowedShape(row, AllowedSkillRowChildren, "specs")
@@ -5450,7 +5497,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         parsedId,
                         careerKind,
                         ResolveWeapons,
-                        out CharacterCareerSkillSpecializationSource specializationSource))
+                        out CharacterCareerSkillSpecializationSource specializationSource,
+                        serializeSpecialization))
                 {
                     blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
                     continue;
@@ -5965,7 +6013,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             Guid resolvedSourceId,
             CharacterCareerSkillKind kind,
             Func<XElement[]?> resolveWeapons,
-            out CharacterCareerSkillSpecializationSource source)
+            out CharacterCareerSkillSpecializationSource source,
+            Func<XElement, string>? serializeSpecialization = null)
         {
             source = CharacterCareerSkillSpecializationSource.Unavailable;
             string name = ReadValue(skill, "name");
@@ -5999,7 +6048,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
                         specializationName,
                         anchor,
-                        specialization.ToString(SaveOptions.DisableFormatting)),
+                        serializeSpecialization is null
+                            ? specialization.ToString(SaveOptions.DisableFormatting)
+                            : serializeSpecialization(specialization)),
                     specializationName,
                     CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
                     anchor));
@@ -6082,6 +6133,41 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 orderedOptions,
                 rawSourceState);
             return true;
+        }
+
+        private sealed class SpecializationXmlWriter : IDisposable
+        {
+            private readonly StringWriter _text = new(CultureInfo.InvariantCulture);
+            private readonly XmlWriter _writer;
+
+            public SpecializationXmlWriter()
+            {
+                _writer = XmlWriter.Create(_text, new XmlWriterSettings
+                {
+                    OmitXmlDeclaration = true,
+                    Indent = false,
+                    ConformanceLevel = ConformanceLevel.Fragment
+                });
+            }
+
+            public string Serialize(XElement specialization)
+            {
+                // Creation has already admitted the strict spec shape. Let
+                // LINQ to XML retain escaping, CDATA, comments and line endings
+                // exactly as ToString(DisableFormatting) does; no hand-written
+                // XML or shared writer across calls/threads is involved.
+                specialization.WriteTo(_writer);
+                _writer.Flush();
+                string result = _text.ToString();
+                _text.GetStringBuilder().Clear();
+                return result;
+            }
+
+            public void Dispose()
+            {
+                _writer.Dispose();
+                _text.Dispose();
+            }
         }
 
         private bool IsEnabledSource(string sourceBook)
