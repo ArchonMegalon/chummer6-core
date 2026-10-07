@@ -336,6 +336,29 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         int scopedLoadReads = scopedStore.Reads;
         AssertJsonEquals(expected, actual); // Includes every step, binding and snapshot digest.
         Assert.AreEqual(baselineLoadReads, scopedStore.Reads, "No domain/workspace validation may disappear.");
+        // Compare against the full graph with read reuse disabled, not just
+        // another adapter which may enable the same optimization.
+        Assert.IsTrue(fixture.Owner.TryAcquire(stamp, out var freshLease));
+        using (freshLease)
+        using (var freshSources = ((ICharacterSourceDataResolverOperationScopeFactory)s_source.Resolver).CreateOperationScope())
+        {
+            var freshStore = new ScopedAtomicStore(fixture);
+            var freshView = new OwnerBoundCreationWorkspaceStore(freshStore, freshLease!, stamp, fixture.Id);
+            var prerequisites = new CharacterCreationPrerequisiteService(freshView, s_source.Queries, freshSources);
+            var attributes = new CharacterCreationAttributesService(freshView, freshSources);
+            var reference = new CharacterCreationFinalizationService(freshView, s_source.Queries,
+                prerequisites, attributes,
+                new CharacterCreationSkillsService(freshView, freshSources),
+                new CharacterCreationQualitiesService(freshView, freshSources, prerequisites, attributes),
+                new CharacterCreationMagicResonanceService(freshView, freshSources),
+                new CharacterCreationResourcesService(freshView, freshSources),
+                new CharacterCreationGearService(freshView, freshSources), freshSources).Load(new(fixture.Id));
+            AssertJsonEquals(reference, actual);
+            Assert.IsGreaterThan(1, freshStore.Reads, "The reference must exercise repeated validated store reads.");
+            Console.WriteLine($"finalization-read-observation referenceReads={freshStore.Reads} loadReads={scopedLoadReads}");
+        }
+        Assert.AreEqual(1, scopedLoadReads,
+            "All seven read-only evaluators must share one complete validated workspace observation.");
         var loadScope = resolver.Scopes.Single();
         Assert.AreEqual(baselineLoadCalls, loadScope.Calls);
         Assert.IsTrue(baselineLoadCalls > 1, "The baseline must actually exercise repeated context construction.");
@@ -345,6 +368,8 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         var expectedReview = baseline.Review(stamp, new(expected.Value.Binding));
         var actualReview = service.Review(stamp, new(actual.Value!.Binding));
         AssertJsonEquals(expectedReview, actualReview); // Includes complete plan and preview digest.
+        Assert.IsGreaterThan(1, scopedStore.Reads - scopedLoadReads,
+            "Review must still read current storage independently for its nested evaluators.");
         Assert.HasCount(2, resolver.Scopes);
         var reviewScope = resolver.Scopes[1];
         Assert.HasCount(1, reviewScope.UniqueContexts);
@@ -362,6 +387,41 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             + $"scopedLoadMs={scopedClock.Elapsed.TotalMilliseconds:F3} "
             + $"baselineLoadAllocatedBytes={baselineAllocated} scopedLoadAllocatedBytes={scopedAllocated}; "
             + "managed diagnostic only");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Finalization_load_observation_cannot_survive_the_public_call(bool linked)
+    {
+        using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
+        var before = fixture.CaptureAllPartitions();
+        var stamp = fixture.Owner.Capture();
+        var store = new ScopedAtomicStore(fixture);
+        var service = Service(fixture, store);
+        var loaded = service.Load(stamp, new(fixture.Id));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, loaded.Outcome, Describe(loaded));
+        Assert.IsNotNull(loaded.Value);
+        Assert.AreEqual(1, store.Reads);
+
+        // Losing storage after a successful read may not return cached readiness
+        // on another Load or admit a Review against the previous binding.
+        store.ReadUnavailable = true;
+        var missingLoad = service.Load(stamp, new(fixture.Id));
+        var missingReview = service.Review(stamp, new(loaded.Value.Binding));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.NotFound, missingLoad.Outcome);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.NotFound, missingReview.Outcome);
+        Assert.IsNull(missingLoad.Value);
+        Assert.IsNull(missingReview.Value);
+        CollectionAssert.Contains(missingLoad.Blockers.ToArray(), CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+        CollectionAssert.Contains(missingReview.Blockers.ToArray(), CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+        Assert.AreEqual(3, store.Reads);
+        store.ReadUnavailable = false;
+        AssertJsonEquals(loaded, service.Load(stamp, new(fixture.Id)));
+        Assert.AreEqual(4, store.Reads);
+        Assert.AreEqual(0, store.Commits);
+        fixture.AssertPartitionsUnchanged(before);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
     }
 
     [TestMethod]
