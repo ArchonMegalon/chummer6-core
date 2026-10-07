@@ -4340,6 +4340,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             var options = new List<CharacterCreationQualityCatalogOption>();
+            // One private writer for this synchronous projection. Fragment
+            // conformance ends each row's namespace/xml:space scope; source
+            // bytes and digests stay identical to standalone XElement.ToString.
+            // Do not share it with cached authorities or another operation.
+            using var sourceText = new StringWriter(CultureInfo.InvariantCulture);
+            using var sourceWriter = XmlWriter.Create(sourceText, new XmlWriterSettings
+            {
+                OmitXmlDeclaration = true,
+                Indent = false,
+                ConformanceLevel = ConformanceLevel.Fragment
+            });
             foreach (XElement row in rows.OrderBy(
                          static item => ReadValue(item, "id"),
                          StringComparer.Ordinal))
@@ -4401,7 +4412,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 bool hasCostDiscount = row.Elements("costdiscount").Any();
                 bool hasFollowUpPrompt = row.Descendants().Any(element =>
                     element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase));
-                string sourceNodeXml = row.ToString(SaveOptions.DisableFormatting);
+                row.WriteTo(sourceWriter);
+                sourceWriter.Flush();
+                string sourceNodeXml = sourceText.ToString();
+                sourceText.GetStringBuilder().Clear();
                 bool effectsProjectable =
                     CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount);
                 bool selectable = sourceEnabled

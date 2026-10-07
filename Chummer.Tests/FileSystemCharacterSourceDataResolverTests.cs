@@ -20,6 +20,72 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    public void Creation_qualities_source_serialization_preserves_consecutive_node_boundaries()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, string.Empty, string.Empty);
+            var rows = Enumerable.Range(1, 12).Select(index => XElement.Parse(
+                $"<quality xml:space=\"{(index % 2 == 0 ? "preserve" : "default")}\" xmlns:p=\"urn:fixture:{index}\">"
+                + $"<id>50000000-0000-0000-0000-{index:D12}</id><name>Zoë &amp; 東京 😀</name>"
+                + "<category>Positive</category><karma>1</karma><nolevels/><source>SR5</source><page>1</page><bonus/>"
+                + "<p:note a=\"x&#x9;y&#xA;z&#xD;\"><![CDATA[<content & data>]]></p:note>"
+                + (index == 6 ? "<large>" + new string('x', 65_537) + "</large>" : "")
+                + "<!-- retained --><?fixture retained?><empty/><empty></empty></quality>", LoadOptions.PreserveWhitespace)).ToArray();
+            File.WriteAllText(Path.Combine(root, "data", "qualities.xml"),
+                new XElement("chummer", new XElement("qualities", rows)).ToString(SaveOptions.DisableFormatting));
+            var expected = rows.ToDictionary(row => Guid.Parse(row.Element("id")!.Value),
+                row => row.ToString(SaveOptions.DisableFormatting));
+            System.Threading.Tasks.Parallel.For(0, 4, _ =>
+            {
+                var context = CreateContext(root, CharacterXml())!;
+                Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var authority));
+                Assert.AreEqual(rows.Length, authority.Options.Count);
+                foreach (var option in authority.Options)
+                {
+                    Assert.AreEqual(expected[option.SourceId], option.SourceNodeXml);
+                    Assert.AreEqual(CharacterCreationQualitiesRules.ComputeSourceNodeDigest(expected[option.SourceId]),
+                        option.SourceNodeDigest);
+                    Assert.AreEqual(CharacterCreationQualitiesRules.ComputeOptionDigest(option), option.OptionDigest);
+                }
+                Assert.AreEqual(CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority), authority.AuthorityDigest);
+            });
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Creation_qualities_source_serialization_allocation_budget()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, string.Empty, string.Empty);
+            const int count = 512;
+            File.WriteAllText(Path.Combine(root, "data", "qualities.xml"),
+                "<chummer><qualities>" + string.Concat(Enumerable.Range(1, count).Select(index =>
+                    $"<quality><id>50000000-0000-0000-0000-{index:D12}</id><name>Fixture {index}</name>"
+                    + "<category>Positive</category><karma>1</karma><nolevels/><source>SR5</source><page>1</page><bonus/></quality>"))
+                + "</qualities></chummer>");
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationQualitiesAuthority(out _));
+            // Fresh context: this must measure a real cold projection, not cache reuse.
+            var context = CreateContext(root, CharacterXml())!;
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var authority));
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.AreEqual(count, authority.Options.Count);
+            Assert.IsTrue(authority.Options.All(option => option.IsSelectable));
+            Console.WriteLine($"quality-catalog rows={count} allocated={allocated} digest={authority.AuthorityDigest}");
+            // Not a timing assertion: fresh per-row XML buffers alone push
+            // this small catalog above the budget (18 MB before reuse).
+            Assert.IsLessThan(15_500_000L, allocated,
+                $"Quality source projection allocated {allocated:N0} bytes.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     public void Prerequisite_xml_writer_preserves_standalone_bytes_and_independent_node_scopes()
     {
         XElement[] nodes = Enumerable.Range(0, 12).Select(index => XElement.Parse(
