@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
@@ -68,10 +69,12 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         ArgumentNullException.ThrowIfNull(metatypesDocument);
         ArgumentNullException.ThrowIfNull(skillsDocument);
         ArgumentNullException.ThrowIfNull(context);
+        using var sourceWriter = new SourceXmlWriter();
         var blockers = new List<string>(context.Blockers);
         TalentSkillCatalog? talentSkillCatalog = TryProjectTalentSkillCatalog(
             skillsDocument,
             context.EffectiveSkillsInputsDigest,
+            sourceWriter,
             out TalentSkillCatalog? projectedSkillCatalog)
             ? projectedSkillCatalog
             : null;
@@ -187,6 +190,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         talentSkillCatalog,
                         context.EnabledSourcebooks,
                         heritageSourceDigests,
+                        sourceWriter,
                         out CharacterCreationPriorityOptionProjection? option))
                 {
                     blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid);
@@ -282,6 +286,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         TalentSkillCatalog? talentSkillCatalog,
         IReadOnlyList<string> enabledSourcebooks,
         Dictionary<XElement, string> heritageSourceDigests,
+        SourceXmlWriter sourceWriter,
         out CharacterCreationPriorityOptionProjection? option)
     {
         option = null;
@@ -404,7 +409,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             return false;
         }
 
-        string sourceNodeDigest = RawDigest(row.ToString(SaveOptions.DisableFormatting));
+        string sourceNodeDigest = RawDigest(sourceWriter.Serialize(row));
         var projected = new CharacterCreationPriorityOptionProjection(
             categoryId,
             categoryName,
@@ -428,6 +433,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     metatypesDocument,
                     enabledSourcebooks,
                     heritageSourceDigests,
+                    sourceWriter,
                     out CharacterCreationPriorityHeritageOptionProjection[] heritageOptions))
             {
                 return false;
@@ -440,6 +446,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     row,
                     sourceId,
                     talentSkillCatalog,
+                    sourceWriter,
                     out CharacterCreationPriorityTalentOptionProjection[] talentOptions))
             {
                 return false;
@@ -457,6 +464,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XDocument metatypesDocument,
         IReadOnlyList<string> enabledSourcebooks,
         Dictionary<XElement, string> heritageSourceDigests,
+        SourceXmlWriter sourceWriter,
         out CharacterCreationPriorityHeritageOptionProjection[] options)
     {
         options = [];
@@ -500,7 +508,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     karmaCost,
                     order++,
                     enabledSourcebooks,
-                    heritageSourceDigests);
+                    heritageSourceDigests,
+                    sourceWriter);
             projected.Add(baseOption);
 
             XElement[] metavariantContainers = child.Elements("metavariants").Take(2).ToArray();
@@ -540,7 +549,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     variantKarma,
                     order++,
                     enabledSourcebooks,
-                    heritageSourceDigests));
+                    heritageSourceDigests,
+                    sourceWriter));
             }
         }
 
@@ -1025,6 +1035,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
     private static bool TryProjectTalentSkillCatalog(
         XDocument document,
         string sourceDigest,
+        SourceXmlWriter sourceWriter,
         out TalentSkillCatalog? catalog)
     {
         catalog = null;
@@ -1095,7 +1106,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 category,
                 skillGroup,
                 isExotic,
-                RawDigest(skill.ToString(SaveOptions.DisableFormatting))));
+                RawDigest(sourceWriter.Serialize(skill))));
         }
         if (activeSkills.Count == 0)
             return false;
@@ -1162,7 +1173,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         int karmaCost,
         int order,
         IReadOnlyList<string> enabledSourcebooks,
-        Dictionary<XElement, string> heritageSourceDigests)
+        Dictionary<XElement, string> heritageSourceDigests,
+        SourceXmlWriter sourceWriter)
     {
         var blockers = new List<string>();
         string metatypeSourceId = string.Empty;
@@ -1176,7 +1188,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         {
             if (!heritageSourceDigests.TryGetValue(sourceNode, out string? cachedDigest))
             {
-                cachedDigest = RawDigest(sourceNode.ToString(SaveOptions.DisableFormatting));
+                cachedDigest = RawDigest(sourceWriter.Serialize(sourceNode));
                 heritageSourceDigests.Add(sourceNode, cachedDigest);
             }
             sourceDigest = cachedDigest;
@@ -1234,7 +1246,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
         }
 
-        string childDigest = RawDigest(priorityChild.ToString(SaveOptions.DisableFormatting));
+        string childDigest = RawDigest(sourceWriter.Serialize(priorityChild));
         string selectionId = $"{prioritySourceId}:heritage:{order}";
         string[] anchors =
         [
@@ -1275,6 +1287,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XElement row,
         string prioritySourceId,
         TalentSkillCatalog? skillCatalog,
+        SourceXmlWriter sourceWriter,
         out CharacterCreationPriorityTalentOptionProjection[] options)
     {
         options = [];
@@ -1305,7 +1318,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             bool exactSupportedTalentShape = IsExactSupportedTalentShape(
                 talent, name, value, specialPoints, magic, resonance, depth, qualities);
             string selectionId = $"{prioritySourceId}:talent:{order}";
-            string rawTalentNode = talent.ToString(SaveOptions.DisableFormatting);
+            string rawTalentNode = sourceWriter.Serialize(talent);
             CharacterCreationPriorityTalentOptionProjection projection = new(
                 selectionId,
                 name,
@@ -1738,6 +1751,41 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
 
     private static string RawDigest(string value) =>
         "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    // Scoped to one projection, never shared/cached with source data. There
+    // are hundreds of heritage children; standalone XElement.ToString would
+    // allocate a new XML writer and its buffers for every child. Fragment
+    // conformance ends each node's namespace/xml:space scope independently.
+    internal sealed class SourceXmlWriter : IDisposable
+    {
+        private readonly StringWriter _text = new(CultureInfo.InvariantCulture);
+        private readonly XmlWriter _writer;
+
+        public SourceXmlWriter()
+        {
+            _writer = XmlWriter.Create(_text, new XmlWriterSettings
+            {
+                OmitXmlDeclaration = true,
+                Indent = false,
+                ConformanceLevel = ConformanceLevel.Fragment
+            });
+        }
+
+        public string Serialize(XElement node)
+        {
+            node.WriteTo(_writer);
+            _writer.Flush();
+            string result = _text.ToString();
+            _text.GetStringBuilder().Clear();
+            return result;
+        }
+
+        public void Dispose()
+        {
+            _writer.Dispose();
+            _text.Dispose();
+        }
+    }
 
     private sealed record TalentSkillCatalog(
         string SourceDigest,

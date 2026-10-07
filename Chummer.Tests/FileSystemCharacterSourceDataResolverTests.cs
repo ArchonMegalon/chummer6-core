@@ -20,6 +20,51 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    public void Prerequisite_xml_writer_preserves_standalone_bytes_and_independent_node_scopes()
+    {
+        XElement[] nodes = Enumerable.Range(0, 12).Select(index => XElement.Parse(
+            $"<catalog xmlns:p=\"urn:outer:{index}\"><metatype xml:space=\"{(index % 2 == 0 ? "preserve" : "default")}\">\n"
+            + "<name>Zoë &amp; 東京 😀</name><empty/><empty></empty>"
+            + $"<p:note a=\"x&#x9;y&#xA;z&#xD;\"><![CDATA[<content & data>]]></p:note>"
+            + $"<nested xmlns=\"urn:default:{index}\"><p:child xmlns:p=\"urn:inner:{index}\"/></nested>"
+            + (index == 5 ? "<large>" + new string('x', 65_537) + "</large>" : "")
+            + "<!-- comment --><?fixture retained?>\r\n</metatype></catalog>", LoadOptions.PreserveWhitespace)
+            .Element("metatype")!).Concat(new[] { XElement.Parse("<metatype><name>Small</name></metatype>") }).ToArray();
+        string[] expected = nodes.Select(node => node.ToString(SaveOptions.DisableFormatting)).ToArray();
+        System.Threading.Tasks.Parallel.For(0, 4, _ =>
+        {
+            using var writer = new CharacterCreationPrerequisiteAuthorityProjector.SourceXmlWriter();
+            string[] serialized = nodes.Select(writer.Serialize).ToArray();
+            CollectionAssert.AreEqual(expected, serialized);
+            // Reuse must not retain the previous fragment's namespaces or
+            // whitespace mode, nor mutate source trees/earlier returned strings.
+            CollectionAssert.AreEqual(expected, nodes.Select(writer.Serialize).ToArray());
+            CollectionAssert.AreEqual(expected, serialized);
+        });
+        CollectionAssert.AreEqual(expected, nodes.Select(node => node.ToString(SaveOptions.DisableFormatting)).ToArray());
+    }
+
+    [TestMethod]
+    public void Prerequisite_xml_writer_does_not_allocate_new_buffers_for_every_child()
+    {
+        const int count = 1024;
+        XElement node = XElement.Parse("<metavariant><name>Fixture</name><value>1</value><karma>0</karma></metavariant>");
+        string expected = node.ToString(SaveOptions.DisableFormatting);
+        using (var warmup = new CharacterCreationPrerequisiteAuthorityProjector.SourceXmlWriter())
+            Assert.AreEqual(expected, warmup.Serialize(node));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        string[] results = new string[count];
+        using (var writer = new CharacterCreationPrerequisiteAuthorityProjector.SourceXmlWriter())
+            for (int i = 0; i < count; i++) results[i] = writer.Serialize(node);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsTrue(results.All(result => result == expected));
+        // Allocation, not timing: fresh per-child XML writer buffers alone
+        // exceed this deliberately loose budget for a small fragment.
+        Assert.IsLessThan(count * 4096L, allocated,
+            $"Prerequisite source serialization allocated {allocated:N0} bytes.");
+    }
+
+    [TestMethod]
     public void Magic_catalog_preserves_raw_node_hash_normalized_payload_and_admission()
     {
         const string id = "d39cb2a3-879e-4e74-b399-505825be2acf";
