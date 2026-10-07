@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
@@ -408,6 +409,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         ICollection<string> blockers)
     {
         var result = new List<CharacterCreationMagicResonanceCatalogOption>();
+        using var sourceWriter = new CatalogXmlWriter();
         foreach (XElement row in rows)
         {
             if (!TryReadGuid(row, "id", out string id)
@@ -459,10 +461,11 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             string[] normalized = Normalize(local);
             // The node digest binds the original whitespace-preserving row;
             // the payload binds the separately normalized XML. Retain both
-            // meanings while serializing the original row only once.
-            string rawSourceXml = row.ToString(SaveOptions.DisableFormatting);
-            string canonicalSourceXml = XElement.Parse(rawSourceXml, LoadOptions.None)
-                .ToString(SaveOptions.DisableFormatting);
+            // meanings without allocating a new XML writer and its buffers
+            // twice for every catalog entry. This writer belongs only to this
+            // synchronous projection, never to a shared cache or source row.
+            string rawSourceXml = sourceWriter.Serialize(row);
+            string canonicalSourceXml = sourceWriter.Serialize(XElement.Parse(rawSourceXml, LoadOptions.None));
             result.Add(new(
                 CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
                 new(kind, id),
@@ -489,6 +492,39 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         return result.OrderBy(item => item.Name, StringComparer.Ordinal)
             .ThenBy(item => item.Identity.SourceId, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private sealed class CatalogXmlWriter : IDisposable
+    {
+        private readonly StringWriter _text = new(CultureInfo.InvariantCulture);
+        private readonly XmlWriter _writer;
+
+        public CatalogXmlWriter()
+        {
+            _writer = XmlWriter.Create(_text, new XmlWriterSettings
+            {
+                OmitXmlDeclaration = true,
+                Indent = false,
+                ConformanceLevel = ConformanceLevel.Fragment
+            });
+        }
+
+        public string Serialize(XElement row)
+        {
+            // Match XElement.ToString(DisableFormatting), including namespace
+            // scope, escaping, comments, CDATA and line-ending normalization.
+            row.WriteTo(_writer);
+            _writer.Flush();
+            string result = _text.ToString();
+            _text.GetStringBuilder().Clear();
+            return result;
+        }
+
+        public void Dispose()
+        {
+            _writer.Dispose();
+            _text.Dispose();
+        }
     }
 
     private static string ResolveTalentKind(string value) => value switch
