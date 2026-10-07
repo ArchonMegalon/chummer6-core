@@ -76,6 +76,73 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         }
     }
 
+    [TestMethod]
+    public void Magic_catalog_keeps_each_rows_xml_scope_and_parallel_projection_isolated()
+    {
+        const string inputs = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        XElement[] rows = Enumerable.Range(0, 16).Select(index =>
+            XElement.Parse($"<catalog xmlns:p=\"urn:outer:{index}\"><spell xml:space=\"{(index % 2 == 0 ? "preserve" : "default")}\">\n"
+                + $"<id>10000000-0000-0000-0000-{index:D12}</id><name>Fixture {index}</name>"
+                + "<source>SR5</source><page>1</page><category>Combat</category>\n"
+                + $"<p:note marker=\"a&#x9;b&#xA;c&#xD;d\"> left <![CDATA[<東京 & Zoë>]]> right\r\n</p:note>"
+                + $"<nested xmlns=\"urn:nested:{index}\"><empty/><empty></empty><p:child xmlns:p=\"urn:inner:{index}\"/></nested>"
+                + (index == 7 ? "<large>" + new string('z', 65_537) + "</large>" : "")
+                + "<!-- retained --><?fixture retained?>\n</spell></catalog>", LoadOptions.PreserveWhitespace)
+                .Element("spell")!).ToArray();
+        string[] originals = rows.Select(row => row.ToString(SaveOptions.DisableFormatting)).ToArray();
+        string[] canonicals = originals.Select(raw => XElement.Parse(raw, LoadOptions.None)
+            .ToString(SaveOptions.DisableFormatting)).ToArray();
+
+        // Independent projections may run simultaneously, but never share
+        // writer state or retain a preceding row's namespaces/xml:space/data,
+        // including when a large fragment is followed by a small one.
+        System.Threading.Tasks.Parallel.For(0, 8, _ =>
+        {
+            var blockers = new System.Collections.Generic.List<string>();
+            var options = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
+                rows, "spell", inputs, ["SR5"], blockers);
+            Assert.IsEmpty(blockers);
+            Assert.HasCount(rows.Length, options);
+            for (int index = 0; index < rows.Length; index++)
+            {
+                string id = rows[index].Element("id")!.Value;
+                var option = options.Single(candidate => candidate.Identity.SourceId == id);
+                Assert.AreEqual(originals[index], rows[index].ToString(SaveOptions.DisableFormatting),
+                    "Projection must not change the source tree.");
+                Assert.AreEqual(CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest(
+                    "spell", inputs, id, originals[index]), option.SourceNodeDigest);
+                Assert.AreEqual(canonicals[index], option.CanonicalSourceXml);
+                Assert.AreEqual(CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicals[index]),
+                    option.CanonicalSourceXmlDigest);
+                Assert.IsTrue(option.IsEnabled);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Magic_catalog_does_not_allocate_xml_writer_buffers_for_every_row()
+    {
+        const int count = 128;
+        XElement[] rows = Enumerable.Range(0, count).Select(index => XElement.Parse(
+            $"<spell><id>20000000-0000-0000-0000-{index:D12}</id><name>Fixture {index}</name>"
+            + "<source>SR5</source><page>1</page><category>Combat</category></spell>"))
+            .ToArray();
+        var blockers = new System.Collections.Generic.List<string>();
+        CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(rows, "spell", "fixture", ["SR5"], blockers);
+        blockers.Clear();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
+            rows, "spell", "fixture", ["SR5"], blockers);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"Magic catalog allocated {allocated:N0} bytes for {count} small rows.");
+        Assert.HasCount(count, result);
+        Assert.IsEmpty(blockers);
+        // A loose allocation ceiling, not a wall-clock test. The old pair of
+        // per-row writers alone exhausts this budget before useful projection.
+        Assert.IsLessThan(count * 32_768L, allocated,
+            $"Catalog projection allocated {allocated:N0} bytes for {count} small rows.");
+    }
+
     private const string SettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
     private const string CanonicalSumToTenSettingsId = "3509a807-68ee-4c18-b7d5-b130313b4b77";
