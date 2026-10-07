@@ -2289,6 +2289,96 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsTrue(resolver.Calls > calls, "The method gate must not cache prior domain reads.");
     }
 
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Absent_finalization_drafts_do_not_load_choice_catalogs_or_become_complete(string method)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
+        var finalizer = BuildCatalogReadProbe(context, out var reads);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var state = finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsFalse(state.CanReview);
+        foreach (string id in new[] { CharacterCreationWizardStepIds.Qualities,
+                     CharacterCreationWizardStepIds.MagicResonance, "gear" })
+        {
+            var step = state.Steps.Single(item => item.StepId == id);
+            Assert.IsFalse(step.IsComplete);
+            Assert.IsNull(step.DraftDigest);
+            Assert.IsNotEmpty(step.Blockers);
+            Assert.IsEmpty(step.SourceAnchorIds);
+        }
+        var review = finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
+        Assert.IsFalse(review.CanConfirm);
+        Assert.IsNull(review.Plan);
+        var confirm = finalizer.Confirm(new(state.Binding, review.PreviewDigest,
+            CharacterCreationFinalizationDigest.ComputeUtf8("missing-drafts"), "missing-drafts", true));
+        Assert.IsNull(confirm.Value);
+        Assert.IsFalse(confirm.Success);
+        Assert.IsTrue(reads.All(probe => probe.Loads == 0),
+            "A missing draft cannot be made finalizable by materializing its choice catalog.");
+        using ReadyContext cold = context.Restart();
+        Assert.AreEqual(state.SnapshotDigest, cold.Finalizer.Load(new(context.WorkspaceId)).Value!.SnapshotDigest);
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+        Assert.AreEqual(before.LastUpdatedUtc, after.LastUpdatedUtc);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Present_finalization_drafts_reload_choice_authority_on_every_review(string method)
+    {
+        using ReadyContext context = ReadyContext.Create(true, buildMethod: method,
+            talentValue: "Mystic Adept", mysticPowerPoints: 1);
+        var finalizer = BuildCatalogReadProbe(context, out var reads);
+        var state = finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(state.CanReview, string.Join(",", state.Blockers));
+        Assert.IsTrue(reads.All(probe => probe.Loads == 1));
+        var review = finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.IsNotNull(review.Plan);
+        Assert.IsTrue(reads.All(probe => probe.Loads == 2), "Existing drafts must never use cached authority.");
+    }
+
+    private static ICharacterCreationFinalizationService BuildCatalogReadProbe(
+        ReadyContext context, out FinalizationDomainReadProbe[] reads)
+    {
+        var prerequisites = new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver);
+        var attributes = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        var qualities = FinalizationDomainReadProbe.Wrap<ICharacterCreationQualitiesService>(
+            new CharacterCreationQualitiesService(context.Store, context.Resolver, prerequisites, attributes), out var qualityReads);
+        var magic = FinalizationDomainReadProbe.Wrap<ICharacterCreationMagicResonanceService>(
+            new CharacterCreationMagicResonanceService(context.Store, context.Resolver), out var magicReads);
+        var gear = FinalizationDomainReadProbe.Wrap<ICharacterCreationGearService>(
+            new CharacterCreationGearService(context.Store, context.Resolver), out var gearReads);
+        reads = [qualityReads, magicReads, gearReads];
+        return new CharacterCreationFinalizationService(context.Store, context.Queries, prerequisites, attributes,
+            new CharacterCreationSkillsService(context.Store, context.Resolver), qualities, magic,
+            new CharacterCreationResourcesService(context.Store, context.Resolver), gear, context.Resolver);
+    }
+
+    public class FinalizationDomainReadProbe : System.Reflection.DispatchProxy
+    {
+        private object _inner = null!;
+        public int Loads { get; private set; }
+        public static T Wrap<T>(T inner, out FinalizationDomainReadProbe probe) where T : class
+        {
+            T service = Create<T, FinalizationDomainReadProbe>();
+            probe = (FinalizationDomainReadProbe)(object)service;
+            probe._inner = inner;
+            return service;
+        }
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? arguments)
+        {
+            if (method!.Name == "Load") Loads++;
+            return method.Invoke(_inner, arguments);
+        }
+    }
+
     private sealed class FinalizationSourceReadProbe(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
     {
         public int Calls { get; private set; }
