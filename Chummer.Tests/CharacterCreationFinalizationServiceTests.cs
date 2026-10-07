@@ -1932,9 +1932,21 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsTrue(draft.Selections.All(item => item.ResolvedArmCount is null));
         var currentResolver = ((LegacyQualityCatalogResolver)context.Resolver).Inner;
         var currentSource = currentResolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(currentSource.TryResolveCreationQualitiesAuthority(out var unresolvedCatalog));
+        Assert.AreEqual(draft.AuthorityDigest, unresolvedCatalog.AuthorityDigest);
         Assert.IsTrue(currentSource.TryResolveCreationQualitiesAuthority(
             before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!, out var currentCatalog));
         Assert.AreNotEqual(draft.AuthorityDigest, currentCatalog.AuthorityDigest);
+        Assert.IsTrue(currentSource.TryResolveCreationQualitiesAuthority(out var unresolvedAgain));
+        Assert.AreEqual(unresolvedCatalog.AuthorityDigest, unresolvedAgain.AuthorityDigest,
+            "A warm anatomy-aware catalog must not replace the unresolved-arm catalog.");
+        Assert.IsTrue(currentSource.TryResolveCreationQualitiesAuthority(
+            before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!, out var currentAgain));
+        Assert.AreEqual(currentCatalog.AuthorityDigest, currentAgain.AuthorityDigest);
+        var unsupported = before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft! with { TalentSelection = null };
+        Assert.IsTrue(currentSource.TryResolveCreationQualitiesAuthority(unsupported, out var rejectedAnatomy));
+        Assert.AreEqual(unresolvedCatalog.AuthorityDigest, rejectedAnatomy.AuthorityDigest,
+            "Reuse must not bypass the current prerequisite's anatomy admission.");
 
         var reopenedStore = new FileWorkspaceStore(context.Directory);
         var currentQualities = new CharacterCreationQualitiesService(reopenedStore, currentResolver,

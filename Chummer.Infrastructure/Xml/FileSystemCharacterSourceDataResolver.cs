@@ -1831,6 +1831,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
         private readonly object _completionProjectionSync = new();
+        private readonly Dictionary<int, CharacterCreationQualitiesAuthority> _priorityQualitiesSnapshots = new();
+        private CharacterCreationMagicResonanceAuthority? _priorityMagicAuthoritySnapshot;
         private CharacterCreationFoundationEffectSources? _foundationEffectSourcesSnapshot;
         private CharacterCreationSkillsCatalog? _creationSkillsCatalogSnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
@@ -4218,11 +4220,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     string.Empty,
                     out XElement? settings)
                 || settings is null
-                || !TryEnumerateTargets(
-                    "qualities.xml",
-                    ["qualities"],
-                    "quality",
-                    out XElement[] rows)
                 || !TryReadNonNegativeInt(settings, "qualitykarmalimit", out int qualityKarmaLimit)
                 || !TryReadSingleBool(settings, "exceedpositivequalities", out bool exceedPositive)
                 || !TryReadSingleBool(settings, "exceednegativequalities", out bool exceedNegative)
@@ -4230,6 +4227,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 return false;
             }
+
+            // The context fixes character/profile/overlay identity. Enter above
+            // still revalidates every captured byte and poisons reuse on drift.
+            // Anatomy is an additional input: an unresolved arm count must never
+            // inherit the catalog admitted for a proven two-arm prerequisite.
+            bool mayReuse = _buildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen;
+            int anatomyKey = armCount ?? -1;
+            CharacterCreationQualitiesAuthority? cached = null;
+            if (mayReuse)
+                lock (_completionProjectionSync) { _priorityQualitiesSnapshots.TryGetValue(anatomyKey, out cached); }
+            if (!_sourceInputs.HasSourceDrift && cached is { } snapshot)
+            {
+                var detached = CopyQualitiesAuthority(snapshot);
+                if (!_sourceInputs.HasSourceDrift)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+            // Retain the ordinary diagnostic projection when reuse is not admitted.
+            if (!TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out XElement[] rows))
+                return false;
 
             string metagenicLimitText = ReadValue(_character, "metageniclimit");
             int metagenicLimit = 0;
@@ -4509,8 +4528,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(candidate)
             };
+            if (mayReuse && authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                var frozen = CopyQualitiesAuthority(authority);
+                lock (_completionProjectionSync) { _priorityQualitiesSnapshots[anatomyKey] = frozen; }
+            }
             return true;
         }
+
+        private static CharacterCreationQualitiesAuthority CopyQualitiesAuthority(
+            CharacterCreationQualitiesAuthority source) => source with
+        {
+            Options = source.Options.Select(option => option with
+            {
+                SourceAnchorIds = option.SourceAnchorIds.ToArray()
+            }).ToArray(),
+            GrantedQualities = source.GrantedQualities.Select(grant => grant with
+            {
+                SourceAnchorIds = grant.SourceAnchorIds.ToArray()
+            }).ToArray(),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+            Blockers = source.Blockers.ToArray()
+        };
 
         public bool TryResolveCreationLifestylesAuthority(
             out CharacterCreationLifestylesAuthority authority)
@@ -4997,8 +5036,24 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     string.Empty, out XElement? magicSettings)
                 || magicSettings is null
                 || !TryComputeSelectedCustomDataInputsDigest(
-                    _customDirectories, out string customDataInputsDigest)
-                || !TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
+                    _customDirectories, out string customDataInputsDigest))
+            {
+                return false;
+            }
+
+            CharacterCreationMagicResonanceAuthority? cached;
+            lock (_completionProjectionSync) { cached = _priorityMagicAuthoritySnapshot; }
+            if (!_sourceInputs.HasSourceDrift && cached is { } snapshot
+                && snapshot.PrerequisiteAuthorityDigest == prerequisite.AuthorityDigest)
+            {
+                var detached = CopyMagicResonanceAuthority(snapshot);
+                if (!_sourceInputs.HasSourceDrift)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+            if (!TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
                 || !TryEnumerateTargets("traditions.xml", ["traditions"], "tradition", out XElement[] traditions)
                 || !TryEnumerateTargets("streams.xml", ["traditions"], "tradition", out XElement[] streams)
                 || !TryEnumerateTargets("powers.xml", ["powers"], "power", out XElement[] powers)
@@ -5075,7 +5130,60 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 qualities,
                 grantedGear,
                 projectionContext);
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                var frozen = CopyMagicResonanceAuthority(authority);
+                lock (_completionProjectionSync) { _priorityMagicAuthoritySnapshot = frozen; }
+            }
             return true;
+        }
+
+        private static CharacterCreationMagicResonanceAuthority CopyMagicResonanceAuthority(
+            CharacterCreationMagicResonanceAuthority source)
+        {
+            static CharacterCreationMagicResonanceCatalogOption[] CopyCatalog(
+                IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> options) => options.Select(option => option with
+                {
+                    SourceAnchorIds = option.SourceAnchorIds.ToArray(),
+                    Blockers = option.Blockers.ToArray()
+                }).ToArray();
+
+            // Keep immutable source text, but detach every mutable collection on
+            // cache admission as well as return, including nested talent grants.
+            return source with
+            {
+                Talents = source.Talents.Select(talent => talent with
+                {
+                    RequiredMetatypeNames = talent.RequiredMetatypeNames.ToArray(),
+                    RequiredMetatypeCategories = talent.RequiredMetatypeCategories.ToArray(),
+                    ForbiddenMetatypeNames = talent.ForbiddenMetatypeNames.ToArray(),
+                    SourceAnchorIds = talent.SourceAnchorIds.ToArray(),
+                    Blockers = talent.Blockers.ToArray(),
+                    GrantedQualitySources = talent.GrantedQualitySources?.Select(quality => quality with
+                    {
+                        SourceAnchorIds = quality.SourceAnchorIds.ToArray(),
+                        GrantedGearSources = quality.GrantedGearSources?.Select(gear => gear with
+                        {
+                            SourceAnchorIds = gear.SourceAnchorIds.ToArray()
+                        }).ToArray()
+                    }).ToArray()
+                }).ToArray(),
+                Metatypes = source.Metatypes.Select(metatype => metatype with
+                {
+                    SourceAnchorIds = metatype.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                Traditions = CopyCatalog(source.Traditions),
+                Streams = CopyCatalog(source.Streams),
+                AdeptPowers = CopyCatalog(source.AdeptPowers),
+                Spells = CopyCatalog(source.Spells),
+                ComplexForms = CopyCatalog(source.ComplexForms),
+                SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+                Blockers = source.Blockers.ToArray(),
+                MysticAdeptPowerPointPolicy = source.MysticAdeptPowerPointPolicy is { } policy ? policy with
+                {
+                    SourceAnchorIds = policy.SourceAnchorIds.ToArray()
+                } : null
+            };
         }
 
         /// <summary>

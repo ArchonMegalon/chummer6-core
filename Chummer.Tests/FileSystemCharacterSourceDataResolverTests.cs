@@ -743,6 +743,179 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         finally { DeleteTempDirectory(root); }
     }
 
+    [TestMethod]
+    [DataRow(SettingsId, "qualities")]
+    [DataRow(SettingsId, "magic")]
+    [DataRow(CanonicalSumToTenSettingsId, "qualities")]
+    [DataRow(CanonicalSumToTenSettingsId, "magic")]
+    public void Priority_projection_reuse_preserves_exact_bytes_detaches_lists_and_reduces_allocations(string profile, string kind)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{profile}</settings></character>")!;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        object first = ReadPriorityProjection(context, kind);
+        long coldBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        before = GC.GetAllocatedBytesForCurrentThread();
+        object second = ReadPriorityProjection(context, kind);
+        long warmBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+        Assert.IsLessThan(coldBytes / 2, warmBytes,
+            $"Repeated {kind}: cold={coldBytes:N0}, warm={warmBytes:N0}.");
+        Console.WriteLine($"priority-projection {profile} {kind}: cold={coldBytes}; warm={warmBytes}.");
+
+        var firstLists = PriorityProjectionLists(first).ToArray();
+        var secondLists = PriorityProjectionLists(second).ToArray();
+        Assert.AreEqual(firstLists.Length, secondLists.Length);
+        foreach (var (left, right) in firstLists.Zip(secondLists))
+        {
+            Assert.AreEqual(left.Count, right.Count);
+            if (left.Count > 0) Assert.AreNotSame(left, right);
+        }
+        // Poison every caller-owned list, including nested grant and policy lists.
+        // Neither the initial return nor a warm return may expose the snapshot.
+        foreach (var list in firstLists.Concat(secondLists))
+            if (list.Count > 0 && !list.IsReadOnly) list[0] = list[0] is string ? "caller-poison" : null;
+        Assert.AreNotEqual(expected, System.Text.Json.JsonSerializer.Serialize(first));
+        Assert.AreNotEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadPriorityProjection(context, kind)));
+    }
+
+    [TestMethod]
+    [DataRow("qualities", "qualities.xml")]
+    [DataRow("qualities", "settings.xml")]
+    [DataRow("magic", "settings.xml")]
+    [DataRow("magic", "priorities.xml")]
+    [DataRow("magic", "metatypes.xml")]
+    [DataRow("magic", "skills.xml")]
+    [DataRow("magic", "qualities.xml")]
+    [DataRow("magic", "gear.xml")]
+    [DataRow("magic", "traditions.xml")]
+    [DataRow("magic", "streams.xml")]
+    [DataRow("magic", "powers.xml")]
+    [DataRow("magic", "spells.xml")]
+    [DataRow("magic", "complexforms.xml")]
+    public void Priority_projection_cache_rejects_same_length_byte_drift_and_ABA(string kind, string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "qualities.xml",
+                "gear.xml", "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, useStrongChangeIdentity: false);
+            var context = resolver.TryCreateContext(CharacterXml())!;
+            string expected = System.Text.Json.JsonSerializer.Serialize(ReadPriorityProjection(context, kind));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadPriorityProjection(context, kind)));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            byte[] changed = original.ToArray();
+            int newline = Array.IndexOf(changed, (byte)'\n');
+            Assert.IsGreaterThanOrEqualTo(0, newline);
+            changed[newline] = (byte)' ';
+            File.WriteAllBytes(path, changed);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(HasPriorityProjection(context, kind), "Identical size/timestamp is not source authority.");
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(HasPriorityProjection(context, kind), "An observed drift poisons this context even after ABA.");
+            var fresh = resolver.TryCreateContext(CharacterXml())!;
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadPriorityProjection(fresh, kind)));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("qualities", false)]
+    [DataRow("qualities", true)]
+    [DataRow("magic", false)]
+    [DataRow("magic", true)]
+    public async Task Priority_projection_parallel_readers_remain_detached(string kind, bool warm)
+    {
+        var context = CreateContext(FindCoreRoot(), CharacterXml())!;
+        if (warm) ReadPriorityProjection(context, kind);
+        object[] results = await Task.WhenAll(Enumerable.Range(0, 3)
+            .Select(_ => Task.Run(() => ReadPriorityProjection(context, kind))));
+        string expected = System.Text.Json.JsonSerializer.Serialize(results[0]);
+        foreach (var result in results.Skip(1))
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(result));
+        foreach (var list in PriorityProjectionLists(results[0]).ToArray())
+            if (list.Count > 0 && !list.IsReadOnly) list[0] = list[0] is string ? "caller-poison" : null;
+        Assert.AreNotEqual(expected, System.Text.Json.JsonSerializer.Serialize(results[0]));
+        foreach (var result in results.Skip(1))
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(result));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadPriorityProjection(context, kind)));
+    }
+
+    private static bool HasPriorityProjection(ICharacterSourceDataContext context, string kind) => kind == "qualities"
+        ? context.TryResolveCreationQualitiesAuthority(out var qualities) && qualities.IsAuthoritative
+        : context.TryResolveCreationMagicResonanceAuthority(out var magic) && magic.IsAuthoritative;
+
+    private static object ReadPriorityProjection(ICharacterSourceDataContext context, string kind)
+    {
+        if (kind == "qualities")
+        {
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var qualities));
+            Assert.IsTrue(qualities.IsAuthoritative, string.Join(",", qualities.Blockers));
+            return qualities;
+        }
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var magic));
+        Assert.IsTrue(magic.IsAuthoritative, string.Join(",", magic.Blockers));
+        return magic;
+    }
+
+    private static IEnumerable<System.Collections.IList> PriorityProjectionLists(object result)
+    {
+        if (result is CharacterCreationQualitiesAuthority qualities)
+        {
+            yield return (System.Collections.IList)qualities.Options;
+            yield return (System.Collections.IList)qualities.GrantedQualities;
+            yield return (System.Collections.IList)qualities.SourceAnchorIds;
+            yield return (System.Collections.IList)qualities.Blockers;
+            foreach (var option in qualities.Options) yield return (System.Collections.IList)option.SourceAnchorIds;
+            foreach (var grant in qualities.GrantedQualities) yield return (System.Collections.IList)grant.SourceAnchorIds;
+            yield break;
+        }
+        var magic = (CharacterCreationMagicResonanceAuthority)result;
+        yield return (System.Collections.IList)magic.Talents;
+        yield return (System.Collections.IList)magic.Metatypes;
+        yield return (System.Collections.IList)magic.SourceAnchorIds;
+        yield return (System.Collections.IList)magic.Blockers;
+        if (magic.MysticAdeptPowerPointPolicy is { } policy)
+            yield return (System.Collections.IList)policy.SourceAnchorIds;
+        foreach (var metatype in magic.Metatypes) yield return (System.Collections.IList)metatype.SourceAnchorIds;
+        foreach (var talent in magic.Talents)
+        {
+            yield return (System.Collections.IList)talent.RequiredMetatypeNames;
+            yield return (System.Collections.IList)talent.RequiredMetatypeCategories;
+            yield return (System.Collections.IList)talent.ForbiddenMetatypeNames;
+            yield return (System.Collections.IList)talent.SourceAnchorIds;
+            yield return (System.Collections.IList)talent.Blockers;
+            if (talent.GrantedQualitySources is not { } qualityGrants) continue;
+            yield return (System.Collections.IList)qualityGrants;
+            foreach (var quality in qualityGrants)
+            {
+                yield return (System.Collections.IList)quality.SourceAnchorIds;
+                if (quality.GrantedGearSources is not { } gearGrants) continue;
+                yield return (System.Collections.IList)gearGrants;
+                foreach (var gear in gearGrants) yield return (System.Collections.IList)gear.SourceAnchorIds;
+            }
+        }
+        foreach (var catalog in new[] { magic.Traditions, magic.Streams, magic.AdeptPowers, magic.Spells, magic.ComplexForms })
+        {
+            yield return (System.Collections.IList)catalog;
+            foreach (var option in catalog)
+            {
+                yield return (System.Collections.IList)option.SourceAnchorIds;
+                yield return (System.Collections.IList)option.Blockers;
+            }
+        }
+    }
+
     private static object ReadCompletionProjection(ICharacterSourceDataContext context, string kind)
     {
         if (kind == "life-talents")
