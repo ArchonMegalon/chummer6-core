@@ -20,7 +20,7 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
         OwnerContextStamp expectedOwner, CharacterCreationFinalizationLoadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return Invoke(expectedOwner, request.WorkspaceId, service => service.Load(request));
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.Load(request), reuseReadObservation: true);
     }
 
     public CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> Review(
@@ -48,7 +48,8 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
 
     private CharacterCreationFinalizationResult<T> Invoke<T>(OwnerContextStamp expectedOwner,
         CharacterWorkspaceId workspaceId,
-        Func<CharacterCreationFinalizationService, CharacterCreationFinalizationResult<T>> action)
+        Func<CharacterCreationFinalizationService, CharacterCreationFinalizationResult<T>> action,
+        bool reuseReadObservation = false)
         where T : class
     {
         if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
@@ -64,7 +65,9 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
             // Never cache this graph or resolve unbound singleton domain services:
             // Skills/Magic construct Attributes internally and Qualities calls both
             // Prerequisite and Attributes. Every one must share this same view.
-            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
+            // Only Load reuses its complete validated read. Review, Confirm and
+            // receipt lookup retain fresh reads; nothing survives this lease.
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId, reuseReadObservation);
             var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, operationResolver);
             var attributes = new CharacterCreationAttributesService(view, operationResolver);
             var service = new CharacterCreationFinalizationService(view, characterQueries,
