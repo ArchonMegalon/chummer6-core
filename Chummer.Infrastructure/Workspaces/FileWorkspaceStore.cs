@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,6 +17,7 @@ namespace Chummer.Infrastructure.Workspaces;
 
 public sealed partial class FileWorkspaceStore :
     IWorkspaceStore,
+    IWorkspaceStoreProjection,
     IWorkspaceStoreInventory,
     IWorkspaceStoreReadinessProbe,
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
@@ -286,14 +288,32 @@ public sealed partial class FileWorkspaceStore :
     }
 
     private IReadOnlyList<WorkspaceStoreEntry> ListCore(OwnerScope owner)
+        => ListProjectedCore(owner, ToEntry, maxCount: null);
+
+    public IReadOnlyList<T> ListProjected<T>(
+        Func<WorkspaceStoredDocument, T> projection,
+        int? maxCount = null)
+        => ListProjectedCore(OwnerScope.LocalSingleUser, projection, maxCount);
+
+    public IReadOnlyList<T> ListProjected<T>(
+        OwnerScope owner,
+        Func<WorkspaceStoredDocument, T> projection,
+        int? maxCount = null)
+        => IsInvalidScopedOwner(owner) ? [] : ListProjectedCore(owner, projection, maxCount);
+
+    private IReadOnlyList<T> ListProjectedCore<T>(
+        OwnerScope owner,
+        Func<WorkspaceStoredDocument, T> projection,
+        int? maxCount)
     {
+        ArgumentNullException.ThrowIfNull(projection);
         string workspaceDirectory = GetWorkspaceDirectory(owner);
         if (!TrySecureExistingWorkspaceDirectory(owner))
         {
             return [];
         }
 
-        List<WorkspaceStoreEntry> entries = [];
+        List<(DateTimeOffset LastUpdatedUtc, T? Value, ExceptionDispatchInfo? Error)> entries = [];
         foreach (string path in Directory.EnumerateFiles(workspaceDirectory, "*.json", SearchOption.TopDirectoryOnly))
         {
             string fileName = Path.GetFileNameWithoutExtension(path);
@@ -311,12 +331,30 @@ public sealed partial class FileWorkspaceStore :
             WorkspaceStoreReadResult read = GetCore(owner, id);
             if (read.Success && read.Value is WorkspaceStoredDocument value)
             {
-                entries.Add(ToEntry(value));
+                // GetCore performs all normal validation/migration and releases
+                // its lease before invoking application projection code. Retain
+                // only the small display row, never a roster of full documents.
+                try
+                {
+                    entries.Add((value.LastUpdatedUtc, projection(value), null));
+                }
+                catch (Exception exception)
+                {
+                    // Preserve List(maxCount): an invalid older row must not
+                    // break a request that selects only newer rows.
+                    entries.Add((value.LastUpdatedUtc, default, ExceptionDispatchInfo.Capture(exception)));
+                }
             }
         }
 
         return entries
             .OrderByDescending(entry => entry.LastUpdatedUtc)
+            .Take(maxCount is > 0 ? maxCount.Value : entries.Count)
+            .Select(entry =>
+            {
+                entry.Error?.Throw();
+                return entry.Value!;
+            })
             .ToArray();
     }
 
