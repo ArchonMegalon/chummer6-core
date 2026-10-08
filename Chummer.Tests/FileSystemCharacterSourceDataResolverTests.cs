@@ -2762,6 +2762,78 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CanonicalSumToTenSettingsId)]
+    [DataRow(CanonicalLifeModuleSettingsId)]
+    public void Prerequisite_projection_warm_read_copies_result_not_source_documents(string settingsId)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        using var operation = resolver.CreateOperationScope();
+        var context = operation.TryCreateContext($"<character><settings>{settingsId}</settings></character>");
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var first));
+        string expected = ProjectionJson(first);
+        var firstGraph = CaptureProjectionCollections(first);
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool resolved = context.TryResolveCreationPrerequisiteAuthority(out var second);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.IsTrue(resolved);
+        Assert.AreEqual(expected, ProjectionJson(second));
+        AssertProjectionCollectionsDetached(firstGraph, CaptureProjectionCollections(second));
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount);
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+            "Allocation savings must not skip current source-byte validation.");
+        Console.WriteLine($"prerequisite-warm-read profile={settingsId} allocated={allocated}");
+        // Copying the three complete cached XML trees costs over 4 MB, even
+        // though only the detached projected result is needed by this caller.
+        Assert.IsLessThan(2_000_000L, allocated,
+            $"A warm prerequisite read allocated {allocated:N0} bytes.");
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("priorities.xml")]
+    [DataRow("metatypes.xml")]
+    [DataRow("skills.xml")]
+    public void Prerequisite_projection_reuse_revalidates_even_inside_active_snapshot(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var operation = resolver.CreateOperationScope();
+            var context = operation.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            ReadPrerequisiteProjection(context);
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic;
+            var inputs = context.GetType().GetField("_sourceInputs", flags)!.GetValue(context)!;
+            using var active = (IDisposable)inputs.GetType().GetMethod("Enter")!.Invoke(inputs, null)!;
+            int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            ReadPrerequisiteProjection(context);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+                "Nested cache reuse needs a fresh admission, not only an outer Enter.");
+
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            File.AppendAllText(path, "\n");
+            Assert.IsFalse(context.TryResolveCreationPrerequisiteAuthority(out var changed) && changed.IsAuthoritative);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            File.WriteAllBytes(path, original);
+            Assert.IsFalse(context.TryResolveCreationPrerequisiteAuthority(out var restored) && restored.IsAuthoritative,
+                "Restoring bytes must not revive the poisoned projection, including inside the active snapshot.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Prerequisite_projection_cache_parallel_calls_do_not_share_returned_arrays(bool warm)
