@@ -260,13 +260,16 @@ public static class CharacterCreationFinalizationDigest
 
     public static string Compute<T>(T value)
     {
-        JsonElement root = JsonSerializer.SerializeToElement(value);
-        ArrayBufferWriter<byte> buffer = new();
-        using (var writer = new Utf8JsonWriter(buffer))
+        // Finalized runners replay these hashes during ordinary roster reads.
+        // Keep the exact v1 bytes, but avoid retaining a second complete JSON
+        // graph and output buffer on every archived authority/receipt check.
+        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        using var output = new CanonicalHashBufferWriter();
+        using (var writer = new Utf8JsonWriter(output))
         {
-            WriteCanonical(root, writer);
+            WriteCanonical(document.RootElement, writer);
         }
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+        return Prefix + output.GetDigest();
     }
 
     public static string ComputeUtf8(string value) =>
@@ -296,12 +299,7 @@ public static class CharacterCreationFinalizationDigest
         {
             case JsonValueKind.Object:
                 writer.WriteStartObject();
-                foreach (JsonProperty property in element.EnumerateObject()
-                             .OrderBy(static property => property.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(property.Value, writer);
-                }
+                WriteCanonicalProperties(element, writer);
                 writer.WriteEndObject();
                 break;
             case JsonValueKind.Array:
@@ -311,10 +309,10 @@ public static class CharacterCreationFinalizationDigest
                 writer.WriteEndArray();
                 break;
             case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
             case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
+                // Preserve escaping, invalid-Unicode rejection and numeric
+                // spelling without allocating decoded scalar text copies.
+                element.WriteTo(writer);
                 break;
             case JsonValueKind.True:
                 writer.WriteBooleanValue(true);
@@ -328,6 +326,103 @@ public static class CharacterCreationFinalizationDigest
                 break;
             default:
                 throw new InvalidOperationException("Unsupported finalization JSON value kind.");
+        }
+
+        if (writer.BytesPending >= 64 * 1024)
+            writer.Flush();
+    }
+
+    private static void WriteCanonicalProperties(JsonElement element, Utf8JsonWriter writer)
+    {
+        int count = 0;
+        foreach (JsonProperty _ in element.EnumerateObject()) count++;
+        if (count == 0) return;
+        if (count == 1)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                writer.WritePropertyName(property.Name);
+                WriteCanonical(property.Value, writer);
+            }
+            return;
+        }
+
+        CanonicalProperty[] properties = ArrayPool<CanonicalProperty>.Shared.Rent(count);
+        try
+        {
+            int index = 0;
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                properties[index] = new(property, property.Name, index);
+                index++;
+            }
+            Array.Sort(properties, 0, count, CanonicalPropertyComparer.Instance);
+            for (int i = 0; i < count; i++)
+            {
+                writer.WritePropertyName(properties[i].Name);
+                WriteCanonical(properties[i].Property.Value, writer);
+            }
+        }
+        finally
+        {
+            // Do not retain character data or disposed document references.
+            ArrayPool<CanonicalProperty>.Shared.Return(properties, clearArray: true);
+        }
+    }
+
+    private readonly record struct CanonicalProperty(JsonProperty Property, string Name, int Ordinal);
+
+    private sealed class CanonicalPropertyComparer : IComparer<CanonicalProperty>
+    {
+        public static readonly CanonicalPropertyComparer Instance = new();
+
+        public int Compare(CanonicalProperty left, CanonicalProperty right)
+        {
+            int order = StringComparer.Ordinal.Compare(left.Name, right.Name);
+            // Preserve the former stable OrderBy behavior for duplicate keys.
+            return order != 0 ? order : left.Ordinal.CompareTo(right.Ordinal);
+        }
+    }
+
+    private sealed class CanonicalHashBufferWriter : IBufferWriter<byte>, IDisposable
+    {
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private byte[] _buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+
+        public void Advance(int count)
+        {
+            if ((uint)count > (uint)_buffer.Length)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            _hash.AppendData(_buffer.AsSpan(0, count));
+        }
+
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        public Span<byte> GetSpan(int sizeHint = 0)
+        {
+            EnsureCapacity(sizeHint);
+            return _buffer;
+        }
+
+        private void EnsureCapacity(int sizeHint)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(sizeHint);
+            if (sizeHint <= _buffer.Length) return;
+            byte[] replacement = ArrayPool<byte>.Shared.Rent(sizeHint);
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            _buffer = replacement;
+        }
+
+        public string GetDigest() => Convert.ToHexStringLower(_hash.GetHashAndReset());
+
+        public void Dispose()
+        {
+            _hash.Dispose();
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
         }
     }
 }

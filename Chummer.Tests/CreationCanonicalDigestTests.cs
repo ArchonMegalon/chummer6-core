@@ -13,6 +13,79 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Finalization_digest_preserves_legacy_bytes_and_duplicate_key_order()
+    {
+        foreach (string json in new[]
+        {
+            "null", "[]", "{}", "[true,false,1,1.0,1e+20,1E+20,-0]",
+            """{"z":0,"a":1,"a":2,"nested":{"é":"Zoë 東京 😀","\u00e9":null}}""",
+            """{"a":"\u0061\u002f","b":"<>&\"\\\r\n\t"}"""
+        })
+        {
+            using var document = JsonDocument.Parse(json);
+            string expected = "sha256:" + LegacyDigest(document.RootElement);
+            Assert.AreEqual(expected, CharacterCreationFinalizationDigest.Compute(document.RootElement));
+            Parallel.For(0, 8, _ => Assert.AreEqual(expected,
+                CharacterCreationFinalizationDigest.Compute(document.RootElement)));
+        }
+    }
+
+    [TestMethod]
+    public void Finalization_digest_observes_mutation_and_serializes_each_snapshot_once()
+    {
+        var value = State(3);
+        string before = CharacterCreationFinalizationDigest.Compute(value);
+        var values = (Dictionary<string, string>)value.CharacterCreationFoundationDraft!.FollowUpValues;
+        string original = values["choice-1"];
+        values["choice-1"] += "changed";
+        Assert.AreNotEqual(before, CharacterCreationFinalizationDigest.Compute(value));
+        Assert.AreEqual("sha256:" + LegacyDigest(value), CharacterCreationFinalizationDigest.Compute(value));
+        values["choice-1"] = original;
+        Assert.AreEqual(before, CharacterCreationFinalizationDigest.Compute(value));
+        var snapshot = new RawEqualityValue("""{"z":2,"a":1}""");
+        CharacterCreationFinalizationDigest.Compute(snapshot);
+        Assert.AreEqual(1, snapshot.Writes);
+    }
+
+    [TestMethod]
+    public void Finalization_digest_rejects_invalid_unicode_and_recovers_buffers()
+    {
+        foreach (string json in new[] { """{"value":"\uD800"}""", """{"\uDC00":1}""" })
+        {
+            using var document = JsonDocument.Parse(json);
+            Assert.ThrowsExactly<JsonException>(() => LegacyDigest(document.RootElement));
+            Assert.ThrowsExactly<JsonException>(() => CharacterCreationFinalizationDigest.Compute(document.RootElement));
+        }
+        Assert.ThrowsExactly<ArgumentException>(() => CharacterCreationFinalizationDigest.Compute(double.NaN));
+        Assert.Throws<JsonException>(() => CharacterCreationFinalizationDigest.Compute(new RawEqualityValue("{")));
+        Assert.AreEqual("sha256:" + LegacyDigest(new { valid = true }),
+            CharacterCreationFinalizationDigest.Compute(new { valid = true }));
+    }
+
+    [TestMethod]
+    public void Finalization_digest_avoids_repeated_graph_and_sorting_allocations()
+    {
+        var value = Enumerable.Range(0, 1024).Select(i => new
+        {
+            z = i, y = i + 1, x = i + 2, w = i + 3,
+            nested = new { d = true, c = false, b = i, a = "catalog" },
+            b = "name", a = "source"
+        }).ToArray();
+        string expected = "sha256:" + LegacyDigest(value);
+        Assert.AreEqual(expected, CharacterCreationFinalizationDigest.Compute(value));
+        long legacy = Allocations(() => LegacyDigest(value));
+        long actual = Allocations(() => CharacterCreationFinalizationDigest.Compute(value));
+        Console.WriteLine($"Finalization digest warm allocations: actual={actual}; legacy={legacy}.");
+        Assert.IsTrue(actual < legacy / 3, $"Expected bounded sorting/hash buffers: {actual:N0} versus {legacy:N0} bytes.");
+        foreach (int size in new[] { 300_000, 1, 65_536, 0 })
+        {
+            var text = new { z = new string('x', size) + "é😀<>&\"", a = new[] { 1, 2, 3 } };
+            string digest = "sha256:" + LegacyDigest(text);
+            Parallel.For(0, 4, _ => Assert.AreEqual(digest, CharacterCreationFinalizationDigest.Compute(text)));
+        }
+    }
+
+    [TestMethod]
     public void Origin_acceptance_digest_preserves_legacy_bytes_and_duplicate_key_order()
     {
         foreach (string json in new[]
