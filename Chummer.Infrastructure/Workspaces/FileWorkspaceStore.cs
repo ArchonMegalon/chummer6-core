@@ -3170,7 +3170,11 @@ public sealed partial class FileWorkspaceStore :
     // auxiliary-state graph before it can show even one runner. Generate that
     // metadata at build time; retain the default wire contract and every normal
     // post-read integrity check. This is not a document or authority cache.
-    [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
+    // Register the shared converter only on this default-policy read context.
+    // The separate strict continuation reader and ordinary writer keep their
+    // own options; a property attribute here would also alter those paths.
+    [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata,
+        Converters = new[] { typeof(WorkspaceDocumentAuxiliaryStateJsonConverter) })]
     [JsonSerializable(typeof(PersistedWorkspaceRecord))]
     private partial class WorkspaceRecordJsonContext : JsonSerializerContext;
 

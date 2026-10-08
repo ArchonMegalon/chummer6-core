@@ -114,6 +114,29 @@ public sealed class WorkspaceRosterProjectionTests
     }
 
     [TestMethod]
+    public void Generated_normal_read_does_not_weaken_the_separate_strict_continuation_reader()
+    {
+        using Fixture fixture = new();
+        var created = fixture.Store.CreateWorkspaceDocument(Document("Strict export"));
+        Assert.IsTrue(created.Success);
+        var id = created.Entry!.Value.Id;
+        Assert.IsTrue(fixture.Store.ReadContinuation(id).Success);
+        string path = fixture.PathFor(id);
+        JsonNode record = JsonNode.Parse(File.ReadAllText(path))!;
+        record["AuxiliaryState"] = new JsonObject { ["FutureUnknownState"] = "not exportable" };
+        string bytes = record.ToJsonString();
+        File.WriteAllText(path, bytes);
+
+        // Ordinary local reads preserve the prior additive-field semantics.
+        Assert.IsTrue(fixture.Store.Get(id).Success);
+        Assert.AreEqual("Strict export", Service(fixture.Store).List().Single().Summary.Name);
+        // Export must still reject unknown auxiliary fields rather than discard
+        // them through the ordinary reader's generated converter.
+        Assert.AreEqual(WorkspaceOperationOutcome.Corrupt, fixture.Store.ReadContinuation(id).Outcome);
+        Assert.AreEqual(bytes, File.ReadAllText(path));
+    }
+
+    [TestMethod]
     public void Older_projection_failure_only_throws_when_selected_by_limit()
     {
         using Fixture fixture = new();
