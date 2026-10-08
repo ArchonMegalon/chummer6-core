@@ -2826,8 +2826,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {
-            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationPrerequisiteAuthority.Unavailable;
+            PrerequisiteProjectionEntry? retained;
+            lock (_prerequisiteProjectionSync) { retained = _prerequisiteProjection; }
+            // The context owns frozen character/profile/catalog inputs. Once its
+            // projection is admitted, fresh byte/identity/membership validation
+            // is sufficient: do not clone three complete XML trees just to find
+            // the same entry again. TryAdmitReuse also validates nested calls,
+            // where Enter alone deliberately skips the already-active snapshot.
+            if (retained is not null && _sourceInputs.TryAdmitReuse(_catalog))
+            {
+                var detached = CopyPrerequisiteAuthority(retained.Authority);
+                if (!_sourceInputs.HasSourceDrift)
+                {
+                    authority = detached;
+                    return true;
+                }
+            }
+
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
@@ -3013,8 +3030,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 ],
                 Blockers: blockers);
 
-            // The cache replaces only projection work. Every source load and
-            // live admission above still runs, including for an existing entry.
+            // Cold or drifted contexts retain the full source/projection path.
+            // A concurrent cold reader may have filled the entry in the meantime;
+            // compare the complete context before sharing its private projection.
             // Life Modules still has no Priority-editor authority. Its stable
             // method rejection carries a large catalog used by dependent reads;
             // detach and reuse that observation without promoting it to success.
