@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace Chummer.Contracts.Characters;
 
@@ -653,16 +652,10 @@ internal static class CharacterCreationLifestylesDigest
     private const string Prefix = "sha256:";
     private static readonly SearchValues<char> s_LowerHex = SearchValues.Create("0123456789abcdef");
 
-    public static string Compute<T>(T value)
-    {
-        JsonElement element = JsonSerializer.SerializeToElement(value);
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            WriteCanonical(element, writer);
-        }
-        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
-    }
+    // Lifestyle authorities are replayed during ordinary saved-runner reads.
+    // Reuse the identical canonical v1 byte stream with bounded hash buffers;
+    // each call still serializes fresh inputs and observes mutable catalogs.
+    public static string Compute<T>(T value) => CharacterCreationFinalizationDigest.Compute(value);
 
     public static string ComputeUtf8(string value) => Prefix
         + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
@@ -679,46 +672,5 @@ internal static class CharacterCreationLifestylesDigest
         return CryptographicOperations.FixedTimeEquals(
             Encoding.ASCII.GetBytes(left!),
             Encoding.ASCII.GetBytes(right!));
-    }
-
-    private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                foreach (JsonProperty property in element.EnumerateObject()
-                             .OrderBy(property => property.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(property.Value, writer);
-                }
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (JsonElement item in element.EnumerateArray())
-                    WriteCanonical(item, writer);
-                writer.WriteEndArray();
-                break;
-            case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
-            case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
-                break;
-            case JsonValueKind.True:
-                writer.WriteBooleanValue(true);
-                break;
-            case JsonValueKind.False:
-                writer.WriteBooleanValue(false);
-                break;
-            case JsonValueKind.Null:
-            case JsonValueKind.Undefined:
-                writer.WriteNullValue();
-                break;
-            default:
-                throw new InvalidOperationException("Unsupported canonical JSON value kind.");
-        }
     }
 }
