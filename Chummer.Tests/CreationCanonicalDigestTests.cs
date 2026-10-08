@@ -388,6 +388,35 @@ public sealed class CreationCanonicalDigestTests
     }
 
     [TestMethod]
+    public void Auxiliary_generated_converter_preserves_default_wire_shape_and_fresh_reads()
+    {
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new WorkspaceDocumentAuxiliaryStateJsonConverter());
+        foreach (WorkspaceDocumentAuxiliaryState? state in new WorkspaceDocumentAuxiliaryState?[]
+                 { null, WorkspaceDocumentAuxiliaryState.Empty, State(3), State(256),
+                     new(CharacterCreationFinalizationArchive: new(State(3))) })
+        {
+            string json = JsonSerializer.Serialize(state);
+            Assert.AreEqual(json, JsonSerializer.Serialize(state, options));
+            var first = JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(json, options);
+            var second = JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(json, options);
+            Assert.AreEqual(json, JsonSerializer.Serialize(first));
+            Assert.AreEqual(json, JsonSerializer.Serialize(second));
+            if (state is not null)
+            {
+                Assert.AreNotSame(first, second);
+                Assert.AreEqual(LegacyDigest(state), WorkspaceDocumentAuxiliaryStateDigest.Compute(first));
+            }
+        }
+        Assert.ThrowsExactly<JsonException>(() =>
+            JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(
+                """{"CharacterCreationFoundationDraft": []}""", options));
+        Assert.AreEqual(LegacyDigest(WorkspaceDocumentAuxiliaryState.Empty),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>("{}", options)));
+    }
+
+    [TestMethod]
     public void Foundation_digest_preserves_ordinal_keys_array_order_and_all_JSON_value_kinds()
     {
         using var document = JsonDocument.Parse("""

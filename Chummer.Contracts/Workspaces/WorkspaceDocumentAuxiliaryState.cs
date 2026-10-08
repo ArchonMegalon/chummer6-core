@@ -119,7 +119,8 @@ public static class WorkspaceDocumentAuxiliaryStateDigest
     public static string Compute(WorkspaceDocumentAuxiliaryState? state)
     {
         using JsonDocument document = JsonSerializer.SerializeToDocument(
-            state ?? WorkspaceDocumentAuxiliaryState.Empty);
+            state ?? WorkspaceDocumentAuxiliaryState.Empty,
+            WorkspaceDocumentAuxiliaryStateJsonConverter.TypeInfo);
         // Keep the canonical v1 bytes, but hash them as they are emitted rather
         // than retaining another full copy of the large Creation/archive graph.
         using var output = new CanonicalHashBufferWriter();

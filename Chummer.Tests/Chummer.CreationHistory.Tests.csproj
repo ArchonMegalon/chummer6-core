@@ -51,6 +51,9 @@
     <Compile Include="WorkspaceImportedWizardReplayTests.cs" />
     <Compile Include="WorkspaceImportedDraftReplayTests.cs" />
     <Compile Include="WorkspaceAuxiliaryStateStoreTests.cs" />
+    <Compile Include="WorkspaceRosterProjectionTests.cs" />
+    <Compile Include="WorkspaceRevisionStoreTests.cs" />
+    <Compile Include="CreationCanonicalDigestTests.cs" />
     <Compile Include="CharacterFileServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="LifeModulesServiceTests.cs" />

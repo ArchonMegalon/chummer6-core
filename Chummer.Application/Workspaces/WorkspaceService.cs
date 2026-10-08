@@ -123,6 +123,13 @@ public sealed class WorkspaceService : IWorkspaceService
         WorkspaceStoreAccess access,
         int? maxCount)
     {
+        if (access.Store is IWorkspaceStoreProjection projection)
+        {
+            return access.IsLocal
+                ? projection.ListProjected(ProjectRosterItem, maxCount)
+                : projection.ListProjected(access.Owner, ProjectRosterItem, maxCount);
+        }
+
         List<WorkspaceListItem> workspaces = [];
         int? normalizedMaxCount = maxCount is > 0 ? maxCount : null;
 
@@ -140,40 +147,43 @@ public sealed class WorkspaceService : IWorkspaceService
                 continue;
             }
 
-            WorkspaceDocument document = stored.Document;
-
-            WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
-            CharacterFileSummary summary;
-            try
-            {
-                IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
-                summary = codec.ParseSummary(envelope);
-            }
-            catch
-            {
-                summary = new CharacterFileSummary(
-                    Name: $"Workspace {id.Value}",
-                    Alias: string.Empty,
-                    Metatype: string.Empty,
-                    BuildMethod: string.Empty,
-                    CreatedVersion: string.Empty,
-                    AppVersion: string.Empty,
-                    Karma: 0m,
-                    Nuyen: 0m,
-                    Created: false);
-            }
-
-            workspaces.Add(new WorkspaceListItem(
-                Id: id,
-                Summary: summary,
-                LastUpdatedUtc: stored.LastUpdatedUtc,
-                RulesetId: envelope.RulesetId,
-                HasSavedWorkspace: stored.SavedRevision > 0,
-                ContentRevision: stored.ContentRevision,
-                SavedRevision: stored.SavedRevision));
+            workspaces.Add(ProjectRosterItem(stored));
         }
 
         return workspaces;
+    }
+
+    private WorkspaceListItem ProjectRosterItem(WorkspaceStoredDocument stored)
+    {
+        WorkspacePayloadEnvelope envelope = ResolveEnvelope(stored.Document);
+        CharacterFileSummary summary;
+        try
+        {
+            IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
+            summary = codec.ParseSummary(envelope);
+        }
+        catch
+        {
+            summary = new CharacterFileSummary(
+                Name: $"Workspace {stored.Id.Value}",
+                Alias: string.Empty,
+                Metatype: string.Empty,
+                BuildMethod: string.Empty,
+                CreatedVersion: string.Empty,
+                AppVersion: string.Empty,
+                Karma: 0m,
+                Nuyen: 0m,
+                Created: false);
+        }
+
+        return new WorkspaceListItem(
+            Id: stored.Id,
+            Summary: summary,
+            LastUpdatedUtc: stored.LastUpdatedUtc,
+            RulesetId: envelope.RulesetId,
+            HasSavedWorkspace: stored.SavedRevision > 0,
+            ContentRevision: stored.ContentRevision,
+            SavedRevision: stored.SavedRevision);
     }
 
     public CommandResult<WorkspaceDocumentSnapshot> GetWorkspace(CharacterWorkspaceId id)
