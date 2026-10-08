@@ -1260,7 +1260,7 @@ public sealed partial class FileWorkspaceStore :
                 FileOptions.SequentialScan);
             record = continuationRead
                 ? ReadExactContinuationRecord(stream)
-                : JsonSerializer.Deserialize<PersistedWorkspaceRecord>(stream);
+                : JsonSerializer.Deserialize(stream, WorkspaceRecordJsonContext.Default.PersistedWorkspaceRecord);
         }
         catch (JsonException)
         {
@@ -3165,6 +3165,14 @@ public sealed partial class FileWorkspaceStore :
             PayloadKind: payloadKind,
             Payload: state.Payload);
     }
+
+    // Android's first reflection-based read constructs metadata for the entire
+    // auxiliary-state graph before it can show even one runner. Generate that
+    // metadata at build time; retain the default wire contract and every normal
+    // post-read integrity check. This is not a document or authority cache.
+    [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
+    [JsonSerializable(typeof(PersistedWorkspaceRecord))]
+    private partial class WorkspaceRecordJsonContext : JsonSerializerContext;
 
     private sealed record PersistedWorkspaceRecord(string Format)
     {
