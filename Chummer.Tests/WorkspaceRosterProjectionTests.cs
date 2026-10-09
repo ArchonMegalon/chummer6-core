@@ -16,6 +16,66 @@ namespace Chummer.Tests;
 public sealed class WorkspaceRosterProjectionTests
 {
     [TestMethod]
+    public void Read_validation_is_process_local_bounded_and_never_reuses_documents()
+    {
+        using Fixture fixture = new();
+        var created = fixture.Store.CreateWorkspaceDocument(Document("Read snapshot"));
+        Assert.IsTrue(created.Success);
+        var id = created.Entry!.Value.Id;
+        var first = fixture.Store.Get(id).Value!;
+        Assert.AreEqual(1, fixture.Store.CachedReadValidationCount);
+        var second = fixture.Store.Get(id).Value!;
+        Assert.AreEqual(1, fixture.Store.CachedReadValidationCount);
+        Assert.AreNotSame(first.Document, second.Document);
+        Assert.AreEqual(first.Document.Content, second.Document.Content);
+        var restarted = new FileWorkspaceStore(fixture.Root);
+        Assert.AreEqual(0, restarted.CachedReadValidationCount);
+        Assert.IsTrue(restarted.Get(id).Success);
+        Assert.AreEqual(1, restarted.CachedReadValidationCount);
+
+        // Include a large ignored additive property: its bytes still participate
+        // in the fingerprint, including bytes after the decoder's first buffer.
+        string path = fixture.PathFor(id);
+        JsonNode record = JsonNode.Parse(File.ReadAllText(path))!;
+        record["AdditiveDisplayData"] = new string('a', 100_000);
+        for (int i = 0; i < 140; i++)
+        {
+            record["AdditiveSequence"] = i;
+            File.WriteAllText(path, record.ToJsonString());
+            Assert.IsTrue(fixture.Store.Get(id).Success);
+        }
+        Assert.AreEqual(128, fixture.Store.CachedReadValidationCount);
+        record["AuxiliaryState"] = new JsonObject { ["CharacterCreationFinalizationReceipts"] = new JsonArray() };
+        File.WriteAllText(path, record.ToJsonString());
+        Assert.AreEqual(WorkspaceOperationOutcome.Corrupt, fixture.Store.Get(id).Outcome);
+        Assert.AreEqual(128, fixture.Store.CachedReadValidationCount, "Failed validation must not be admitted.");
+    }
+
+    [TestMethod]
+    public void Identical_bytes_are_bound_to_the_owner_and_workspace_not_only_the_hash()
+    {
+        using Fixture fixture = new();
+        OwnerScope owner = new("read-validation-owner");
+        var first = fixture.Store.CreateWorkspaceDocument(owner, Document("Private"));
+        Assert.IsTrue(first.Success);
+        var id = first.Entry!.Value.Id;
+        Assert.IsTrue(fixture.Store.Get(owner, id).Success);
+        Assert.AreEqual(1, fixture.Store.CachedReadValidationCount);
+        Assert.AreEqual(WorkspaceOperationOutcome.Missing, fixture.Store.Get(id).Outcome);
+        string source = Directory.EnumerateFiles(fixture.Root, id.Value + ".json", SearchOption.AllDirectories).Single();
+        File.Copy(source, fixture.PathFor(id), overwrite: false);
+        Assert.IsTrue(fixture.Store.Get(id).Success);
+        Assert.AreEqual(2, fixture.Store.CachedReadValidationCount, "The same ID and bytes under a different owner need separate validation.");
+        var second = fixture.Store.CreateWorkspaceDocument(Document("Local"));
+        Assert.IsTrue(second.Success);
+        File.Copy(source, fixture.PathFor(second.Entry!.Value.Id), overwrite: true);
+        // An unclaimed empty document can be read in its own partition, but
+        // must obtain its own validation entry, not borrow the other owner's.
+        Assert.IsTrue(fixture.Store.Get(second.Entry.Value.Id).Success);
+        Assert.AreEqual(3, fixture.Store.CachedReadValidationCount, "A different workspace ID needs separate validation too.");
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Service_uses_one_projection_without_List_Get_replay_and_preserves_rows(bool linked)
