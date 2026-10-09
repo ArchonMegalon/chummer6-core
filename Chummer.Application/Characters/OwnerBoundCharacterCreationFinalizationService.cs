@@ -1,3 +1,4 @@
+using Chummer.Application.LifeModules;
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
@@ -19,6 +20,14 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
 {
     public CharacterCreationOverviewRead? LoadOverview(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId workspaceId, bool includePriorityDrafts)
+        => ReadOverview(store, ownerContext, characterQueries, sourceResolver,
+            expectedOwner, workspaceId, includePriorityDrafts);
+
+    internal static CharacterCreationOverviewRead? ReadOverview(
+        IWorkspaceStore store, IOwnerContextAccessor ownerContext,
+        ICharacterFileQueries characterQueries, ICharacterSourceDataResolver sourceResolver,
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId workspaceId, bool includePriorityDrafts,
+        ILifeModulesCatalogService? foundationCatalog = null)
     {
         if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
             || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
@@ -35,7 +44,10 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
             var attributes = new CharacterCreationAttributesService(view, resolver);
             var qualities = new CharacterCreationQualitiesService(view, resolver, prerequisites, attributes);
             var magic = new CharacterCreationMagicResonanceService(view, resolver);
-            var finalization = CreateFinalizer(view, resolver, prerequisites, attributes, qualities, magic);
+            var finalization = CreateFinalizer(view, characterQueries, resolver, prerequisites, attributes, qualities, magic);
+            var foundation = foundationCatalog is null ? null
+                : new CharacterCreationFoundationService(view, characterQueries, resolver, foundationCatalog,
+                    new CharacterCreationFoundationDraftApplyAuthority(view)).Load(new(workspaceId));
 
             // Unscoped evaluator entry points are safe only against this private
             // admitted view: it redirects every read and capability check to the
@@ -46,7 +58,7 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
                 includePriorityDrafts ? qualities.Load(new(workspaceId)) : null,
                 includePriorityDrafts ? magic.Load(new(workspaceId)) : null,
                 new CharacterCreationLifestylesService(view, resolver).Load(new(workspaceId)),
-                finalization.Load(new(workspaceId)));
+                finalization.Load(new(workspaceId))) { Foundation = foundation };
         }
     }
 
@@ -104,7 +116,7 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId, reuseReadObservation);
             var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, operationResolver);
             var attributes = new CharacterCreationAttributesService(view, operationResolver);
-            var service = CreateFinalizer(view, operationResolver, prerequisites, attributes,
+            var service = CreateFinalizer(view, characterQueries, operationResolver, prerequisites, attributes,
                 new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes),
                 new CharacterCreationMagicResonanceService(view, operationResolver));
             // Includes idempotency reads, the durable CAS and postcommit receipt
@@ -113,8 +125,8 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
         }
     }
 
-    private CharacterCreationFinalizationService CreateFinalizer(
-        IWorkspaceStore view, ICharacterSourceDataResolver resolver,
+    private static CharacterCreationFinalizationService CreateFinalizer(
+        IWorkspaceStore view, ICharacterFileQueries characterQueries, ICharacterSourceDataResolver resolver,
         CharacterCreationPrerequisiteService prerequisites, CharacterCreationAttributesService attributes,
         CharacterCreationQualitiesService qualities, CharacterCreationMagicResonanceService magic)
         => new(view, characterQueries, prerequisites, attributes,
