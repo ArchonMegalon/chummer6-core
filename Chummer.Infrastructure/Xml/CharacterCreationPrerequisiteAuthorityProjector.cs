@@ -145,8 +145,9 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         var options = new List<CharacterCreationPriorityOptionProjection>();
         var sourceIds = new HashSet<string>(StringComparer.Ordinal);
         // Multiple priority ranks refer to the same read-only metatype subtree.
-        // Reuse only its digest within this projection, never a row ID or result.
-        var heritageSourceDigests = new Dictionary<XElement, string>(ReferenceEqualityComparer.Instance);
+        // Parse its source-only fields once within this projection. Rank IDs,
+        // costs, selection admission and returned collections remain independent.
+        var heritageSources = new Dictionary<XElement, HeritageSourceProjection>(ReferenceEqualityComparer.Instance);
         foreach (string categoryId in CharacterCreationPriorityCategoryIds.Ordered)
         {
             string categoryName = categories.Single(item => string.Equals(
@@ -189,7 +190,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         metatypesDocument,
                         talentSkillCatalog,
                         context.EnabledSourcebooks,
-                        heritageSourceDigests,
+                        heritageSources,
                         sourceWriter,
                         out CharacterCreationPriorityOptionProjection? option))
                 {
@@ -285,7 +286,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XDocument metatypesDocument,
         TalentSkillCatalog? talentSkillCatalog,
         IReadOnlyList<string> enabledSourcebooks,
-        Dictionary<XElement, string> heritageSourceDigests,
+        Dictionary<XElement, HeritageSourceProjection> heritageSources,
         SourceXmlWriter sourceWriter,
         out CharacterCreationPriorityOptionProjection? option)
     {
@@ -432,7 +433,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     sourceId,
                     metatypesDocument,
                     enabledSourcebooks,
-                    heritageSourceDigests,
+                    heritageSources,
                     sourceWriter,
                     out CharacterCreationPriorityHeritageOptionProjection[] heritageOptions))
             {
@@ -463,7 +464,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string prioritySourceId,
         XDocument metatypesDocument,
         IReadOnlyList<string> enabledSourcebooks,
-        Dictionary<XElement, string> heritageSourceDigests,
+        Dictionary<XElement, HeritageSourceProjection> heritageSources,
         SourceXmlWriter sourceWriter,
         out CharacterCreationPriorityHeritageOptionProjection[] options)
     {
@@ -508,7 +509,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     karmaCost,
                     order++,
                     enabledSourcebooks,
-                    heritageSourceDigests,
+                    heritageSources,
                     sourceWriter);
             projected.Add(baseOption);
 
@@ -549,7 +550,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     variantKarma,
                     order++,
                     enabledSourcebooks,
-                    heritageSourceDigests,
+                    heritageSources,
                     sourceWriter));
             }
         }
@@ -1173,7 +1174,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         int karmaCost,
         int order,
         IReadOnlyList<string> enabledSourcebooks,
-        Dictionary<XElement, string> heritageSourceDigests,
+        Dictionary<XElement, HeritageSourceProjection> heritageSources,
         SourceXmlWriter sourceWriter)
     {
         var blockers = new List<string>();
@@ -1184,22 +1185,21 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             CharacterCreationMetatypeMovementProjection.Unavailable;
         bool halves = false;
         string sourceDigest = string.Empty;
+        HeritageSourceProjection? source = null;
         if (sourceNode is not null)
         {
-            if (!heritageSourceDigests.TryGetValue(sourceNode, out string? cachedDigest))
+            if (!heritageSources.TryGetValue(sourceNode, out source))
             {
-                cachedDigest = RawDigest(sourceWriter.Serialize(sourceNode));
-                heritageSourceDigests.Add(sourceNode, cachedDigest);
+                source = ReadHeritageSource(sourceNode, sourceWriter);
+                heritageSources.Add(sourceNode, source);
             }
-            sourceDigest = cachedDigest;
+            sourceDigest = source.Digest;
+            // No mutable collection can alias another rank or the private facts.
+            attributes = source.Attributes.ToArray();
+            halves = source.Halves;
+            movement = source.Movement;
         }
-        if (sourceNode is null
-            || !TryReadNormalizedScalar(sourceNode, "id", out string rawSourceId)
-            || !Guid.TryParseExact(rawSourceId, "D", out Guid parsedSourceId)
-            || parsedSourceId == Guid.Empty
-            || !TryReadAttributes(sourceNode, out attributes)
-            || !TryReadEmptyMarker(sourceNode, "halveattributepoints", out halves)
-            || !TryReadMovement(sourceNode, out movement))
+        if (sourceNode is null || source is not { HasValidFields: true })
         {
             blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
         }
@@ -1211,10 +1211,10 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
             }
             if (metavariantName is null)
-                metatypeSourceId = parsedSourceId.ToString("D");
+                metatypeSourceId = source.SourceId.ToString("D");
             else
             {
-                metavariantSourceId = parsedSourceId.ToString("D");
+                metavariantSourceId = source.SourceId.ToString("D");
                 // The parent metatype id is resolved independently to preserve both identities.
                 XElement? parent = sourceNode.Parent?.Parent;
                 if (parent is null
@@ -1282,6 +1282,32 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             Movement = movement
         };
     }
+
+    private static HeritageSourceProjection ReadHeritageSource(XElement node, SourceXmlWriter writer)
+    {
+        string digest = RawDigest(writer.Serialize(node));
+        Guid sourceId = Guid.Empty;
+        CharacterCreationMetatypeAttributeProjection[] attributes = [];
+        bool halves = false;
+        var movement = CharacterCreationMetatypeMovementProjection.Unavailable;
+        // Preserve short-circuit/partial-value behavior for malformed sources,
+        // too. Failure is memoized only for this read-only projection call.
+        bool valid = TryReadNormalizedScalar(node, "id", out string rawId)
+                     && Guid.TryParseExact(rawId, "D", out sourceId)
+                     && sourceId != Guid.Empty
+                     && TryReadAttributes(node, out attributes)
+                     && TryReadEmptyMarker(node, "halveattributepoints", out halves)
+                     && TryReadMovement(node, out movement);
+        return new(digest, sourceId, valid, attributes, halves, movement);
+    }
+
+    private sealed record HeritageSourceProjection(
+        string Digest,
+        Guid SourceId,
+        bool HasValidFields,
+        CharacterCreationMetatypeAttributeProjection[] Attributes,
+        bool Halves,
+        CharacterCreationMetatypeMovementProjection Movement);
 
     private static bool TryProjectTalentOptions(
         XElement row,
@@ -1600,11 +1626,11 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
 
     private static bool TryReadNormalizedScalar(XElement parent, string name, out string value)
     {
-        XElement[] matches = parent.Elements(name).Take(2).ToArray();
-        value = matches.Length == 1 ? matches[0].Value : string.Empty;
-        return matches.Length == 1
-               && !matches[0].HasAttributes
-               && !matches[0].HasElements
+        XElement? element = ReadSingleElement(parent, name);
+        value = element?.Value ?? string.Empty;
+        return element is not null
+               && !element.HasAttributes
+               && !element.HasElements
                && !string.IsNullOrWhiteSpace(value)
                && string.Equals(value, value.Trim(), StringComparison.Ordinal);
     }
@@ -1738,12 +1764,23 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
 
     private static string ReadScalar(XElement row, string name)
     {
-        XElement[] values = row.Elements(name).Take(2).ToArray();
-        return values.Length == 1
-               && !values[0].HasAttributes
-               && !values[0].HasElements
-            ? values[0].Value.Trim()
+        XElement? element = ReadSingleElement(row, name);
+        return element is not null
+               && !element.HasAttributes
+               && !element.HasElements
+            ? element.Value.Trim()
             : string.Empty;
+    }
+
+    private static XElement? ReadSingleElement(XElement parent, XName name)
+    {
+        XElement? first = parent.Element(name);
+        if (first is null) return null;
+        // Exactly one direct, namespace-matching field; do not turn duplicate
+        // rejection into first-wins while avoiding per-field LINQ/array buffers.
+        for (XNode? sibling = first.NextNode; sibling is not null; sibling = sibling.NextNode)
+            if (sibling is XElement candidate && candidate.Name == name) return null;
+        return first;
     }
 
     private static bool IsRank(string value) =>

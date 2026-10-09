@@ -20,6 +20,92 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CanonicalSumToTenSettingsId)]
+    public void Heritage_projection_allocation_and_exact_authority(string settingsId)
+    {
+        string xml = $"<character><settings>{settingsId}</settings></character>";
+        var warmup = CreateContext(FindCoreRoot(), xml)!;
+        Assert.IsTrue(warmup.TryResolveCreationPrerequisiteAuthority(out var expected));
+        var context = CreateContext(FindCoreRoot(), xml)!;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var actual));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(expected),
+            System.Text.Json.JsonSerializer.Serialize(actual));
+        Assert.IsTrue(actual.IsAuthoritative, string.Join(",", actual.Blockers));
+        Console.WriteLine($"heritage-projection settings={settingsId} allocated={allocated} digest={actual.AuthorityDigest}");
+        // Baseline repeatedly parses each metatype for every rank (~36 MB).
+        // Measure a fresh source context, not the detached projection cache.
+        Assert.IsLessThan(31_000_000L, allocated,
+            $"Fresh prerequisite projection allocated {allocated:N0} bytes.");
+    }
+
+    [TestMethod]
+    public void Heritage_projection_keeps_attribute_collections_independent_between_ranks()
+    {
+        var context = CreateContext(FindCoreRoot(), CharacterXml())!;
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+        var humans = authority.Options.SelectMany(option => option.HeritageOptions)
+            .Where(option => option.MetatypeName == "Human" && option.MetavariantName is null).ToArray();
+        Assert.HasCount(5, humans);
+        for (int i = 1; i < humans.Length; i++)
+            Assert.AreNotSame(humans[0].Attributes, humans[i].Attributes);
+        var expected = humans[1].Attributes.ToArray();
+        ((CharacterCreationMetatypeAttributeProjection[])humans[0].Attributes)[0] =
+            new CharacterCreationMetatypeAttributeProjection("BOD", 999, 999, 999);
+        CollectionAssert.AreEqual(expected, humans[1].Attributes.ToArray());
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var fresh));
+        Assert.IsTrue(fresh.Options.SelectMany(option => option.HeritageOptions)
+            .Where(option => option.MetatypeName == "Human" && option.MetavariantName is null)
+            .All(option => option.Attributes[0].Minimum != 999));
+    }
+
+    [TestMethod]
+    [DataRow("duplicate")]
+    [DataRow("whitespace")]
+    [DataRow("nested")]
+    [DataRow("attribute")]
+    [DataRow("negative")]
+    [DataRow("missing")]
+    [DataRow("movement")]
+    [DataRow("halves")]
+    public void Heritage_projection_keeps_malformed_shared_source_disabled(string mutation)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            string path = Path.Combine(root, "data", "metatypes.xml");
+            XDocument source = LoadDigestSource(path);
+            XElement human = source.Root!.Element("metatypes")!.Elements("metatype")
+                .Single(node => node.Element("name")?.Value == "Human");
+            XElement minimum = human.Element("bodmin")!;
+            switch (mutation)
+            {
+                case "duplicate": human.Add(new XComment("separated duplicate"), new XElement(minimum)); break;
+                case "whitespace": minimum.Value = " 1"; break;
+                case "nested": minimum.ReplaceNodes(new XElement("value", "1")); break;
+                case "attribute": minimum.SetAttributeValue("extra", "1"); break;
+                case "negative": minimum.Value = "-1"; break;
+                case "missing": minimum.Remove(); break;
+                case "movement": human.Add(new XElement("walk", "1/1/1")); break;
+                case "halves": human.Add(new XElement("halveattributepoints", new XElement("invalid"))); break;
+            }
+            source.Save(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+            var humans = authority.Options.SelectMany(option => option.HeritageOptions)
+                .Where(option => option.MetatypeName == "Human" && option.MetavariantName is null).ToArray();
+            Assert.HasCount(5, humans);
+            Assert.IsTrue(humans.All(option => !option.IsEnabled
+                && option.Blockers.Contains(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported)));
+            AssertHeritageNodeDigests(authority, LoadDigestSource(Path.Combine(root, "data", "priorities.xml")), source);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     public void Creation_qualities_source_serialization_preserves_consecutive_node_boundaries()
     {
         string root = CreateTempDirectory();
