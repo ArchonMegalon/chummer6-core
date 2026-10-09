@@ -414,7 +414,7 @@ public sealed partial class FileWorkspaceStore :
             }
 
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            return ReadWorkspaceUnderLease(owner, id, path);
+            return ReadWorkspaceUnderLease(owner, id, path, out _, reuseReadValidation: true);
         }
         catch (IOException)
         {
@@ -1235,7 +1235,8 @@ public sealed partial class FileWorkspaceStore :
         string path,
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger,
         bool continuationRead = false,
-        bool localAdoptionRead = false)
+        bool localAdoptionRead = false,
+        bool reuseReadValidation = false)
     {
         delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
@@ -1249,6 +1250,7 @@ public sealed partial class FileWorkspaceStore :
             File.GetLastWriteTimeUtc(path),
             TimeSpan.Zero);
         PersistedWorkspaceRecord? record;
+        string? recordDigest = null;
         try
         {
             using FileStream stream = new(
@@ -1260,7 +1262,9 @@ public sealed partial class FileWorkspaceStore :
                 FileOptions.SequentialScan);
             record = continuationRead
                 ? ReadExactContinuationRecord(stream)
-                : JsonSerializer.Deserialize(stream, WorkspaceRecordJsonContext.Default.PersistedWorkspaceRecord);
+                : reuseReadValidation && !localAdoptionRead
+                    ? ReadRecordWithDigest(stream, out recordDigest)
+                    : JsonSerializer.Deserialize(stream, WorkspaceRecordJsonContext.Default.PersistedWorkspaceRecord);
         }
         catch (JsonException)
         {
@@ -1280,9 +1284,17 @@ public sealed partial class FileWorkspaceStore :
                 contentRevision,
                 record.DelegatedGmCharacterEdits,
                 record.RecordSchemaVersion >= 4 ? record.DelegatedGmHistorySegmentStarts : [],
-                out delegatedEditLedger)
-            || !IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState)
-            || !Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision))
+                out delegatedEditLedger))
+        {
+            return CorruptRead();
+        }
+
+        ReadValidationKey? validationKey = recordDigest is not null && !requiresLegacyMigration
+            ? new(owner.NormalizedValue, id, recordDigest)
+            : null;
+        if (!HasReadValidation(validationKey)
+            && (!IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState)
+                || !Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision)))
         {
             return CorruptRead();
         }
@@ -1360,6 +1372,7 @@ public sealed partial class FileWorkspaceStore :
         }
 
         DateTimeOffset lastUpdatedUtc = migratedAtUtc ?? persistedLastUpdatedUtc;
+        RememberReadValidation(validationKey);
         return new WorkspaceStoreReadResult(
             WorkspaceOperationOutcome.Success,
             new WorkspaceStoredDocument(

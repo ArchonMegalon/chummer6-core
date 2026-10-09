@@ -20,6 +20,50 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    public void Warm_file_reads_reject_same_length_archive_tampering_and_return_fresh_graphs()
+    {
+        using var context = ReadyContext.Create(true);
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var choice = FixtureCashChoice(context);
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = choice }).Value!;
+        var applied = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "read-validation-finalization", true) { StartingCash = choice });
+        Assert.IsTrue(applied.Success, string.Join(",", applied.Blockers));
+        string path = Path.Combine(context.Directory, "workspaces", context.WorkspaceId.Value + ".json");
+        var record = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+        string original = record.ToJsonString();
+        File.WriteAllText(path, original);
+        var store = new FileWorkspaceStore(context.Directory);
+        var first = store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(1, store.CachedReadValidationCount);
+        var firstArchive = first.Document.AuxiliaryState.CharacterCreationFinalizationArchive!;
+        var anchors = (IList<string>)firstArchive.State.CharacterCreationPrerequisiteDraft!.SourceAnchorIds;
+        string anchor = anchors[0];
+        anchors[0] = "caller mutation, never a cached runner";
+        var second = store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(anchor, second.Document.AuxiliaryState.CharacterCreationFinalizationArchive!
+            .State.CharacterCreationPrerequisiteDraft!.SourceAnchorIds[0]);
+        Assert.AreEqual(1, store.CachedReadValidationCount);
+
+        var draft = record["AuxiliaryState"]!["CharacterCreationFinalizationArchive"]!["State"]!["CharacterCreationPrerequisiteDraft"]!;
+        string digest = draft["DraftDigest"]!.GetValue<string>();
+        draft["DraftDigest"] = digest[..7] + (digest[7] == 'a' ? 'b' : 'a') + digest[8..];
+        string forged = record.ToJsonString();
+        Assert.AreEqual(original.Length, forged.Length);
+        DateTime timestamp = File.GetLastWriteTimeUtc(path);
+        File.WriteAllText(path, forged);
+        File.SetLastWriteTimeUtc(path, timestamp);
+        Assert.AreEqual(WorkspaceOperationOutcome.Corrupt, store.Get(context.WorkspaceId).Outcome);
+        Assert.AreEqual(WorkspaceOperationOutcome.Corrupt, new FileWorkspaceStore(context.Directory).Get(context.WorkspaceId).Outcome);
+        Assert.AreEqual(WorkspaceOperationOutcome.Corrupt, store.ReadContinuation(context.WorkspaceId).Outcome);
+        Assert.IsFalse(store.SaveCheckpoint(context.WorkspaceId, second.ContentRevision).Success);
+        Assert.AreEqual(forged, File.ReadAllText(path), "Invalid state must not be repaired by a read or mutation.");
+        File.WriteAllText(path, original);
+        Assert.IsTrue(store.Get(context.WorkspaceId).Success);
+        Assert.AreEqual(original, File.ReadAllText(path));
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     public void Final_review_names_are_bound_to_the_exact_drafts_without_changing_target_identity(string method)
