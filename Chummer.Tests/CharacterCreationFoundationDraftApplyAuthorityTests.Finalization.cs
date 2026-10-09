@@ -50,6 +50,13 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             var loaded = service.Load(stamp, f.Request.Binding.WorkspaceId);
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome, string.Join(", ", loaded.Blockers));
             Assert.AreEqual(JsonSerializer.Serialize(f.Request.Binding), JsonSerializer.Serialize(loaded.Value!.Binding));
+            var overview = service.LoadOverview(stamp, f.Request.Binding.WorkspaceId, includePriorityDrafts: false);
+            Assert.IsNotNull(overview);
+            Assert.AreEqual(JsonSerializer.Serialize(loaded), JsonSerializer.Serialize(overview.Foundation),
+                "The shared display read must retain the complete selected Life Modules draft.");
+            Assert.IsNull(overview.Qualities);
+            Assert.IsNull(overview.MagicResonance);
+            Assert.IsNull(fresh.LoadOverview(stamp, f.Request.Binding.WorkspaceId, false));
             Assert.AreEqual(f.Preview.PreviewDigest, service.Preview(stamp, f.Request).Value!.PreviewDigest);
             Assert.IsNull(other.Load(foreign.Capture(), f.Request.Binding.WorkspaceId).Value);
             Assert.IsNull(other.Preview(stamp, f.Request).Value);

@@ -21,4 +21,9 @@ public sealed record CharacterCreationOverviewRead(
     CharacterCreationFoundationResult<CharacterCreationQualitiesState>? Qualities,
     CharacterCreationFoundationResult<CharacterCreationMagicResonanceState>? MagicResonance,
     CharacterCreationLifestyleResult<CharacterCreationLifestylesState> Lifestyles,
-    CharacterCreationFinalizationResult<CharacterCreationFinalizationState> Finalization);
+    CharacterCreationFinalizationResult<CharacterCreationFinalizationState> Finalization)
+{
+    // Populated by the Foundation companion when it supplies the overview.
+    // The Priority companion deliberately does not load a Life Modules catalog.
+    public CharacterCreationFoundationResult<CharacterCreationFoundationState>? Foundation { get; init; }
+}

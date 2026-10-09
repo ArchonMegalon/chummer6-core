@@ -38,14 +38,22 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     [DataRow(true, true)]
     [DataRow(false, false)]
     [DataRow(true, false)]
+    [DataRow(false, true, true)]
+    [DataRow(true, true, true)]
+    [DataRow(false, false, true)]
+    [DataRow(true, false, true)]
     public void Overview_read_preserves_each_domain_and_reuses_only_admitted_observations(
-        bool linked, bool includePriorityDrafts)
+        bool linked, bool includePriorityDrafts, bool includeFoundation = false)
     {
         using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
         var before = fixture.CaptureAllPartitions();
         var stamp = fixture.Owner.Capture();
         var baselineStore = new ScopedAtomicStore(fixture);
         var baselineResolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var expectedFoundation = includeFoundation
+            ? new OwnerBoundCharacterCreationLifeModuleFinalizationService(
+                baselineStore, fixture.Owner, s_source.Queries, baselineResolver, OverviewCatalog())
+                .Load(stamp, fixture.Id) : null;
         var expected = new CharacterCreationOverviewRead(
             new OwnerBoundCharacterCreationContactsService(
                 new CharacterCreationContactsService(baselineStore, baselineResolver), fixture.Owner)
@@ -57,7 +65,8 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             new OwnerBoundCharacterCreationLifestylesReader(baselineStore, fixture.Owner, baselineResolver)
                 .Load(stamp, new(fixture.Id)),
             new OwnerBoundCharacterCreationFinalizationService(
-                baselineStore, fixture.Owner, s_source.Queries, baselineResolver).Load(stamp, new(fixture.Id)));
+                baselineStore, fixture.Owner, s_source.Queries, baselineResolver).Load(stamp, new(fixture.Id)))
+            { Foundation = expectedFoundation };
         Assert.IsNotNull(expected.Contacts.Value);
         Assert.IsTrue(expected.Contacts.Value.CanEdit);
         Assert.IsNotNull(expected.Finalization.Value);
@@ -66,8 +75,10 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
 
         var store = new ScopedAtomicStore(fixture);
         var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
-        var service = new OwnerBoundCharacterCreationFinalizationService(
-            store, fixture.Owner, s_source.Queries, resolver);
+        IOwnerBoundCharacterCreationOverviewReader service = includeFoundation
+            ? new OwnerBoundCharacterCreationLifeModuleFinalizationService(
+                store, fixture.Owner, s_source.Queries, resolver, OverviewCatalog())
+            : new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner, s_source.Queries, resolver);
         var actual = service.LoadOverview(stamp, fixture.Id, includePriorityDrafts);
         Assert.IsNotNull(actual);
         AssertJsonEquals(expected, actual);
@@ -91,6 +102,18 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         fixture.AssertPartitionsUnchanged(before);
     }
 
+    private static XmlLifeModulesCatalogService OverviewCatalog()
+    {
+        DirectoryInfo? root = new(AppContext.BaseDirectory);
+        while (root is not null)
+        {
+            string path = Path.Combine(root.FullName, "Chummer", "data", "lifemodules.xml");
+            if (File.Exists(path)) return new(path);
+            root = root.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not locate the canonical Life Modules catalog.");
+    }
+
     [TestMethod]
     [DataRow("owner-B")]
     [DataRow("owner-ABA")]
@@ -110,6 +133,9 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
         var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner, s_source.Queries, resolver);
         Assert.IsNull(service.LoadOverview(original, fixture.Id, true));
+        var foundation = new OwnerBoundCharacterCreationLifeModuleFinalizationService(
+            store, fixture.Owner, s_source.Queries, resolver, OverviewCatalog());
+        Assert.IsNull(foundation.LoadOverview(original, fixture.Id, false));
         Assert.IsEmpty(resolver.Scopes);
         Assert.AreEqual(0, store.Reads);
         Assert.AreEqual(0, store.Commits);

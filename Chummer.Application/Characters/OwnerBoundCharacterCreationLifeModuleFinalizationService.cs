@@ -9,8 +9,14 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationLifeModuleFinalizationService(
     IWorkspaceStore store, IOwnerContextAccessor ownerContext, ICharacterFileQueries characterFiles,
     ICharacterSourceDataResolver sourceResolver, ILifeModulesCatalogService catalog)
-    : IOwnerBoundCharacterCreationLifeModuleFinalizationService
+    : IOwnerBoundCharacterCreationLifeModuleFinalizationService, IOwnerBoundCharacterCreationOverviewReader
 {
+    public CharacterCreationOverviewRead? LoadOverview(
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId workspaceId, bool includePriorityDrafts)
+        => OwnerBoundCharacterCreationFinalizationService.ReadOverview(
+            store, ownerContext, characterFiles, sourceResolver,
+            expectedOwner, workspaceId, includePriorityDrafts, catalog);
+
     public CharacterCreationFoundationResult<CharacterCreationFoundationState> Load(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId workspaceId)
         => Invoke(expectedOwner, workspaceId, service => service.Load(new(workspaceId)));
