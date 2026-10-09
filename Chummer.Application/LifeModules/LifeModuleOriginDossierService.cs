@@ -973,13 +973,36 @@ public sealed partial class LifeModuleOriginDossierService
         });
 
     private static string[] NormalizeStrings(IEnumerable<string>? values)
-        => values?
-            .Where(static value => !string.IsNullOrWhiteSpace(value))
-            .Select(static value => value.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(static value => value, StringComparer.Ordinal)
-            .ToArray()
-           ?? [];
+    {
+        // Restoring a ledger normalizes the anchors of every historical effect
+        // and choice. Most contain just one distinct anchor. Avoid constructing
+        // a hash set and sorting pipeline for each of those tiny collections.
+        // Always enumerate current inputs once and return our own array; caller
+        // arrays must never become mutable parts of an admitted projection.
+        if (values is null) return [];
+        string? first = null;
+        List<string>? multiple = null;
+        foreach (string? value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            string normalized = value.Trim();
+            if (first is null)
+                first = normalized;
+            else if (multiple is not null)
+                multiple.Add(normalized);
+            else if (!StringComparer.Ordinal.Equals(first, normalized))
+                multiple = [first, normalized];
+        }
+        if (multiple is null) return first is null ? [] : [first];
+
+        multiple.Sort(StringComparer.Ordinal);
+        int distinct = 1;
+        for (int index = 1; index < multiple.Count; index++)
+            if (!StringComparer.Ordinal.Equals(multiple[distinct - 1], multiple[index]))
+                multiple[distinct++] = multiple[index];
+        multiple.RemoveRange(distinct, multiple.Count - distinct);
+        return multiple.ToArray();
+    }
 
     private static string JoinMarkdown(params string[] parts)
         => string.Join(
