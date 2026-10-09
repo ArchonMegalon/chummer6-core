@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -566,12 +567,7 @@ public static class CharacterCreationMagicResonanceDigest
         {
             case JsonValueKind.Object:
                 writer.WriteStartObject();
-                foreach (JsonProperty property in element.EnumerateObject()
-                             .OrderBy(property => property.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(property.Value, writer);
-                }
+                WriteCanonicalProperties(element, writer);
                 writer.WriteEndObject();
                 break;
             case JsonValueKind.Array:
@@ -600,6 +596,63 @@ public static class CharacterCreationMagicResonanceDigest
                 break;
             default:
                 throw new InvalidOperationException("Unsupported Magic/Resonance canonical JSON kind.");
+        }
+
+        if (writer.BytesPending >= 64 * 1024)
+            writer.Flush();
+    }
+
+    private static void WriteCanonicalProperties(JsonElement element, Utf8JsonWriter writer)
+    {
+        int count = 0;
+        foreach (JsonProperty _ in element.EnumerateObject()) count++;
+        if (count == 0) return;
+        if (count == 1)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                writer.WritePropertyName(property.Name);
+                WriteCanonical(property.Value, writer);
+            }
+            return;
+        }
+
+        // Catalogs contain thousands of nested objects. Rent scratch space and
+        // decode each property name once instead of allocating LINQ sort maps,
+        // keys and a second name per property. No input or digest is cached.
+        CanonicalProperty[] properties = ArrayPool<CanonicalProperty>.Shared.Rent(count);
+        try
+        {
+            int index = 0;
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                properties[index] = new(property, property.Name, index);
+                index++;
+            }
+            Array.Sort(properties, 0, count, CanonicalPropertyComparer.Instance);
+            for (int i = 0; i < count; i++)
+            {
+                writer.WritePropertyName(properties[i].Name);
+                WriteCanonical(properties[i].Property.Value, writer);
+            }
+        }
+        finally
+        {
+            ArrayPool<CanonicalProperty>.Shared.Return(properties, clearArray: true);
+        }
+    }
+
+    private readonly record struct CanonicalProperty(JsonProperty Property, string Name, int Ordinal);
+
+    private sealed class CanonicalPropertyComparer : IComparer<CanonicalProperty>
+    {
+        public static readonly CanonicalPropertyComparer Instance = new();
+
+        public int Compare(CanonicalProperty left, CanonicalProperty right)
+        {
+            int order = StringComparer.Ordinal.Compare(left.Name, right.Name);
+            // The former OrderBy was stable, including duplicate JSON keys.
+            return order != 0 ? order : left.Ordinal.CompareTo(right.Ordinal);
         }
     }
 }
