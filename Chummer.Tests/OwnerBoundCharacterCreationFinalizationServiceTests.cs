@@ -36,6 +36,161 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public void Contacts_pending_read_shares_sources_only_inside_admitted_operation(bool linked)
+    {
+        using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
+        var before = fixture.CaptureAllPartitions();
+        var stamp = fixture.Owner.Capture();
+        var baselineStore = new ScopedAtomicStore(fixture);
+        var baselineResolver = new ObservedResolver(fixture, s_source.Resolver);
+        var baseline = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(baselineStore, baselineResolver), fixture.Owner);
+        var expected = baseline.Load(stamp, new(fixture.Id));
+        Assert.IsNotNull(expected.Value);
+        Assert.IsTrue(expected.Value.CanEdit, JsonSerializer.Serialize(expected));
+        int expectedQueries = baselineResolver.Calls;
+        Assert.IsTrue(expectedQueries > 1, "Exercise bootstrap and contact source admission.");
+
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(store, resolver), fixture.Owner);
+        var actual = service.Load(stamp, new(fixture.Id));
+        AssertJsonEquals(expected, actual);
+        Assert.AreEqual(baselineStore.Reads, store.Reads);
+        Assert.HasCount(1, resolver.Scopes);
+        var first = resolver.Scopes[0];
+        Assert.AreEqual(expectedQueries, first.Calls, "Every live source admission remains required.");
+        Assert.HasCount(1, first.UniqueContexts);
+        Assert.IsTrue(first.Disposed);
+        AssertJsonEquals(expected, service.Load(stamp, new(fixture.Id)));
+        Assert.HasCount(2, resolver.Scopes);
+        Assert.HasCount(1, resolver.Scopes[1].UniqueContexts);
+        Assert.AreNotSame(first.UniqueContexts[0], resolver.Scopes[1].UniqueContexts[0]);
+        Assert.IsTrue(resolver.Scopes[1].Disposed);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    [DataRow("owner-B")]
+    [DataRow("owner-ABA")]
+    [DataRow("foreign-issuer")]
+    public void Contacts_pending_scope_requires_original_owner_admission(string denial)
+    {
+        using var fixture = new Fixture(AccountA);
+        var original = fixture.Owner.Capture();
+        if (denial == "foreign-issuer") original = new TestOwner(AccountA).Capture();
+        else
+        {
+            fixture.Owner.Transition(AccountB);
+            if (denial == "owner-ABA") fixture.Owner.Transition(AccountA);
+        }
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(store, resolver), fixture.Owner);
+        var result = service.Load(original, new(fixture.Id));
+        Assert.AreEqual(CharacterCreationContactOutcomes.Unavailable, result.Outcome);
+        Assert.IsNull(result.Value);
+        Assert.IsEmpty(resolver.Scopes);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Reads);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Contacts_pending_scope_and_owner_lease_close_on_source_failure(bool duringCreation)
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+        { FailCreate = duringCreation, FailQuery = !duringCreation };
+        var service = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(store, resolver), fixture.Owner);
+        Assert.ThrowsExactly<OperationSourceTestException>(() => service.Load(fixture.Owner.Capture(), new(fixture.Id)));
+        Assert.AreEqual(1, resolver.InjectedFailures);
+        Assert.HasCount(duringCreation ? 0 : 1, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    public void Contacts_pending_scope_rejects_failed_repeated_source_admission()
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver) { DenyRepeatedContext = true };
+        var service = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(store, resolver), fixture.Owner);
+        var result = service.Load(fixture.Owner.Capture(), new(fixture.Id));
+        Assert.IsNotNull(result.Value);
+        Assert.IsFalse(result.Value.CanEdit);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationContactsBlockers.BudgetAuthorityRequired);
+        Assert.HasCount(1, resolver.Scopes);
+        Assert.AreEqual(2, resolver.Scopes[0].Calls);
+        Assert.IsTrue(resolver.Scopes[0].Disposed);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Contacts_pending_scope_preserves_confirm_cold_reopen_and_receipt_replay(bool linked)
+    {
+        using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
+        var otherPartitions = fixture.CaptureOtherPartitions();
+        var before = fixture.Read(fixture.Owner.Current);
+        var stamp = fixture.Owner.Capture();
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(fixture.Store, resolver), fixture.Owner);
+        var loaded = service.Load(stamp, new(fixture.Id)).Value!;
+        Assert.IsNotNull(loaded.NewContactTemplate);
+        var edit = new CharacterCreationContactEdit(Guid.Parse("b78b9335-ac53-431c-8ad9-b1f3b08e20de"),
+            loaded.NewContactTemplate.Identity with { Name = "Source-scope test contact" },
+            Connection: 1, Loyalty: 1) { ChangeKind = CharacterCreationContactChangeKind.Add };
+        var preview = service.Preview(stamp, new(loaded.Binding, edit));
+        Assert.IsNotNull(preview.Value, JsonSerializer.Serialize(preview));
+        var command = new CharacterCreationContactConfirmRequest(loaded.Binding, edit,
+            preview.Value.PreviewDigest, "contacts-source-scope", ExplicitlyConfirmed: true);
+        var applied = service.Confirm(stamp, command);
+        Assert.AreEqual(CharacterCreationContactOutcomes.Applied, applied.Outcome, JsonSerializer.Serialize(applied));
+        Assert.IsNotNull(applied.Value);
+        var cold = new OwnerBoundCharacterCreationContactsService(
+            new CharacterCreationContactsService(new FileWorkspaceStore(fixture.Root), resolver), fixture.Owner);
+        var reopened = cold.Load(stamp, new(fixture.Id));
+        Assert.IsNotNull(reopened.Value);
+        Assert.IsTrue(reopened.Value.Contacts.Any(contact => contact.ContactId == edit.ContactId));
+        var replay = cold.Confirm(stamp, command);
+        Assert.AreEqual(CharacterCreationContactOutcomes.Replayed, replay.Outcome, JsonSerializer.Serialize(replay));
+        AssertJsonEquals(applied.Value, replay.Value);
+        var after = fixture.Read(fixture.Owner.Current);
+        Assert.AreEqual(before.Document.Content, after.Document.Content, "Pending contacts change typed draft state only.");
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertOtherPartitionsUnchanged(otherPartitions);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public void Magic_operation_scope_preserves_full_state_preview_and_fresh_admission(bool linked)
     {
         using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
@@ -790,6 +945,7 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         public int UnscopedCalls { get; private set; }
         public bool FailCreate { get; init; }
         public bool FailQuery { get; init; }
+        public bool DenyRepeatedContext { get; init; }
         public int InjectedFailures { get; private set; }
         public ICharacterSourceDataContext? TryCreateContext(string characterXml)
         {
@@ -811,14 +967,14 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
                     if (!FailQuery) return;
                     InjectedFailures++;
                     throw new OperationSourceTestException();
-                });
+                }, DenyRepeatedContext);
             Scopes.Add(scope);
             return scope;
         }
     }
 
     private sealed class ObservedOperationScope(Fixture fixture,
-        ICharacterSourceDataResolverOperationScope inner, Action beforeQuery)
+        ICharacterSourceDataResolverOperationScope inner, Action beforeQuery, bool denyRepeatedContext = false)
         : ICharacterSourceDataResolverOperationScope
     {
         public int Calls { get; private set; }
@@ -834,6 +990,7 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             // different fixture instrumentation costs.
             Assert.AreEqual(s_source.Store.Get(s_source.WorkspaceId).Value!.Document.Content, characterXml);
             beforeQuery();
+            if (denyRepeatedContext && Calls > 1) return null;
             var context = inner.TryCreateContext(characterXml);
             if (context is not null && !UniqueContexts.Any(item => ReferenceEquals(item, context)))
                 UniqueContexts.Add(context);

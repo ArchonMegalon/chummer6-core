@@ -44,6 +44,14 @@ public static class CharacterCreationContactsDraftRules
                 || state.CharacterCreationQualitiesDraft is null
                 || state.CharacterCreationResourcesDraft is null
                 || state.CharacterCreationGearDraft is null) return false;
+            // Bootstrap validation and contact budgets read the same pending
+            // XML. Share source construction only for this synchronous read;
+            // every context lookup still admits the current source inputs.
+            // An already scoped caller (for example finalization) stays in its
+            // existing scope rather than creating or retaining another one.
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (source as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            source = sourceScope ?? source;
             if (!CharacterCreationBootstrapAuthority.TryValidatePending(workspace, source, out _)) return false;
             var context = source.TryCreateContext(workspace.Document.Content);
             if (context is null || !context.TryResolveCreationContactsPolicy(out var policy) || policy is null
