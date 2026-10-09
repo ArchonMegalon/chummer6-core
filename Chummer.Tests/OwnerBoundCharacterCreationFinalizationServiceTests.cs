@@ -34,6 +34,131 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     public static void Cleanup() => s_source?.Dispose();
 
     [TestMethod]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    public void Overview_read_preserves_each_domain_and_reuses_only_admitted_observations(
+        bool linked, bool includePriorityDrafts)
+    {
+        using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
+        var before = fixture.CaptureAllPartitions();
+        var stamp = fixture.Owner.Capture();
+        var baselineStore = new ScopedAtomicStore(fixture);
+        var baselineResolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var expected = new CharacterCreationOverviewRead(
+            new OwnerBoundCharacterCreationContactsService(
+                new CharacterCreationContactsService(baselineStore, baselineResolver), fixture.Owner)
+                .Load(stamp, new(fixture.Id)),
+            includePriorityDrafts ? new OwnerBoundCharacterCreationQualitiesService(
+                baselineStore, fixture.Owner, s_source.Queries, baselineResolver).Load(stamp, new(fixture.Id)) : null,
+            includePriorityDrafts ? new OwnerBoundCharacterCreationMagicResonanceService(
+                baselineStore, fixture.Owner, baselineResolver).Load(stamp, new(fixture.Id)) : null,
+            new OwnerBoundCharacterCreationLifestylesReader(baselineStore, fixture.Owner, baselineResolver)
+                .Load(stamp, new(fixture.Id)),
+            new OwnerBoundCharacterCreationFinalizationService(
+                baselineStore, fixture.Owner, s_source.Queries, baselineResolver).Load(stamp, new(fixture.Id)));
+        Assert.IsNotNull(expected.Contacts.Value);
+        Assert.IsTrue(expected.Contacts.Value.CanEdit);
+        Assert.IsNotNull(expected.Finalization.Value);
+        Assert.IsTrue(expected.Finalization.Value.Steps.All(step => step.IsComplete));
+        int queries = baselineResolver.Scopes.Sum(scope => scope.Calls);
+
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationFinalizationService(
+            store, fixture.Owner, s_source.Queries, resolver);
+        var actual = service.LoadOverview(stamp, fixture.Id, includePriorityDrafts);
+        Assert.IsNotNull(actual);
+        AssertJsonEquals(expected, actual);
+        Assert.AreEqual(1, store.Reads, "One complete validated workspace observation, including local history.");
+        Assert.AreEqual(linked ? 0 : 1, store.LocalReads);
+        Assert.HasCount(1, resolver.Scopes);
+        var first = resolver.Scopes[0];
+        Assert.AreEqual(queries, first.Calls, "No live source admission was skipped.");
+        Assert.HasCount(1, first.UniqueContexts);
+        Assert.IsTrue(first.Disposed);
+
+        AssertJsonEquals(expected, service.LoadOverview(stamp, fixture.Id, includePriorityDrafts)!);
+        Assert.AreEqual(2, store.Reads, "A new public read must observe storage again.");
+        Assert.HasCount(2, resolver.Scopes);
+        Assert.HasCount(1, resolver.Scopes[1].UniqueContexts);
+        Assert.AreNotSame(first.UniqueContexts[0], resolver.Scopes[1].UniqueContexts[0]);
+        Assert.IsTrue(resolver.Scopes[1].Disposed);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    [DataRow("owner-B")]
+    [DataRow("owner-ABA")]
+    [DataRow("foreign-issuer")]
+    public void Overview_read_rejects_stale_owner_before_sources_or_storage(string denial)
+    {
+        using var fixture = new Fixture(AccountA);
+        var original = fixture.Owner.Capture();
+        if (denial == "foreign-issuer") original = new TestOwner(AccountA).Capture();
+        else
+        {
+            fixture.Owner.Transition(AccountB);
+            if (denial == "owner-ABA") fixture.Owner.Transition(AccountA);
+        }
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner, s_source.Queries, resolver);
+        Assert.IsNull(service.LoadOverview(original, fixture.Id, true));
+        Assert.IsEmpty(resolver.Scopes);
+        Assert.AreEqual(0, store.Reads);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Overview_read_unwinds_source_scope_and_owner_lease_on_failure(bool duringCreation)
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+            { FailCreate = duringCreation, FailQuery = !duringCreation };
+        var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner, s_source.Queries, resolver);
+        Assert.ThrowsExactly<OperationSourceTestException>(() => service.LoadOverview(fixture.Owner.Capture(), fixture.Id, true));
+        Assert.AreEqual(1, resolver.InjectedFailures);
+        Assert.HasCount(duringCreation ? 0 : 1, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    public void Overview_read_does_not_turn_failed_source_readmission_into_ready_state()
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver) { DenyRepeatedContext = true };
+        var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner, s_source.Queries, resolver);
+        var actual = service.LoadOverview(fixture.Owner.Capture(), fixture.Id, true);
+        Assert.IsNotNull(actual);
+        Assert.IsNotNull(actual.Contacts.Value);
+        Assert.IsFalse(actual.Contacts.Value.CanEdit);
+        Assert.IsTrue(actual.Finalization.Value is null || !actual.Finalization.Value.Steps.All(step => step.IsComplete));
+        Assert.HasCount(1, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes[0].Calls > 1);
+        Assert.IsTrue(resolver.Scopes[0].Disposed);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Contacts_pending_read_shares_sources_only_inside_admitted_operation(bool linked)
