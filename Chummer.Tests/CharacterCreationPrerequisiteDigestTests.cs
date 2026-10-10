@@ -20,7 +20,7 @@ public sealed class CharacterCreationPrerequisiteDigestTests
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     public void Complete_representative_graph_preserves_legacy_bytes_and_public_digest(string buildMethod)
     {
-        CharacterCreationPrerequisiteAuthority authority = CreateFixture(buildMethod);
+        CharacterCreationPrerequisiteAuthority authority = CreateFixture(buildMethod, includeRacialSources: true);
         Assert.IsTrue(CurrentOptions().IsReadOnly);
         Assert.IsNotNull(CreateOptions(typeof(CharacterCreationPrerequisiteAuthority)));
         AssertEquivalent(authority);
@@ -37,13 +37,17 @@ public sealed class CharacterCreationPrerequisiteDigestTests
             typeof(CharacterCreationTalentActiveSkillGrantProjection),
             typeof(CharacterCreationTalentActiveSkillChoiceProjection),
             typeof(CharacterCreationTalentSkillGroupGrantProjection),
-            typeof(CharacterCreationTalentSkillGroupChoiceProjection)
+            typeof(CharacterCreationTalentSkillGroupChoiceProjection),
+            typeof(CharacterCreationTalentQualitySource),
+            typeof(CharacterCreationTalentGearSource)
         ];
         var actual = new HashSet<Type>();
         CollectRecordTypes(typeof(CharacterCreationPrerequisiteAuthority), actual);
         CollectionAssert.AreEquivalent(expected, actual.ToArray(), "Review every new declared graph type.");
         CharacterCreationPriorityOptionProjection option = authority.Options[0];
         Assert.HasCount(2, option.HeritageOptions[0].Attributes);
+        Assert.HasCount(2, option.HeritageOptions[0].RacialQualitySources!);
+        Assert.HasCount(2, option.HeritageOptions[0].RacialQualitySources![0].GrantedGearSources!);
         Assert.IsNotNull(option.HeritageOptions[0].Movement.Walk);
         Assert.HasCount(2, option.TalentOptions[0].ActiveSkillGrant!.Options);
         Assert.HasCount(2, option.TalentOptions[0].SkillGroupGrant!.Options);
@@ -121,7 +125,7 @@ public sealed class CharacterCreationPrerequisiteDigestTests
         };
         // Digest fixtures intentionally include non-domain strings: Compute's
         // byte contract, not source admission or mechanics validation, is tested.
-        AssertEquivalent(CreateFixture(CharacterCreationBuildMethods.SumToTen, value));
+        AssertEquivalent(CreateFixture(CharacterCreationBuildMethods.SumToTen, value, includeRacialSources: true));
     }
 
     [TestMethod]
@@ -160,6 +164,10 @@ public sealed class CharacterCreationPrerequisiteDigestTests
     }
 
     [TestMethod]
+    [DataRow("racial-sources")]
+    [DataRow("racial-anchors")]
+    [DataRow("racial-gear")]
+    [DataRow("racial-gear-anchors")]
     [DataRow("priority-array")]
     [DataRow("rank-weights")]
     [DataRow("priority-options")]
@@ -173,7 +181,7 @@ public sealed class CharacterCreationPrerequisiteDigestTests
     [DataRow("blockers")]
     public void Nested_list_order_and_duplicate_elements_remain_digest_significant(string path)
     {
-        CharacterCreationPrerequisiteAuthority authority = CreateFixture(CharacterCreationBuildMethods.Priority);
+        CharacterCreationPrerequisiteAuthority authority = CreateFixture(CharacterCreationBuildMethods.Priority, includeRacialSources: true);
         byte[] original = LegacyBytes(authority with { AuthorityDigest = string.Empty });
         foreach (bool duplicate in new[] { false, true })
         {
@@ -250,7 +258,24 @@ public sealed class CharacterCreationPrerequisiteDigestTests
         // or mutate readonly options to force Compute's fallback branch.
     }
 
-    public static CharacterCreationPrerequisiteAuthority CreateFixture(string buildMethod, string text = "fixture")
+    [TestMethod]
+    public void Optional_racial_sources_preserve_historical_omission_and_distinguish_empty_collections()
+    {
+        var historical = CreateFixture(CharacterCreationBuildMethods.Priority);
+        var populated = CreateFixture(CharacterCreationBuildMethods.Priority, includeRacialSources: true);
+        byte[] absent = AssertEquivalent(historical);
+        Assert.IsFalse(Encoding.UTF8.GetString(absent).Contains("RacialQualitySources", StringComparison.Ordinal));
+        byte[] empty = AssertEquivalent(ReplaceFirstHeritage(historical, option => option with { RacialQualitySources = [] }));
+        Assert.IsFalse(absent.AsSpan().SequenceEqual(empty));
+        byte[] absentGear = AssertEquivalent(ReplaceFirstRacialSource(populated, source => source with { GrantedGearSources = null }));
+        byte[] emptyGear = AssertEquivalent(ReplaceFirstRacialSource(populated, source => source with { GrantedGearSources = [] }));
+        Assert.IsFalse(absentGear.AsSpan().SequenceEqual(emptyGear));
+        byte[] before = AssertEquivalent(populated);
+        byte[] changed = AssertEquivalent(ReplaceFirstRacialSource(populated, source => source with { SourceNodeDigest = "changed" }));
+        Assert.IsFalse(before.AsSpan().SequenceEqual(changed), "Nested source digests must not be blanked.");
+    }
+
+    public static CharacterCreationPrerequisiteAuthority CreateFixture(string buildMethod, string text = "fixture", bool includeRacialSources = false)
     {
         string[] anchors = ["z-anchor:" + text, "a-anchor:" + text];
         var activeChoice = new CharacterCreationTalentActiveSkillChoiceProjection(
@@ -282,6 +307,15 @@ public sealed class CharacterCreationPrerequisiteDigestTests
             Movement = new(new(2.00m, 0.25m, 0m), new(4m, 0.50m, 1m), new(6m, 0.75m, 2m))
             { IsSpecial = true }
         };
+        if (includeRacialSources)
+        {
+            var gear = new CharacterCreationTalentGearSource("gear-z", text, text, text, text,
+                text, text, text, text, anchors);
+            var quality = new CharacterCreationTalentQualitySource(text, text, "quality-z", text, text,
+                text, text, text, text, text, anchors)
+            { GrantedGearSources = [gear, gear with { SourceId = "gear-a" }] };
+            heritage = heritage with { RacialQualitySources = [quality, quality with { SourceId = "quality-a" }] };
+        }
         var talent = new CharacterCreationPriorityTalentOptionProjection(
             "talent-z", text, text, 5, 6, null, 0, [text, "second"], "talent-child",
             true, ["z-block", "a-block"], anchors)
@@ -328,6 +362,18 @@ public sealed class CharacterCreationPrerequisiteDigestTests
     private static IReadOnlyList<T> Change<T>(IReadOnlyList<T> values, bool duplicate)
         => duplicate ? [.. values, values[0]] : values.Reverse().ToArray();
 
+    private static CharacterCreationPrerequisiteAuthority ReplaceFirstHeritage(
+        CharacterCreationPrerequisiteAuthority authority,
+        Func<CharacterCreationPriorityHeritageOptionProjection, CharacterCreationPriorityHeritageOptionProjection> change)
+        => ReplaceFirstOption(authority, option => option with
+            { HeritageOptions = [change(option.HeritageOptions[0]), .. option.HeritageOptions.Skip(1)] });
+
+    private static CharacterCreationPrerequisiteAuthority ReplaceFirstRacialSource(
+        CharacterCreationPrerequisiteAuthority authority,
+        Func<CharacterCreationTalentQualitySource, CharacterCreationTalentQualitySource> change)
+        => ReplaceFirstHeritage(authority, option => option with
+            { RacialQualitySources = [change(option.RacialQualitySources![0]), .. option.RacialQualitySources.Skip(1)] });
+
     private static CharacterCreationPrerequisiteAuthority ChangeList(
         CharacterCreationPrerequisiteAuthority authority, string path, bool duplicate)
     {
@@ -336,6 +382,16 @@ public sealed class CharacterCreationPrerequisiteDigestTests
         if (path == "priority-options") return authority with { Options = Change(authority.Options, duplicate) };
         if (path == "anchors") return authority with { SourceAnchorIds = Change(authority.SourceAnchorIds, duplicate) };
         if (path == "blockers") return authority with { Blockers = Change(authority.Blockers, duplicate) };
+        if (path == "racial-sources") return ReplaceFirstHeritage(authority, option => option with
+            { RacialQualitySources = Change(option.RacialQualitySources!, duplicate) });
+        if (path == "racial-anchors") return ReplaceFirstRacialSource(authority, source => source with
+            { SourceAnchorIds = Change(source.SourceAnchorIds, duplicate) });
+        if (path == "racial-gear") return ReplaceFirstRacialSource(authority, source => source with
+            { GrantedGearSources = Change(source.GrantedGearSources!, duplicate) });
+        if (path == "racial-gear-anchors") return ReplaceFirstRacialSource(authority, source => source with
+            { GrantedGearSources = [source.GrantedGearSources![0] with
+                { SourceAnchorIds = Change(source.GrantedGearSources[0].SourceAnchorIds, duplicate) },
+                .. source.GrantedGearSources.Skip(1)] });
         return ReplaceFirstOption(authority, option => path switch
         {
             "heritage-options" => option with { HeritageOptions = Change(option.HeritageOptions, duplicate) },

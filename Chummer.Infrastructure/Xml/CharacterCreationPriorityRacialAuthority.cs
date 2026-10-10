@@ -9,6 +9,15 @@ internal static class CharacterCreationPriorityRacialAuthority
     internal static CharacterCreationPrerequisiteAuthority Bind(CharacterCreationPrerequisiteAuthority original,
         XDocument metatypes, XElement[] qualities, string qualityDigest, IReadOnlyList<string> books)
     {
+        var authority = BindOptions(original, metatypes, qualities, qualityDigest, books);
+        return ReferenceEquals(authority, original) ? original : authority with
+            { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority) };
+    }
+
+    // Only the enclosing prerequisite projector publishes/digests this graph.
+    internal static CharacterCreationPrerequisiteAuthority BindOptions(CharacterCreationPrerequisiteAuthority original,
+        XDocument metatypes, XElement[] qualities, string qualityDigest, IReadOnlyList<string> books)
+    {
         if (!original.IsAuthoritative || original.Blockers.Count != 0) return original;
         var sources = new Dictionary<string, CharacterCreationTalentQualitySource[]>(StringComparer.Ordinal);
         var declarations = new Dictionary<string, CharacterCreationMetatypeOptionProjection>(StringComparer.Ordinal);
@@ -26,7 +35,9 @@ internal static class CharacterCreationPriorityRacialAuthority
                 || grants.Where((source, index) => !string.Equals(
                     XElement.Parse(source.CanonicalSourceXml).Element("category")?.Value,
                     metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase)).Any()
-                || !CharacterCreationPriorityRacialQualities.TryProject(grants, original.AuthorityDigest, out _)) continue;
+                // This projection validates effects only. Persisted instance IDs
+                // are derived later from the admitted finalization draft seed.
+                || !CharacterCreationPriorityRacialQualities.TryProject(grants, qualityDigest, out _)) continue;
             sources.Add(name, grants);
             declarations.Add(name, metatype);
         }
@@ -52,6 +63,6 @@ internal static class CharacterCreationPriorityRacialAuthority
             }).ToArray(),
             AuthorityDigest = string.Empty
         };
-        return authority with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority) };
+        return authority;
     }
 }

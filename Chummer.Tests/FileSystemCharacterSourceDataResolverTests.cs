@@ -20,6 +20,73 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    [DataRow("name", true)]
+    [DataRow("guid", false)]
+    [DataRow("whitespace", true)]
+    [DataRow("duplicate-name", false)]
+    [DataRow("duplicate-id", false)]
+    [DataRow("replace-overlay", false)]
+    [DataRow("merge-overlay", false)]
+    [DataRow("dtd", false)]
+    public void Priority_racial_selected_source_read_preserves_reference_and_overlay_rules(string scenario, bool enabled)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "qualities.xml");
+            string qualityPath = Path.Combine(root, "data", "qualities.xml");
+            string metatypePath = Path.Combine(root, "data", "metatypes.xml");
+            var qualityDocument = XDocument.Load(qualityPath);
+            var quality = qualityDocument.Root!.Element("qualities")!.Elements("quality")
+                .Single(row => row.Element("name")?.Value == "Low-Light Vision");
+            var metatypes = XDocument.Load(metatypePath);
+            if (scenario is "guid" or "duplicate-id" or "whitespace")
+            {
+                foreach (var row in metatypes.Root!.Element("metatypes")!.Elements("metatype")
+                             .Where(row => row.Element("name")?.Value is "Elf" or "Ork"))
+                    row.Element("qualities")!.Element("positive")!.Element("quality")!.Value =
+                        scenario == "whitespace" ? "  Low-Light Vision  " : quality.Element("id")!.Value;
+                metatypes.Save(metatypePath);
+            }
+            if (scenario.StartsWith("duplicate-", StringComparison.Ordinal))
+            {
+                var duplicate = new XElement(quality);
+                if (scenario == "duplicate-name") duplicate.Element("id")!.Value = Guid.NewGuid().ToString("D");
+                else duplicate.Element("name")!.Value = "Another quality with same identity";
+                quality.AddAfterSelf(duplicate);
+                qualityDocument.Save(qualityPath);
+            }
+            var overlays = new List<ContentOverlayPack>();
+            if (scenario.EndsWith("-overlay", StringComparison.Ordinal))
+            {
+                string overlayData = Path.Combine(root, "overlay", "data");
+                Directory.CreateDirectory(overlayData);
+                quality.Element("bonus")!.Add(new XElement("unknown-effect"));
+                qualityDocument.Save(Path.Combine(overlayData, "qualities.xml"));
+                overlays.Add(new("racial", "Racial test", Path.Combine(root, "overlay"), overlayData,
+                    Path.Combine(root, "overlay", "lang"), 1, true,
+                    scenario == "replace-overlay" ? ContentOverlayModes.ReplaceFile : ContentOverlayModes.MergeCatalog,
+                    string.Empty));
+            }
+            if (scenario == "dtd")
+                File.WriteAllText(qualityPath, "<!DOCTYPE chummer [<!ENTITY test 'value'>]><chummer><qualities>&test;</qualities></chummer>");
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), overlays));
+            var context = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+            var options = authority.Options.SelectMany(row => row.HeritageOptions)
+                .Where(row => row.MetatypeName is "Elf" or "Ork"
+                    && row.MetavariantSourceId is null && row.MetavariantName is null).ToArray();
+            Assert.IsNotEmpty(options);
+            Assert.IsTrue(options.All(row => row.IsEnabled == enabled), scenario + ": "
+                + string.Join(",", authority.Blockers) + " / "
+                + string.Join(";", options.Select(row => row.MetatypeName + ":" + row.MetavariantName + ":" + string.Join(",", row.Blockers))));
+            Assert.IsTrue(options.All(row => enabled ? row.RacialQualitySources is { Count: 1 } : row.RacialQualitySources is null));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     [DataRow(SettingsId)]
     [DataRow(CanonicalSumToTenSettingsId)]
     public void Heritage_projection_allocation_and_exact_authority(string settingsId)

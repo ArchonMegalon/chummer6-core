@@ -230,42 +230,66 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string identity = Path.GetFullPath(path);
             lock (_sync)
             {
-                if (_documents.TryGetValue(identity, out XDocument? cached))
-                {
-                    _cacheHits++;
-                    document = new XDocument(cached);
-                    return document.Root is not null;
-                }
+                bool loaded = TryLoadXmlSnapshot(identity, out var snapshot);
+                document = loaded ? new XDocument(snapshot!) : null;
+                return loaded;
+            }
+        }
 
-                try
-                {
-                    byte[] bytes = ReadAllBytes(identity);
-                    XmlReaderSettings settings = new()
-                    {
-                        DtdProcessing = DtdProcessing.Prohibit,
-                        XmlResolver = null
-                    };
-                    using var stream = new MemoryStream(bytes, writable: false);
-                    using XmlReader reader = XmlReader.Create(stream, settings, identity);
-                    XDocument parsed = XDocument.Load(reader, LoadOptions.None);
-                    if (parsed.Root is null)
-                    {
-                        document = null;
-                        return false;
-                    }
+        // Used only for an unmodified base catalog. Never expose the cached tree
+        // or collapse duplicate matches: the authority projector must see and
+        // reject ambiguity. Custom data/overlays keep their normal resolver.
+        public bool TryLoadQualityReferences(string path, IReadOnlySet<string> references, out XElement[] targets)
+        {
+            lock (_sync)
+            {
+                targets = [];
+                if (!TryLoadXmlSnapshot(Path.GetFullPath(path), out var snapshot)) return false;
+                var ids = references.Where(value => Guid.TryParse(value, out _)).Select(Guid.Parse).ToHashSet();
+                targets = (snapshot!.Root!.Element("qualities")?.Elements("quality") ?? [])
+                    .Where(row => references.Contains(row.Element("name")?.Value ?? string.Empty)
+                        || (Guid.TryParse(row.Element("id")?.Value, out var id) && ids.Contains(id)))
+                    .Select(row => new XElement(row)).ToArray();
+                return true;
+            }
+        }
 
-                    _documents.Add(identity, parsed);
-                    _physicalParses[identity] = 1;
-                    document = new XDocument(parsed);
-                    return true;
-                }
-                catch (Exception exception) when (exception is IOException
-                                                  or UnauthorizedAccessException
-                                                  or XmlException)
+        // Caller holds _sync. This private immutable snapshot never escapes.
+        private bool TryLoadXmlSnapshot(string identity, out XDocument? document)
+        {
+            if (_documents.TryGetValue(identity, out document))
+            {
+                _cacheHits++;
+                return document.Root is not null;
+            }
+            try
+            {
+                byte[] bytes = ReadAllBytes(identity);
+                XmlReaderSettings settings = new()
+                {
+                    DtdProcessing = DtdProcessing.Prohibit,
+                    XmlResolver = null
+                };
+                using var stream = new MemoryStream(bytes, writable: false);
+                using XmlReader reader = XmlReader.Create(stream, settings, identity);
+                XDocument parsed = XDocument.Load(reader, LoadOptions.None);
+                if (parsed.Root is null)
                 {
                     document = null;
                     return false;
                 }
+
+                _documents.Add(identity, parsed);
+                _physicalParses[identity] = 1;
+                document = parsed;
+                return true;
+            }
+            catch (Exception exception) when (exception is IOException
+                                              or UnauthorizedAccessException
+                                              or XmlException)
+            {
+                document = null;
+                return false;
             }
         }
 
@@ -3062,12 +3086,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
             _sourceInputs.RecordPrerequisiteProjection();
             var projected = CharacterCreationPrerequisiteAuthorityProjector.Project(
-                document, metatypesDocument, skillsDocument, projectionContext);
-            if (projected.IsAuthoritative && !_sourceInputs.HasSourceDrift
-                && TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string racialQualityDigest)
-                && TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var racialQualities))
-                projected = CharacterCreationPriorityRacialAuthority.Bind(projected, metatypesDocument,
-                    racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks);
+                document, metatypesDocument, skillsDocument, projectionContext, candidate =>
+                    !_sourceInputs.HasSourceDrift
+                    && TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string racialQualityDigest)
+                    && TryResolveRacialQualitySources(metatypesDocument, out var racialQualities)
+                        ? CharacterCreationPriorityRacialAuthority.BindOptions(candidate, metatypesDocument,
+                            racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks)
+                        : candidate);
             if ((projected.IsAuthoritative && blockers.Count == 0)
                 || (reusableMethodRejection && !projected.IsAuthoritative
                 && projected.Blockers.Count == 1
@@ -7083,6 +7108,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             => containerNames
                 .SelectMany(containerName => root.Elements(containerName).SelectMany(container => container.Elements(entryName)))
                 .Count(entry => LocatorMatches(entry, locator));
+
+        private bool TryResolveRacialQualitySources(XDocument metatypes, out XElement[] qualities)
+        {
+            if (_customDirectories.Count != 0 || _catalog.Overlays.Any(pack => pack.Enabled))
+                return TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out qualities);
+            var references = (metatypes.Root?.Element("metatypes")?.Elements("metatype") ?? [])
+                .Where(row => row.Element("name")?.Value is "Elf" or "Ork")
+                .SelectMany(row => row.Elements("qualities").Elements().Elements("quality"))
+                .Select(row => row.Value.Trim()).ToHashSet(StringComparer.Ordinal);
+            return _sourceInputs.TryLoadQualityReferences(Path.Combine(_catalog.BaseDataPath, "qualities.xml"),
+                references, out qualities);
+        }
 
         private bool TryEnumerateTargets(
             string fileName,
