@@ -46,7 +46,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         return BuildState(
             workspace,
             request.EnabledSources,
-            sourceFilterApplied: request.EnabledSources is not null);
+            sourceFilterApplied: request.EnabledSources is not null,
+            out _, out _, foundationDisplayOnly: true);
     }
 
     public CharacterCreationFoundationResult<CharacterCreationFoundationPreview> Preview(
@@ -757,7 +758,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         bool sourceFilterApplied,
         out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
         out string capturedCatalogDigest,
-        bool requireDraftPersistence = true)
+        bool requireDraftPersistence = true,
+        bool foundationDisplayOnly = false)
     {
         capturedModules = [];
         capturedCatalogDigest = string.Empty;
@@ -860,12 +862,17 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             {
                 // An empty list is an authoritative "no books" filter. Null is
                 // never passed here because it would expose every source.
-                modules = _lifeModulesCatalog.GetOptionProjections(
-                    // Initial nationality previews do not need to repeatedly
-                    // project every later module in the catalog.
-                    stage: workspace.Document.AuxiliaryState.CharacterCreationFoundationDraft
-                        ?.AdditionalModules is null ? "Nationality" : null,
-                    effectiveSources);
+                var storedDraft = workspace.Document.AuxiliaryState.CharacterCreationFoundationDraft;
+                modules = foundationDisplayOnly && storedDraft?.AdditionalModules is not null
+                    ? _lifeModulesCatalog.GetFoundationOptionProjections(
+                        new[] { storedDraft.Selection?.ModuleId }
+                            .Concat(storedDraft.AdditionalModules.Select(entry => entry?.Selection?.ModuleId))
+                            .OfType<string>().ToArray(),
+                        effectiveSources)
+                    : _lifeModulesCatalog.GetOptionProjections(
+                        // Initial nationality previews need no later modules.
+                        stage: storedDraft?.AdditionalModules is null ? "Nationality" : null,
+                        effectiveSources);
             }
             else if (string.IsNullOrWhiteSpace(catalogAuthority.RawXmlDigest))
             {

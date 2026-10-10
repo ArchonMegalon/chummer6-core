@@ -39,7 +39,8 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
 
     private readonly Lazy<CatalogSnapshot> _snapshot;
     private sealed record ProjectionSnapshot(
-        string? Stage, HashSet<string>? EnabledSources, LifeModuleLegalOptionDto[] Options);
+        string? Stage, HashSet<string>? EnabledSources, HashSet<string>? SelectedModuleIds,
+        LifeModuleLegalOptionDto[] Options);
     private ProjectionSnapshot? _projection;
 
     public XmlLifeModulesCatalogService(string lifeModulesPath)
@@ -96,6 +97,19 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
     public IReadOnlyList<LifeModuleLegalOptionDto> GetOptionProjections(
         string? stage = null,
         IReadOnlyCollection<string>? enabledSources = null)
+        => GetOptionProjectionsCore(stage, enabledSources, selectedModuleIds: null);
+
+    public IReadOnlyList<LifeModuleLegalOptionDto> GetFoundationOptionProjections(
+        IReadOnlyCollection<string> selectedModuleIds,
+        IReadOnlyCollection<string>? enabledSources = null)
+    {
+        ArgumentNullException.ThrowIfNull(selectedModuleIds);
+        return GetOptionProjectionsCore(null, enabledSources,
+            selectedModuleIds.ToHashSet(StringComparer.Ordinal));
+    }
+
+    private IReadOnlyList<LifeModuleLegalOptionDto> GetOptionProjectionsCore(
+        string? stage, IReadOnlyCollection<string>? enabledSources, HashSet<string>? selectedModuleIds)
     {
         string? normalizedStage = string.IsNullOrWhiteSpace(stage) ? null : stage.Trim();
         HashSet<string>? enabledSourceSet = enabledSources is null
@@ -112,12 +126,15 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
         ProjectionSnapshot? cached = Volatile.Read(ref _projection);
         if (cached is null
             || !string.Equals(cached.Stage, normalizedStage, StringComparison.Ordinal)
+            || !(cached.SelectedModuleIds is null
+                ? selectedModuleIds is null
+                : selectedModuleIds is not null && cached.SelectedModuleIds.SetEquals(selectedModuleIds))
             || !(cached.EnabledSources is null
                 ? enabledSourceSet is null
                 : enabledSourceSet is not null && cached.EnabledSources.SetEquals(enabledSourceSet)))
         {
-            cached = new ProjectionSnapshot(normalizedStage, enabledSourceSet,
-                ProjectOptions(normalizedStage, enabledSourceSet));
+            cached = new ProjectionSnapshot(normalizedStage, enabledSourceSet, selectedModuleIds,
+                ProjectOptions(normalizedStage, enabledSourceSet, selectedModuleIds));
             // Concurrent misses may duplicate pure projection work; publishing
             // one complete private snapshot never mixes filters or partial data.
             Volatile.Write(ref _projection, cached);
@@ -128,13 +145,23 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
         return cached.Options.Select(DetachOption).ToArray();
     }
 
-    private LifeModuleLegalOptionDto[] ProjectOptions(string? stage, HashSet<string>? enabledSourceSet)
+    private LifeModuleLegalOptionDto[] ProjectOptions(
+        string? stage, HashSet<string>? enabledSourceSet, HashSet<string>? selectedModuleIds)
     {
         IReadOnlyDictionary<string, LifeModuleStageDto> stagesByName = GetStages()
             .ToDictionary(item => item.Name, StringComparer.Ordinal);
         IEnumerable<XElement> modules = _snapshot.Value.Document.Root!
             .Element("modules")!
             .Elements("module");
+
+        if (selectedModuleIds is not null)
+        {
+            // Keep every matching record (including duplicates) so selection
+            // validation cannot mistake ambiguous identities for a unique one.
+            modules = modules.Where(module => selectedModuleIds.Contains(ReadValue(module, "id"))
+                || (stagesByName.TryGetValue(ReadValue(module, "stage"), out LifeModuleStageDto? moduleStage)
+                    && moduleStage.Order == LifeModuleJourneyStageOrders.Nationality));
+        }
 
         if (!string.IsNullOrWhiteSpace(stage))
         {
