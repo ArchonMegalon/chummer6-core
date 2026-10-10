@@ -11,6 +11,47 @@ namespace Chummer.Tests;
 public class LifeModuleOriginDossierServiceTests
 {
     [TestMethod]
+    public void Historical_anchor_normalization_keeps_ordinal_digests_and_detaches_each_snapshot()
+    {
+        string[][] inputs =
+        [
+            [" source "], [null!, "", " \t", "source", " source ", "source"],
+            ["z", "a", "z", " A ", "ä", "a", "\u00a0β\u00a0", "A"],
+            Enumerable.Range(0, 128).Select(index => $" anchor-{127 - index % 32:D3} ").ToArray()
+        ];
+        foreach (string[] input in inputs)
+        {
+            string[] canonical = input.Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim()).Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal).ToArray();
+            var choice = CreateChoice("choice-a", "Street path");
+            LifeModuleDecisionAuthorityStep Step(string[] anchors) => CreateInitialStep(choice with
+            {
+                SourceAnchorIds = anchors,
+                MechanicsPreview = choice.MechanicsPreview with
+                {
+                    SourceAnchorIds = anchors,
+                    Items = [choice.MechanicsPreview.Items[0] with { SourceAnchorIds = anchors }]
+                }
+            }) with
+            {
+                AcceptedDecisionIds = ["decision-1"],
+                CanonicalFacts = [new("fact", "background", "An event.", "decision-1", anchors, string.Empty)]
+            };
+            Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(Step(canonical), out var expected));
+            var step = Step(input);
+            Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var actual));
+            string snapshot = JsonSerializer.Serialize(actual);
+            Assert.AreEqual(JsonSerializer.Serialize(expected), snapshot,
+                "Every preview, fact, choice and turn digest must preserve the old normalization semantics.");
+            input[0] = "changed-source";
+            Assert.AreEqual(snapshot, JsonSerializer.Serialize(actual), "Projection borrowed a caller array.");
+            Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var changed));
+            Assert.AreNotEqual(snapshot, JsonSerializer.Serialize(changed), "A later read reused stale inputs.");
+        }
+    }
+
+    [TestMethod]
     public void Fresh_turn_projection_bounds_allocations_and_preserves_canonical_output()
     {
         var choices = Enumerable.Range(0, 128).Select(index =>
@@ -38,8 +79,8 @@ public class LifeModuleOriginDossierServiceTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Console.WriteLine($"Fresh turn projection allocated bytes: {allocated}");
         Assert.AreEqual(expected, JsonSerializer.Serialize(measured));
-        Assert.IsTrue(allocated < 2_500_000,
-            $"Freshly sealed effects must not be hashed again; allocated {allocated:N0} bytes.");
+        Assert.IsTrue(allocated < 1_800_000,
+            $"Historical anchor normalization must avoid per-effect set/sort pipelines; allocated {allocated:N0} bytes.");
         // Public restore still independently revalidates every constructed digest.
         var service = new LifeModuleOriginDossierService(new FakeDecisionAuthority(step));
         var projection = AssertSuccess(service.Project("workspace-1"));
@@ -56,7 +97,8 @@ public class LifeModuleOriginDossierServiceTests
             valid with { ChoiceId = " " }, valid with { Label = " " },
             valid with { Source = " " }, valid with { IsLegal = false },
             valid with { DecisionCommandDigest = "not-a-digest" },
-            valid with { SourceAnchorIds = [] }, valid with { Blockers = ["unavailable"] },
+            valid with { SourceAnchorIds = [] }, valid with { SourceAnchorIds = null! },
+            valid with { SourceAnchorIds = [null!, "", " \t"] }, valid with { Blockers = ["unavailable"] },
             valid with { MechanicsPreview = valid.MechanicsPreview with { SourceAnchorIds = [] } },
             valid with { FollowUps = [] }
         ];
