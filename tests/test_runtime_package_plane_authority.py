@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("1fbea12d95e7fcf946571d15f144c8c3126bad03", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261010.3.sh1fbea12d95e7f", runtime.PACKAGE_VERSION)
+        self.assertEqual("e3e41619d3465bafd25586c555634051a5e6898b", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261010.4.she3e41619d3465", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
@@ -527,7 +527,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         self.assertIn("prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|"
                       "FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests|"
-                      "FullyQualifiedName~CharacterCreationPrerequisiteDigestTests'", script)
+                      "FullyQualifiedName~CharacterCreationPrerequisiteDigestTests|"
+                      "FullyQualifiedName~CharacterCreationPriorityRacialTests'", script)
         isolated_test = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1]
         isolated_test = isolated_test.split("# Execute the actual owner/store regressions", 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|', isolated_test)
