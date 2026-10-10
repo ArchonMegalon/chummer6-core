@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Xml.Linq;
+using Chummer.Application.LifeModules;
 using Chummer.Contracts.LifeModules;
 using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Xml;
@@ -15,6 +16,93 @@ namespace Chummer.Tests;
 [TestClass]
 public class LifeModulesServiceTests
 {
+    [TestMethod]
+    public void Foundation_projection_matches_full_catalog_filter_and_keeps_cache_queries_isolated()
+    {
+        (string root, string xmlPath) = CreateProjectionLifeModulesXml();
+        try
+        {
+            var xml = XDocument.Load(xmlPath);
+            // Nationality follows stage authority, not an English name. An
+            // ambiguous selected ID must retain both records for rejection.
+            xml.Root!.Element("stages")!.Elements("stage")
+                .Single(stage => stage.Value == "Nationality").Value = "Origin";
+            var modules = xml.Root.Element("modules")!;
+            modules.Elements("module").First().Element("stage")!.Value = "Origin";
+            modules.Add(new XElement(modules.Elements("module").ElementAt(1)));
+            xml.Save(xmlPath);
+            var service = new XmlLifeModulesCatalogService(xmlPath);
+            ILifeModulesCatalogService fallback = new FullProjectionCatalog(service);
+            string selectedId = modules.Elements("module").ElementAt(1).Element("id")!.Value;
+            string[][] selections = [[], [selectedId], [selectedId, selectedId],
+                ["missing"], [selectedId.ToUpperInvariant()], [" " + selectedId],
+                [selectedId, "ffffffff-ffff-ffff-ffff-ffffffffffff"]];
+            string[]?[] sources = [null, [], ["RF"], ["src", " RF ", "RF"], ["OTHER"]];
+            foreach (var selected in selections)
+            foreach (var filter in sources)
+            {
+                var all = service.GetOptionProjections(enabledSources: filter);
+                string expected = JsonSerializer.Serialize(all.Where(module =>
+                    module.StageOrder == LifeModuleJourneyStageOrders.Nationality
+                    || selected.Contains(module.ModuleId, StringComparer.Ordinal)).ToArray());
+                Assert.AreEqual(expected, JsonSerializer.Serialize(
+                    fallback.GetFoundationOptionProjections(selected, filter)));
+                var callerIds = selected.ToList();
+                var options = service.GetFoundationOptionProjections(callerIds, filter);
+                Assert.AreEqual(expected, JsonSerializer.Serialize(options));
+                PoisonCollections(options);
+                callerIds.Clear();
+                Assert.AreEqual(expected, JsonSerializer.Serialize(
+                    service.GetFoundationOptionProjections(selected.Reverse().ToArray(), filter)));
+                Assert.AreEqual(JsonSerializer.Serialize(all), JsonSerializer.Serialize(
+                    service.GetOptionProjections(enabledSources: filter)));
+                Assert.AreEqual(JsonSerializer.Serialize(new XmlLifeModulesCatalogService(xmlPath)
+                    .GetOptionProjections("Teen Years", filter)), JsonSerializer.Serialize(
+                    service.GetOptionProjections("Teen Years", filter)));
+            }
+            Assert.HasCount(2, service.GetFoundationOptionProjections([selectedId])
+                .Where(module => module.ModuleId == selectedId).ToArray());
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Foundation_projection_avoids_projecting_unselected_later_module_details()
+    {
+        string path = FindCanonicalLifeModulesPath();
+        var expectedCatalog = new XmlLifeModulesCatalogService(path);
+        var all = expectedCatalog.GetOptionProjections();
+        string[] selected = all.Where(module => module.StageOrder != LifeModuleJourneyStageOrders.Nationality)
+            .Take(4).Select(module => module.ModuleId).ToArray();
+        // Warm XML snapshots, then compare only projection allocations, not
+        // wall-clock timing or JIT/filesystem startup.
+        var full = new XmlLifeModulesCatalogService(path);
+        var subset = new XmlLifeModulesCatalogService(path);
+        _ = full.GetAuthority();
+        _ = subset.GetAuthority();
+        _ = expectedCatalog.GetFoundationOptionProjections(selected);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = full.GetOptionProjections();
+        long fullBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        before = GC.GetAllocatedBytesForCurrentThread();
+        var actual = subset.GetFoundationOptionProjections(selected);
+        long subsetBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"Foundation catalog projection: full={fullBytes}, selected={subsetBytes} bytes.");
+        Assert.IsTrue(subsetBytes < fullBytes / 2, "Resume must not materialize the entire later catalog.");
+        Assert.AreEqual(JsonSerializer.Serialize(all.Where(module =>
+            module.StageOrder == LifeModuleJourneyStageOrders.Nationality || selected.Contains(module.ModuleId))),
+            JsonSerializer.Serialize(actual));
+    }
+
+    private sealed class FullProjectionCatalog(ILifeModulesCatalogService inner) : ILifeModulesCatalogService
+    {
+        public LifeModuleCatalogAuthorityDto GetAuthority() => inner.GetAuthority();
+        public IReadOnlyList<LifeModuleStageDto> GetStages() => inner.GetStages();
+        public IReadOnlyList<LifeModuleSummaryDto> GetModules(string? stage = null) => inner.GetModules(stage);
+        public IReadOnlyList<LifeModuleLegalOptionDto> GetOptionProjections(string? stage = null,
+            IReadOnlyCollection<string>? enabledSources = null) => inner.GetOptionProjections(stage, enabledSources);
+    }
+
     [TestMethod]
     public void GetOptionProjections_reuses_projection_work_without_reusing_caller_state()
     {

@@ -308,6 +308,12 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             };
             Assert.IsTrue(store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(id,
                 workspace.ContentRevision, workspace.Document.AuxiliaryStateDigest, document).Success);
+            var foundation = CreateService(new FileWorkspaceStore(directory)).Load(new(id));
+            Assert.IsNotNull(foundation.Value);
+            Assert.IsFalse(foundation.Value.LifeModuleBudget.IsExact,
+                "The reduced resume projection must still reject rehashed selected-module cost tampering.");
+            CollectionAssert.Contains(foundation.Value.AuthorityBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetPendingDraftAuthorityRequired);
             var reopened = CreateService(new FileWorkspaceStore(directory)).LoadJourney(new(id));
             Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, reopened.Outcome);
             CollectionAssert.Contains(reopened.Blockers.ToList(),
