@@ -35,7 +35,9 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
             || !FixedTimeEquals(draft.BaseRawCharacterXmlDigest, rawCharacterXmlDigest)
             || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
                 draft.AuthorityDigest)
-            || !FixedTimeEquals(draft.AuthorityDigest, authority.AuthorityDigest)
+            || !(FixedTimeEquals(draft.AuthorityDigest, authority.AuthorityDigest)
+                || draft.HeritageSelection is { MetatypeName: "Human", MetavariantSourceId: null, RacialQualitySources: null }
+                && CharacterCreationPriorityAuthorityCompatibility.MatchesLegacyHumanCatalog(draft.AuthorityDigest, authority))
             || !string.Equals(draft.BuildMethod, authority.BuildMethod, StringComparison.Ordinal)
             || !string.Equals(
                 draft.SettingsProfileId,
@@ -164,7 +166,8 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
                     heritageMatches[0].MetatypeSourceNodeDigest,
                     heritageMatches[0].SourceAnchorIds.ToArray())
                 {
-                    Movement = heritageMatches[0].Movement
+                    Movement = heritageMatches[0].Movement,
+                    RacialQualitySources = heritageMatches[0].RacialQualitySources
                 })
             || draft.CreationKarmaUsed != heritageMatches[0].KarmaCost
             || expectedTalentSelection is null

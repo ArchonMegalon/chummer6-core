@@ -20,6 +20,8 @@ internal static class CharacterCreationTalentQualityGrants
         if (prerequisite.TalentSelection is not { } selected
             || selected.GrantedQualities is null)
             return false;
+        if (!TryBindRacial(prerequisite, context, original, out original)) return false;
+        authority = original;
         if (selected.GrantedQualities.Count == 0)
             return true;
         if (!TryResolveTalent(prerequisite, context, out var magic, out var talent)) return false;
@@ -46,6 +48,42 @@ internal static class CharacterCreationTalentQualityGrants
                 TalentSourceDigest = talent.SourceNodeDigest,
                 GrantDigests = grants.Select(item => item.GrantDigest).ToArray()
             }),
+            AuthorityDigest = string.Empty
+        };
+        authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        return true;
+    }
+
+    private static bool TryBindRacial(CharacterCreationPrerequisiteDraft prerequisite,
+        ICharacterSourceDataContext context, CharacterCreationQualitiesAuthority original,
+        out CharacterCreationQualitiesAuthority authority)
+    {
+        authority = original;
+        if (prerequisite.HeritageSelection?.RacialQualitySources is not { } sources) return true;
+        if (!context.TryResolveCreationPrerequisiteAuthority(out var current)
+            || !current.IsAuthoritative || current.Blockers.Count != 0
+            || current.AuthorityDigest != prerequisite.AuthorityDigest) return false;
+        var matches = current.Options.SelectMany(option => option.HeritageOptions)
+            .Where(option => option.SelectionId == prerequisite.HeritageSelection.SelectionId).Take(2).ToArray();
+        if (matches.Length != 1 || matches[0] is not { IsEnabled: true, Blockers.Count: 0 } heritage
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(heritage.RacialQualitySources, sources)
+            || !CharacterCreationPriorityRacialQualities.TryProject(sources, prerequisite.DraftDigest, out _)) return false;
+        var grants = new List<CharacterCreationGrantedQuality>();
+        foreach (var source in sources)
+        {
+            if (!TryProject(source, prerequisite.DraftDigest, out var projected)) return false;
+            var grant = projected with { GrantId = "priority-racial:" + projected.GrantId, GrantDigest = string.Empty };
+            grants.Add(grant with { GrantDigest = CharacterCreationQualitiesRules.ComputeGrantDigest(grant) });
+        }
+        if (grants.Any(grant => original.GrantedQualities.Any(existing => existing.SelectionKey == grant.SelectionKey))) return false;
+        authority = original with
+        {
+            GrantedQualities = original.GrantedQualities.Concat(grants).OrderBy(item => item.GrantId, StringComparer.Ordinal).ToArray(),
+            SourceAnchorIds = original.SourceAnchorIds.Concat(grants.SelectMany(item => item.SourceAnchorIds))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+            RuntimeDigest = CharacterCreationMagicResonanceDigest.Compute(new
+            { Schema = "chummer.sr5.creation_quality_racial_budget/v1", BaseRuntimeDigest = original.RuntimeDigest,
+                prerequisite.AuthorityDigest, GrantDigests = grants.Select(item => item.GrantDigest).ToArray() }),
             AuthorityDigest = string.Empty
         };
         authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };

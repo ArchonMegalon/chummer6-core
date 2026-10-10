@@ -3063,6 +3063,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _sourceInputs.RecordPrerequisiteProjection();
             var projected = CharacterCreationPrerequisiteAuthorityProjector.Project(
                 document, metatypesDocument, skillsDocument, projectionContext);
+            if (projected.IsAuthoritative && !_sourceInputs.HasSourceDrift
+                && TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string racialQualityDigest)
+                && TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var racialQualities))
+                projected = CharacterCreationPriorityRacialAuthority.Bind(projected, metatypesDocument,
+                    racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks);
             if ((projected.IsAuthoritative && blockers.Count == 0)
                 || (reusableMethodRejection && !projected.IsAuthoritative
                 && projected.Blockers.Count == 1
@@ -3141,7 +3146,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     Attributes = heritage.Attributes.ToArray(),
                     Blockers = heritage.Blockers.ToArray(),
-                    SourceAnchorIds = heritage.SourceAnchorIds.ToArray()
+                    SourceAnchorIds = heritage.SourceAnchorIds.ToArray(),
+                    RacialQualitySources = heritage.RacialQualitySources?.Select(quality => quality with
+                    {
+                        SourceAnchorIds = quality.SourceAnchorIds.ToArray(),
+                        GrantedGearSources = quality.GrantedGearSources?.Select(gear => gear with
+                            { SourceAnchorIds = gear.SourceAnchorIds.ToArray() }).ToArray()
+                    }).ToArray()
                 }).ToArray(),
                 TalentOptions = option.TalentOptions.Select(talent => talent with
                 {

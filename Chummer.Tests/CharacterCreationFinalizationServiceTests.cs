@@ -20,6 +20,71 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Elf", null)]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Ork", null)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Elf", null)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Ork", null)]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Elf", "Magician")]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Ork", "Adept")]
+    public void Priority_racial_qualities_finalize_once_and_survive_cold_reopen(string method, string metatype, string? talent)
+    {
+        using var context = ReadyContext.Create(true, buildMethod: method, metatypeName: metatype,
+            talentValue: talent, rankAssignments: talent is null ? null : new Dictionary<string, string>
+            {
+                [CharacterCreationPriorityCategoryIds.Heritage] = "A",
+                [CharacterCreationPriorityCategoryIds.Talent] = "B",
+                [CharacterCreationPriorityCategoryIds.Attributes] = "C",
+                [CharacterCreationPriorityCategoryIds.Skills] = "D",
+                [CharacterCreationPriorityCategoryIds.Resources] = "E"
+            });
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var heritage = before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!.HeritageSelection!;
+        Assert.AreEqual(metatype, heritage.MetatypeName);
+        Assert.HasCount(1, heritage.RacialQualitySources!);
+        var source = heritage.RacialQualitySources!.Single();
+        Assert.AreEqual("Low-Light Vision", source.Name);
+        var qualityService = new CharacterCreationQualitiesService(context.Store, context.Resolver,
+            new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver),
+            new CharacterCreationAttributesService(context.Store, context.Resolver));
+        var qualities = qualityService.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(qualities.CanEdit, string.Join(",", qualities.Blockers));
+        Assert.HasCount(talent is null ? 1 : 2, qualities.Preview.GrantedQualities);
+        Assert.IsTrue(qualities.Preview.GrantedQualities.All(item => !item.CountsAgainstKarma));
+        Assert.AreEqual(0, qualities.Preview.PositiveQualityBudget.Used);
+        foreach (var duplicate in qualities.Authority.Options.Where(item => item.SourceId.ToString("D") == source.SourceId))
+            Assert.IsFalse(qualityService.Preview(new(qualities.Binding, [duplicate.OptionId])).Value!.CanConfirm);
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        CollectionAssert.IsSubsetOf(source.SourceAnchorIds.ToArray(), review.Plan!.SourceAnchorIds.ToArray());
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan.PlanDigest, "racial-finalize", true) { StartingCash = review.Plan.StartingCash };
+        var applied = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using var cold = context.Restart();
+        var reopened = cold.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(reopened.Document.Content);
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.AreEqual(metatype, root.Element("metatype")!.Value);
+        Assert.AreEqual(talent is null ? 1 : 2, root.Element("qualities")!.Elements("quality").Count());
+        var racial = root.Element("qualities")!.Elements("quality")
+            .Single(item => item.Element("qualitysource")?.Value == "Metatype");
+        Assert.AreEqual(source.SourceId, racial.Element("sourceid")!.Value);
+        Assert.AreEqual(source.Name, racial.Element("name")!.Value);
+        Assert.AreEqual("Metatype", racial.Element("qualitysource")!.Value);
+        foreach (var expected in before.Document.AuxiliaryState.CharacterCreationAttributesDraft!.Attributes)
+        {
+            var saved = root.Element("attributes")!.Elements("attribute")
+                .Single(item => item.Element("name")!.Value == expected.AttributeId);
+            Assert.AreEqual(expected.Minimum.ToString(), saved.Element("metatypemin")!.Value);
+            Assert.AreEqual(expected.Maximum.ToString(), saved.Element("metatypemax")!.Value);
+        }
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, cold.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(reopened.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(reopened.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
     public void Warm_file_reads_reject_same_length_archive_tampering_and_return_fresh_graphs()
     {
         using var context = ReadyContext.Create(true);
@@ -2515,7 +2580,9 @@ public sealed class CharacterCreationFinalizationServiceTests
             IReadOnlyDictionary<string, string>? rankAssignments = null,
             bool includeSkillPurchase = false,
             bool legacyQualityCatalog = false,
-            string traditionName = "Hermetic")
+            string traditionName = "Hermetic",
+            string metatypeName = "Human",
+            Func<ICharacterSourceDataResolver, ICharacterSourceDataResolver>? wrapResolver = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -2544,6 +2611,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
                     new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
                 if (legacyQualityCatalog) resolver = new LegacyQualityCatalogResolver(resolver);
+                if (wrapResolver is not null) resolver = wrapResolver(resolver);
                 ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
                 var store = new FileWorkspaceStore(directory);
                 CharacterWorkspaceId workspaceId = beforeDrafts is null
@@ -2558,7 +2626,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     includeGearReview,
                     includeNonEmptyPurchases,
                     replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName,
-                    rankAssignments, includeSkillPurchase, traditionName);
+                    rankAssignments, includeSkillPurchase, traditionName, metatypeName);
                 return new ReadyContext(
                     directory,
                     store,
@@ -2692,7 +2760,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             string? qualityName = null,
             IReadOnlyDictionary<string, string>? rankAssignments = null,
             bool includeSkillPurchase = false,
-            string traditionName = "Hermetic")
+            string traditionName = "Hermetic",
+            string metatypeName = "Human")
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -2709,9 +2778,9 @@ public sealed class CharacterCreationFinalizationServiceTests
                 option => option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
                           && option.Rank == ranks[CharacterCreationPriorityCategoryIds.Heritage]);
             CharacterCreationPriorityHeritageOptionProjection heritage = heritageRank.HeritageOptions.First(
-                static option => option.IsEnabled
+                option => option.IsEnabled
                                  && option.MetavariantSourceId is null
-                                 && option.MetatypeName == "Human");
+                                 && option.MetatypeName == metatypeName);
             CharacterCreationPriorityOptionProjection talentRank = prerequisite.Authority.Options.Single(
                 option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
                           && option.Rank == ranks[CharacterCreationPriorityCategoryIds.Talent]);
