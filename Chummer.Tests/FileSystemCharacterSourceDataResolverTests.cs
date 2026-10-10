@@ -733,6 +733,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("gear")]
     [DataRow("life-magic")]
     [DataRow("lifestyles")]
+    [DataRow("metatypes")]
     public void Creation_completion_projection_reuse_detaches_collections_and_avoids_full_reprojection(string kind)
     {
         string root = FindCoreRoot();
@@ -756,6 +757,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             "Reuse must still revalidate live source bytes, not just metadata.");
         Assert.IsTrue(warmBytes < coldBytes / (kind == "life-talents" ? 10 : 2),
             $"Repeated {kind} projection allocated {warmBytes:N0} bytes versus {coldBytes:N0} on first read.");
+        if (kind == "metatypes")
+            Assert.IsLessThan(250_000L, warmBytes,
+                "A warm metatype lookup must not clone the full XML catalog (previously about 2.8 MB).");
         PoisonCompletionProjection(second);
         Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, kind)),
             "Neither the initial result nor a cache hit may expose the private projection.");
@@ -959,6 +963,63 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.AreEqual(gear, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "gear")));
             Assert.AreEqual(magic, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "life-magic")));
             Assert.AreEqual(lifestyles, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "lifestyles")));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(SettingsId, 3)]
+    [DataRow(CanonicalSumToTenSettingsId, 3)]
+    [DataRow(CanonicalLifeModuleSettingsId, 3)]
+    [DataRow("fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef", 5)]
+    public void Metatype_catalog_cache_preserves_profiles_and_karma_base_bonuses(string profile, int options)
+    {
+        var context = CreateContext(FindCoreRoot(), $"<character><settings>{profile}</settings></character>")!;
+        var first = (CharacterCreationMetatypeCatalogAuthority)ReadCompletionProjection(context, "metatypes");
+        Assert.HasCount(options, first.Options);
+        string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        if (options == 5)
+            Assert.IsNotNull(first.Options.Single(option => option.Label == "Troll").BaseBonuses);
+        Assert.IsTrue(PoisonCompletionProjection(first));
+        var second = (CharacterCreationMetatypeCatalogAuthority)ReadCompletionProjection(context, "metatypes");
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.IsTrue(PoisonCompletionProjection(second));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "metatypes")));
+    }
+
+    [TestMethod]
+    [DataRow("metatypes.xml", true)]
+    [DataRow("metatypes.xml", false)]
+    [DataRow("settings.xml", true)]
+    [DataRow("settings.xml", false)]
+    public void Metatype_catalog_cache_rejects_same_length_source_drift_and_ABA(string fileName, bool strongIdentity)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, strongIdentity);
+            string xml = $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
+            var context = resolver.TryCreateContext(xml)!;
+            string expected = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "metatypes"));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "metatypes")));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            byte[] changed = original.ToArray();
+            int newline = Array.IndexOf(changed, (byte)'\n');
+            Assert.IsGreaterThanOrEqualTo(0, newline);
+            changed[newline] = (byte)' ';
+            File.WriteAllBytes(path, changed);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationMetatypeCatalog(out var drifted) && drifted.IsAuthoritative);
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationMetatypeCatalog(out var restored) && restored.IsAuthoritative,
+                "An observed drift must remain poisoned even when the original source is restored.");
+            var fresh = resolver.TryCreateContext(xml)!;
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(fresh, "metatypes")));
         }
         finally { DeleteTempDirectory(root); }
     }
@@ -1225,6 +1286,12 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
     private static object ReadCompletionProjection(ICharacterSourceDataContext context, string kind)
     {
+        if (kind == "metatypes")
+        {
+            Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(out var metatypes));
+            Assert.IsTrue(metatypes.IsAuthoritative, string.Join(",", metatypes.Blockers));
+            return metatypes;
+        }
         if (kind == "life-talents")
         {
             Assert.IsTrue(context.TryResolveCreationLifeModuleTalents(out var talents));
@@ -1273,6 +1340,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("life-magic", true)]
     [DataRow("lifestyles", false)]
     [DataRow("lifestyles", true)]
+    [DataRow("metatypes", false)]
+    [DataRow("metatypes", true)]
     public async Task Creation_completion_projection_parallel_readers_do_not_share_mutable_results(string kind, bool warm)
     {
         string root = FindCoreRoot();
@@ -1330,7 +1399,29 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             }
             ReplaceFirst(talents.Options, row => row with { KarmaCost = -1 });
         }
-        if (projection is CharacterCreationSkillsCatalog catalog)
+        if (projection is CharacterCreationMetatypeCatalogAuthority metatypes)
+        {
+            Poison(metatypes.Blockers);
+            Poison(metatypes.SourceContext.EnabledSourcebooks);
+            Poison(metatypes.SourceContext.SourceAnchorIds);
+            Poison(metatypes.SourceContext.Blockers);
+            foreach (var option in metatypes.Options)
+            {
+                Poison(option.SourceAnchorIds);
+                Poison(option.Blockers);
+                ReplaceFirst(option.Attributes, attribute => attribute with { Minimum = -999 });
+                foreach (var quality in option.GrantedQualities) Poison(quality.SourceAnchorIds);
+                ReplaceFirst(option.GrantedQualities, quality => quality with { Name = "caller-poison" });
+                foreach (var variant in option.ExcludedMetavariants)
+                {
+                    Poison(variant.Blockers);
+                    Poison(variant.SourceAnchorIds);
+                }
+                ReplaceFirst(option.ExcludedMetavariants, variant => variant with { Label = "caller-poison" });
+            }
+            ReplaceFirst(metatypes.Options, option => option with { KarmaCost = -1 });
+        }
+        else if (projection is CharacterCreationSkillsCatalog catalog)
         {
             Poison(catalog.SourceAnchorIds);
             Poison(catalog.ActiveSkillSourceOrder);

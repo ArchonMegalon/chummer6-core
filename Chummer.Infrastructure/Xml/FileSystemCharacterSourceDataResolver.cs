@@ -1831,6 +1831,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
         private readonly object _completionProjectionSync = new();
+        private CharacterCreationMetatypeCatalogAuthority? _creationMetatypeCatalogSnapshot;
         private readonly Dictionary<int, CharacterCreationQualitiesAuthority> _priorityQualitiesSnapshots = new();
         private CharacterCreationMagicResonanceAuthority? _priorityMagicAuthoritySnapshot;
         private CharacterCreationFoundationEffectSources? _foundationEffectSourcesSnapshot;
@@ -5761,8 +5762,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     _catalog,
                     "metatypes.xml",
                     out string currentEffectiveMetatypesInputsDigest)
-                || !TryLoadEffectiveDocument(_catalog, "metatypes.xml", out XDocument? document)
-                || document?.Root is null
                 || !TryHasEnabledOverlayInput(
                     _catalog,
                     "metatypes.xml",
@@ -5856,10 +5855,62 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && _metatypeKarmaMultiplier.HasValue
                     && _minimumInitiativeDice.HasValue
                     && _droneMods.HasValue);
+            CharacterCreationMetatypeCatalogAuthority? cached;
+            lock (_completionProjectionSync) { cached = _creationMetatypeCatalogSnapshot; }
+            if (sourceContext.IsAuthoritative && !_sourceInputs.HasSourceDrift && cached is not null)
+            {
+                // This context owns one exact character/source snapshot. All live
+                // file/profile/overlay checks above still run on every lookup.
+                // Do not clone the complete metatypes XML just to reproject the
+                // same few choices; callers receive detached collections instead.
+                var detached = CopyMetatypeCatalog(cached);
+                if (!_sourceInputs.HasSourceDrift)
+                {
+                    authority = detached;
+                    return true;
+                }
+                return false;
+            }
+            if (!TryLoadEffectiveDocument(_catalog, "metatypes.xml", out XDocument? document)
+                || document?.Root is null)
+                return false;
+
             authority = CharacterCreationMetatypeCatalogProjector.Project(document, sourceContext,
                 includeKarmaBaseBonuses: _buildMethod == CharacterCreationBuildMethods.Karma);
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            {
+                var frozen = CopyMetatypeCatalog(authority);
+                lock (_completionProjectionSync) { _creationMetatypeCatalogSnapshot = frozen; }
+            }
             return true;
         }
+
+        private static CharacterCreationMetatypeCatalogAuthority CopyMetatypeCatalog(
+            CharacterCreationMetatypeCatalogAuthority source) => source with
+        {
+            SourceContext = source.SourceContext with
+            {
+                EnabledSourcebooks = source.SourceContext.EnabledSourcebooks.ToArray(),
+                SourceAnchorIds = source.SourceContext.SourceAnchorIds.ToArray(),
+                Blockers = source.SourceContext.Blockers.ToArray()
+            },
+            Options = source.Options.Select(option => option with
+            {
+                Attributes = option.Attributes.ToArray(),
+                GrantedQualities = option.GrantedQualities.Select(quality => quality with
+                {
+                    SourceAnchorIds = quality.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                ExcludedMetavariants = option.ExcludedMetavariants.Select(variant => variant with
+                {
+                    Blockers = variant.Blockers.ToArray(),
+                    SourceAnchorIds = variant.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                Blockers = option.Blockers.ToArray(),
+                SourceAnchorIds = option.SourceAnchorIds.ToArray()
+            }).ToArray(),
+            Blockers = source.Blockers.ToArray()
+        };
 
         public bool TryResolveGroupMembershipKarmaCosts(out int joinCost, out int leaveCost)
         {
