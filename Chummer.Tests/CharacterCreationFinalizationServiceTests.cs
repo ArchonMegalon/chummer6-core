@@ -2408,7 +2408,9 @@ public sealed class CharacterCreationFinalizationServiceTests
         var before = context.Store.Get(context.WorkspaceId).Value!;
         var state = finalizer.Load(new(context.WorkspaceId)).Value!;
         Assert.IsFalse(state.CanReview);
-        foreach (string id in new[] { CharacterCreationWizardStepIds.Qualities,
+        foreach (string id in new[] { CharacterCreationWizardStepIds.Attributes,
+                     CharacterCreationWizardStepIds.Skills, CharacterCreationWizardStepIds.Resources,
+                     CharacterCreationWizardStepIds.Qualities,
                      CharacterCreationWizardStepIds.MagicResonance, "gear" })
         {
             var step = state.Steps.Single(item => item.StepId == id);
@@ -2464,10 +2466,15 @@ public sealed class CharacterCreationFinalizationServiceTests
             new CharacterCreationMagicResonanceService(context.Store, context.Resolver), out var magicReads);
         var gear = FinalizationDomainReadProbe.Wrap<ICharacterCreationGearService>(
             new CharacterCreationGearService(context.Store, context.Resolver), out var gearReads);
-        reads = [qualityReads, magicReads, gearReads];
-        return new CharacterCreationFinalizationService(context.Store, context.Queries, prerequisites, attributes,
-            new CharacterCreationSkillsService(context.Store, context.Resolver), qualities, magic,
-            new CharacterCreationResourcesService(context.Store, context.Resolver), gear, context.Resolver);
+        var attributeService = FinalizationDomainReadProbe.Wrap<ICharacterCreationAttributesService>(
+            attributes, out var attributeReads);
+        var skills = FinalizationDomainReadProbe.Wrap<ICharacterCreationSkillsService>(
+            new CharacterCreationSkillsService(context.Store, context.Resolver), out var skillReads);
+        var resources = FinalizationDomainReadProbe.Wrap<ICharacterCreationResourcesService>(
+            new CharacterCreationResourcesService(context.Store, context.Resolver), out var resourceReads);
+        reads = [attributeReads, skillReads, resourceReads, qualityReads, magicReads, gearReads];
+        return new CharacterCreationFinalizationService(context.Store, context.Queries, prerequisites, attributeService,
+            skills, qualities, magic, resources, gear, context.Resolver);
     }
 
     public class FinalizationDomainReadProbe : System.Reflection.DispatchProxy

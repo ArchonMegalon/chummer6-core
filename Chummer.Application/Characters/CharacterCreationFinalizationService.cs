@@ -485,16 +485,22 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
 
         CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> prerequisites =
             _prerequisites.Load(new CharacterCreationPrerequisiteLoadRequest(workspace.Id));
-        CharacterCreationFoundationResult<CharacterCreationAttributesState> attributes =
-            _attributes.Load(new CharacterCreationAttributesLoadRequest(workspace.Id));
-        CharacterCreationFoundationResult<CharacterCreationSkillsState> skills =
-            _skills.Load(new CharacterCreationSkillsLoadRequest(workspace.Id));
         // Readiness does not need choice catalogs for drafts that do not exist.
         // Missing drafts still produce required, incomplete steps below; this
         // never supplies a snapshot, source anchors, or an actionable plan.
         // Existing drafts always take the full fresh authority path, including
         // magic drafts on Mundane characters (which must still be validated).
         WorkspaceDocumentAuxiliaryState auxiliary = workspace.Document.AuxiliaryState;
+        CharacterCreationFoundationResult<CharacterCreationAttributesState> attributes =
+            auxiliary.CharacterCreationAttributesDraft is null
+                ? new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationFinalizationBlockers.AttributesDraftRequired])
+                : _attributes.Load(new CharacterCreationAttributesLoadRequest(workspace.Id));
+        CharacterCreationFoundationResult<CharacterCreationSkillsState> skills =
+            auxiliary.CharacterCreationSkillsDraft is null
+                ? new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationFinalizationBlockers.SkillsDraftRequired])
+                : _skills.Load(new CharacterCreationSkillsLoadRequest(workspace.Id));
         CharacterCreationFoundationResult<CharacterCreationQualitiesState> qualities =
             auxiliary.CharacterCreationQualitiesDraft is null
                 ? new(CharacterCreationFoundationOutcomes.Blocked, null,
@@ -508,7 +514,10 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         bool magicRequired = !CharacterCreationFinalizationProjector.IsMundaneTalent(
             prerequisites.Value?.PendingDraft);
         CharacterCreationResourcesResult<CharacterCreationResourcesState> resources =
-            _resources.Load(new CharacterCreationResourcesLoadRequest(workspace.Id));
+            auxiliary.CharacterCreationResourcesDraft is null
+                ? new(CharacterCreationResourcesOutcomes.Blocked, null,
+                    [CharacterCreationFinalizationBlockers.ResourcesDraftRequired])
+                : _resources.Load(new CharacterCreationResourcesLoadRequest(workspace.Id));
         CharacterCreationGearResult<CharacterCreationGearState> gear =
             auxiliary.CharacterCreationGearDraft is null
                 ? new(CharacterCreationGearOutcomes.Blocked, null,
