@@ -11,6 +11,117 @@ namespace Chummer.Tests;
 public class LifeModuleOriginDossierServiceTests
 {
     [TestMethod]
+    public void Preview_scratch_preserves_legacy_hashes_after_large_unicode_and_short_items()
+    {
+        var basis = CreateChoice("choice-a", "Street path").MechanicsPreview;
+        var item = basis.Items[0];
+        var preview = basis with
+        {
+            Items = [item with { EffectId = "z", AfterValue = string.Concat(Enumerable.Repeat("ä雪\"\n<&", 12_000)) },
+                item with { EffectId = "a", AfterValue = "2" },
+                item with { EffectId = "a", AfterValue = "3" }, item],
+            PendingFollowUpIds = ["answer"],
+            KarmaRaw = "15\"<&雪"
+        };
+        var result = LifeModuleOriginDossierService.SealPreview(preview);
+        foreach (var effect in result.Items)
+        {
+            Assert.AreEqual(LegacyDigest(writer =>
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("budgetDelta", effect.BudgetDelta);
+                writer.WriteString("domain", effect.Domain);
+                writer.WriteString("effectId", effect.EffectId);
+                writer.WriteString("targetId", effect.TargetId);
+                writer.WriteString("beforeValue", effect.BeforeValue);
+                writer.WriteString("afterValue", effect.AfterValue);
+                Strings(writer, "sourceAnchorIds", effect.SourceAnchorIds);
+                writer.WriteEndObject();
+            }), effect.ItemDigest);
+        }
+        Assert.AreEqual(LegacyDigest(writer =>
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("karmaCost", result.KarmaCost);
+            writer.WriteString("karmaRaw", result.KarmaRaw);
+            writer.WriteBoolean("karmaIsExact", result.KarmaIsExact);
+            Strings(writer, "itemDigests", result.Items.Select(value => value.ItemDigest));
+            Strings(writer, "pendingFollowUpIds", result.PendingFollowUpIds);
+            Strings(writer, "sourceAnchorIds", result.SourceAnchorIds);
+            writer.WriteEndObject();
+        }), result.PreviewDigest);
+        CollectionAssert.AreEqual(new[] { "a", "a", item.EffectId, "z" },
+            result.Items.Select(value => value.EffectId).ToArray());
+        Assert.IsTrue(StringComparer.Ordinal.Compare(result.Items[0].ItemDigest, result.Items[1].ItemDigest) <= 0);
+
+        static string LegacyDigest(Action<Utf8JsonWriter> write)
+        {
+            using var bytes = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(bytes)) { write(writer); writer.Flush(); }
+            return Convert.ToHexStringLower(SHA256.HashData(bytes.ToArray()));
+        }
+        static void Strings(Utf8JsonWriter writer, string name, IEnumerable<string> values)
+        {
+            writer.WriteStartArray(name);
+            foreach (string value in values) writer.WriteStringValue(value);
+            writer.WriteEndArray();
+        }
+    }
+
+    [TestMethod]
+    public void Turn_scratch_is_isolated_for_nested_parallel_and_failed_projections()
+    {
+        var steps = Enumerable.Range(0, 8).Select(index =>
+            CreateInitialStep(CreateChoice($"choice-{index}", $"Path {index}")) with
+            { OwnerId = $"owner-{index}", RunnerDisplayName = $"Runner {index}" }).ToArray();
+        string Project(LifeModuleDecisionAuthorityStep step)
+        {
+            Assert.IsTrue(LifeModuleOriginDossierService.TryCreateTurn(step, out var turn));
+            return JsonSerializer.Serialize(turn);
+        }
+        string[] expected = steps.Select(Project).ToArray();
+        var choice = steps[0].LegalChoices[0];
+        LifeModuleFollowUpPromptDto[] prompts =
+            [new("city", new string('x', 10_000), "text", true, [], ["source"], "effect", "city")];
+        var plain = steps[0] with { LegalChoices = [choice with { FollowUps = prompts }] };
+        string expectedNested = Project(plain);
+        int nestedCalls = 0;
+        var nested = plain with { LegalChoices = [choice with
+        {
+            FollowUps = new CallbackPrompts(prompts, () =>
+            {
+                nestedCalls++;
+                Assert.AreEqual(expected[1], Project(steps[1]));
+            })
+        }] };
+        Assert.AreEqual(expectedNested, Project(nested));
+        Assert.IsTrue(nestedCalls > 0);
+
+        // Fail after writing the large first prompt, not before buffer use.
+        var broken = plain with { LegalChoices = [choice with
+        {
+            FollowUps = new CallbackPrompts(prompts, () => throw new InvalidOperationException("synthetic"))
+        }] };
+        Assert.ThrowsExactly<InvalidOperationException>(() => Project(broken));
+        Parallel.For(0, 32, index => Assert.AreEqual(expected[index % steps.Length], Project(steps[index % steps.Length])));
+        Assert.AreEqual(expectedNested, Project(plain));
+    }
+
+    private sealed class CallbackPrompts(
+        IReadOnlyList<LifeModuleFollowUpPromptDto> values, Action afterRead)
+        : IReadOnlyList<LifeModuleFollowUpPromptDto>
+    {
+        public int Count => values.Count;
+        public LifeModuleFollowUpPromptDto this[int index] => values[index];
+        public IEnumerator<LifeModuleFollowUpPromptDto> GetEnumerator()
+        {
+            foreach (var value in values) yield return value;
+            afterRead();
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    [TestMethod]
     public void Historical_anchor_normalization_keeps_ordinal_digests_and_detaches_each_snapshot()
     {
         string[][] inputs =
@@ -79,8 +190,8 @@ public class LifeModuleOriginDossierServiceTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Console.WriteLine($"Fresh turn projection allocated bytes: {allocated}");
         Assert.AreEqual(expected, JsonSerializer.Serialize(measured));
-        Assert.IsTrue(allocated < 1_800_000,
-            $"Historical anchor normalization must avoid per-effect set/sort pipelines; allocated {allocated:N0} bytes.");
+        Assert.IsTrue(allocated < 1_250_000,
+            $"Projection must reuse local digest scratch instead of a writer per effect; allocated {allocated:N0} bytes.");
         // Public restore still independently revalidates every constructed digest.
         var service = new LifeModuleOriginDossierService(new FakeDecisionAuthority(step));
         var projection = AssertSuccess(service.Project("workspace-1"));

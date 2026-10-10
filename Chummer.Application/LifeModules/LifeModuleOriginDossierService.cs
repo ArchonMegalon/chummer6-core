@@ -528,8 +528,11 @@ public sealed partial class LifeModuleOriginDossierService
             return false;
         }
 
+        // One scratch writer per projection, never per account/process. Every
+        // historical effect still gets a fresh hash over its current bytes.
+        using var digests = new NarrativeDigestWriter();
         LifeModuleNarrativeChoiceSeed[] choices = step.LegalChoices
-            .Select(ProjectChoice)
+            .Select(choice => ProjectChoice(choice, digests))
             .OrderBy(static choice => choice.ChoiceId, StringComparer.Ordinal)
             .ToArray();
         // ProjectChoice owns the normalized preview/items/anchor arrays and
@@ -537,9 +540,9 @@ public sealed partial class LifeModuleOriginDossierService
         // hashes a second time. FollowUps is caller-owned, so retain the
         // second choice digest check when that shared input is present.
         // Persisted/caller-supplied turns still use TryValidateChoice below.
-        if (choices.Any(static choice => !HasValidChoiceShape(choice)
+        if (choices.Any(choice => !HasValidChoiceShape(choice)
                 || (choice.FollowUps is not null
-                    && !DigestsEqual(choice.ChoiceDigest, ComputeChoiceDigest(choice))))
+                    && !DigestsEqual(choice.ChoiceDigest, ComputeChoiceDigest(choice, digests))))
             || choices.Select(static choice => choice.ChoiceId)
                 .Distinct(StringComparer.Ordinal).Count() != choices.Length
             || choices.Any(static choice => !IsCanonicalDigest(choice.DecisionCommandDigest)))
@@ -548,7 +551,7 @@ public sealed partial class LifeModuleOriginDossierService
         }
 
         OriginCanonicalNarrativeFact[] facts = step.CanonicalFacts
-            .Select(SealFact)
+            .Select(fact => SealFact(fact, digests))
             .OrderBy(static fact => fact.FactId, StringComparer.Ordinal)
             .ThenBy(static fact => fact.FactDigest, StringComparer.Ordinal)
             .ToArray();
@@ -596,14 +599,15 @@ public sealed partial class LifeModuleOriginDossierService
         {
             IsTerminal = step.IsTerminal
         };
-        turn = candidate with { SeedDigest = ComputeTurnSeedDigest(candidate) };
+        turn = candidate with { SeedDigest = ComputeTurnSeedDigest(candidate, digests) };
         return true;
     }
 
     private static LifeModuleNarrativeChoiceSeed ProjectChoice(
-        LifeModuleDecisionAuthorityChoice authority)
+        LifeModuleDecisionAuthorityChoice authority,
+        NarrativeDigestWriter digests)
     {
-        LifeModuleMechanicsPreview preview = SealPreview(authority.MechanicsPreview);
+        LifeModuleMechanicsPreview preview = SealPreview(authority.MechanicsPreview, digests);
         string[] anchors = NormalizeStrings(authority.SourceAnchorIds);
         string[] blockers = NormalizeStrings(authority.Blockers);
         var choice = new LifeModuleNarrativeChoiceSeed(
@@ -618,13 +622,21 @@ public sealed partial class LifeModuleOriginDossierService
             blockers,
             authority.IsLegal,
             string.Empty) { FollowUps = authority.FollowUps };
-        return choice with { ChoiceDigest = ComputeChoiceDigest(choice) };
+        return choice with { ChoiceDigest = ComputeChoiceDigest(choice, digests) };
     }
 
     internal static LifeModuleMechanicsPreview SealPreview(LifeModuleMechanicsPreview preview)
     {
+        using var digests = new NarrativeDigestWriter();
+        return SealPreview(preview, digests);
+    }
+
+    private static LifeModuleMechanicsPreview SealPreview(
+        LifeModuleMechanicsPreview preview,
+        NarrativeDigestWriter digests)
+    {
         LifeModuleMechanicsPreviewItem[] items = (preview?.Items ?? [])
-            .Select(SealPreviewItem)
+            .Select(item => SealPreviewItem(item, digests))
             .OrderBy(static item => item.EffectId, StringComparer.Ordinal)
             .ThenBy(static item => item.ItemDigest, StringComparer.Ordinal)
             .ToArray();
@@ -638,12 +650,13 @@ public sealed partial class LifeModuleOriginDossierService
             string.Empty);
         return sealedPreview with
         {
-            PreviewDigest = ComputeMechanicsPreviewDigest(sealedPreview)
+            PreviewDigest = ComputeMechanicsPreviewDigest(sealedPreview, digests)
         };
     }
 
     private static LifeModuleMechanicsPreviewItem SealPreviewItem(
-        LifeModuleMechanicsPreviewItem item)
+        LifeModuleMechanicsPreviewItem item,
+        NarrativeDigestWriter digests)
     {
         var sealedItem = new LifeModuleMechanicsPreviewItem(
             item?.EffectId?.Trim() ?? string.Empty,
@@ -654,10 +667,18 @@ public sealed partial class LifeModuleOriginDossierService
             item?.BudgetDelta ?? 0,
             NormalizeStrings(item?.SourceAnchorIds),
             string.Empty);
-        return sealedItem with { ItemDigest = ComputeMechanicsPreviewItemDigest(sealedItem) };
+        return sealedItem with { ItemDigest = ComputeMechanicsPreviewItemDigest(sealedItem, digests) };
     }
 
     private static OriginCanonicalNarrativeFact SealFact(OriginCanonicalNarrativeFact fact)
+    {
+        using var digests = new NarrativeDigestWriter();
+        return SealFact(fact, digests);
+    }
+
+    private static OriginCanonicalNarrativeFact SealFact(
+        OriginCanonicalNarrativeFact fact,
+        NarrativeDigestWriter digests)
     {
         var sealedFact = new OriginCanonicalNarrativeFact(
             fact?.FactId?.Trim() ?? string.Empty,
@@ -666,7 +687,7 @@ public sealed partial class LifeModuleOriginDossierService
             fact?.AcceptedDecisionId?.Trim() ?? string.Empty,
             NormalizeStrings(fact?.SourceAnchorIds),
             string.Empty);
-        return sealedFact with { FactDigest = ComputeFactDigest(sealedFact) };
+        return sealedFact with { FactDigest = ComputeFactDigest(sealedFact, digests) };
     }
 
     private static bool TryValidateProjection(OriginStoryArcSeed seed)
@@ -836,8 +857,9 @@ public sealed partial class LifeModuleOriginDossierService
            && fact.SourceAnchorIds is not null
            && fact.SourceAnchorIds.Count != 0;
 
-    private static string ComputeMechanicsPreviewItemDigest(LifeModuleMechanicsPreviewItem item)
-        => ComputeDigest(writer =>
+    private static string ComputeMechanicsPreviewItemDigest(
+        LifeModuleMechanicsPreviewItem item, NarrativeDigestWriter? digests = null)
+        => ComputeDigest(item, static (writer, item) =>
         {
             writer.WriteStartObject();
             writer.WriteNumber("budgetDelta", item.BudgetDelta);
@@ -848,10 +870,11 @@ public sealed partial class LifeModuleOriginDossierService
             writer.WriteString("afterValue", item.AfterValue);
             WriteStringArray(writer, "sourceAnchorIds", item.SourceAnchorIds);
             writer.WriteEndObject();
-        });
+        }, digests);
 
-    private static string ComputeMechanicsPreviewDigest(LifeModuleMechanicsPreview preview)
-        => ComputeDigest(writer =>
+    private static string ComputeMechanicsPreviewDigest(
+        LifeModuleMechanicsPreview preview, NarrativeDigestWriter? digests = null)
+        => ComputeDigest(preview, static (writer, preview) =>
         {
             writer.WriteStartObject();
             writer.WriteNumber("karmaCost", preview.KarmaCost);
@@ -861,10 +884,11 @@ public sealed partial class LifeModuleOriginDossierService
             WriteStringArray(writer, "pendingFollowUpIds", preview.PendingFollowUpIds);
             WriteStringArray(writer, "sourceAnchorIds", preview.SourceAnchorIds);
             writer.WriteEndObject();
-        });
+        }, digests);
 
-    private static string ComputeChoiceDigest(LifeModuleNarrativeChoiceSeed choice)
-        => ComputeDigest(writer =>
+    private static string ComputeChoiceDigest(
+        LifeModuleNarrativeChoiceSeed choice, NarrativeDigestWriter? digests = null)
+        => ComputeDigest(choice, static (writer, choice) =>
         {
             writer.WriteStartObject();
             writer.WriteString("choiceId", choice.ChoiceId);
@@ -882,10 +906,11 @@ public sealed partial class LifeModuleOriginDossierService
                 JsonSerializer.Serialize(writer, choice.FollowUps);
             }
             writer.WriteEndObject();
-        });
+        }, digests);
 
-    private static string ComputeFactDigest(OriginCanonicalNarrativeFact fact)
-        => ComputeDigest(writer =>
+    private static string ComputeFactDigest(
+        OriginCanonicalNarrativeFact fact, NarrativeDigestWriter? digests = null)
+        => ComputeDigest(fact, static (writer, fact) =>
         {
             writer.WriteStartObject();
             writer.WriteString("factId", fact.FactId);
@@ -894,10 +919,11 @@ public sealed partial class LifeModuleOriginDossierService
             writer.WriteString("acceptedDecisionId", fact.AcceptedDecisionId);
             WriteStringArray(writer, "sourceAnchorIds", fact.SourceAnchorIds);
             writer.WriteEndObject();
-        });
+        }, digests);
 
-    private static string ComputeTurnSeedDigest(LifeModuleNarrativeTurnSeed turn)
-        => ComputeDigest(writer =>
+    private static string ComputeTurnSeedDigest(
+        LifeModuleNarrativeTurnSeed turn, NarrativeDigestWriter? digests = null)
+        => ComputeDigest(turn, static (writer, turn) =>
         {
             writer.WriteStartObject();
             writer.WriteString("schema", turn.Schema);
@@ -927,7 +953,7 @@ public sealed partial class LifeModuleOriginDossierService
             writer.WriteString("rulesDigest", turn.RulesDigest);
             writer.WriteString("runtimeDigest", turn.RuntimeDigest);
             writer.WriteEndObject();
-        });
+        }, digests);
 
     private static string ComputeChapterDigest(OriginNarrativeChapterProjection chapter)
         => ComputeDigest(writer =>
@@ -1034,16 +1060,44 @@ public sealed partial class LifeModuleOriginDossierService
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     private static string ComputeDigest(Action<Utf8JsonWriter> write)
+        => ComputeDigest(write, static (writer, action) => action(writer));
+
+    private static string ComputeDigest<T>(
+        T value, Action<Utf8JsonWriter, T> write, NarrativeDigestWriter? digests = null)
     {
-        using var buffer = new NarrativeDigestBuffer();
-        using (var writer = new Utf8JsonWriter(buffer))
+        if (digests is not null) return digests.Compute(value, write);
+        using var owned = new NarrativeDigestWriter();
+        return owned.Compute(value, write);
+    }
+
+    // A restore projects thousands of small effect hashes. Reusing this local
+    // writer avoids allocating one writer/buffer pair and clearing a rental for
+    // every effect. No input, digest or scratch writer is cached across calls.
+    // Nested/concurrent projections own separate instances. Exceptions unwind
+    // the using scope and return cleared bytes just like successful completion.
+    private sealed class NarrativeDigestWriter : IDisposable
+    {
+        private readonly NarrativeDigestBuffer _buffer = new();
+        private readonly Utf8JsonWriter _writer;
+
+        public NarrativeDigestWriter() => _writer = new Utf8JsonWriter(_buffer);
+
+        public string Compute<T>(T value, Action<Utf8JsonWriter, T> write)
         {
-            write(writer);
-            writer.Flush();
+            _writer.Reset(_buffer);
+            _buffer.Reset();
+            write(_writer, value);
+            _writer.Flush();
+            Span<byte> digest = stackalloc byte[SHA256.HashSizeInBytes];
+            SHA256.HashData(_buffer.WrittenSpan, digest);
+            return Convert.ToHexStringLower(digest);
         }
-        Span<byte> digest = stackalloc byte[SHA256.HashSizeInBytes];
-        SHA256.HashData(buffer.WrittenSpan, digest);
-        return Convert.ToHexStringLower(digest);
+
+        public void Dispose()
+        {
+            try { _writer.Dispose(); }
+            finally { _buffer.Dispose(); }
+        }
     }
 
     // A restored Origin ledger revalidates thousands of effect/choice digests.
@@ -1055,6 +1109,7 @@ public sealed partial class LifeModuleOriginDossierService
         private byte[] _buffer = ArrayPool<byte>.Shared.Rent(4096);
         private int _written;
         public ReadOnlySpan<byte> WrittenSpan => _buffer.AsSpan(0, _written);
+        public void Reset() => _written = 0;
 
         public void Advance(int count)
         {
