@@ -166,6 +166,9 @@ public sealed record CharacterCreationPriorityHeritageOptionProjection(
 {
     public CharacterCreationMetatypeMovementProjection Movement { get; init; } =
         CharacterCreationMetatypeMovementProjection.Unavailable;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentQualitySource>? RacialQualitySources { get; init; }
 }
 
 public sealed record CharacterCreationPriorityTalentOptionProjection(
@@ -595,6 +598,9 @@ public sealed record CharacterCreationPriorityHeritageSelection(
 {
     public CharacterCreationMetatypeMovementProjection Movement { get; init; } =
         CharacterCreationMetatypeMovementProjection.Unavailable;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentQualitySource>? RacialQualitySources { get; init; }
 }
 
 public sealed record CharacterCreationPriorityTalentSelection(

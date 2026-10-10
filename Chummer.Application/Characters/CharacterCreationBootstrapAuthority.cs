@@ -276,7 +276,16 @@ public static class CharacterCreationBootstrapAuthority
             failures.AddRange(prerequisiteAuthority.Blockers ?? []);
         }
         else if (requiresPrerequisiteAuthority)
+        {
             prerequisiteAuthorityDigest = prerequisiteAuthority.AuthorityDigest;
+            // Existing blank/Human workspaces keep their original binding when
+            // only additional supported choices were admitted. Reconstruct the
+            // old catalog from fresh sources; any other drift still fails below.
+            if (document.AuxiliaryState.CharacterCreationBootstrapBinding is { } existing
+                && CharacterCreationPriorityAuthorityCompatibility.MatchesLegacyHumanCatalog(
+                    existing.PrerequisiteAuthorityDigest, prerequisiteAuthority))
+                prerequisiteAuthorityDigest = existing.PrerequisiteAuthorityDigest;
+        }
 
         if (failures.Count != 0)
         {

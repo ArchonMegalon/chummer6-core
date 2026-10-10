@@ -63,7 +63,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XDocument document,
         XDocument metatypesDocument,
         XDocument skillsDocument,
-        CharacterCreationPrerequisiteProjectionContext context)
+        CharacterCreationPrerequisiteProjectionContext context,
+        Func<CharacterCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority>? enrichOptions = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(metatypesDocument);
@@ -206,7 +207,12 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                                   * context.PriorityArray.Distinct(StringComparer.Ordinal).Count();
         if (options.Count != expectedOptionCount)
             blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid);
-        return Complete(context, rankWeights, options, blockers);
+        // Finish optional source-bound options before serializing the large
+        // graph. Hashing an intermediate catalog wastes a full JSON allocation.
+        var authority = Complete(context, rankWeights, options, blockers, computeDigest: false);
+        if (authority.IsAuthoritative && enrichOptions is not null)
+            authority = enrichOptions(authority);
+        return authority with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority) };
     }
 
     private static Dictionary<string, string>? ReadCategories(XElement container)
@@ -1720,7 +1726,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         CharacterCreationPrerequisiteProjectionContext context,
         IReadOnlyList<CharacterCreationPriorityRankWeight> weights,
         IReadOnlyList<CharacterCreationPriorityOptionProjection> options,
-        IEnumerable<string> blockers)
+        IEnumerable<string> blockers,
+        bool computeDigest = true)
     {
         string[] normalizedBlockers = blockers
             .Distinct(StringComparer.Ordinal)
@@ -1756,6 +1763,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             RawSkillsXmlDigest = context.RawSkillsXmlDigest,
             EffectiveSkillsInputsDigest = context.EffectiveSkillsInputsDigest
         };
+        if (!computeDigest) return authority;
         return authority with
         {
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)

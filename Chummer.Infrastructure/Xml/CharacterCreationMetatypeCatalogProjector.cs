@@ -163,6 +163,22 @@ internal static class CharacterCreationMetatypeCatalogProjector
             isAuthoritative);
     }
 
+    internal static bool TryProjectPriorityRacialOption(XElement entry,
+        IReadOnlyList<string> enabledSourcebooks, out CharacterCreationMetatypeOptionProjection option)
+    {
+        option = null!;
+        string name = Read(entry, "name");
+        string id = name switch { "Elf" => ElfId, "Ork" => OrkId, _ => string.Empty };
+        // Attribute/modifier-bearing races and variants require their complete
+        // budget/write paths before admission. Share the strict source parser.
+        return id.Length != 0
+            && !entry.Elements().Any(element => element.Name.Namespace != XNamespace.None
+                || !SupportedBaseFields.Contains(element.Name.LocalName))
+            && !entry.Elements().GroupBy(element => element.Name).Any(group => group.Count() != 1)
+            && TryProjectOption(entry, id, name, 1, 1, enabledSourcebooks, false, out option)
+            && option.IsEnabled && option.Blockers.Count == 0 && option.BaseBonuses is null;
+    }
+
     private static bool TryProjectOption(
         XElement entry,
         string expectedId,

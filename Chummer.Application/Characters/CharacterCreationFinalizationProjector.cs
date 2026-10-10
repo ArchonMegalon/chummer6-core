@@ -203,6 +203,12 @@ public static class CharacterCreationFinalizationProjector
                 attributes!,
                 projected,
                 ref order);
+            if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest,
+                    projected, ref order))
+            {
+                blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
+                return false;
+            }
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
             if (!CharacterCreationAwakenedLegacyProjector.TryApply(root, prerequisite, attributes!, skills!, magic,
                     projected, ref order))

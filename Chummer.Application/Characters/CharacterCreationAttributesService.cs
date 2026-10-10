@@ -381,7 +381,10 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
         if (heritage is null
             || heritage.Kind != CharacterCreationPriorityChildKinds.Metatype
             || heritage.MetavariantSourceId is not null
-            || !string.Equals(heritage.MetatypeName, "Human", StringComparison.Ordinal)
+            || (heritage.MetatypeName != "Human"
+                && (heritage.MetatypeName is not ("Elf" or "Ork")
+                    || !CharacterCreationPriorityRacialQualities.TryProject(heritage.RacialQualitySources,
+                        prerequisite.DraftDigest, out _)))
             || heritage.Attributes.Count != 13
             || !heritage.Attributes.Select(item => item.AttributeId)
                 .SequenceEqual(s_NormalAttributeIds.Concat(s_SpecialAttributeIds), StringComparer.Ordinal)

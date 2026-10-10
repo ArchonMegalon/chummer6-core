@@ -595,7 +595,8 @@ public sealed class CharacterCreationPrerequisiteService :
             selected.MetatypeSourceNodeDigest,
             selected.SourceAnchorIds.ToArray())
         {
-            Movement = selected.Movement
+            Movement = selected.Movement,
+            RacialQualitySources = selected.RacialQualitySources
         };
     }
 
