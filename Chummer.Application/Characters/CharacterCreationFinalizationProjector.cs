@@ -246,6 +246,27 @@ public static class CharacterCreationFinalizationProjector
                         "contact", contact.ContactId.ToString("D"), null, contact.Identity.Name, 0, 0,
                         contactsDraft.Policy.SourceAnchorIds, contact.Identity.Name);
             }
+            XElement? purchasedLifestyles = null;
+            var lifestyleDraft = auxiliary.CharacterCreationLifestylesDraft;
+            if (lifestyleDraft is not null)
+            {
+                if (!CharacterCreationLifestylesDraftRules.IsValidShape(workspace.Id, workspace.ContentRevision, lifestyleDraft)
+                    || !CharacterCreationLifestylesDraftRules.TryProject(workspace, lifestyleDraft,
+                        out var lifestyleProjection, out var lifestyleRows, out var lifestyleBudget)
+                    || lifestyleProjection is null || lifestyleBudget is not { IsExact: true, Overspend: 0 })
+                {
+                    blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
+                    return false;
+                }
+                purchasedLifestyles = new XElement(XDocument.Parse(lifestyleProjection.Content).Root!.Element("lifestyles")!);
+                nuyenBeforeCarryover = lifestyleBudget.Remaining;
+                nuyenRemaining = Math.Min(nuyenBeforeCarryover, carryoverPolicy.MaximumNuyen);
+                foreach (var row in lifestyleRows)
+                    AddDelta(projected, ref order, $"lifestyle:{row.Configuration.LifestyleId:D}",
+                        "lifestyle", row.Configuration.LifestyleId.ToString("D"), null,
+                        row.Configuration.Increments.ToString(CultureInfo.InvariantCulture), 0, row.Economics.TotalCost,
+                        row.SourceAnchorIds, row.Configuration.Name);
+            }
             // Readiness validates all non-cash inputs without fabricating a roll.
             // A real projection/confirmation always requires the explicit choice.
             if (startingCash is null)
@@ -254,15 +275,29 @@ public static class CharacterCreationFinalizationProjector
                 return false;
             }
             if (!CharacterCreationFinalizationStartingCashRules.IsValid(startingCash)
+                || !CharacterCreationFinalizationStartingCashRules.MatchesPurchases(startingCash, lifestyleDraft)
                 || startingCash.Source.SettingsProfileId != carryoverPolicy.SettingsProfileId
-                || startingCash.Source.RawProfileInputsDigest != carryoverPolicy.RawProfileInputsDigest
-                || !CharacterCreationFinalizationStartingCashRules.TryProject(workspace.Id, startingCash,
-                    out decimal cash, out XElement? defaultLifestyle))
+                || startingCash.Source.RawProfileInputsDigest != carryoverPolicy.RawProfileInputsDigest)
             {
                 blockers = [CharacterCreationFinalizationBlockers.StartingCashChoiceInvalid];
                 return false;
             }
-            ReplaceDirect(root, new XElement("lifestyles", defaultLifestyle!));
+            decimal cash;
+            if (lifestyleDraft is { Lifestyles.Count: > 0 })
+            {
+                cash = checked(startingCash.Choice.DiceTotal * startingCash.Source.Multiplier);
+                ReplaceDirect(root, purchasedLifestyles!);
+            }
+            else
+            {
+                if (!CharacterCreationFinalizationStartingCashRules.TryProject(workspace.Id, startingCash,
+                        out cash, out var defaultLifestyle))
+                {
+                    blockers = [CharacterCreationFinalizationBlockers.StartingCashChoiceInvalid];
+                    return false;
+                }
+                ReplaceDirect(root, new XElement("lifestyles", defaultLifestyle!));
+            }
             decimal carriedNuyen = nuyenRemaining;
             startingNuyen = cash;
             nuyenRemaining = checked(carriedNuyen + cash);
@@ -317,6 +352,7 @@ public static class CharacterCreationFinalizationProjector
                 .Concat(qualities.SourceAnchorIds)
                 .Concat(resources.SourceAnchorIds)
                 .Concat(gear.FinalizationContribution.SourceAnchorIds)
+                .Concat(lifestyleDraft is null ? [] : CharacterCreationLifestyleSourceAnchors.All)
                 .Concat(carryoverPolicy.SourceAnchorIds)
                 .Concat(startingCash.Source.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal)

@@ -194,7 +194,9 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
                 Payload = evaluation.ReplacementContent,
                 AuxiliaryState = workspace.Document.AuxiliaryState with
                 {
-                    CharacterCreationLifestyleReceipts = ledger
+                    CharacterCreationLifestyleReceipts = ledger,
+                    CharacterCreationLifestylesDraft = preview.WritePlan.PendingDraft
+                        ?? workspace.Document.AuxiliaryState.CharacterCreationLifestylesDraft
                 }
             }
         };
@@ -363,6 +365,9 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             replacementTarget = rewritten;
         }
 
+        if (context.PendingDraft is not null && replacementRoot.Element("lifestyles") is { } pendingContainer)
+            pendingContainer.ReplaceNodes(pendingContainer.Elements("lifestyle")
+                .OrderBy(row => Guid.Parse(row.Element("guid")!.Value)).ToArray());
         string replacementContent = replacementDocument.ToString(SaveOptions.DisableFormatting);
         string contentAfter = CharacterCreationLifestyleReceiptLedgerIntegrity.ComputeContentDigest(
             replacementContent);
@@ -390,6 +395,15 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
         string afterDigest = after?.LifestyleDigest ?? EmptyDigest();
         if (CharacterCreationLifestylesRules.DigestsEqual(beforeDigest, afterDigest))
             blockers.Add(CharacterCreationLifestylesBlockers.NoChange);
+        CharacterCreationLifestylesDraft? pendingDraft = null;
+        if (context.PendingDraft is { } basis)
+        {
+            pendingDraft = CharacterCreationLifestylesDraftRules.Create(workspace, basis.InputAuthority,
+                context.Authority, afterRows.Select(row => row.Configuration).ToArray());
+            if (pendingDraft is null) blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            replacementContent = workspace.Document.Content;
+            contentAfter = context.Binding.ContentDigest;
+        }
         var operation = new CharacterCreationLifestyleWriteOperation(
             1,
             mutation.MutationKind,
@@ -398,7 +412,7 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             afterDigest,
             CharacterCreationLifestyleSourceAnchors.All);
         var planCandidate = new CharacterCreationLifestyleAtomicWritePlan(
-            CharacterCreationLifestylesSchemas.WritePlanV1,
+            pendingDraft is null ? CharacterCreationLifestylesSchemas.WritePlanV1 : CharacterCreationLifestylesSchemas.DraftWritePlanV1,
             CharacterCreationWizardStepIds.ContactsLifestyles,
             mutation.MutationKind,
             mutation.LifestyleId,
@@ -413,7 +427,7 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             nestedAfter,
             siblingsPreserved,
             nestedPreserved,
-            PlanDigest: string.Empty);
+            PlanDigest: string.Empty) { PendingDraft = pendingDraft };
         CharacterCreationLifestyleAtomicWritePlan plan = planCandidate with
         {
             PlanDigest = CharacterCreationLifestylesRules.ComputePlanDigest(planCandidate)
@@ -509,6 +523,18 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
     private AuthorityContext BuildContext(WorkspaceStoredDocument workspace)
     {
         var blockers = new List<string>();
+        CharacterCreationLifestylesDraft? pending = null;
+        WorkspaceDocument? projected = null;
+        CharacterCreationLifestylesAuthority pendingAuthority = CharacterCreationLifestylesAuthority.Unavailable;
+        if (workspace.Document.AuxiliaryState.CharacterCreationBootstrapBinding is not null)
+        {
+            if (!CharacterCreationLifestylesDraftRules.TryLoad(workspace, _sourceData,
+                    out pending, out projected, out pendingAuthority))
+            {
+                pending = null; projected = null;
+                blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            }
+        }
         if (_workspaceStore is not IWorkspaceAuxiliaryStateAtomicCommitCapability
             {
                 SupportsWorkspaceAuxiliaryStateAtomicCommit: true
@@ -524,7 +550,7 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
         XElement root;
         try
         {
-            document = XDocument.Parse(workspace.Document.Content, LoadOptions.PreserveWhitespace);
+            document = XDocument.Parse(projected?.Content ?? workspace.Document.Content, LoadOptions.PreserveWhitespace);
             root = document.Root ?? throw new XmlException();
             if (!string.Equals(root.Name.LocalName, "character", StringComparison.Ordinal))
                 throw new XmlException();
@@ -539,11 +565,12 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
         if (created)
             blockers.Add(CharacterCreationLifestylesBlockers.CareerModeRejected);
 
-        CharacterCreationLifestylesAuthority authority = CharacterCreationLifestylesAuthority.Unavailable;
-        ICharacterSourceDataContext? source = _sourceData.TryCreateContext(workspace.Document.Content);
-        if (source is null
+        CharacterCreationLifestylesAuthority authority = pending is not null
+            ? pendingAuthority : CharacterCreationLifestylesAuthority.Unavailable;
+        ICharacterSourceDataContext? source = pending is null ? _sourceData.TryCreateContext(workspace.Document.Content) : null;
+        if (pending is null && (source is null
             || !source.TryResolveCreationLifestylesAuthority(out authority)
-            || !CharacterCreationLifestylesRules.IsValidAuthority(authority))
+            || !CharacterCreationLifestylesRules.IsValidAuthority(authority)))
         {
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
@@ -593,7 +620,8 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             projections,
             elements,
             budget,
-            Normalize(blockers));
+            Normalize(blockers),
+            pending);
     }
 
     private static List<CharacterCreationLifestyleProjection> Project(
@@ -1130,7 +1158,8 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
         IReadOnlyList<CharacterCreationLifestyleProjection> Projections,
         IReadOnlyList<LifestyleElement> Elements,
         CharacterCreationLifestyleBudget Budget,
-        IReadOnlyList<string> Blockers);
+        IReadOnlyList<string> Blockers,
+        CharacterCreationLifestylesDraft? PendingDraft);
 
     private sealed record PreviewEvaluation(
         CharacterCreationLifestyleResult<CharacterCreationLifestylePreview> Result,

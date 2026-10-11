@@ -25,6 +25,7 @@ public static class CharacterCreationBootstrapStoreIntegrity
             || auxiliary.CharacterCreationSkillsReceipts is not null
             || auxiliary.CharacterCreationContactReceipts is not null
             || auxiliary.CharacterCreationContactsDraft is not null
+            || auxiliary.CharacterCreationLifestylesDraft is not null
             || !IsValidBinding(workspaceId, binding)
             || !string.Equals(document.RulesetId, binding.RulesetId, StringComparison.Ordinal)
             || !CharacterCreationBootstrapBindingDigest.FixedTimeEquals(

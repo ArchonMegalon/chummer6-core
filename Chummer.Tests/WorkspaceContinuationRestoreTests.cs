@@ -19,9 +19,27 @@ public sealed class WorkspaceContinuationRestoreTests
     private const int MaximumBytes = 16 * 1024 * 1024;
 
     [TestMethod]
-    public void Real_complete_creation_restores_dirty_then_finalizes_locally_and_restores_full_Career_archive()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Real_complete_creation_restores_dirty_then_finalizes_locally_and_restores_full_Career_archive(bool buyLifestyle)
     {
         using ReadyContext source = ReadyContext.Create(true, includeNonEmptyPurchases: true);
+        if (buyLifestyle)
+        {
+            var lifestyles = new CharacterCreationLifestylesService(source.Store, source.Resolver);
+            var state = lifestyles.Load(new(source.WorkspaceId)).Value!;
+            var low = state.Authority.LifestyleOptions.Single(option => option.Name == "Low");
+            Guid id = Guid.Parse("1f1df4c8-f357-45bf-89b4-3cd820780f7a");
+            var configuration = new CharacterCreationLifestyleConfiguration(id, low.OptionId, "Restored home",
+                CharacterCreationLifestyleStyleIds.Standard, low.DefaultIncrementId, 2, 100m, 0,
+                false, false, 0, 0, 0, 0, "Seattle", "", "", []);
+            var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, id, configuration);
+            var lifestylePreview = lifestyles.Preview(new(state.Binding, mutation)).Value!;
+            Assert.IsTrue(lifestylePreview.CanConfirm, string.Join(",", lifestylePreview.Blockers));
+            var saved = lifestyles.Confirm(new(state.Binding, mutation, lifestylePreview.PreviewDigest,
+                "restore-pending-lifestyle", true));
+            Assert.IsTrue(saved.Success, string.Join(",", saved.Blockers));
+        }
         var original = source.Store.Get(source.WorkspaceId).Value!;
         // An actual ordinary edit leaves the existing confirmed draft graph dirty.
         Assert.IsTrue(source.Store.ReplaceWorkspaceDocument(source.WorkspaceId,
@@ -50,6 +68,7 @@ public sealed class WorkspaceContinuationRestoreTests
         var loaded = finalizer.Load(new(source.WorkspaceId));
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
         Assert.IsNotNull(loaded.Value.StartingCashSource);
+        Assert.AreEqual(buyLifestyle ? "Low" : "Street", loaded.Value.StartingCashSource.Name);
         var cash = new CharacterCreationStartingCashChoice(
             loaded.Value.StartingCashSource.AuthorityDigest, loaded.Value.StartingCashSource.Dice);
         var preview = finalizer.Review(new(loaded.Value.Binding) { StartingCash = cash });
@@ -81,6 +100,14 @@ public sealed class WorkspaceContinuationRestoreTests
         var secondApplied = secondService.Confirm(secondReview, explicitlyConfirmed: true);
         Assert.AreEqual(WorkspaceContinuationRestoreOutcome.Applied, secondApplied.Outcome, Describe(secondApplied));
         AssertRestored(second, career, secondApplied.Receipt!);
+        if (buyLifestyle)
+        {
+            var lifestyle = System.Xml.Linq.XDocument.Parse(second.Read(source.WorkspaceId).Document.Content)
+                .Root!.Element("lifestyles")!.Elements("lifestyle").Single();
+            Assert.AreEqual("Restored home", lifestyle.Element("name")!.Value);
+            Assert.AreEqual("Low", lifestyle.Element("baselifestyle")!.Value);
+            Assert.AreEqual("2", lifestyle.Element("months")!.Value);
+        }
         var secondReputation = new WorkspaceCharacterCareerReputationService(second.Store, source.Resolver);
         Assert.AreEqual(CharacterCareerReputationOutcome.IdempotencyConflict, secondReputation.Commit(command).Outcome);
         var next = secondReputation.Preview(new(source.WorkspaceId, Guid.NewGuid(),

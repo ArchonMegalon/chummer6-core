@@ -61,7 +61,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<Sr6CreationFoundationDecision>? Sr6CreationFoundationDecisions = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    Sr6CreationFinalizationArchive? Sr6CreationFinalizationArchive = null)
+    Sr6CreationFinalizationArchive? Sr6CreationFinalizationArchive = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationLifestylesDraft? CharacterCreationLifestylesDraft = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -69,6 +71,7 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && Sr6CreationFinalizationArchive is null
                            && CharacterCreationFoundationDraft is null
                            && CharacterCreationContactsDraft is null
+                           && CharacterCreationLifestylesDraft is null
                            && CharacterCreationPrerequisiteDraft is null
                            && CharacterCreationAttributesDraft is null
                            && CharacterCreationSkillsDraft is null

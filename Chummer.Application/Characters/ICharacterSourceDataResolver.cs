@@ -261,6 +261,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Priority/Sum-to-Ten selected source; callers must prove saved lifestyle ownership.</summary>
+    bool TryResolveCreationPriorityStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
     /// <summary>Life Modules selected source; callers must prove pending lifestyle ownership.</summary>
     bool TryResolveCreationLifeModuleStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
     {

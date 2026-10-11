@@ -20,6 +20,204 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Human", 2000)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Human", 2000)]
+    public void Pending_lifestyles_use_saved_resources_and_persist_without_mutating_character_xml(
+        string method, string metatype, int cost)
+    {
+        using var context = ReadyContext.Create(true, buildMethod: method, metatypeName: metatype);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var service = new CharacterCreationLifestylesService(context.Store, context.Resolver);
+        var loaded = service.Load(new(context.WorkspaceId));
+        Assert.IsTrue(loaded.Success, string.Join(",", loaded.Blockers));
+        var state = loaded.Value!;
+        Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+        Assert.IsTrue(state.Budget.IsExact);
+        decimal available = before.Document.AuxiliaryState.CharacterCreationGearDraft!.Budget.RemainingNuyen;
+        Assert.IsTrue(available >= cost);
+        Assert.AreEqual(available, state.Budget.Total);
+        var low = state.Authority.LifestyleOptions.Single(option => option.Name == "Low");
+        Guid id = Guid.Parse("ef1f8c48-c015-4ea9-b71f-63c6ae8ddb04");
+        var configuration = new CharacterCreationLifestyleConfiguration(id, low.OptionId, "Saved apartment",
+            CharacterCreationLifestyleStyleIds.Standard, low.DefaultIncrementId, 1, 100m, 0,
+            false, false, 0, 0, 0, 0, "Seattle", "", "", []);
+        var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, id, configuration);
+        var preview = service.Preview(new(state.Binding, mutation));
+        Assert.IsTrue(preview.Value?.CanConfirm == true, string.Join(",", preview.Value?.Blockers ?? preview.Blockers));
+        Assert.AreEqual((decimal)cost, preview.Value!.BudgetAfter.Used);
+        var request = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation,
+            preview.Value.PreviewDigest, "pending-lifestyle-low", true);
+        var committed = service.Confirm(request);
+        Assert.IsTrue(committed.Success, string.Join(",", committed.Blockers));
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.Document.Content, saved.Document.Content);
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.HasCount(1, saved.Document.AuxiliaryState.CharacterCreationLifestylesDraft!.Lifestyles);
+        Assert.HasCount(1, saved.Document.AuxiliaryState.CharacterCreationLifestyleReceipts!);
+        Assert.AreEqual(before.Document.AuxiliaryState.CharacterCreationGearDraft.DraftDigest,
+            saved.Document.AuxiliaryState.CharacterCreationGearDraft!.DraftDigest);
+        var entry = saved.Document.AuxiliaryState.CharacterCreationLifestyleReceipts!.Single();
+        Assert.IsTrue(CharacterCreationLifestyleReceiptLedgerIntegrity.HasValidContentTransition(
+            entry, before.Document, saved.Document));
+        var wrongBalance = entry.Receipt with { LifestyleBudgetRemaining = entry.Receipt.LifestyleBudgetRemaining + 1m };
+        wrongBalance = wrongBalance with { ReceiptDigest = CharacterCreationLifestylesRules.ComputeReceiptDigest(wrongBalance) };
+        Assert.IsFalse(CharacterCreationLifestyleReceiptLedgerIntegrity.HasValidContentTransition(
+            entry with { Receipt = wrongBalance }, before.Document, saved.Document));
+        var wrongParent = saved.Document.AuxiliaryState.CharacterCreationLifestylesDraft! with
+            { SkillsDraftDigest = CharacterCreationFinalizationDigest.Compute("unrelated skills") };
+        wrongParent = wrongParent with { DraftDigest = CharacterCreationLifestylesDraftRules.Digest(wrongParent) };
+        var wrongPlan = entry.Receipt.WritePlan with { PendingDraft = wrongParent };
+        wrongPlan = wrongPlan with { PlanDigest = CharacterCreationLifestylesRules.ComputePlanDigest(wrongPlan) };
+        var wrongReceipt = entry.Receipt with { WritePlan = wrongPlan };
+        wrongReceipt = wrongReceipt with { ReceiptDigest = CharacterCreationLifestylesRules.ComputeReceiptDigest(wrongReceipt) };
+        var wrongEntry = entry with { Receipt = wrongReceipt };
+        var forged = saved.Document with { State = saved.Document.State with
+        {
+            AuxiliaryState = saved.Document.AuxiliaryState with
+            {
+                CharacterCreationLifestylesDraft = wrongParent,
+                CharacterCreationLifestyleReceipts = [wrongEntry]
+            }
+        } };
+        Assert.IsFalse(CharacterCreationLifestyleReceiptLedgerIntegrity.HasValidContentTransition(
+            wrongEntry, before.Document, forged), "Rehashed local claims cannot substitute a parent draft.");
+        Assert.IsFalse(context.Store.ReplaceWorkspaceDocument(saved.Id, saved.ContentRevision, forged).Success);
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(saved),
+            System.Text.Json.JsonSerializer.Serialize(context.Store.Get(saved.Id).Value));
+        using var cold = context.Restart();
+        var coldService = new CharacterCreationLifestylesService(cold.Store, cold.Resolver);
+        var reopened = coldService.Load(new(context.WorkspaceId));
+        Assert.IsTrue(reopened.Value?.CanEdit == true, string.Join(",", reopened.Value?.Blockers ?? reopened.Blockers));
+        Assert.AreEqual(available - cost, reopened.Value!.Budget.Remaining);
+        Assert.AreEqual("Saved apartment", reopened.Value.Lifestyles.Single().Configuration.Name);
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed, coldService.Confirm(request).Outcome);
+        Assert.AreEqual(saved.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Pending_lifestyles_finalize_paid_months_and_starting_cash_once(string method)
+    {
+        using var context = ReadyContext.Create(true, buildMethod: method);
+        var service = new CharacterCreationLifestylesService(context.Store, context.Resolver);
+        var state = service.Load(new(context.WorkspaceId)).Value!;
+        var low = state.Authority.LifestyleOptions.Single(option => option.Name == "Low");
+        // Leave less than the carryover cap, so deducting after clamping cannot pass.
+        int months = (int)(state.Budget.Total / low.BaseCost) - 1;
+        Assert.IsTrue(months > 0);
+        Guid id = Guid.Parse("90c9cd36-01fb-42a0-9ec0-95a1a01a501a");
+        var configuration = new CharacterCreationLifestyleConfiguration(id, low.OptionId, "Home",
+            CharacterCreationLifestyleStyleIds.Standard, low.DefaultIncrementId, months, 100m, 0,
+            false, false, 0, 0, 0, 0, "Seattle", "Redmond", "", []);
+        var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, id, configuration);
+        var preview = service.Preview(new(state.Binding, mutation)).Value!;
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        var purchase = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation,
+            preview.PreviewDigest, "pending-lifestyle-career-purchase", true);
+        Assert.IsTrue(service.Confirm(purchase).Success);
+        using var cold = context.Restart();
+        var ready = cold.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(ready.CanReview, string.Join(",", ready.Blockers));
+        Assert.AreEqual("Low", ready.StartingCashSource!.Name);
+        var cash = new CharacterCreationStartingCashChoice(ready.StartingCashSource.AuthorityDigest,
+            ready.StartingCashSource.Dice * 3);
+        var review = cold.Finalizer.Review(new(ready.Binding) { StartingCash = cash }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual(preview.BudgetAfter.Remaining + cash.DiceTotal * ready.StartingCashSource.Multiplier,
+            review.Plan!.NuyenRemaining);
+        Assert.AreEqual(low.BaseCost * months, review.OrderedDeltas
+            .Where(row => row.Kind == "lifestyle").Sum(row => row.NuyenCost));
+        var confirm = new CharacterCreationFinalizationConfirmRequest(ready.Binding, review.PreviewDigest,
+            review.Plan.PlanDigest, "pending-lifestyle-finalization", true) { StartingCash = cash };
+        var result = cold.Finalizer.Confirm(confirm);
+        Assert.IsTrue(result.Success, string.Join(",", result.Blockers));
+        using var career = context.Restart();
+        var saved = career.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        var home = root.Element("lifestyles")!.Elements("lifestyle").Single();
+        Assert.AreEqual(id.ToString("D"), home.Element("guid")!.Value);
+        Assert.AreEqual("Low", home.Element("baselifestyle")!.Value);
+        Assert.AreEqual(months.ToString(System.Globalization.CultureInfo.InvariantCulture), home.Element("months")!.Value);
+        Assert.AreEqual("Seattle", home.Element("city")!.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, career.Finalizer.Confirm(confirm).Outcome);
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed,
+            new CharacterCreationLifestylesService(career.Store, career.Resolver).Confirm(purchase).Outcome);
+        Assert.AreEqual(saved.ContentRevision, career.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Pending_lifestyles_multiple_edit_delete_and_invalid_choices_preserve_budget_and_siblings()
+    {
+        using var context = ReadyContext.Create(true);
+        var service = new CharacterCreationLifestylesService(context.Store, context.Resolver);
+        var start = service.Load(new(context.WorkspaceId)).Value!;
+        var low = start.Authority.LifestyleOptions.Single(option => option.Name == "Low");
+        var street = start.Authority.LifestyleOptions.Single(option => option.Name == "Street");
+        var home = new CharacterCreationLifestyleConfiguration(Guid.Parse("eeeeeeee-0000-4000-8000-000000000001"),
+            low.OptionId, "Home", CharacterCreationLifestyleStyleIds.Standard, low.DefaultIncrementId, 1, 100m, 0,
+            false, false, 0, 0, 0, 0, "Seattle", "", "", []);
+        var second = home with { LifestyleId = Guid.Parse("11111111-0000-4000-8000-000000000001"),
+            BaseLifestyleOptionId = street.OptionId, Name = "Hideout" };
+        var staleMutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, second.LifestyleId, second);
+        var stale = service.Preview(new(start.Binding, staleMutation)).Value!;
+        Apply(CharacterCreationLifestyleMutationKinds.Create, home, "multiple-home");
+        var staleResult = service.Confirm(new(start.Binding, staleMutation, stale.PreviewDigest, "multiple-stale", true));
+        Assert.IsFalse(staleResult.Success);
+        Apply(CharacterCreationLifestyleMutationKinds.Create, second, "multiple-hideout");
+        var cashState = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.HasCount(2, cashState.StartingCashSources!);
+        Assert.AreEqual("Low", cashState.StartingCashSource!.Name);
+        var lower = cashState.StartingCashSources!.Single(source => source.Name == "Street");
+        Assert.IsTrue(context.Finalizer.Review(new(cashState.Binding)
+            { StartingCash = new(lower.AuthorityDigest, lower.Dice) }).Value?.CanConfirm == true);
+        var raw = context.Store.Get(context.WorkspaceId).Value!.Document.Content;
+        Assert.IsTrue(context.Resolver.TryCreateContext(raw)!.TryResolveCreationPriorityStartingNuyen(
+            start.Authority.LifestyleOptions.Single(option => option.Name == "High").SourceId, out var unowned));
+        Assert.IsFalse(context.Finalizer.Review(new(cashState.Binding)
+            { StartingCash = new(unowned!.AuthorityDigest, unowned.Dice) }).Value?.CanConfirm == true);
+        var beforeInvalid = context.Store.Get(context.WorkspaceId).Value!;
+        var fresh = service.Load(new(context.WorkspaceId)).Value!;
+        var overspend = home with { Increments = 10000 };
+        var denied = service.Preview(new(fresh.Binding,
+            new(CharacterCreationLifestyleMutationKinds.Edit, home.LifestyleId, overspend))).Value!;
+        Assert.IsFalse(denied.CanConfirm);
+        CollectionAssert.Contains(denied.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InsufficientFunds);
+        Assert.IsFalse(service.Confirm(new(fresh.Binding,
+            new(CharacterCreationLifestyleMutationKinds.Edit, home.LifestyleId, overspend),
+            denied.PreviewDigest, "multiple-overspend", true)).Success);
+        Assert.AreEqual(beforeInvalid.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(beforeInvalid.Document.AuxiliaryStateDigest,
+            context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+        Apply(CharacterCreationLifestyleMutationKinds.Edit, home with { Increments = 2 }, "multiple-edit");
+        Assert.AreEqual(4000m, service.Load(new(context.WorkspaceId)).Value!.Budget.Used);
+        Apply(CharacterCreationLifestyleMutationKinds.Delete, home, "multiple-delete-home");
+        var retained = service.Load(new(context.WorkspaceId)).Value!;
+        Assert.AreEqual(0m, retained.Budget.Used);
+        Assert.AreEqual("Hideout", retained.Lifestyles.Single().Configuration.Name);
+        Apply(CharacterCreationLifestyleMutationKinds.Delete, second, "multiple-delete-last");
+        using var cold = context.Restart();
+        var reopened = new CharacterCreationLifestylesService(cold.Store, cold.Resolver).Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(reopened.CanEdit, string.Join(",", reopened.Blockers));
+        Assert.AreEqual(start.Budget.Total, reopened.Budget.Remaining);
+        Assert.IsEmpty(reopened.Lifestyles);
+        Assert.AreEqual(raw, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual("Street", cold.Finalizer.Load(new(context.WorkspaceId)).Value!.StartingCashSource!.Name);
+
+        void Apply(string kind, CharacterCreationLifestyleConfiguration config, string key)
+        {
+            var state = service.Load(new(context.WorkspaceId)).Value!;
+            var mutation = new CharacterCreationLifestyleMutation(kind, config.LifestyleId,
+                kind == CharacterCreationLifestyleMutationKinds.Delete ? null : config);
+            var preview = service.Preview(new(state.Binding, mutation)).Value!;
+            Assert.IsTrue(preview.CanConfirm, key + ":" + string.Join(",", preview.Blockers));
+            var result = service.Confirm(new(state.Binding, mutation, preview.PreviewDigest, key, true));
+            Assert.IsTrue(result.Success, key + ":" + string.Join(",", result.Blockers));
+        }
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, "Elf")]
     [DataRow(CharacterCreationBuildMethods.SumToTen, "Ork")]
     public void Racial_vision_does_not_block_paid_ambidextrous_and_both_survive_cold_finalization(string method, string metatype)

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 
@@ -95,6 +96,13 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
         CharacterCreationLifestyleReceiptLedgerEntry entry,
         WorkspaceDocument currentDocument,
         WorkspaceDocument replacementDocument)
+        => HasValidContentTransitionCore(entry, currentDocument, replacementDocument, canonicalDraftOrder: false);
+
+    private static bool HasValidContentTransitionCore(
+        CharacterCreationLifestyleReceiptLedgerEntry entry,
+        WorkspaceDocument currentDocument,
+        WorkspaceDocument replacementDocument,
+        bool canonicalDraftOrder)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(currentDocument);
@@ -107,6 +115,12 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
             || !string.Equals(currentDocument.RulesetId, replacementDocument.RulesetId, StringComparison.Ordinal)
             || currentDocument.SchemaVersion != replacementDocument.SchemaVersion
             || !string.Equals(currentDocument.PayloadKind, replacementDocument.PayloadKind, StringComparison.Ordinal))
+            return false;
+
+        if (plan.PendingDraft is not null)
+            return HasValidDraftTransition(entry, currentDocument, replacementDocument);
+        if (currentDocument.AuxiliaryState.CharacterCreationLifestylesDraft is not null
+            || replacementDocument.AuxiliaryState.CharacterCreationLifestylesDraft is not null)
             return false;
 
         try
@@ -147,6 +161,9 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
                 default:
                     return false;
             }
+            if (canonicalDraftOrder && expectedRoot.Element("lifestyles") is { } container)
+                container.ReplaceNodes(container.Elements("lifestyle")
+                    .OrderBy(row => Guid.Parse(row.Element("guid")!.Value)).ToArray());
             if (!XNode.DeepEquals(expected, replacement))
                 return false;
 
@@ -172,6 +189,52 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
         {
             return false;
         }
+    }
+
+    private static bool HasValidDraftTransition(CharacterCreationLifestyleReceiptLedgerEntry entry,
+        WorkspaceDocument current, WorkspaceDocument replacement)
+    {
+        var receipt = entry.Receipt;
+        var plan = receipt.WritePlan;
+        var draft = plan.PendingDraft!;
+        if (current.Content != replacement.Content || draft.BaseContentRevision != receipt.PreviousContentRevision
+            || !CharacterCreationLifestylesDraftRules.IsValidShape(receipt.WorkspaceId, receipt.ContentRevision, draft)
+            || !CharacterCreationContactsDraftRules.Equal(draft, replacement.AuxiliaryState.CharacterCreationLifestylesDraft))
+            return false;
+        try
+        {
+            var workspace = new WorkspaceStoredDocument(receipt.WorkspaceId, current,
+                receipt.PreviousContentRevision, receipt.PreviousSavedRevision, DateTimeOffset.UnixEpoch);
+            var old = current.AuxiliaryState.CharacterCreationLifestylesDraft;
+            if (old is not null && !CharacterCreationLifestylesDraftRules.InputsMatch(old, draft)) return false;
+            var before = draft with { Lifestyles = old?.Lifestyles ?? [], DraftDigest = string.Empty };
+            before = before with { DraftDigest = CharacterCreationLifestylesDraftRules.Digest(before) };
+            // The after projection basis must also retain all previously
+            // selected qualities. Dropping one cannot alter an untouched row.
+            if (old is not null) before = before with { ProjectionAuthority = old.ProjectionAuthority };
+            before = before with { DraftDigest = CharacterCreationLifestylesDraftRules.Digest(before) };
+            if (!CharacterCreationLifestylesDraftRules.TryProject(workspace, before, out var logicalBefore, out _, out var budgetBefore)
+                || !CharacterCreationLifestylesDraftRules.TryProject(workspace, draft, out var logicalAfter, out _, out var budgetAfter)
+                || logicalBefore is null || logicalAfter is null || budgetBefore is null || budgetAfter is null
+                || budgetAfter.Overspend != 0 || receipt.LifestyleCostBefore != budgetBefore.Used
+                || receipt.LifestyleCostAfter != budgetAfter.Used || receipt.LifestyleBudgetRemaining != budgetAfter.Remaining)
+                return false;
+            var logicalPlan = plan with
+            {
+                PendingDraft = null, Schema = CharacterCreationLifestylesSchemas.WritePlanV1,
+                ContentDigestBefore = ComputeContentDigest(logicalBefore.Content),
+                ContentDigestAfter = ComputeContentDigest(logicalAfter.Content)
+            };
+            // Internal semantic validation only. Persisted receipt hashes still
+            // bind unchanged raw XML and the one atomic auxiliary-draft append.
+            return HasValidContentTransitionCore(entry with { Receipt = receipt with
+            {
+                WritePlan = logicalPlan, ContentDigestBefore = logicalPlan.ContentDigestBefore,
+                ContentDigestAfter = logicalPlan.ContentDigestAfter
+            } }, logicalBefore, logicalAfter, canonicalDraftOrder: true);
+        }
+        catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
+            or IOException or OverflowException) { return false; }
     }
 
     public static bool IsValidForCommit(
@@ -219,7 +282,9 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
             || receipt.SavedRevision != receipt.ContentRevision
             || !CharacterCreationLifestylesRules.IsCanonicalDigest(receipt.ContentDigestBefore)
             || !CharacterCreationLifestylesRules.IsCanonicalDigest(receipt.ContentDigestAfter)
-            || FixedEquals(receipt.ContentDigestBefore, receipt.ContentDigestAfter)
+            || (receipt.WritePlan?.PendingDraft is null
+                ? FixedEquals(receipt.ContentDigestBefore, receipt.ContentDigestAfter)
+                : !FixedEquals(receipt.ContentDigestBefore, receipt.ContentDigestAfter))
             || !CharacterCreationLifestylesRules.IsCanonicalDigest(receipt.SourceDigest)
             || !CharacterCreationLifestylesRules.IsCanonicalDigest(receipt.RulesDigest)
             || !CharacterCreationLifestylesRules.IsCanonicalDigest(receipt.RuntimeDigest)
@@ -239,7 +304,11 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
         CharacterCreationLifestyleReceipt receipt)
     {
         if (plan is null
-            || !string.Equals(plan.Schema, CharacterCreationLifestylesSchemas.WritePlanV1, StringComparison.Ordinal)
+            || !string.Equals(plan.Schema, plan.PendingDraft is null
+                ? CharacterCreationLifestylesSchemas.WritePlanV1 : CharacterCreationLifestylesSchemas.DraftWritePlanV1, StringComparison.Ordinal)
+            || plan.PendingDraft is { } draft &&
+                (!CharacterCreationLifestylesDraftRules.IsValidShape(receipt.WorkspaceId, receipt.ContentRevision, draft)
+                 || draft.BaseContentRevision != receipt.PreviousContentRevision)
             || !string.Equals(plan.StepId, CharacterCreationWizardStepIds.ContactsLifestyles, StringComparison.Ordinal)
             || !string.Equals(plan.MutationKind, receipt.MutationKind, StringComparison.Ordinal)
             || plan.LifestyleId != receipt.LifestyleId
