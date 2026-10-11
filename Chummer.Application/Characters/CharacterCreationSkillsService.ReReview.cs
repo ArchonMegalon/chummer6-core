@@ -139,8 +139,11 @@ public sealed partial class CharacterCreationSkillsService
             state.LogicUnaugmented, state.MovementCapability, historical.Allocations, historical.GroupAllocations,
             historicalBlockers, prePolicy ? SkillsEvaluationSemantics.PreTalentAccessHistory : SkillsEvaluationSemantics.CurrentSourceBound,
             recordedKnowledgePointTotal: attributesChanged ? historical.KnowledgePointTotal : null);
-        var expected = BuildDraft(workspace, prerequisite, attributes, historicalAuthority,
-            state.Binding.ContributionInputsDigest, historicalProjection);
+        var expected = BuildDraft(state with
+        {
+            Authority = historicalAuthority,
+            PendingDraft = workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft
+        }, historicalProjection);
         if (attributesChanged)
             expected = expected with
             {

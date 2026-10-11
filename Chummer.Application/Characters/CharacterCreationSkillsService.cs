@@ -252,9 +252,19 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             blockers.RemoveAll(item => item is CharacterCreationSkillsBlockers.DraftInvalid
                 or CharacterCreationSkillsBlockers.TalentAccessRequired);
         }
+        var prepared = EvaluatePreparedState(state, request, blockers,
+            workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft);
+        return new(prepared.Result, workspace, prepared.Draft);
+    }
+
+    private static (CharacterCreationFoundationResult<CharacterCreationSkillsPreview> Result,
+        CharacterCreationSkillsDraft? Draft) EvaluatePreparedState(CharacterCreationSkillsState state,
+        CharacterCreationSkillsPreviewRequest request, List<string> blockers,
+        CharacterCreationSkillsDraft? persistedDraft = null)
+    {
         SkillEvaluation projected = EvaluateAllocations(
             state.Authority,
-            prerequisite,
+            state.PrerequisiteDraft,
             state.SelectedActiveSkillPoints,
             state.SelectedSkillGroupPoints,
             state.IntuitionUnaugmented,
@@ -264,8 +274,7 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             request.GroupAllocations,
             blockers);
         CharacterCreationSkillsDraft? draft = blockers.Count == 0
-            ? BuildDraft(workspace, prerequisite, attributes, state.Authority,
-                state.Binding.ContributionInputsDigest, projected)
+            ? BuildDraft(state, projected, persistedDraft)
             : null;
         if (draft is not null && state.PendingDraft is { } current)
         {
@@ -293,14 +302,12 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         {
             PreviewDigest = CharacterCreationSkillsDigest.Compute(preview with { PreviewDigest = string.Empty })
         };
-        return new(new(
+        return (new(
                 normalized.Length == 0
                     ? CharacterCreationFoundationOutcomes.Success
                     : CharacterCreationFoundationOutcomes.Blocked,
                 preview,
-                normalized),
-            workspace,
-            draft);
+                normalized), draft);
     }
 
     private CharacterCreationFoundationResult<CharacterCreationSkillsState> BuildState(
@@ -781,23 +788,22 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
            && (!skill.RequiresFlyMovement || capability.Fly);
 
     private static CharacterCreationSkillsDraft BuildDraft(
-        WorkspaceStoredDocument workspace,
-        CharacterCreationPrerequisiteDraft prerequisite,
-        CharacterCreationAttributesDraft attributes,
-        CharacterCreationSkillsAuthority authority,
-        string contributionDigest,
-        SkillEvaluation evaluation)
+        CharacterCreationSkillsState state,
+        SkillEvaluation evaluation, CharacterCreationSkillsDraft? persistedDraft = null)
     {
-        CharacterCreationSkillsDraft? current = workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft;
+        CharacterCreationSkillsDraft? current = persistedDraft ?? state.PendingDraft;
+        CharacterCreationPrerequisiteDraft prerequisite = state.PrerequisiteDraft!;
+        CharacterCreationAttributesDraft attributes = state.AttributesDraft!;
+        CharacterCreationSkillsAuthority authority = state.Authority;
         long next = current is null || current.DraftRevision == long.MaxValue
             ? current is null ? 1 : long.MaxValue
             : current.DraftRevision + 1;
         var draft = new CharacterCreationSkillsDraft(
             CharacterCreationSkillsSchemas.DraftV1,
-            workspace.Id,
+            state.Binding.WorkspaceId,
             next,
-            workspace.ContentRevision,
-            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(workspace.Document.Content),
+            state.Binding.ContentRevision,
+            state.Binding.RawCharacterXmlDigest,
             prerequisite.DraftRevision,
             prerequisite.DraftDigest,
             prerequisite.AuthorityDigest,
@@ -805,7 +811,7 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             attributes.DraftDigest,
             authority.AuthorityDigest,
             authority.RuntimeDigest,
-            contributionDigest,
+            state.Binding.ContributionInputsDigest,
             (int)evaluation.ActiveBudget.Total,
             (int)evaluation.ActiveBudget.Used,
             (int)evaluation.GroupBudget.Total,

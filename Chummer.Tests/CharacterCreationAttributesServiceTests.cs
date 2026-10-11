@@ -16,6 +16,36 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationAttributesServiceTests
 {
     [TestMethod]
+    public void Draft_session_matches_fresh_preview_and_cannot_authorize_a_stale_save()
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var session = CharacterCreationAttributesService.CreateDraftSession(state);
+            Assert.IsNotNull(session);
+            Assert.IsNull(CharacterCreationAttributesService.CreateDraftSession(state with { KarmaAttribute = 0 }));
+            CharacterCreationAttributeAllocation[][] choices =
+            [[], [new("BOD", 1, 0)], [new("BOD", 5, 0), new("AGI", 5, 0)],
+                [new("EDG", 1, 0)], [new("EDG", 2, 0)], [new("MAG", 1, 0)],
+                [new("BOD", 0, 3)], [new("BOD", -1, 0)], [new("BOD", 6, 0)]];
+            foreach (var choice in choices)
+                Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    service.Preview(new(state.Binding, choice)), session.Preview(choice)));
+            CharacterCreationAttributeAllocation[] accepted = [new("BOD", 1, 0)];
+            var preview = session.Preview(accepted).Value!;
+            var confirmed = service.Confirm(new(state.Binding, accepted, preview.PreviewDigest, true));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(new(state.Binding, accepted, preview.PreviewDigest, true)).Outcome);
+            var reopened = Load(service, id);
+            var resumed = CharacterCreationAttributesService.CreateDraftSession(reopened)!;
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                service.Preview(new(reopened.Binding, accepted)), resumed.Preview(accepted)));
+            Assert.AreEqual(confirmed.Value!.ContentRevision, store.Get(id).Value!.ContentRevision);
+        });
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     public void Owner_bound_attributes_use_only_the_admitted_partition_and_reject_old_stamps(string method)
