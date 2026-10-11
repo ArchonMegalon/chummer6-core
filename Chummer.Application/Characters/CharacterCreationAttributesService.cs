@@ -6,7 +6,7 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
 
-public sealed class CharacterCreationAttributesService : ICharacterCreationAttributesService
+public sealed partial class CharacterCreationAttributesService : ICharacterCreationAttributesService
 {
     private static readonly string[] s_NormalAttributeIds =
         ["BOD", "AGI", "REA", "STR", "CHA", "INT", "LOG", "WIL"];
@@ -185,17 +185,25 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
                 null);
         }
 
+        var prepared = EvaluatePreparedState(state, request.Allocations);
+        return new(prepared.Result, workspace, prepared.Draft);
+    }
+
+    private static (CharacterCreationFoundationResult<CharacterCreationAttributesPreview> Result,
+        CharacterCreationAttributesDraft? Draft) EvaluatePreparedState(
+        CharacterCreationAttributesState state, IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
+    {
         var blockers = new List<string>(state.Blockers);
         AttributeEvaluation projected = EvaluateAllocations(
-            prerequisite,
+            state.PrerequisiteDraft!,
             state.MaxNumberMaxAttributesCreate,
             state.KarmaAttribute,
-            request.Allocations,
+            allocations,
             blockers);
         CharacterCreationAttributesDraft? draft = null;
         if (blockers.Count == 0)
         {
-            draft = BuildDraft(workspace, prerequisite, projected);
+            draft = BuildDraft(state, projected);
             if (state.PendingDraft is CharacterCreationAttributesDraft current)
             {
                 if (current.DraftRevision == long.MaxValue)
@@ -224,14 +232,13 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
             PreviewDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
                 preview with { PreviewDigest = string.Empty })
         };
-        return new PreviewEvaluation(
+        return (
             new CharacterCreationFoundationResult<CharacterCreationAttributesPreview>(
                 normalized.Length == 0
                     ? CharacterCreationFoundationOutcomes.Success
                     : CharacterCreationFoundationOutcomes.Blocked,
                 preview,
                 normalized),
-            workspace,
             draft);
     }
 
@@ -596,12 +603,11 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
     }
 
     private static CharacterCreationAttributesDraft BuildDraft(
-        WorkspaceStoredDocument workspace,
-        CharacterCreationPrerequisiteDraft prerequisite,
+        CharacterCreationAttributesState state,
         AttributeEvaluation evaluation)
     {
-        CharacterCreationAttributesDraft? current = workspace.Document.AuxiliaryState
-            .CharacterCreationAttributesDraft;
+        CharacterCreationPrerequisiteDraft prerequisite = state.PrerequisiteDraft!;
+        CharacterCreationAttributesDraft? current = state.PendingDraft;
         long nextRevision = current is null
             ? 1
             : current.DraftRevision == long.MaxValue
@@ -610,11 +616,10 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
         CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
         var draft = new CharacterCreationAttributesDraft(
             CharacterCreationAttributesSchemas.DraftV1,
-            workspace.Id,
+            state.Binding.WorkspaceId,
             nextRevision,
-            workspace.ContentRevision,
-            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
-                workspace.Document.Content),
+            state.Binding.ContentRevision,
+            state.Binding.RawCharacterXmlDigest,
             prerequisite.DraftRevision,
             prerequisite.DraftDigest,
             prerequisite.AuthorityDigest,

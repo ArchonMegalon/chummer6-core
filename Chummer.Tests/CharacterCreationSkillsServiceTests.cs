@@ -742,6 +742,40 @@ public sealed partial class CharacterCreationSkillsServiceTests
     }
 
     [TestMethod]
+    public void Draft_session_matches_fresh_skill_and_group_previews_without_reading_the_store()
+    {
+        WithReadySkills((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var session = CharacterCreationSkillsService.CreateDraftSession(state);
+            Assert.IsNotNull(session);
+            Assert.IsNull(CharacterCreationSkillsService.CreateDraftSession(state with { SnapshotDigest = "invalid" }));
+            var before = store.Get(id).Value!;
+            var group = state.Authority.SkillGroups[0];
+            for (int rating = 0; rating <= 7; rating++)
+            {
+                CharacterCreationSkillAllocation[] choices =
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                    new(ActiveIds[2], CharacterCreationSkillKinds.Active, rating, null, false)];
+                CharacterCreationSkillGroupAllocation[] groups = [new(group.GroupId, rating)];
+                Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    service.Preview(new(state.Binding, choices, [])), session.Preview(choices, [])));
+                Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    service.Preview(new(state.Binding, choices, groups)), session.Preview(choices, groups)));
+            }
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                service.Preview(new(state.Binding, [], [])), session.Preview([], [])));
+            var expected = session.Preview([], []);
+            // Mutating an input collection after capture must not modify the snapshot.
+            if (state.Authority.ActiveSkills is CharacterCreationSkillCatalogEntry[] rows)
+                rows[0] = rows[0] with { SourceSkillId = "changed-after-capture" };
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected, session.Preview([], [])));
+            Assert.AreEqual(before.ContentRevision, store.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
     public void Preview_uses_selected_priority_and_unaugmented_attributes_plus_authoritative_contributions()
     {
         WithReadySkills((_, service, id, _) =>
