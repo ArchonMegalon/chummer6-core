@@ -25,6 +25,68 @@ public sealed class WorkspaceContinuationCandidateEvaluatorTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public void Pending_contacts_and_lifestyles_pass_cold_readonly_continuation(bool buyLifestyle)
+    {
+        using ReadyContext context = ReadyContext.Create(true);
+        var contacts = new CharacterCreationContactsService(context.Store, context.Resolver);
+        var contactState = contacts.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsNotNull(contactState.NewContactTemplate);
+        var edit = new CharacterCreationContactEdit(Guid.Parse("7943b8ed-087b-43d9-81f8-043f7603cc97"),
+            contactState.NewContactTemplate.Identity with { Name = "Fixer" }, Connection: 1, Loyalty: 1)
+            { ChangeKind = CharacterCreationContactChangeKind.Add };
+        var preview = contacts.Preview(new(contactState.Binding, edit));
+        Assert.IsTrue(preview.Value?.CanConfirm == true, string.Join(",", preview.Value?.Blockers ?? preview.Blockers));
+        var contactSaved = contacts.Confirm(new(contactState.Binding, edit, preview.Value!.PreviewDigest,
+            "continuation-pending-contact", true));
+        Assert.IsTrue(contactSaved.Success, string.Join(",", contactSaved.Blockers));
+        if (buyLifestyle)
+        {
+            var lifestyles = new CharacterCreationLifestylesService(context.Store, context.Resolver);
+            var state = lifestyles.Load(new(context.WorkspaceId)).Value!;
+            var low = state.Authority.LifestyleOptions.Single(option => option.Name == "Low");
+            Guid id = Guid.Parse("de7df355-0909-4bb3-9031-a6b8c55fc78b");
+            var configuration = new CharacterCreationLifestyleConfiguration(id, low.OptionId, "Home",
+                CharacterCreationLifestyleStyleIds.Standard, low.DefaultIncrementId, 1, 100m, 0,
+                false, false, 0, 0, 0, 0, "Seattle", "", "", []);
+            var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, id, configuration);
+            var review = lifestyles.Preview(new(state.Binding, mutation)).Value!;
+            Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+            var saved = lifestyles.Confirm(new(state.Binding, mutation, review.PreviewDigest,
+                "continuation-pending-lifestyle", true));
+            Assert.IsTrue(saved.Success, string.Join(",", saved.Blockers));
+        }
+        using ReadyContext cold = context.Restart();
+        TestOwner owner = new(OwnerScope.LocalSingleUser);
+        byte[] bytes = Encode(Export(cold, owner));
+        var durable = CaptureFiles(context.Directory);
+        ObservedResolver sources = new(cold.Resolver, () => AssertLease(owner));
+        var result = new WorkspaceContinuationCandidateEvaluator(owner, sources, cold.Queries, Catalog())
+            .Evaluate(owner.Capture(), bytes, MaximumBytes);
+
+        Assert.IsTrue(result.CurrentDraftChecksPassed, string.Join(";", result.BoundaryBlockers.Concat(
+            result.DomainChecks.Select(check => check.Domain + ":" + string.Join(",", check.Blockers)))));
+        Passed(result);
+        Assert.IsTrue(result.DomainChecks.Any(check => check.Domain == "contacts"));
+        Assert.AreEqual(buyLifestyle, result.DomainChecks.Any(check => check.Domain == "lifestyles"));
+        Assert.AreEqual(buyLifestyle ? 4 : 2, sources.Reads,
+            "Only raw and (when needed) projected XML capture plus independent recapture may consult live sources.");
+        CollectionAssert.AreEqual(bytes, Encode(result.Candidate!));
+        AssertFilesUnchanged(context.Directory, durable);
+        if (buyLifestyle)
+        {
+            var disappearing = new ObservedResolver(cold.Resolver, () => AssertLease(owner)) { MissingAtRead = 4 };
+            var changed = new WorkspaceContinuationCandidateEvaluator(owner, disappearing, cold.Queries, Catalog())
+                .Evaluate(owner.Capture(), bytes, MaximumBytes);
+            Denied(changed, "continuation-sources-changed");
+            Assert.AreEqual(4, disappearing.Reads);
+            Assert.AreEqual(0, owner.ActiveLeases);
+            AssertFilesUnchanged(context.Directory, durable);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public void Real_complete_mundane_and_Mystic_Adept_drafts_pass_readonly_checks_without_restore_authority(bool awakened)
     {
         using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: !awakened,
@@ -463,11 +525,13 @@ public sealed class WorkspaceContinuationCandidateEvaluatorTests
     {
         public int Reads { get; private set; }
         public bool MissingAfterFirstRead { get; init; }
+        public int? MissingAtRead { get; init; }
         public ICharacterSourceDataContext? TryCreateContext(string characterXml)
         {
             Reads++;
             beforeRead();
-            return MissingAfterFirstRead && Reads > 1 ? null : inner.TryCreateContext(characterXml);
+            return MissingAfterFirstRead && Reads > 1 || Reads == MissingAtRead
+                ? null : inner.TryCreateContext(characterXml);
         }
     }
 

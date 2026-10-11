@@ -30,12 +30,17 @@ internal sealed class WorkspaceContinuationSourceCapture
     private readonly Captured<CharacterCreationResourcesAuthority> _resources;
     private readonly Captured<CharacterCreationGearAuthority> _gear;
     private readonly Captured<CharacterCreationLifestylesAuthority> _lifestyles;
+    private readonly Captured<ContactsPolicySource> _contactsPolicy;
+    private readonly Captured<CarryoverPolicySource> _carryoverPolicy;
+    private readonly string? _lifestyleBasisXml;
+    private readonly Captured<CharacterCreationLifestylesAuthority> _pendingLifestyles;
     private readonly Captured<ReputationSource> _reputation;
     private readonly FrozenLifeModulesCatalog _lifeModules;
 
     private WorkspaceContinuationSourceCapture(ICharacterSourceDataContext source,
         string characterXml, ILifeModulesCatalogService lifeModules,
-        CharacterCreationPrerequisiteDraft? qualityPrerequisite)
+        CharacterCreationPrerequisiteDraft? qualityPrerequisite,
+        WorkspaceStoredDocument? workspace, ICharacterSourceDataResolver? resolver)
     {
         _characterXml = characterXml;
         _profile = Capture(source.TryResolveCreationSourceProfile, CharacterCreationSourceProfileAuthority.Unavailable);
@@ -98,6 +103,45 @@ internal sealed class WorkspaceContinuationSourceCapture
         _resources = Capture(source.TryResolveCreationResourcesAuthority, CharacterCreationResourcesAuthority.Unavailable);
         _gear = Capture(source.TryResolveCreationGearAuthority, CharacterCreationGearAuthority.Unavailable);
         _lifestyles = Capture(source.TryResolveCreationLifestylesAuthority, CharacterCreationLifestylesAuthority.Unavailable);
+        bool pendingPurchases = workspace?.Document.AuxiliaryState is { } auxiliary
+            && (auxiliary.CharacterCreationContactsDraft is not null
+                || auxiliary.CharacterCreationLifestylesDraft is not null);
+        _contactsPolicy = pendingPurchases ? Capture((out ContactsPolicySource result) =>
+        {
+            bool resolved = source.TryResolveCreationContactsPolicy(out var policy);
+            if (resolved && policy is null)
+                throw new InvalidDataException("Resolved contact policy is missing.");
+            result = new(policy);
+            return resolved;
+        }, new ContactsPolicySource(null)) : new(false, new ContactsPolicySource(null));
+        _carryoverPolicy = pendingPurchases ? Capture((out CarryoverPolicySource result) =>
+        {
+            bool resolved = source.TryResolveCreationCarryoverPolicy(out var policy);
+            if (resolved && policy is null)
+                throw new InvalidDataException("Resolved carryover policy is missing.");
+            result = new(policy);
+            return resolved;
+        }, new CarryoverPolicySource(null)) : new(false, new CarryoverPolicySource(null));
+        _pendingLifestyles = new(false, CharacterCreationLifestylesAuthority.Unavailable);
+        if (workspace?.Document.AuxiliaryState.CharacterCreationLifestylesDraft is not null
+            && _contactsPolicy.Read(out var contacts) && contacts.Policy is not null
+            && _carryoverPolicy.Read(out var carryover) && carryover.Policy is not null)
+        {
+            // Pending purchases use the confirmed draft graph, not the still-empty
+            // raw character. Admit one exact derived XML input, never an arbitrary
+            // caller XML or a live resolver fallback during domain evaluation.
+            var inputs = CharacterCreationContactsDraftRules.Create(workspace, contacts.Policy, carryover.Policy, []);
+            if (inputs is not null
+                && CharacterCreationContactsDraftRules.TryProject(workspace, inputs, out var basis)
+                && basis is not null)
+            {
+                _lifestyleBasisXml = basis.Content;
+                var basisContext = resolver?.TryCreateContext(_lifestyleBasisXml);
+                if (basisContext is not null)
+                    _pendingLifestyles = Capture(basisContext.TryResolveCreationLifestylesAuthority,
+                        CharacterCreationLifestylesAuthority.Unavailable);
+            }
+        }
         _reputation = Capture((out ReputationSource result) =>
         {
             bool resolved = source.TryResolveCareerReputationSettings(out var settings, out string rawRuleState);
@@ -118,6 +162,15 @@ internal sealed class WorkspaceContinuationSourceCapture
             Resources = _resources, Gear = _gear, Lifestyles = _lifestyles,
             Reputation = _reputation, LifeModules = _lifeModules.CapturedState
         });
+        if (pendingPurchases)
+            Digest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
+            {
+                Semantics = "chummer.workspace-continuation-purchase-source-capture/v1",
+                BaseCaptureDigest = Digest, ContactsPolicy = _contactsPolicy, CarryoverPolicy = _carryoverPolicy,
+                LifestyleBasisDigest = _lifestyleBasisXml is null ? null
+                    : CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(_lifestyleBasisXml),
+                PendingLifestyles = _pendingLifestyles
+            });
     }
 
     public string Digest { get; }
@@ -127,7 +180,8 @@ internal sealed class WorkspaceContinuationSourceCapture
     public static bool TryCapture(ICharacterSourceDataContext source, string characterXml,
         ILifeModulesCatalogService lifeModules,
         [NotNullWhen(true)] out WorkspaceContinuationSourceCapture? capture,
-        CharacterCreationPrerequisiteDraft? qualityPrerequisite = null)
+        CharacterCreationPrerequisiteDraft? qualityPrerequisite = null,
+        WorkspaceStoredDocument? workspace = null, ICharacterSourceDataResolver? resolver = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(characterXml);
@@ -135,7 +189,9 @@ internal sealed class WorkspaceContinuationSourceCapture
         capture = null;
         try
         {
-            capture = new(source, characterXml, lifeModules, qualityPrerequisite);
+            if (workspace is not null && !string.Equals(workspace.Document.Content, characterXml, StringComparison.Ordinal))
+                return false;
+            capture = new(source, characterXml, lifeModules, qualityPrerequisite, workspace, resolver);
             return true;
         }
         catch (Exception exception) when (IsSourceFailure(exception))
@@ -196,12 +252,27 @@ internal sealed class WorkspaceContinuationSourceCapture
     private sealed record KarmaTalentsSource(CharacterCreationKarmaTalentCatalog? Catalog);
     private sealed record KarmaSkillsPolicySource(CharacterCreationKarmaSkillsPolicy? Policy);
     private sealed record SkillsCatalogSource(CharacterCreationSkillsCatalog? Catalog);
+    private sealed record ContactsPolicySource(CharacterCreationKarmaContactsPolicy? Policy);
+    private sealed record CarryoverPolicySource(CharacterCreationKarmaCarryoverPolicy? Policy);
 
     private sealed class FrozenResolver(WorkspaceContinuationSourceCapture capture) : ICharacterSourceDataResolver
     {
         public ICharacterSourceDataContext? TryCreateContext(string characterXml) =>
             string.Equals(characterXml, capture._characterXml, StringComparison.Ordinal)
-                ? new FrozenContext(capture) : null;
+                ? new FrozenContext(capture)
+                : capture._lifestyleBasisXml is not null
+                    && string.Equals(characterXml, capture._lifestyleBasisXml, StringComparison.Ordinal)
+                    ? new FrozenLifestyleContext(capture) : null;
+    }
+
+    private sealed class FrozenLifestyleContext(WorkspaceContinuationSourceCapture capture) : ICharacterSourceDataContext
+    {
+        public bool TryResolveCreationLifestylesAuthority(out CharacterCreationLifestylesAuthority authority)
+            => capture._pendingLifestyles.Read(out authority);
+        public bool TryResolveCyberwareGradeDeviceRating(string gradeName, string improvementSource, out int deviceRating)
+        { deviceRating = 0; return false; }
+        public bool TryResolveVehicleModBonuses(string sourceId, string name, out CharacterVehicleModSourceBonuses bonuses)
+        { bonuses = CharacterVehicleModSourceBonuses.Empty; return false; }
     }
 
     private sealed class FrozenContext(WorkspaceContinuationSourceCapture capture) : ICharacterSourceDataContext
@@ -250,6 +321,18 @@ internal sealed class WorkspaceContinuationSourceCapture
         public bool TryResolveCreationResourcesAuthority(out CharacterCreationResourcesAuthority authority) => capture._resources.Read(out authority);
         public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority) => capture._gear.Read(out authority);
         public bool TryResolveCreationLifestylesAuthority(out CharacterCreationLifestylesAuthority authority) => capture._lifestyles.Read(out authority);
+        public bool TryResolveCreationContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
+        {
+            bool resolved = capture._contactsPolicy.Read(out var source);
+            policy = source.Policy;
+            return resolved;
+        }
+        public bool TryResolveCreationCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+        {
+            bool resolved = capture._carryoverPolicy.Read(out var source);
+            policy = source.Policy;
+            return resolved;
+        }
 
         public bool TryResolveCareerReputationSettings(out CharacterCareerReputationSettings settings, out string rawRuleState)
         {

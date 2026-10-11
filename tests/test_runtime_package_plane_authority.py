@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("c3dcf15edb37723f4cdd026d68c2a8dfd81c7fed", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261011.2.shc3dcf15edb377", runtime.PACKAGE_VERSION)
+        self.assertEqual("73890b6e02cf1a35f08ac33a7fff2adf27951ce1", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261011.4.sh73890b6e02cf1", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
@@ -229,8 +229,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                 runtime.validate_lock_payload(altered)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
-        self.assertEqual(46, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
-        self.assertEqual(46, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
+        self.assertEqual(48, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+        self.assertEqual(48, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
         for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
@@ -247,6 +247,8 @@ class RuntimePackageLockTests(unittest.TestCase):
             "Chummer.Application/Characters/IOwnerBoundCharacterCreationPrerequisiteService.cs",
             "Chummer.Application/Characters/OwnerBoundCharacterCreationPrerequisiteService.cs",
             "Chummer.Application/Characters/OwnerBoundCreationWorkspaceStore.cs",
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationLifestylesService.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationLifestylesService.cs",
             "Chummer.Application/Characters/IOwnerBoundCharacterCreationFinalizationService.cs",
             "Chummer.Application/Characters/OwnerBoundCharacterCreationFinalizationService.cs",
             "Chummer.Tests/OwnerBoundCharacterCreationPrerequisiteServiceTests.cs",

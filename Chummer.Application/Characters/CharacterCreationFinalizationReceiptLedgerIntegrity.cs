@@ -45,6 +45,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
         var bootstrap = archive.State.CharacterCreationBootstrapBinding;
         return receipt.BuildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
             && bootstrap is not null && CharacterCreationFinalizationStartingCashRules.IsValid(cash)
+            && CharacterCreationFinalizationStartingCashRules.MatchesPurchases(cash, archive.State.CharacterCreationLifestylesDraft)
             && cash.Source.SettingsProfileId == bootstrap.SettingsProfileId
             && cash.Source.RawProfileInputsDigest == bootstrap.RawProfileInputsDigest
             && cash.Source.SettingsProfileId == receipt.CarryoverPolicy?.SettingsProfileId

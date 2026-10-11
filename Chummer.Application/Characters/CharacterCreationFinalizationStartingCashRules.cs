@@ -15,11 +15,11 @@ public static class CharacterCreationFinalizationStartingCashRules
     {
         if (!CharacterCreationKarmaFinalizationBudgetRules.IsValidStartingCashSource(source)
             || lifestyles is null || !CharacterCreationLifestylesRules.IsValidAuthority(lifestyles)
-            || source!.Name != "Street" || source.SettingsProfileId != lifestyles.SettingsProfileId
+            || source!.SettingsProfileId != lifestyles.SettingsProfileId
             || source.RawProfileInputsDigest != lifestyles.ProfileDigest
             || source.SourceInputsDigest != lifestyles.SourceDigest) return false;
         var options = lifestyles.LifestyleOptions.Where(item => item.SourceId.ToString("D") == source.SourceId).Take(2).ToArray();
-        return options is [{ IsSelectable: true, EligibilityIsExact: true, BaseCost: 0 } option]
+        return options is [{ IsSelectable: true, EligibilityIsExact: true } option]
             && option.Name == source.Name && option.StartingNuyenDice == source.Dice
             && option.StartingNuyenMultiplier == source.Multiplier
             && option.SourceBook == source.SourceBook && option.Page == source.Page;
@@ -44,11 +44,24 @@ public static class CharacterCreationFinalizationStartingCashRules
         => value is not null && TryPrepare(value.Source, value.Lifestyles, value.Choice, out var expected)
             && value.AuthorityDigest == expected!.AuthorityDigest;
 
+    public static bool MatchesPurchases(CharacterCreationFinalizationStartingCash value,
+        CharacterCreationLifestylesDraft? draft)
+    {
+        if (!IsValid(value)) return false;
+        var option = value.Lifestyles.LifestyleOptions.Single(row => row.SourceId.ToString("D") == value.Source.SourceId);
+        if (draft is not { Lifestyles.Count: > 0 })
+            return value.Source.Name == "Street" && option.BaseCost == 0;
+        return draft.SourceAuthorityDigest == value.Lifestyles.AuthorityDigest
+            && draft.Lifestyles.Any(row => row.BaseLifestyleOptionId == option.OptionId)
+            && draft.ProjectionAuthority.LifestyleOptions.Any(row =>
+                CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(row, option));
+    }
+
     public static bool TryProject(CharacterWorkspaceId id, CharacterCreationFinalizationStartingCash? value,
         out decimal amount, out XElement? lifestyle)
     {
         amount = 0; lifestyle = null;
-        if (!IsValid(value) || string.IsNullOrWhiteSpace(id.Value)) return false;
+        if (!IsValid(value) || !MatchesPurchases(value!, null) || string.IsNullOrWhiteSpace(id.Value)) return false;
         var source = value!.Source;
         var option = value.Lifestyles.LifestyleOptions.Single(item => item.SourceId.ToString("D") == source.SourceId);
         var configuration = new CharacterCreationLifestyleConfiguration(

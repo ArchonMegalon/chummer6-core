@@ -2390,6 +2390,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
         }
 
+        public bool TryResolveCreationPriorityStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+        {
+            source = null;
+            return _buildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
+                && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
+        }
+
         public bool TryResolveCreationLifeModuleStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
         {
             source = null;

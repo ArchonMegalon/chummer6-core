@@ -98,7 +98,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                 ICharacterSourceDataContext? context = sourceResolver.TryCreateContext(document.Content);
                 if (context is null || !WorkspaceContinuationSourceCapture.TryCapture(
                         context, document.Content, lifeModules, out var sources,
-                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft))
+                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft, workspace, sourceResolver))
                     return Failure("continuation-sources-unavailable", candidate, historyConsistent);
                 sourceDigest = sources.Digest;
                 ICharacterSourceDataResolver frozen = sources.CreateResolver();
@@ -191,19 +191,21 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                             CharacterCreationGearBlockers.CareerModeRejected);
                     });
 
-                // These two Creation domains store typed decisions in the XML.
-                // Their archived receipts are not reinterpreted as active Career drafts.
+                // Legacy decisions live in XML; bootstrap purchases stay in typed
+                // auxiliary drafts. Neither is an active draft after finalization.
                 if (!summary.Created && (auxiliary.CharacterCreationContactReceipts is not null
+                        || auxiliary.CharacterCreationContactsDraft is not null
                         || root.Elements("contacts").Any(container => container.HasElements)))
                     Run("contacts", () =>
                     {
-                        var result = new CharacterCreationContactsService(view)
+                        var result = new CharacterCreationContactsService(view, frozen)
                             .Load(expectedOwner.Owner, new(workspace.Id));
                         return Check("contacts", result.Value is not null, result.Blockers,
                             CharacterCreationContactsBlockers.PersistenceAuthorityRequired,
                             CharacterCreationContactsBlockers.CareerModeRejected);
                     });
                 if (!summary.Created && (auxiliary.CharacterCreationLifestyleReceipts is not null
+                        || auxiliary.CharacterCreationLifestylesDraft is not null
                         || root.Elements("lifestyles").Any(container => container.HasElements)))
                     Run("lifestyles", () =>
                     {
@@ -230,7 +232,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                 ICharacterSourceDataContext? current = sourceResolver.TryCreateContext(document.Content);
                 if (current is null || !WorkspaceContinuationSourceCapture.TryCapture(
                         current, document.Content, lifeModules, out var finalSources,
-                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft)
+                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft, workspace, sourceResolver)
                     || !string.Equals(sourceDigest, finalSources.Digest, StringComparison.Ordinal))
                     boundary.Add("continuation-sources-changed");
 
@@ -267,7 +269,9 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
         || state.CharacterCreationMagicResonanceDraft is not null
         || state.CharacterCreationQualitiesDraft is not null
         || state.CharacterCreationResourcesDraft is not null
-        || state.CharacterCreationGearDraft is not null;
+        || state.CharacterCreationGearDraft is not null
+        || state.CharacterCreationContactsDraft is not null
+        || state.CharacterCreationLifestylesDraft is not null;
 
     private static bool QualitiesCheckpointIsOnlyReadiness(CharacterCreationQualitiesBinding? binding) =>
         binding is not null && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)

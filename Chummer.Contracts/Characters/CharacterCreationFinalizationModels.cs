@@ -147,6 +147,10 @@ public sealed record CharacterCreationFinalizationState(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationStartingNuyenSource? StartingCashSource { get; init; }
+
+    /// <summary>Only saved lifestyle tiers, preferred expected cash first. Null retains historical Street-only state.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationStartingNuyenSource>? StartingCashSources { get; init; }
 }
 
 public sealed record CharacterCreationFinalizationDelta(

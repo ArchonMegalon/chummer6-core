@@ -1828,7 +1828,9 @@ public sealed partial class FileWorkspaceStore :
                 JsonSerializer.Serialize(replacementState.CharacterCreationContactsDraft), StringComparison.Ordinal);
         bool lifestyleReceiptsUnchanged = HasSameLifestyleReceiptLedger(
             currentLifestyleReceipts,
-            replacementLifestyleReceipts);
+            replacementLifestyleReceipts)
+            && string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationLifestylesDraft),
+                JsonSerializer.Serialize(replacementState.CharacterCreationLifestylesDraft), StringComparison.Ordinal);
         bool resourcesUnchanged = HasSameResourcesLane(
             currentResourcesDraft,
             currentResourcesReceipts,

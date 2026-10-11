@@ -244,6 +244,8 @@ public static class ServiceCollectionExtensions
             OwnerBoundCharacterCreationContactsService>();
         services.AddSingleton<ICharacterCreationLifestylesService,
             CharacterCreationLifestylesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationLifestylesService,
+            OwnerBoundCharacterCreationLifestylesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationLifestylesReader,
             OwnerBoundCharacterCreationLifestylesReader>();
         services.AddSingleton<ICharacterCreationResourcesService,

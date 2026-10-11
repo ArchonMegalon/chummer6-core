@@ -20,14 +20,25 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     private static readonly OwnerScope AccountA = new("finalization-account-a");
     private static readonly OwnerScope AccountB = new("finalization-account-b");
     private static ReadyContext s_source = null!;
+    private static string s_lifestylesSourceProjection = null!;
 
     [ClassInitialize]
-    public static void Initialize(TestContext _)
+    public static void Initialize(TestContext context)
     {
         // One genuine, nonempty, complete awakened draft graph. Each test gets
         // independent private storage; no test may mutate this source fixture.
         s_source = ReadyContext.Create(true, includeNonEmptyPurchases: true,
             talentValue: "Mystic Adept", mysticPowerPoints: 2);
+        var workspace = s_source.Store.Get(s_source.WorkspaceId).Value!;
+        Assert.IsTrue(CharacterCreationContactsDraftRules.TryLoad(workspace, s_source.Resolver, out var inputs, out _));
+        Assert.IsNotNull(inputs);
+        var emptyContacts = CharacterCreationContactsDraftRules.Create(workspace, inputs.Policy, inputs.CarryoverPolicy, []);
+        Assert.IsNotNull(emptyContacts);
+        Assert.IsTrue(CharacterCreationContactsDraftRules.TryProject(workspace, emptyContacts, out var projected));
+        Assert.IsNotNull(projected);
+        s_lifestylesSourceProjection = projected.Content;
+        Assert.AreNotEqual(workspace.Document.Content, s_lifestylesSourceProjection,
+            "Pending purchases resolve prices against the exact completed choices, not the unfinished XML.");
     }
 
     [ClassCleanup]
@@ -49,7 +60,8 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         var before = fixture.CaptureAllPartitions();
         var stamp = fixture.Owner.Capture();
         var baselineStore = new ScopedAtomicStore(fixture);
-        var baselineResolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var baselineResolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+            { ExpectedDerivedXml = s_lifestylesSourceProjection };
         var expectedFoundation = includeFoundation
             ? new OwnerBoundCharacterCreationLifeModuleFinalizationService(
                 baselineStore, fixture.Owner, s_source.Queries, baselineResolver, OverviewCatalog())
@@ -71,10 +83,13 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         Assert.IsTrue(expected.Contacts.Value.CanEdit);
         Assert.IsNotNull(expected.Finalization.Value);
         Assert.IsTrue(expected.Finalization.Value.Steps.All(step => step.IsComplete));
+        Assert.IsNotNull(expected.Lifestyles.Value);
+        Assert.IsTrue(expected.Lifestyles.Value.CanEdit, "The complete pending graph must admit Lifestyles.");
         int queries = baselineResolver.Scopes.Sum(scope => scope.Calls);
 
         var store = new ScopedAtomicStore(fixture);
-        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+            { ExpectedDerivedXml = s_lifestylesSourceProjection };
         IOwnerBoundCharacterCreationOverviewReader service = includeFoundation
             ? new OwnerBoundCharacterCreationLifeModuleFinalizationService(
                 store, fixture.Owner, s_source.Queries, resolver, OverviewCatalog())
@@ -87,17 +102,42 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         Assert.HasCount(1, resolver.Scopes);
         var first = resolver.Scopes[0];
         Assert.AreEqual(queries, first.Calls, "No live source admission was skipped.");
-        Assert.HasCount(1, first.UniqueContexts);
+        Assert.HasCount(2, first.UniqueContexts,
+            "The raw pending XML and exact complete price projection require distinct source contexts.");
         Assert.IsTrue(first.Disposed);
 
         AssertJsonEquals(expected, service.LoadOverview(stamp, fixture.Id, includePriorityDrafts)!);
         Assert.AreEqual(2, store.Reads, "A new public read must observe storage again.");
         Assert.HasCount(2, resolver.Scopes);
-        Assert.HasCount(1, resolver.Scopes[1].UniqueContexts);
-        Assert.AreNotSame(first.UniqueContexts[0], resolver.Scopes[1].UniqueContexts[0]);
+        Assert.HasCount(2, resolver.Scopes[1].UniqueContexts);
+        Assert.IsFalse(first.UniqueContexts.Any(previous =>
+            resolver.Scopes[1].UniqueContexts.Any(current => ReferenceEquals(previous, current))),
+            "Neither raw nor projected authority may cross a public operation boundary.");
         Assert.IsTrue(resolver.Scopes[1].Disposed);
         Assert.AreEqual(0, resolver.UnscopedCalls);
         Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    public void Overview_read_denies_unadmitted_pending_lifestyle_source_projection()
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+            { ExpectedDerivedXml = s_lifestylesSourceProjection, DenyDerivedContext = true };
+        var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner, s_source.Queries, resolver);
+        var actual = service.LoadOverview(fixture.Owner.Capture(), fixture.Id, true);
+        Assert.IsNotNull(actual);
+        Assert.IsTrue(actual.Lifestyles.Value is null || !actual.Lifestyles.Value.CanEdit,
+            "A denied derived source context must not fall back to raw pending-character prices.");
+        Assert.HasCount(1, resolver.Scopes);
+        Assert.HasCount(1, resolver.Scopes[0].UniqueContexts);
+        Assert.IsTrue(resolver.Scopes[0].Disposed);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
         Assert.AreEqual(0, fixture.Owner.ActiveLeases);
         fixture.AssertPartitionsUnchanged(before);
     }
@@ -112,6 +152,68 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             root = root.Parent;
         }
         throw new DirectoryNotFoundException("Could not locate the canonical Life Modules catalog.");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Pending_lifestyles_owner_bound_save_replay_cold_read_and_stale_owner(bool linked)
+    {
+        var owner = linked ? AccountA : OwnerScope.LocalSingleUser;
+        using var fixture = new Fixture(owner);
+        var unchanged = fixture.CaptureOtherPartitions();
+        var before = fixture.Read(owner);
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+            { ExpectedDerivedXml = s_lifestylesSourceProjection };
+        var service = new OwnerBoundCharacterCreationLifestylesService(store, fixture.Owner, resolver);
+        var stamp = fixture.Owner.Capture();
+        var state = service.Load(stamp, new(fixture.Id)).Value;
+        Assert.IsNotNull(state);
+        Assert.IsTrue(state.CanEdit);
+        var option = state.Authority.LifestyleOptions.Single(row => row.Name == "Street");
+        var id = Guid.NewGuid();
+        var configuration = new CharacterCreationLifestyleConfiguration(id, option.OptionId, "Seattle home",
+            CharacterCreationLifestyleStyleIds.Standard, option.DefaultIncrementId, 1,
+            100m, 0, false, false, 0, 0, 0, 0, "Seattle", "", "", []);
+        var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, id, configuration);
+        var preview = service.Preview(stamp, new(state.Binding, mutation)).Value;
+        Assert.IsNotNull(preview);
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        var command = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation, preview.PreviewDigest,
+            "owner-bound-lifestyle", true);
+        var result = service.Confirm(stamp, command);
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Applied, result.Outcome, string.Join(",", result.Blockers));
+        Assert.IsNotNull(result.Value);
+        Assert.AreEqual(1, store.Commits);
+        var cold = fixture.Read(owner);
+        Assert.AreEqual(before.ContentRevision + 1, cold.ContentRevision);
+        Assert.AreEqual(cold.ContentRevision, cold.SavedRevision);
+        Assert.AreEqual(before.Document.Content, cold.Document.Content, "Pending purchases must not rewrite the unfinished XML.");
+        Assert.HasCount(1, cold.Document.AuxiliaryState.CharacterCreationLifestylesDraft!.Lifestyles);
+        Assert.AreEqual(id, cold.Document.AuxiliaryState.CharacterCreationLifestylesDraft!.Lifestyles[0].LifestyleId);
+        var saved = fixture.CaptureAllPartitions();
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed, service.Confirm(stamp, command).Outcome);
+        Assert.AreEqual(result.Value.ReceiptDigest, service.LookupReceipt(stamp, new(fixture.Id, command.IdempotencyKey)).Value!.ReceiptDigest);
+        fixture.AssertPartitionsUnchanged(saved);
+        fixture.AssertOtherPartitionsUnchanged(unchanged);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+
+        foreach (bool returnToOriginal in new[] { false, true })
+        {
+            fixture.Owner.Transition(returnToOriginal ? owner : AccountB);
+            int reads = store.Reads, scopes = resolver.Scopes.Count;
+            Assert.IsFalse(service.Load(stamp, new(fixture.Id)).Success);
+            Assert.IsFalse(service.Preview(stamp, new(state.Binding, mutation)).Success);
+            Assert.IsFalse(service.Confirm(stamp, command).Success);
+            Assert.IsFalse(service.LookupReceipt(stamp, new(fixture.Id, command.IdempotencyKey)).Success);
+            Assert.AreEqual(reads, store.Reads, "Stale owner must fail before any partition read.");
+            Assert.AreEqual(scopes, resolver.Scopes.Count);
+            Assert.AreEqual(1, store.Commits);
+            Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+            fixture.AssertPartitionsUnchanged(saved);
+        }
     }
 
     [TestMethod]
@@ -1097,6 +1199,8 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         public bool FailCreate { get; init; }
         public bool FailQuery { get; init; }
         public bool DenyRepeatedContext { get; init; }
+        public string? ExpectedDerivedXml { get; init; }
+        public bool DenyDerivedContext { get; init; }
         public int InjectedFailures { get; private set; }
         public ICharacterSourceDataContext? TryCreateContext(string characterXml)
         {
@@ -1118,14 +1222,15 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
                     if (!FailQuery) return;
                     InjectedFailures++;
                     throw new OperationSourceTestException();
-                }, DenyRepeatedContext);
+                }, DenyRepeatedContext, ExpectedDerivedXml, DenyDerivedContext);
             Scopes.Add(scope);
             return scope;
         }
     }
 
     private sealed class ObservedOperationScope(Fixture fixture,
-        ICharacterSourceDataResolverOperationScope inner, Action beforeQuery, bool denyRepeatedContext = false)
+        ICharacterSourceDataResolverOperationScope inner, Action beforeQuery, bool denyRepeatedContext = false,
+        string? expectedDerivedXml = null, bool denyDerivedContext = false)
         : ICharacterSourceDataResolverOperationScope
     {
         public int Calls { get; private set; }
@@ -1139,7 +1244,14 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             // Match the baseline observer's real store read and exact-XML
             // assertion, so elapsed/allocation diagnostics do not compare
             // different fixture instrumentation costs.
-            Assert.AreEqual(s_source.Store.Get(s_source.WorkspaceId).Value!.Document.Content, characterXml);
+            string raw = s_source.Store.Get(s_source.WorkspaceId).Value!.Document.Content;
+            if (!string.Equals(raw, characterXml, StringComparison.Ordinal))
+            {
+                Assert.IsNotNull(expectedDerivedXml, "Unexpected derived character source request.");
+                Assert.AreEqual(expectedDerivedXml, characterXml,
+                    "Only the exact, independently projected pending choices may obtain price authority.");
+                if (denyDerivedContext) return null;
+            }
             beforeQuery();
             if (denyRepeatedContext && Calls > 1) return null;
             var context = inner.TryCreateContext(characterXml);

@@ -9,6 +9,8 @@ public static class CharacterCreationLifestylesSchemas
     public const string StateV1 = "chummer.sr5.creation-lifestyles.state.v1";
     public const string PreviewV1 = "chummer.sr5.creation-lifestyles.preview.v1";
     public const string WritePlanV1 = "chummer.sr5.creation-lifestyles.write-plan.v1";
+    public const string DraftV1 = "chummer.sr5.creation-lifestyles.draft.v1";
+    public const string DraftWritePlanV1 = "chummer.sr5.creation-lifestyles.draft-write-plan.v1";
     public const string ReceiptV1 = "chummer.sr5.creation-lifestyles.receipt.v1";
     public const string RulesV1 = "chummer.sr5.creation-lifestyles.rules.v1";
     public const string RuntimeV1 = "chummer.sr5.creation-lifestyles.runtime.v1";
@@ -269,6 +271,21 @@ public sealed record CharacterCreationLifestyleMutation(
     Guid LifestyleId,
     CharacterCreationLifestyleConfiguration? Configuration);
 
+/// <summary>Confirmed Priority/Sum-to-Ten purchases; raw character XML stays unchanged until finalization.</summary>
+public sealed record CharacterCreationLifestylesDraft(
+    string Schema,
+    CharacterWorkspaceId WorkspaceId,
+    long BaseContentRevision,
+    CharacterCreationContactsDraft InputAuthority,
+    string SkillsDraftDigest,
+    string ResourcesDraftDigest,
+    string GearDraftDigest,
+    string? MagicDraftDigest,
+    string SourceAuthorityDigest,
+    CharacterCreationLifestylesAuthority ProjectionAuthority,
+    IReadOnlyList<CharacterCreationLifestyleConfiguration> Lifestyles,
+    string DraftDigest);
+
 public sealed record CharacterCreationLifestyleEconomics(
     decimal CostPerIncrement,
     decimal TotalCost,
@@ -338,7 +355,11 @@ public sealed record CharacterCreationLifestyleAtomicWritePlan(
     string NestedStateDigestAfter,
     bool PreservesUntouchedSiblingState,
     bool PreservesNestedState,
-    string PlanDigest);
+    string PlanDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestylesDraft? PendingDraft { get; init; }
+}
 
 public sealed record CharacterCreationLifestylesState(
     string Schema,
