@@ -36,9 +36,9 @@ CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.invent
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
 # Date/sequence must advance for new candidates; commit hashes do not sort by
 # release order. Keep the source suffix for identity, not version precedence.
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.v20261011.3.sh57f3675712534"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.v20261011.4.sh73890b6e02cf1"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "57f3675712534ad89bdc2b60f9cdd6242aeee70b"
+SOURCE_COMMIT = "73890b6e02cf1a35f08ac33a7fff2adf27951ce1"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -330,6 +330,8 @@ OWNER_ADMISSION_AUTHORITY_PATHS = (
     "Chummer.Application/Characters/IOwnerBoundCharacterCreationBootstrapService.cs",
     "Chummer.Application/Characters/IOwnerBoundCharacterCreationContactsService.cs",
     "Chummer.Application/Characters/IOwnerBoundCharacterCreationLifestylesReader.cs",
+    "Chummer.Application/Characters/IOwnerBoundCharacterCreationLifestylesService.cs",
+    "Chummer.Application/Characters/OwnerBoundCharacterCreationLifestylesService.cs",
     "Chummer.Application/Characters/OwnerBoundCharacterCreationBootstrapService.cs",
     "Chummer.Application/Characters/OwnerBoundCharacterCreationContactsService.cs",
     "Chummer.Application/Characters/OwnerBoundCharacterCreationLifestylesReader.cs",
