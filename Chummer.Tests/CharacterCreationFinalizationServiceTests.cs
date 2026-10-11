@@ -20,6 +20,50 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Elf")]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Ork")]
+    public void Racial_vision_does_not_block_paid_ambidextrous_and_both_survive_cold_finalization(string method, string metatype)
+    {
+        using var context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            qualityName: "Ambidextrous", buildMethod: method, metatypeName: metatype);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var draft = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        var attributes = before.Document.AuxiliaryState.CharacterCreationAttributesDraft!;
+        Assert.AreEqual("Ambidextrous", draft.Selections.Single().Name);
+        Assert.AreEqual(4, draft.Selections.Single().KarmaCost);
+        Assert.AreEqual(4, attributes.CreationKarmaTotal - attributes.CreationKarmaUsed - draft.KarmaRemaining);
+        using var coldDraft = context.Restart();
+        var state = coldDraft.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = coldDraft.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(coldDraft) }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual(4m, review.OrderedDeltas
+            .Where(item => item.Kind == CharacterCreationFinalizationDeltaKinds.Quality
+                || item.TargetId == "qualities-karma-adjustment").Sum(item => item.KarmaCost));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "racial-ambidextrous-finalization", true) { StartingCash = review.Plan.StartingCash };
+        var applied = coldDraft.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using var cold = context.Restart();
+        var saved = cold.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.AreEqual(metatype, root.Element("metatype")!.Value);
+        var qualities = root.Element("qualities")!.Elements("quality").ToArray();
+        Assert.HasCount(2, qualities);
+        Assert.AreEqual("Low-Light Vision", qualities.Single(item => item.Element("qualitysource")?.Value == "Metatype").Element("name")!.Value);
+        var purchased = qualities.Single(item => item.Element("qualitysource")?.Value == "Selected");
+        Assert.AreEqual("Ambidextrous", purchased.Element("name")!.Value);
+        Assert.AreEqual("4", purchased.Element("bp")!.Value);
+        var improvement = root.Element("improvements")!.Elements("improvement")
+            .Single(item => item.Element("improvementttype")?.Value == "Ambidextrous");
+        Assert.AreEqual(purchased.Element("guid")!.Value, improvement.Element("sourcename")!.Value);
+        Assert.AreEqual("1", improvement.Element("enabled")!.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, cold.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(saved.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(saved.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, "Elf", null)]
     [DataRow(CharacterCreationBuildMethods.Priority, "Ork", null)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, "Elf", null)]

@@ -4206,8 +4206,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             // Character.LimbCount("arm") starts at two, then applies AddLimb.
             // This bounded lane proves the *absence* of additional contributors;
-            // it never guesses anatomy for variants, granted qualities or ware.
-            // Supporting those requires their complete active-effect projection.
+            // it never guesses anatomy for variants, unresolved grants or ware.
+            // Source-bound racial grants may use the existing no-improvement
+            // projection: Low-Light Vision does not change the number of arms.
             if (prerequisite is null || prerequisite.BuildMethod != _buildMethod
                 || prerequisite.SettingsProfileId != _settingsProfileId
                 || prerequisite.HeritageSelection is not { MetavariantSourceId: null } heritage
@@ -4222,7 +4223,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     .SelectMany(option => option.HeritageOptions).Count(option =>
                     option.IsEnabled && option.Blockers.Count == 0 && option.SelectionId == heritage.SelectionId
                     && option.MetatypeSourceId == heritage.MetatypeSourceId && option.MetavariantSourceId is null
-                    && option.MetatypeSourceNodeDigest == heritage.MetatypeSourceNodeDigest) != 1
+                    && option.MetatypeSourceNodeDigest == heritage.MetatypeSourceNodeDigest
+                    && CharacterCreationMagicResonanceDigest.Compute(option.RacialQualitySources)
+                        == CharacterCreationMagicResonanceDigest.Compute(heritage.RacialQualitySources)) != 1
                 || current.Options.Where(option => option.SourceId == prerequisite.TalentSelection.PrioritySourceId)
                     .SelectMany(option => option.TalentOptions).Count(option => option.IsEnabled
                         && option.Blockers.Count == 0 && option.SelectionId == prerequisite.TalentSelection.SelectionId
@@ -4233,11 +4236,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     string.Empty, out var metatype) || metatype is null
                 || metatype.Elements("bonus").Any(node => node.HasAttributes || node.HasElements
                     || !string.IsNullOrWhiteSpace(node.Value))
-                || metatype.Elements("qualities").Any(node => node.HasAttributes || node.HasElements
-                    || !string.IsNullOrWhiteSpace(node.Value))
                 || _sourceInputs.HasSourceDrift)
                 return false;
-            return true;
+            return !metatype.Elements("qualities").Any(node => node.HasAttributes || node.HasElements
+                       || !string.IsNullOrWhiteSpace(node.Value))
+                || CharacterCreationPriorityRacialQualities.TryProject(
+                    heritage.RacialQualitySources, current.AuthorityDigest, out _);
         }
 
         public bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)

@@ -14,11 +14,16 @@ public sealed class CharacterCreationQualityAnatomyTests
     private static readonly string DraftDigest = CharacterCreationFinalizationDigest.ComputeUtf8("anatomy-quality-draft");
 
     [TestMethod]
-    [DataRow(CharacterCreationBuildMethods.Priority)]
-    [DataRow(CharacterCreationBuildMethods.SumToTen)]
-    public void Contextual_catalog_keeps_original_source_and_rejects_unproven_anatomy(string method)
+    [DataRow(CharacterCreationBuildMethods.Priority, "Human")]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Human")]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Elf")]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Elf")]
+    [DataRow(CharacterCreationBuildMethods.Priority, "Ork")]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, "Ork")]
+    public void Contextual_catalog_keeps_original_source_and_rejects_unproven_anatomy(string method, string metatype)
     {
-        using var context = CharacterCreationFinalizationServiceTests.ReadyContext.Create(true, buildMethod: method);
+        using var context = CharacterCreationFinalizationServiceTests.ReadyContext.Create(true,
+            buildMethod: method, metatypeName: metatype);
         var document = context.Store.Get(context.WorkspaceId).Value!.Document;
         var prerequisite = document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
         var source = context.Resolver.TryCreateContext(document.Content)!;
@@ -33,6 +38,10 @@ public sealed class CharacterCreationQualityAnatomyTests
             CharacterCreationQualitiesRules.ComputeOptionDigest(option));
         Assert.AreNotEqual(option.OptionDigest, CharacterCreationQualitiesRules.ComputeOptionDigest(option with { ResolvedArmCount = 4 }));
         Assert.IsFalse(JsonSerializer.Serialize(legacy.Options.Single(item => item.SourceId == AmbidextrousId)).Contains("ResolvedArmCount"));
+        // A deserialized copy is equally authoritative; collection identity is not.
+        var detached = JsonSerializer.Deserialize<CharacterCreationPrerequisiteDraft>(JsonSerializer.Serialize(prerequisite))!;
+        Assert.IsTrue(source.TryResolveCreationQualitiesAuthority(detached, out var reread));
+        Assert.IsTrue(reread.Options.Single(item => item.SourceId == AmbidextrousId).IsSelectable);
 
         foreach (var unsupported in new[]
         {
@@ -40,6 +49,7 @@ public sealed class CharacterCreationQualityAnatomyTests
             prerequisite with { HeritageSelection = prerequisite.HeritageSelection! with { MetatypeSourceId = Guid.NewGuid().ToString("D") } },
             prerequisite with { HeritageSelection = prerequisite.HeritageSelection! with { MetavariantSourceId = "abfd41e2-3db6-4c02-b404-11f92e426279" } },
             prerequisite with { HeritageSelection = prerequisite.HeritageSelection! with { MetatypeSourceNodeDigest = DraftDigest } },
+            prerequisite with { HeritageSelection = prerequisite.HeritageSelection! with { RacialQualitySources = [] } },
             prerequisite with { TalentSelection = prerequisite.TalentSelection! with { GrantedQualities = ["Shiva Arms (Pair)"] } }
         })
         {
@@ -48,6 +58,36 @@ public sealed class CharacterCreationQualityAnatomyTests
             Assert.IsFalse(unavailable.IsSelectable);
             Assert.IsNull(unavailable.ResolvedArmCount);
         }
+
+        if (prerequisite.HeritageSelection!.RacialQualitySources is { Count: > 0 } grants)
+        {
+            // Rehashing altered source bytes does not make them current source authority.
+            var changedXml = XElement.Parse(grants[0].CanonicalSourceXml);
+            changedXml.SetElementValue("limit", "2");
+            string xml = changedXml.ToString(SaveOptions.DisableFormatting);
+            var changed = grants[0] with
+            {
+                CanonicalSourceXml = xml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(xml),
+                SourceNodeDigest = CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(
+                    grants[0].EffectiveSourceDigest, grants[0].SourceId, xml)
+            };
+            Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(changed));
+            foreach (var altered in new IReadOnlyList<CharacterCreationTalentQualitySource>?[]
+                { null, [changed], [grants[0], grants[0]], [grants[0] with { ForcedSelection = "arm" }] })
+            {
+                var forged = prerequisite with
+                {
+                    HeritageSelection = prerequisite.HeritageSelection with { RacialQualitySources = altered }
+                };
+                Assert.IsTrue(source.TryResolveCreationQualitiesAuthority(forged, out var rejected));
+                Assert.IsFalse(rejected.Options.Single(item => item.SourceId == AmbidextrousId).IsSelectable);
+                Assert.IsNull(rejected.Options.Single(item => item.SourceId == AmbidextrousId).ResolvedArmCount);
+            }
+        }
+        // Rejected calls must not contaminate the known-anatomy snapshot (or vice versa).
+        Assert.IsTrue(source.TryResolveCreationQualitiesAuthority(prerequisite, out var restored));
+        Assert.AreEqual(option.OptionDigest, restored.Options.Single(item => item.SourceId == AmbidextrousId).OptionDigest);
     }
 
     [TestMethod]
