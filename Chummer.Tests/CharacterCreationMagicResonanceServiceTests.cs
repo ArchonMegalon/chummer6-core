@@ -19,6 +19,122 @@ public sealed class CharacterCreationMagicResonanceServiceTests
     private const string PowerId = "30000000-0000-0000-0000-000000000003";
 
     [TestMethod]
+    public void Reused_canonical_payload_does_not_cache_digest_root_or_typed_admission()
+    {
+        var authority = CreateMagicAuthority(CreatePrerequisiteAuthority());
+        var spell = authority.Spells.Single();
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell));
+        foreach (var changed in new[]
+        {
+            spell with { CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("changed") },
+            spell with { CanonicalSourceXmlDigest = "" },
+            spell with { Identity = spell.Identity with { Kind = CharacterCreationMagicResonanceKinds.Tradition } },
+            spell with { Identity = spell.Identity with { SourceId = TraditionId } },
+            spell with { Name = "changed" }, spell with { SourceBook = "changed" },
+            spell with { Page = "changed" }, spell with { Category = "changed" },
+            spell with { PointCost = 2m }, spell with { MaximumLevels = 2 },
+            spell with { DrainExpression = "changed" }, spell with { SourceNodeDigest = "invalid" }
+        })
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(changed));
+
+        string revisedXml = spell.CanonicalSourceXml.Replace("Acid Stream", "New spell", StringComparison.Ordinal);
+        var revised = spell with { CanonicalSourceXml = revisedXml,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(revisedXml) };
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(revised));
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(revised with { Name = "New spell" }));
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell));
+    }
+
+    [TestMethod]
+    public void Reused_canonical_payload_rechecks_mutable_restrictions_and_blockers()
+    {
+        var authority = CreateMagicAuthority(CreatePrerequisiteAuthority());
+        string[] restrictions = authority.Talents.Single().ForbiddenMetatypeNames.ToArray();
+        var talent = authority.Talents.Single() with { ForbiddenMetatypeNames = restrictions };
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(talent));
+        restrictions[0] = "changed";
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(talent));
+        restrictions[0] = "A.I.";
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(talent));
+
+        string xml = $"<power><id>{PowerId}</id><name>Zero</name><source>SR5</source><page>1</page><points>0</points></power>";
+        string[] blockers = [CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported];
+        var power = authority.Spells.Single() with
+        {
+            Identity = new(CharacterCreationMagicResonanceKinds.AdeptPower, PowerId), Name = "Zero",
+            Category = "adept-power", PointCost = 0m, Page = "1", IsEnabled = false, Blockers = blockers,
+            CanonicalSourceXml = xml, CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(xml)
+        };
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(power));
+        blockers[0] = "changed";
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(power));
+        blockers[0] = CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported;
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(power));
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(power with { IsEnabled = true }));
+    }
+
+    [TestMethod]
+    public void Reused_canonical_payload_preserves_invalid_and_large_input_behavior()
+    {
+        var spell = CreateMagicAuthority(CreatePrerequisiteAuthority()).Spells.Single();
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell));
+        foreach (string invalid in new[] { "", " ", "<spell>",
+            " " + spell.CanonicalSourceXml, spell.CanonicalSourceXml + "<!--tail-->",
+            spell.CanonicalSourceXml.Replace("<spell>", "<spell attr='value'>", StringComparison.Ordinal),
+            new string('x', 1_048_577) })
+        {
+            var changed = spell with { CanonicalSourceXml = invalid,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(invalid) };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(changed));
+        }
+        string large = spell.CanonicalSourceXml.Replace("</spell>", "<notes>" + new string('x', 70_000) + "</notes></spell>", StringComparison.Ordinal);
+        var largeOption = spell with { CanonicalSourceXml = large,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(large) };
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(largeOption));
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(largeOption with { Name = "changed" }));
+        Parallel.For(0, 32, _ =>
+        {
+            Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell));
+            Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(spell, 1, out var projected));
+            Assert.AreEqual(spell.CanonicalSourceXml, projected!.CanonicalSourceXml);
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell with { PointCost = 2m }));
+        });
+    }
+
+    [TestMethod]
+    public void Reused_canonical_payload_avoids_reparsing_but_does_not_retain_retired_source_text()
+    {
+        var spell = CreateMagicAuthority(CreatePrerequisiteAuthority()).Spells.Single();
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell));
+        long started = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++)
+            Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell));
+        long reused = GC.GetAllocatedBytesForCurrentThread() - started;
+        started = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++)
+        {
+            // Equal content with a new identity must take the ordinary parse path.
+            var fresh = spell with { CanonicalSourceXml = new string(spell.CanonicalSourceXml.ToCharArray()) };
+            Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(fresh));
+        }
+        long freshBytes = GC.GetAllocatedBytesForCurrentThread() - started;
+        Console.WriteLine($"Canonical payload allocations,100 checks: reused={reused}; fresh={freshBytes}.");
+        Assert.IsTrue(reused < freshBytes / 3, $"Repeated validation must avoid parsing: {reused} versus {freshBytes}.");
+
+        WeakReference<string> retired = RetiredPayload(spell);
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        Assert.IsFalse(retired.TryGetTarget(out _), "The parse cache must not keep retired source text alive.");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference<string> RetiredPayload(CharacterCreationMagicResonanceCatalogOption spell)
+    {
+        string xml = new(spell.CanonicalSourceXml.ToCharArray());
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(spell with { CanonicalSourceXml = xml }));
+        return new(xml);
+    }
+
+    [TestMethod]
     public void Adept_power_budget_uses_confirmed_magic_without_rewriting_the_source_talent()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"chummer-adept-budget-{Guid.NewGuid():N}");

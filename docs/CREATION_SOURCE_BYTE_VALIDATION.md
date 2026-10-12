@@ -45,3 +45,36 @@ This is a local source correction, not a new package seal, phone-performance
 measurement, device-process proof, or release receipt. A future optimization
 must provide genuine immutable/transactional source ownership; it must not
 restore metadata-only acceptance or weaken source-change rejection.
+
+## Reusing parsed Magic/Resonance payloads
+
+Magic finalization now weakly retains the canonical XML parse and its digest for
+the same immutable source string (up to 64 Ki characters). This is not a cached
+admission result: each call still compares the supplied digest and expected
+root, and rechecks the option's typed values, costs, restrictions and blockers.
+Source-file validation, authority hashing, owner leases and budget checks are
+unchanged. Larger payloads keep the ordinary uncached path and the existing
+one-Mi-character input limit. Private parsed trees are only read, not exposed.
+Retired source strings are not kept alive by the weak cache.
+
+The isolated managed investigation measured repeated Magic authority validation
+allocations falling from about 21.2 MB to 3.6 MB. Those probes also contained a
+separate serializer experiment; that experiment and all timing probes were
+removed from the final patch. The focused allocation regression independently
+compares the same string with fresh equal-content strings and requires less
+than one third of the allocation. It also verifies collection of retired text.
+
+All 98 selected Magic service/source, owner-bound Quality and canonical-digest
+tests passed, including mutable-list tampering, malformed/large XML, parallel
+reads, source drift, confirm/reopen and replay checks. Existing unrelated test
+compiler warnings remain. The clean production patch also restored the same
+nine saved synthetic runners without byte changes or overview digest changes:
+`8d28f9dc66dab4987460ec61f95e42e647c6d81c7a189d0fbb2498a777f4303a`.
+Its source context still performed 718 validation reads / 183,642,655 bytes.
+The single managed run took 2,707 ms; this is not a controlled end-to-end or
+native startup speedup, sealed package, physical-device proof or publication.
+
+Retained focused-test log SHA-256:
+`76a11b3825b0fa90965f4e4e41c8bae942630ebbfa91e3ed504ffcab9fda08d9`.
+Clean managed restoration log SHA-256:
+`573bb62f6aadc3e87009c3ce2965a0c2dc20ba340c89c9ba8339373515c359d6`.
