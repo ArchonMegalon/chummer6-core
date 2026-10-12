@@ -20,6 +20,182 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, false, 0)]
+    [DataRow(CharacterCreationBuildMethods.Priority, true, 0)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, true, 1)]
+    public void Qualities_after_attribute_edit_keeps_receipted_choices_with_explicit_current_confirmation(
+        string method, bool nonEmpty, int karmaLevels)
+    {
+        using var context = ReadyContext.Create(true, includeNonEmptyPurchases: nonEmpty,
+            qualityName: nonEmpty ? "Ambidextrous" : null, buildMethod: method);
+        var attributes = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        var qualities = new CharacterCreationQualitiesService(context.Store, context.Resolver,
+            new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver), attributes);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var old = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        Assert.IsNull(qualities.LoadReReview(new(context.WorkspaceId)).Value,
+            "A current draft does not need exceptional re-review.");
+        CharacterCreationAttributeAllocation[] allocations = [new("BOD", 1, karmaLevels)];
+        var attributePreview = attributes.Preview(new(attributes.Load(new(context.WorkspaceId)).Value!.Binding, allocations)).Value!;
+        Assert.IsTrue(attributePreview.CanConfirm, string.Join(",", attributePreview.Blockers));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+            attributes.Confirm(new(attributePreview.Binding, allocations, attributePreview.PreviewDigest, true)).Outcome);
+        var edited = context.Store.Get(context.WorkspaceId).Value!;
+        var ordinary = qualities.Load(new(context.WorkspaceId)).Value!;
+        CollectionAssert.AreEqual(new[] { CharacterCreationQualitiesBlockers.DraftInvalid }, ordinary.Blockers.ToArray());
+        Assert.IsFalse(ordinary.CanEdit, "Normal editing must not silently rebind a historical draft.");
+        var review = qualities.LoadReReview(new(context.WorkspaceId));
+        Assert.IsNotNull(review.Value, string.Join(",", review.Blockers));
+        Assert.AreEqual(old.DraftDigest, review.Value.Current.PendingDraft!.DraftDigest);
+        var current = review.Value.Current;
+        var command = new CharacterCreationQualitiesReReviewConfirmRequest(current.Binding,
+            review.Value.HistoricalReceiptDigest, old.SelectedOptionIds.ToArray(), current.Preview.PreviewDigest,
+            "quality-after-attributes", Guid.NewGuid(), true);
+        Assert.IsNull(qualities.Confirm(new(current.Binding, old.SelectedOptionIds, current.Preview.PreviewDigest,
+            "ordinary-cannot-rebind", Guid.NewGuid(), true)).Value);
+        Assert.IsNull(qualities.ConfirmReReview(command with { ExplicitlyReviewedChanges = false }).Value);
+        Assert.IsNull(qualities.ConfirmReReview(command with { HistoricalReceiptDigest = new string('f', 64) }).Value);
+        Assert.IsNull(qualities.ConfirmReReview(command with { PreviewDigest = new string('f', 64) }).Value);
+        Assert.IsNull(qualities.ConfirmReReview(command with { SelectedOptionIds = ["not-the-recorded-selection"] }).Value);
+        Assert.AreEqual(edited.Document.AuxiliaryStateDigest, context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest,
+            "Load or a rejected confirmation rewrote saved decisions.");
+        var result = qualities.ConfirmReReview(command);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(edited.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        Assert.AreEqual(before.Document.Content, saved.Document.Content);
+        var rebound = saved.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        Assert.AreEqual(old.DraftRevision + 1, rebound.DraftRevision);
+        Assert.AreEqual(edited.Document.AuxiliaryState.CharacterCreationAttributesDraft!.DraftRevision, rebound.AttributesDraftRevision);
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(old.Selections), System.Text.Json.JsonSerializer.Serialize(rebound.Selections));
+        Assert.AreEqual(old.PositiveKarmaUsed, rebound.PositiveKarmaUsed);
+        Assert.AreEqual(old.NegativeKarmaUsed, rebound.NegativeKarmaUsed);
+        Assert.AreEqual(current.Preview.KarmaRemaining, rebound.KarmaRemaining);
+        var expectedAuxiliary = edited.Document.AuxiliaryState with
+        {
+            CharacterCreationQualitiesDraft = rebound,
+            CharacterCreationQualitiesReceipts = [.. edited.Document.AuxiliaryState.CharacterCreationQualitiesReceipts!, result.Value]
+        };
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(expectedAuxiliary),
+            System.Text.Json.JsonSerializer.Serialize(saved.Document.AuxiliaryState), "An unrelated draft changed.");
+        using var cold = context.Restart();
+        var coldService = new CharacterCreationQualitiesService(cold.Store, cold.Resolver,
+            new CharacterCreationPrerequisiteService(cold.Store, cold.Queries, cold.Resolver),
+            new CharacterCreationAttributesService(cold.Store, cold.Resolver));
+        Assert.IsTrue(coldService.Load(new(cold.WorkspaceId)).Value!.CanEdit);
+        Assert.AreEqual(result.Value.ReceiptDigest, coldService.ConfirmReReview(command).Value?.ReceiptDigest);
+        Assert.AreEqual(saved.ContentRevision, cold.Store.Get(cold.WorkspaceId).Value!.ContentRevision);
+        if (nonEmpty)
+        {
+            var remove = coldService.Preview(new(coldService.Load(new(cold.WorkspaceId)).Value!.Binding, [])).Value!;
+            Assert.IsNotNull(coldService.Confirm(new(remove.Binding, [], remove.PreviewDigest,
+                "later-explicit-quality-edit", Guid.NewGuid(), true)).Value);
+            var later = cold.Store.Get(cold.WorkspaceId).Value!;
+            Assert.AreEqual(result.Value.ReceiptDigest, coldService.ConfirmReReview(command).Value?.ReceiptDigest,
+                "Retry reconstructed its command from a later draft instead of the accepted choices.");
+            Assert.AreEqual(later.Document.AuxiliaryStateDigest, cold.Store.Get(cold.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+        }
+    }
+
+    [TestMethod]
+    public void Qualities_after_attribute_edit_rejects_stale_review_and_new_budget_overrun()
+    {
+        using var context = ReadyContext.Create(true, includeNonEmptyPurchases: true, qualityName: "Ambidextrous");
+        var attributes = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        var qualities = new CharacterCreationQualitiesService(context.Store, context.Resolver,
+            new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver), attributes);
+        void Change(int points, int karma)
+        {
+            CharacterCreationAttributeAllocation[] allocations = [new("BOD", points, karma)];
+            var preview = attributes.Preview(new(attributes.Load(new(context.WorkspaceId)).Value!.Binding, allocations)).Value!;
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                attributes.Confirm(new(preview.Binding, allocations, preview.PreviewDigest, true)).Outcome);
+        }
+        Change(1, 0);
+        var first = qualities.LoadReReview(new(context.WorkspaceId)).Value!;
+        Assert.IsNotNull(first);
+        var command = new CharacterCreationQualitiesReReviewConfirmRequest(first.Current.Binding,
+            first.HistoricalReceiptDigest, first.Current.PendingDraft!.SelectedOptionIds,
+            first.Current.Preview.PreviewDigest, "quality-stale-review", Guid.NewGuid(), true);
+        Change(2, 0);
+        var beforeDenied = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.IsNull(qualities.ConfirmReReview(command).Value);
+        Assert.AreEqual(beforeDenied.Document.AuxiliaryStateDigest, context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+        Assert.IsNotNull(qualities.LoadReReview(new(context.WorkspaceId)).Value, "A fresh review must remain possible.");
+        Change(0, 2); // 25 Karma of attributes cannot coexist with the saved five-Karma quality.
+        var blocked = qualities.Load(new(context.WorkspaceId));
+        CollectionAssert.Contains(blocked.Blockers.ToArray(), CharacterCreationQualitiesBlockers.KarmaExceeded);
+        Assert.IsNull(qualities.LoadReReview(new(context.WorkspaceId)).Value);
+    }
+
+    [TestMethod]
+    public void Qualities_after_attribute_edit_reconciles_a_lost_acknowledgement_without_a_second_write()
+    {
+        using var context = ReadyContext.Create(true, includeNonEmptyPurchases: true, qualityName: "Ambidextrous");
+        var attributes = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        CharacterCreationAttributeAllocation[] allocations = [new("BOD", 1, 0)];
+        var preview = attributes.Preview(new(attributes.Load(new(context.WorkspaceId)).Value!.Binding, allocations)).Value!;
+        Assert.IsNotNull(attributes.Confirm(new(preview.Binding, allocations, preview.PreviewDigest, true)).Value);
+        var store = new CommitThenReportUnavailableStore(context.Store);
+        var service = new CharacterCreationQualitiesService(store, context.Resolver,
+            new CharacterCreationPrerequisiteService(store, context.Queries, context.Resolver),
+            new CharacterCreationAttributesService(store, context.Resolver));
+        var review = service.LoadReReview(new(context.WorkspaceId)).Value!;
+        Assert.IsNotNull(review);
+        var request = new CharacterCreationQualitiesReReviewConfirmRequest(review.Current.Binding,
+            review.HistoricalReceiptDigest, review.Current.PendingDraft!.SelectedOptionIds,
+            review.Current.Preview.PreviewDigest, "quality-lost-acknowledgement", Guid.NewGuid(), true);
+        Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, service.ConfirmReReview(request).Outcome);
+        Assert.AreEqual(1, store.AtomicCommitCount);
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        var retry = service.ConfirmReReview(request);
+        Assert.IsNotNull(retry.Value);
+        Assert.AreEqual(saved.Document.AuxiliaryState.CharacterCreationQualitiesReceipts![^1].ReceiptDigest,
+            retry.Value.ReceiptDigest);
+        Assert.AreEqual(1, store.AtomicCommitCount);
+        Assert.AreEqual(saved.Document.AuxiliaryStateDigest, context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+        Assert.IsNull(service.LoadReReview(new(context.WorkspaceId)).Value, "A committed repair must not be offered again.");
+    }
+
+    [TestMethod]
+    [DataRow("receipt")]
+    [DataRow("selection")]
+    [DataRow("source")]
+    public void Qualities_after_attribute_edit_does_not_repair_unreceipted_or_changed_history(string change)
+    {
+        using var context = ReadyContext.Create(true, includeNonEmptyPurchases: true, qualityName: "Ambidextrous");
+        var attributes = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        CharacterCreationAttributeAllocation[] allocations = [new("BOD", 1, 0)];
+        var preview = attributes.Preview(new(attributes.Load(new(context.WorkspaceId)).Value!.Binding, allocations)).Value!;
+        Assert.IsNotNull(attributes.Confirm(new(preview.Binding, allocations, preview.PreviewDigest, true)).Value);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var aux = before.Document.AuxiliaryState;
+        var draft = aux.CharacterCreationQualitiesDraft!;
+        if (change == "selection") draft = draft with { SelectedOptionIds = [], Selections = [], PositiveKarmaUsed = 0 };
+        if (change == "source") draft = draft with { AuthorityDigest = new string('f', 64) };
+        draft = draft with { DraftDigest = CharacterCreationQualitiesRules.ComputeDraftDigest(draft) };
+        var damaged = aux with { CharacterCreationQualitiesDraft = draft,
+            CharacterCreationQualitiesReceipts = change == "receipt" ? [] : aux.CharacterCreationQualitiesReceipts };
+        var changed = before.Document with { State = before.Document.State with { AuxiliaryState = damaged } };
+        Assert.IsFalse(((IWorkspaceAuxiliaryStateAtomicCommitCapability)context.Store)
+            .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(context.WorkspaceId, before.ContentRevision,
+                before.Document.AuxiliaryStateDigest, changed).Success, "The store must reject malformed history.");
+        // Also exercise the service independently of the production store's
+        // admission guard, without writing invalid history to disk.
+        var observed = new CommitThenReportUnavailableStore(context.Store)
+            { ReadTransform = value => value with { Document = changed } };
+        var service = new CharacterCreationQualitiesService(observed, context.Resolver,
+            new CharacterCreationPrerequisiteService(observed, context.Queries, context.Resolver),
+            new CharacterCreationAttributesService(observed, context.Resolver));
+        Assert.IsNull(service.LoadReReview(new(context.WorkspaceId)).Value);
+        Assert.AreEqual(0, observed.AtomicCommitCount);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest,
+            context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, "Human", 2000)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, "Human", 2000)]
     public void Pending_lifestyles_use_saved_resources_and_persist_without_mutating_character_xml(

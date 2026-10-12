@@ -45,6 +45,48 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     public static void Cleanup() => s_source?.Dispose();
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Qualities_after_attribute_edit_re_review_preserves_owner_partition_and_rejects_ABA(bool linked)
+    {
+        var owner = linked ? AccountA : OwnerScope.LocalSingleUser;
+        using var fixture = new Fixture(owner);
+        var original = fixture.Owner.Capture();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedResolver(fixture, s_source.Resolver);
+        var attributes = new OwnerBoundCharacterCreationAttributesService(store, fixture.Owner, resolver);
+        CharacterCreationAttributeAllocation[] allocations = [new("BOD", 1, 0)];
+        var preview = attributes.Preview(original, new(attributes.Load(original, new(fixture.Id)).Value!.Binding, allocations)).Value!;
+        Assert.IsNotNull(attributes.Confirm(original, new(preview.Binding, allocations, preview.PreviewDigest, true)).Value);
+        var service = new OwnerBoundCharacterCreationQualitiesService(store, fixture.Owner, s_source.Queries, resolver);
+        var review = service.LoadReReview(original, new(fixture.Id)).Value;
+        Assert.IsNotNull(review);
+        var command = new CharacterCreationQualitiesReReviewConfirmRequest(review.Current.Binding,
+            review.HistoricalReceiptDigest, review.Current.PendingDraft!.SelectedOptionIds,
+            review.Current.Preview.PreviewDigest, "owner-quality-re-review", Guid.NewGuid(), true);
+        var all = fixture.CaptureAllPartitions();
+        foreach (var invalid in new[] { default(OwnerContextStamp), original with { Owner = AccountB },
+                     original with { AuthorityInstanceId = "foreign" } })
+        {
+            Assert.IsNull(service.LoadReReview(invalid, new(fixture.Id)).Value);
+            Assert.IsNull(service.ConfirmReReview(invalid, command).Value);
+        }
+        fixture.Owner.Transition(AccountB);
+        fixture.Owner.Transition(owner);
+        Assert.IsNull(service.LoadReReview(original, new(fixture.Id)).Value);
+        Assert.IsNull(service.ConfirmReReview(original, command).Value);
+        fixture.AssertPartitionsUnchanged(all);
+        var others = fixture.CaptureOtherPartitions();
+        var fresh = fixture.Owner.Capture();
+        Assert.IsNotNull(service.LoadReReview(fresh, new(fixture.Id)).Value);
+        var result = service.ConfirmReReview(fresh, command);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        Assert.IsTrue(service.Load(fresh, new(fixture.Id)).Value!.CanEdit);
+        Assert.AreEqual(result.Value.ReceiptDigest, service.ConfirmReReview(fresh, command).Value?.ReceiptDigest);
+        fixture.AssertOtherPartitionsUnchanged(others);
+    }
+
+    [TestMethod]
     [DataRow(false, true)]
     [DataRow(true, true)]
     [DataRow(false, false)]

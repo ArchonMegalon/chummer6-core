@@ -20,7 +20,8 @@ public interface ICharacterCreationQualitiesService
 /// Workspace service for the SR5 Priority qualities draft. Confirmation updates auxiliary
 /// creation state and its receipt ledger atomically; it never mutates the character payload.
 /// </summary>
-public sealed class CharacterCreationQualitiesService : ICharacterCreationQualitiesService
+public sealed partial class CharacterCreationQualitiesService : ICharacterCreationQualitiesService,
+    ICharacterCreationQualitiesReReviewService
 {
     private readonly IWorkspaceStore _store;
     private readonly ICharacterSourceDataResolver _resolver;
@@ -83,6 +84,10 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
 
     public CharacterCreationFoundationResult<CharacterCreationQualitiesDraftReceipt> Confirm(
         CharacterCreationQualitiesConfirmRequest request)
+        => ConfirmCore(request, historicalReceiptDigest: null);
+
+    private CharacterCreationFoundationResult<CharacterCreationQualitiesDraftReceipt> ConfirmCore(
+        CharacterCreationQualitiesConfirmRequest request, string? historicalReceiptDigest)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!request.ExplicitlyConfirmed)
@@ -120,6 +125,8 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
         if (replay is not null)
             return workspace.CanReplayReceipt(replay.ContentRevision)
                 && CharacterCreationQualitiesRules.DigestsEqual(replay.CommandDigest, requestCommandDigest)
+                && (historicalReceiptDigest is null || CharacterCreationQualitiesRules.DigestsEqual(
+                    replay.PreviousReceiptDigest, historicalReceiptDigest))
                 ? new(CharacterCreationFoundationOutcomes.Success, replay, [])
                 : Blocked<CharacterCreationQualitiesDraftReceipt>(
                     CharacterCreationFoundationOutcomes.Conflict,
@@ -137,7 +144,18 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
             state.Binding,
             state.Authority,
             request.SelectedOptionIds));
-        string[] previewBlockers = Normalize(state.Blockers.Concat(preview.Blockers));
+        IReadOnlyList<string> stateBlockers = state.Blockers;
+        if (historicalReceiptDigest is not null)
+        {
+            if (!TryPrepareReReview(workspace, state, out var review)
+                || !CharacterCreationQualitiesRules.DigestsEqual(
+                    review!.HistoricalReceiptDigest, historicalReceiptDigest)
+                || !request.SelectedOptionIds.SequenceEqual(state.PendingDraft!.SelectedOptionIds, StringComparer.Ordinal))
+                return Blocked<CharacterCreationQualitiesDraftReceipt>(
+                    CharacterCreationFoundationOutcomes.Conflict, CharacterCreationQualitiesBlockers.DraftInvalid);
+            stateBlockers = [];
+        }
+        string[] previewBlockers = Normalize(stateBlockers.Concat(preview.Blockers));
         if (previewBlockers.Length != 0)
             return new(CharacterCreationFoundationOutcomes.Blocked, null, previewBlockers);
         if (!CharacterCreationQualitiesRules.DigestsEqual(preview.PreviewDigest, request.PreviewDigest))
