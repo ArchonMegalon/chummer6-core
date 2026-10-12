@@ -13,7 +13,8 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
     ICharacterFileQueries characterQueries,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationQualitiesService
+    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationQualitiesService,
+    IOwnerBoundCharacterCreationQualitiesReReviewService
 {
     public CharacterCreationFoundationResult<CharacterCreationQualitiesState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationQualitiesLoadRequest request)
@@ -36,6 +37,21 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Binding);
         return Invoke(expectedOwner, request.Binding.WorkspaceId, service => service.Confirm(request));
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationQualitiesReReviewState> LoadReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationQualitiesLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.LoadReReview(request), reuseReadObservation: true);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationQualitiesDraftReceipt> ConfirmReReview(
+        OwnerContextStamp expectedOwner, CharacterCreationQualitiesReReviewConfirmRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Binding);
+        return Invoke(expectedOwner, request.Binding.WorkspaceId, service => service.ConfirmReReview(request));
     }
 
     private CharacterCreationFoundationResult<T> Invoke<T>(OwnerContextStamp expectedOwner,
