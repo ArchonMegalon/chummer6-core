@@ -943,8 +943,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
             XElement settings = settingsMatches[0];
 
-            IReadOnlyList<CustomDirectory> installedDirectories = DiscoverCustomDirectories(catalog);
-            if (!TryResolveProfileDirectories(settings, installedDirectories, out CustomDirectory[] enabledDirectories))
+            if (!TryResolveProfileDirectories(settings, catalog, out CustomDirectory[] enabledDirectories))
             {
                 return null;
             }
@@ -1746,7 +1745,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
     private static bool TryResolveProfileDirectories(
         XElement settings,
-        IReadOnlyList<CustomDirectory> installedDirectories,
+        ContentOverlayCatalog catalog,
         out CustomDirectory[] directories)
     {
         List<OrderedCustomDataKey> orderedKeys = [];
@@ -1773,6 +1772,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             orderedKeys.Add(new OrderedCustomDataKey(documentIndex++, order, key));
         }
 
+        // With no enabled key, installed custom directories cannot contribute
+        // to this profile. Do not capture every unused manifest into the source
+        // snapshot (and then reread them on every authority query). The settings
+        // bytes remain live-validated, and saved directory names must still
+        // match the resolved empty selection in TryCreateContextCore.
+        if (orderedKeys.Count == 0)
+        {
+            directories = [];
+            return true;
+        }
+
+        // Even one enabled key requires full discovery: GUID/version selection
+        // and duplicate identities can depend on any installed directory.
+        // Keep membership, manifest-byte and ABA rejection on that path.
+        IReadOnlyList<CustomDirectory> installedDirectories = DiscoverCustomDirectories(catalog);
         OrderedCustomDataKey[] keys = orderedKeys
             .Where(entry => entry.Order.HasValue)
             .OrderBy(entry => entry.Order)

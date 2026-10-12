@@ -20,6 +20,93 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    [DataRow("none")]
+    [DataRow("disabled")]
+    [DataRow("empty-key")]
+    public void Unselected_custom_catalogs_are_not_part_of_the_profile_source_graph(string selection)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string customSetting = selection switch
+            {
+                "disabled" => "<customdatadirectoryname><directoryname>Unused</directoryname><enabled>False</enabled></customdatadirectoryname>",
+                "empty-key" => "<customdatadirectoryname><directoryname> </directoryname><enabled>True</enabled></customdatadirectoryname>",
+                _ => string.Empty
+            };
+            WriteBaseContent(root, customSetting,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            for (int i = 0; i < 55; i++)
+            {
+                string directory = Path.Combine(root, "customdata", i == 0 ? "Unused" : $"Unused-{i}");
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "manifest.xml"),
+                    "<manifest><guid>4b3a4c48-d2af-4e46-9d27-9f06eab83c0c</guid><version>1.0</version></manifest>");
+            }
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            using var operation = resolver.CreateOperationScope();
+            var context = operation.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative, string.Join(",", before.Blockers));
+            Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.Keys
+                .Any(path => Path.GetFileName(path) == "manifest.xml"),
+                "A profile with no enabled custom key must not capture and repeatedly validate unused manifests.");
+
+            File.WriteAllText(Path.Combine(root, "customdata", "Unused", "manifest.xml"), "not XML");
+            Directory.CreateDirectory(Path.Combine(root, "customdata", "Added but not enabled"));
+            Assert.AreSame(context, operation.TryCreateContext(CharacterXml()));
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var after));
+            Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(before), System.Text.Json.JsonSerializer.Serialize(after),
+                "An unselected custom directory cannot alter profile authority.");
+            Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            Assert.IsNull(operation.TryCreateContext(CharacterXml(
+                "<customdatadirectorynames><directoryname>Unused</directoryname></customdatadirectorynames>")),
+                "Saved custom selections must still match the live profile exactly.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Unselected_custom_fast_path_rejects_profile_activation_and_keeps_ABA_poisoned()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root,
+                "<customdatadirectoryname><directoryname>Unused</directoryname><enabled>False</enabled></customdatadirectoryname>");
+            string custom = Path.Combine(root, "customdata", "Unused");
+            Directory.CreateDirectory(custom);
+            string manifest = Path.Combine(custom, "manifest.xml");
+            File.WriteAllText(manifest,
+                "<manifest><guid>4b3a4c48-d2af-4e46-9d27-9f06eab83c0c</guid><version>1.0</version></manifest>");
+            string path = Path.Combine(root, "data", "settings.xml");
+            string original = File.ReadAllText(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            using var operation = resolver.CreateOperationScope();
+            var context = operation.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out _));
+            File.WriteAllText(path, original.Replace("<enabled>False</enabled>", "<enabled>True</enabled>", StringComparison.Ordinal));
+            Assert.IsNull(operation.TryCreateContext(CharacterXml()), "Profile activation requires fresh source admission.");
+            Assert.IsFalse(context.TryResolveCreationSourceProfile(out _));
+            string selectedXml = CharacterXml("<customdatadirectorynames><directoryname>Unused</directoryname></customdatadirectorynames>");
+            var fresh = resolver.TryCreateContext(selectedXml);
+            Assert.IsNotNull(fresh);
+            Assert.IsTrue(fresh.TryResolveCreationSourceProfile(out _));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.ContainsKey(manifest));
+            File.WriteAllText(manifest, "not XML");
+            Assert.IsFalse(fresh.TryResolveCreationSourceProfile(out _), "Activated manifests must still be revalidated.");
+            Assert.IsNull(resolver.TryCreateContext(selectedXml), "Malformed activated manifest must fail closed.");
+            File.WriteAllText(path, original);
+            Assert.IsNull(operation.TryCreateContext(CharacterXml()), "Restoring profile bytes cannot revive a poisoned operation.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     [DataRow("name", true)]
     [DataRow("guid", false)]
     [DataRow("whitespace", true)]
