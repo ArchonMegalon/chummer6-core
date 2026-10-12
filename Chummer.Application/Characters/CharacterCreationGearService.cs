@@ -300,6 +300,8 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             out string[] projectionBlockers);
         blockers.AddRange(projectionBlockers);
         if (context.PendingDraft is not null
+               && context.ResourcesDraft is not null
+               && HasCurrentResourcesBinding(context.PendingDraft, context.ResourcesDraft)
                && context.PendingDraft.Lines.Select(item => item.LineDigest)
                    .SequenceEqual(lines.Select(item => item.LineDigest), StringComparer.Ordinal))
             blockers.Add(CharacterCreationGearBlockers.NoChange);
@@ -452,12 +454,12 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         {
             blockers.Add(CharacterCreationGearBlockers.PersistenceAuthorityRequired);
         }
+        decimal pendingResourcesTotal = 0m;
         if (pending is not null
             && (resourcesDraft is null
-                || pending.ResourcesDraftRevision != resourcesDraft.DraftRevision
-                || !CharacterCreationGearRules.DigestsEqual(
-                    pending.ResourcesDraftDigest,
-                    resourcesDraft.DraftDigest)
+                || blockers.Contains(CharacterCreationGearBlockers.ResourcesDraftStale)
+                || !TryResolvePendingResourcesTotal(
+                    pending, resourcesDraft, resourcesReceipts, out pendingResourcesTotal)
                 || !CharacterCreationGearRules.DigestsEqual(
                     pending.BaseRawCharacterXmlDigest,
                     rawDigest)
@@ -478,7 +480,7 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         }
         else if (pending is not null
                  && resourcesDraft is not null
-                 && !PendingMatchesCurrentAuthority(pending, authority, resourcesDraft))
+                 && !PendingMatchesCurrentAuthority(pending, authority, pendingResourcesTotal))
         {
             blockers.Add(CharacterCreationGearBlockers.StaleSourceDigest);
         }
@@ -514,10 +516,56 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             Normalize(blockers));
     }
 
+    private static bool HasCurrentResourcesBinding(
+        CharacterCreationGearDraft pending,
+        CharacterCreationResourcesDraft resourcesDraft) =>
+        pending.ResourcesDraftRevision == resourcesDraft.DraftRevision
+        && CharacterCreationGearRules.DigestsEqual(
+            pending.ResourcesDraftDigest, resourcesDraft.DraftDigest);
+
+    private static bool TryResolvePendingResourcesTotal(
+        CharacterCreationGearDraft pending,
+        CharacterCreationResourcesDraft resourcesDraft,
+        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> resourcesReceipts,
+        out decimal total)
+    {
+        total = resourcesDraft.Budget.TotalStartingNuyen;
+        if (HasCurrentResourcesBinding(pending, resourcesDraft))
+            return true;
+
+        // Retain the saved basket for review, without rebinding or saving on load.
+        // Only funding may have changed: its original, validated resource receipt
+        // must still agree with the current character, prerequisite and authority.
+        CharacterCreationResourcesReceipt? original = resourcesReceipts
+            .Select(entry => entry.Receipt)
+            .FirstOrDefault(receipt => receipt.DraftRevision == pending.ResourcesDraftRevision
+                && CharacterCreationGearRules.DigestsEqual(
+                    receipt.DraftDigest, pending.ResourcesDraftDigest));
+        if (original is null
+            || original.DraftRevision >= resourcesDraft.DraftRevision
+            || original.WorkspaceRevision > pending.BaseContentRevision
+            || !CharacterCreationGearRules.DigestsEqual(
+                original.RawCharacterXmlDigest, pending.BaseRawCharacterXmlDigest)
+            || !CharacterCreationGearRules.DigestsEqual(
+                original.PrerequisiteDraftDigest, resourcesDraft.PrerequisiteDraftDigest)
+            || !CharacterCreationGearRules.DigestsEqual(
+                original.AuthorityDigest, resourcesDraft.AuthorityDigest)
+            || !CharacterCreationGearRules.DigestsEqual(
+                original.SourceDigest, resourcesDraft.SourceDigest)
+            || !CharacterCreationGearRules.DigestsEqual(
+                original.RulesDigest, resourcesDraft.RulesDigest)
+            || !CharacterCreationGearRules.DigestsEqual(
+                original.RuntimeDigest, resourcesDraft.RuntimeDigest))
+            return false;
+
+        total = original.TotalStartingNuyen;
+        return true;
+    }
+
     private static bool PendingMatchesCurrentAuthority(
         CharacterCreationGearDraft pending,
         CharacterCreationGearAuthority authority,
-        CharacterCreationResourcesDraft resourcesDraft)
+        decimal resourcesTotal)
     {
         CharacterCreationGearSelection[] requested = pending.Lines
             .Select(static line => new CharacterCreationGearSelection(
@@ -527,7 +575,7 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         if (!CharacterCreationGearRules.TryProjectBasket(
                 requested,
                 authority,
-                resourcesDraft.Budget.TotalStartingNuyen,
+                resourcesTotal,
                 out CharacterCreationGearLine[] expectedLines,
                 out CharacterCreationGearBudget expectedBudget,
                 out string[] blockers)
@@ -548,8 +596,8 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         var contributionCandidate = new CharacterCreationGearFinalizationContribution(
             CharacterCreationGearSchemas.ContributionV1,
             pending.BaseRawCharacterXmlDigest,
-            resourcesDraft.DraftRevision,
-            resourcesDraft.DraftDigest,
+            pending.ResourcesDraftRevision,
+            pending.ResourcesDraftDigest,
             expectedLines,
             expectedBudget.BasketCost,
             expectedAnchors,

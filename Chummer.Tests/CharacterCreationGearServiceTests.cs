@@ -12,6 +12,122 @@ namespace Chummer.Tests;
 public sealed partial class CharacterCreationResourcesServiceTests
 {
     [TestMethod]
+    [DataRow(0, 1, 0)]
+    [DataRow(0, 1, 20)]
+    [DataRow(1, 0, 20)]
+    public void Gear_after_funding_change_retains_basket_until_explicit_current_budget_confirmation(
+        int initialKarma, int nextKarma, int quantity)
+    {
+        WithService((store, resources, id, originalXml, directory) =>
+        {
+            void SaveResources(int karma, string key)
+            {
+                var state = Load(resources, id);
+                string optionId = $"karma:{karma}";
+                var preview = resources.Preview(new CharacterCreationResourcesPreviewRequest(
+                    state.Binding, optionId)).Value!;
+                Assert.IsTrue(preview.CanConfirm, string.Join(',', preview.Blockers));
+                Assert.AreEqual(CharacterCreationResourcesOutcomes.Applied, resources.Confirm(
+                    new CharacterCreationResourcesConfirmRequest(state.Binding, optionId,
+                        preview.PreviewDigest, key, ExplicitlyConfirmed: true)).Outcome);
+            }
+
+            SaveResources(initialKarma, "funding-before-gear");
+            var authority = GearAuthority();
+            var resolver = Resolver(PrerequisiteAuthority(), ResourcesAuthority(), authority);
+            var gear = new CharacterCreationGearService(store, resolver);
+            var initial = gear.Load(new CharacterCreationGearLoadRequest(id)).Value!;
+            string optionId = authority.Options.Single(option => option.IsSelectable).OptionId;
+            CharacterCreationGearSelection[] basket = quantity == 0 ? [] : [new(optionId, quantity)];
+            var firstPreview = gear.Preview(new CharacterCreationGearPreviewRequest(initial.Binding, basket)).Value!;
+            var firstRequest = new CharacterCreationGearConfirmRequest(initial.Binding, basket,
+                firstPreview.PreviewDigest, "gear-before-funding-change", ExplicitlyConfirmed: true);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Applied, gear.Confirm(firstRequest).Outcome);
+            var originalDraft = store.Get(id).Value!.Document.AuxiliaryState.CharacterCreationGearDraft!;
+
+            SaveResources(nextKarma, "funding-after-gear");
+            var before = store.Get(id).Value!;
+            Assert.AreEqual(5L, before.ContentRevision);
+            string beforeDigest = before.Document.AuxiliaryStateDigest;
+            var reopened = new CharacterCreationGearService(new FileWorkspaceStore(directory), resolver);
+            var current = reopened.Load(new CharacterCreationGearLoadRequest(id)).Value!;
+            Assert.IsTrue(current.CanEdit,
+                "A valid saved basket must remain reviewable after funding changes: " + string.Join(',', current.Blockers));
+            Assert.AreEqual(originalDraft.DraftDigest, current.PendingDraft!.DraftDigest);
+            Assert.AreEqual(1L, current.PendingDraft.ResourcesDraftRevision);
+            Assert.AreEqual(2L, current.Binding.ResourcesDraftRevision);
+            Assert.AreEqual(50_000m + nextKarma * 2_000m, current.Budget.TotalStartingNuyen);
+            Assert.AreEqual(originalDraft.Budget.BasketCost, current.Budget.BasketCost);
+            Assert.AreEqual(beforeDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest,
+                "Load must not rebind or save the basket.");
+
+            var review = reopened.Preview(new CharacterCreationGearPreviewRequest(current.Binding, basket)).Value!;
+            Assert.IsTrue(review.CanConfirm, string.Join(',', review.Blockers));
+            Assert.IsTrue(review.RequiresExplicitConfirmation);
+            Assert.AreEqual(originalDraft.DraftDigest, review.Before!.DraftDigest);
+            Assert.AreEqual(current.Binding.ResourcesDraftDigest, review.After.ResourcesDraftDigest);
+            Assert.AreEqual(current.Budget.TotalStartingNuyen, review.BudgetAfter.TotalStartingNuyen);
+            Assert.AreEqual(originalDraft.Budget.BasketCost, review.BudgetAfter.BasketCost);
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                originalDraft.Lines, review.After.Lines));
+
+            var request = new CharacterCreationGearConfirmRequest(current.Binding, basket,
+                review.PreviewDigest, "gear-current-funding", ExplicitlyConfirmed: true);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Blocked,
+                reopened.Confirm(request with { ExplicitlyConfirmed = false }).Outcome);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Conflict,
+                reopened.Confirm(request with { PreviewDigest = Digest('8') }).Outcome);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Conflict,
+                reopened.Confirm(firstRequest with { IdempotencyKey = "stale-funding-request" }).Outcome);
+            var overspend = reopened.Preview(new CharacterCreationGearPreviewRequest(current.Binding,
+                [new(optionId, 1_000_000)]));
+            CollectionAssert.Contains(overspend.Blockers.ToList(), CharacterCreationGearBlockers.InsufficientFunds);
+            Assert.AreEqual(beforeDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+
+            var changedAuthority = authority with { SourceDigest = Digest('8') };
+            changedAuthority = changedAuthority with
+            {
+                AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(changedAuthority)
+            };
+            var changedSource = new CharacterCreationGearService(store,
+                Resolver(PrerequisiteAuthority(), ResourcesAuthority(), changedAuthority));
+            Assert.IsFalse(changedSource.Load(new CharacterCreationGearLoadRequest(id)).Value!.CanEdit,
+                "Funding re-review must not admit a changed source authority.");
+
+            var applied = reopened.Confirm(request);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Applied, applied.Outcome);
+            var after = new FileWorkspaceStore(directory).Get(id).Value!;
+            Assert.AreEqual(6L, after.ContentRevision);
+            Assert.AreEqual(6L, after.SavedRevision);
+            Assert.AreEqual(originalXml, after.Document.Content);
+            var auxiliary = after.Document.AuxiliaryState;
+            Assert.AreEqual(2, auxiliary.CharacterCreationResourcesReceipts!.Count);
+            Assert.AreEqual(2, auxiliary.CharacterCreationGearReceipts!.Count);
+            Assert.AreEqual(2L, auxiliary.CharacterCreationGearDraft!.DraftRevision);
+            Assert.AreEqual(2L, auxiliary.CharacterCreationGearDraft.ResourcesDraftRevision);
+            Assert.AreEqual(current.Binding.ResourcesDraftDigest, auxiliary.CharacterCreationGearDraft.ResourcesDraftDigest);
+            Assert.IsTrue(CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(id,
+                after.ContentRevision, auxiliary.CharacterCreationGearDraft, auxiliary.CharacterCreationGearReceipts));
+            Assert.IsTrue(CharacterCreationGearReceiptLedgerIntegrity.IsValidAppendTransition(id,
+                before.ContentRevision, before.SavedRevision, after.ContentRevision,
+                before.Document.AuxiliaryState.CharacterCreationGearDraft,
+                before.Document.AuxiliaryState.CharacterCreationGearReceipts,
+                auxiliary.CharacterCreationGearDraft, auxiliary.CharacterCreationGearReceipts,
+                before.Document, after.Document));
+            var cold = new CharacterCreationGearService(new FileWorkspaceStore(directory), resolver);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Replayed, cold.Confirm(request).Outcome);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Replayed, cold.Confirm(firstRequest).Outcome);
+            Assert.AreEqual(applied.Value!.ReceiptDigest, cold.LookupReceipt(
+                new CharacterCreationGearReceiptLookupRequest(id, request.IdempotencyKey)).Value!.ReceiptDigest);
+            var settled = cold.Load(new CharacterCreationGearLoadRequest(id)).Value!;
+            var unchanged = cold.Preview(new CharacterCreationGearPreviewRequest(settled.Binding, basket));
+            CollectionAssert.Contains(unchanged.Blockers.ToList(), CharacterCreationGearBlockers.NoChange);
+            Assert.AreEqual(after.Document.AuxiliaryStateDigest,
+                new FileWorkspaceStore(directory).Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
     public void Gear_basket_is_atomic_reopenable_budgeted_and_keeps_xml_byte_identical()
     {
         WithService((store, resourcesService, id, originalXml, directory) =>
