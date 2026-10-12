@@ -13,6 +13,53 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Quality_source_node_digest_preserves_raw_XML_nulls_unicode_and_large_values()
+    {
+        foreach (string? xml in new string?[]
+        {
+            null, "", "<quality />", "<quality></quality>",
+            "<quality>\r\nZoë 東京 😀 e\u0301 é &amp; &lt; \"quoted\"\t</quality>",
+            "<quality>\uD800</quality>", "<quality>\uDC00</quality>",
+            new string('x', 4095), new string('x', 4096), new string('x', 4097),
+            "<quality>" + new string('x', 300_000) + "😀&amp;</quality>"
+        })
+        {
+            string expected = "sha256:" + LegacyDigest(new
+            {
+                Schema = "chummer.sr5.priority-creation-quality-source-node.v1",
+                Xml = xml ?? string.Empty
+            });
+            Assert.AreEqual(expected, CharacterCreationQualitiesRules.ComputeSourceNodeDigest(xml!));
+            Parallel.For(0, 4, _ => Assert.AreEqual(expected,
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(xml!)));
+        }
+        Assert.AreNotEqual(CharacterCreationQualitiesRules.ComputeSourceNodeDigest("<quality />"),
+            CharacterCreationQualitiesRules.ComputeSourceNodeDigest("<quality></quality>"));
+    }
+
+    [TestMethod]
+    public void Quality_source_node_digest_avoids_DOM_allocations_and_recomputes_changed_input()
+    {
+        string xml = "<quality><name>Zoë</name><bonus>" + new string('x', 65_536) + "</bonus></quality>";
+        Func<string> legacy = () => "sha256:" + LegacyDigest(new
+        {
+            Schema = "chummer.sr5.priority-creation-quality-source-node.v1",
+            Xml = xml
+        });
+        Func<string> direct = () => CharacterCreationQualitiesRules.ComputeSourceNodeDigest(xml);
+        string before = legacy();
+        Assert.AreEqual(before, direct());
+        long directBytes = Allocations(direct);
+        long legacyBytes = Allocations(legacy);
+        Console.WriteLine($"Quality source-node allocation: direct={directBytes}; DOM={legacyBytes}.");
+        Assert.IsTrue(directBytes < legacyBytes / 3,
+            $"Expected no DOM/output-copy allocation: {directBytes} versus {legacyBytes}.");
+        xml += " ";
+        Assert.AreNotEqual(before, direct());
+        Assert.AreEqual(legacy(), direct());
+    }
+
+    [TestMethod]
     public void Magic_digest_preserves_canonical_keys_duplicates_and_scalar_tokens()
     {
         foreach (string json in new[]

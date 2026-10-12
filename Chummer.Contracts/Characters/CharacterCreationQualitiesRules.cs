@@ -325,11 +325,7 @@ public static class CharacterCreationQualitiesRules
             "chummer.sr5.priority-creation-qualities-receipt-ledger.root.v1");
 
     public static string ComputeSourceNodeDigest(string sourceNodeXml) =>
-        CharacterCreationQualitiesDigest.Compute(new
-        {
-            Schema = "chummer.sr5.priority-creation-quality-source-node.v1",
-            Xml = sourceNodeXml ?? string.Empty
-        });
+        CharacterCreationQualitiesDigest.ComputeSourceNode(sourceNodeXml);
 
     public static CharacterCreationQualitiesPreview Evaluate(CharacterCreationQualitiesInput input)
     {
@@ -868,6 +864,23 @@ public static class CharacterCreationQualitiesRules
 internal static class CharacterCreationQualitiesDigest
 {
     private const string Prefix = "sha256:";
+
+    public static string ComputeSourceNode(string? sourceNodeXml)
+    {
+        // Exactly the historical v1 JSON in ordinal property order. Every
+        // catalog option validates these same raw XML bytes; avoid serializing,
+        // parsing and escaping a JSON DOM for each validation. Never normalize
+        // the XML or retain a digest across invocations.
+        using var buffer = new CreationDigestBufferWriter();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("Schema", "chummer.sr5.priority-creation-quality-source-node.v1");
+            writer.WriteString("Xml", sourceNodeXml ?? string.Empty);
+            writer.WriteEndObject();
+        }
+        return Prefix + buffer.GetDigest();
+    }
 
     public static string ComputeAuthority(CharacterCreationQualitiesAuthority authority)
     {
