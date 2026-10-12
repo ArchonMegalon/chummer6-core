@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -11,6 +12,14 @@ namespace Chummer.Contracts.Characters;
 /// </summary>
 public static class CharacterCreationMagicResonanceFinalizationRules
 {
+    // Cache only parsing of an immutable string, not admission of an option,
+    // authority, owner, source file or budget. Copies of a catalog retain the
+    // same source strings. Weak keys do not keep retired catalogs alive; large
+    // payloads still use the uncached path. The private trees never escape this
+    // class and all consumers must remain read-only.
+    private static readonly ConditionalWeakTable<string, CanonicalPayload> CanonicalPayloads = new();
+    private sealed record CanonicalPayload(XElement? Source, string Digest);
+
     public static string ComputeTalentProjectionDigest(
         CharacterCreationMagicResonanceTalentFinalizationSource value) =>
         CharacterCreationMagicResonanceDigest.Compute(value with { ProjectionDigest = string.Empty });
@@ -612,24 +621,31 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         source = null;
         if (string.IsNullOrWhiteSpace(canonicalXml)
             || canonicalXml.Length > 1_048_576
-            || !CharacterCreationMagicResonanceDigest.IsCanonical(expectedDigest)
-            || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                expectedDigest,
-                CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalXml)))
+            || !CharacterCreationMagicResonanceDigest.IsCanonical(expectedDigest))
             return false;
+        CanonicalPayload payload = canonicalXml.Length <= 65_536
+            ? CanonicalPayloads.GetValue(canonicalXml, ParseCanonicalPayload)
+            : ParseCanonicalPayload(canonicalXml);
+        if (payload.Source is null
+            || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(expectedDigest, payload.Digest)
+            || !string.Equals(payload.Source.Name.LocalName, expectedRoot, StringComparison.Ordinal))
+            return false;
+        source = payload.Source;
+        return true;
+    }
+
+    private static CanonicalPayload ParseCanonicalPayload(string canonicalXml)
+    {
         try
         {
-            source = XElement.Parse(canonicalXml, LoadOptions.None);
-            return string.Equals(source.Name.LocalName, expectedRoot, StringComparison.Ordinal)
-                   && string.Equals(
-                       source.ToString(SaveOptions.DisableFormatting),
-                       canonicalXml,
-                       StringComparison.Ordinal);
+            XElement source = XElement.Parse(canonicalXml, LoadOptions.None);
+            return string.Equals(source.ToString(SaveOptions.DisableFormatting), canonicalXml, StringComparison.Ordinal)
+                ? new(source, CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalXml))
+                : new(null, string.Empty);
         }
         catch (Exception exception) when (exception is XmlException or InvalidOperationException)
         {
-            source = null;
-            return false;
+            return new(null, string.Empty);
         }
     }
 
