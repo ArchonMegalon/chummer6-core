@@ -207,6 +207,36 @@ public sealed class CharacterCreationPrerequisiteDigestTests
     }
 
     [TestMethod]
+    public void Large_prerequisite_catalog_hashes_without_a_full_output_copy()
+    {
+        var fixture = CreateFixture(CharacterCreationBuildMethods.Priority, includeRacialSources: true);
+        var authority = fixture with { Options = Enumerable.Repeat(fixture.Options[0], 128).ToArray() };
+        byte[] bytes = AssertEquivalent(authority);
+        Assert.IsTrue(bytes.Length > 1_000_000, "Exercise the repeated startup catalog, not a scalar digest.");
+        string expected = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(bytes));
+        // Warm serializer metadata and rentals before measuring invocation-owned
+        // allocations. There must be no retained result: mutate the same graph below.
+        CharacterCreationPrerequisiteAuthorityDigest.Compute(authority);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        string actual = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.AreEqual(expected, actual);
+        Console.WriteLine($"Prerequisite digest: canonicalBytes={bytes.Length}; allocated={allocated}.");
+        Assert.IsTrue(allocated < bytes.Length / 4,
+            $"Do not allocate a complete serialized catalog just to hash it: {allocated:N0} for {bytes.Length:N0} bytes.");
+
+        var anchors = (string[])authority.Options[0].SourceAnchorIds;
+        anchors[0] = "changed source anchor";
+        Assert.AreNotEqual(expected, CharacterCreationPrerequisiteAuthorityDigest.Compute(authority));
+        AssertEquivalent(authority);
+        foreach (int size in new[] { 300_000, 1, 65_536, 0 })
+        {
+            var largeToken = fixture with { SettingsProfileId = new string('x', size) + "é😀<>&\"" };
+            AssertEquivalent(largeToken);
+        }
+    }
+
+    [TestMethod]
     [DataRow("en-US")]
     [DataRow("de-AT")]
     [DataRow("tr-TR")]
