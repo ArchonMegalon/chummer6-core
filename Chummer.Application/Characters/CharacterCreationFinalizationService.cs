@@ -47,13 +47,33 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
     {
         ArgumentNullException.ThrowIfNull(request);
         Evaluation evaluation = Evaluate(request.WorkspaceId);
-        return evaluation.State is null
+        return ToLoadResult(evaluation);
+    }
+
+    // Read-only composition: expose the results this evaluation actually loaded,
+    // never accept caller-supplied/cached authority. Missing drafts and early exits
+    // leave these null so the overview can still load its independent choices.
+    // Review and Confirm always call Evaluate themselves with fresh authority.
+    internal CharacterCreationFinalizationResult<CharacterCreationFinalizationState> LoadForOverview(
+        CharacterCreationFinalizationLoadRequest request,
+        out CharacterCreationFoundationResult<CharacterCreationQualitiesState>? qualities,
+        out CharacterCreationFoundationResult<CharacterCreationMagicResonanceState>? magic)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Evaluation evaluation = Evaluate(request.WorkspaceId);
+        qualities = evaluation.QualitiesRead;
+        magic = evaluation.MagicRead;
+        return ToLoadResult(evaluation);
+    }
+
+    private static CharacterCreationFinalizationResult<CharacterCreationFinalizationState> ToLoadResult(
+        Evaluation evaluation)
+        => evaluation.State is null
             ? Blocked<CharacterCreationFinalizationState>(evaluation.Outcome, evaluation.Blockers)
             : new CharacterCreationFinalizationResult<CharacterCreationFinalizationState>(
                 evaluation.Outcome,
                 evaluation.State,
                 evaluation.Blockers);
-    }
 
     public CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> Review(
         CharacterCreationFinalizationReviewRequest request)
@@ -647,7 +667,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             CarryoverPolicy = carryoverPolicy,
             StartingCashSource = startingCashSource,
             StartingCashSources = startingCashSources,
-            Lifestyles = lifestyles
+            Lifestyles = lifestyles,
+            QualitiesRead = auxiliary.CharacterCreationQualitiesDraft is null ? null : qualities,
+            MagicRead = auxiliary.CharacterCreationMagicResonanceDraft is null ? null : magic
         };
     }
 
@@ -898,5 +920,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         public CharacterCreationStartingNuyenSource? StartingCashSource { get; init; }
         public CharacterCreationStartingNuyenSource[] StartingCashSources { get; init; } = [];
         public CharacterCreationLifestylesAuthority? Lifestyles { get; init; }
+        public CharacterCreationFoundationResult<CharacterCreationQualitiesState>? QualitiesRead { get; init; }
+        public CharacterCreationFoundationResult<CharacterCreationMagicResonanceState>? MagicRead { get; init; }
     }
 }

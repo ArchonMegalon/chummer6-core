@@ -53,12 +53,21 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
             // admitted view: it redirects every read and capability check to the
             // actual owner. Every resolver lookup still validates live sources.
             // No mutation API is invoked and no view/context survives the lease.
+            var contactsRead = new CharacterCreationContactsService(view, resolver).Load(new(workspaceId));
+            var lifestylesRead = new CharacterCreationLifestylesService(view, resolver).Load(new(workspaceId));
+            var finalizationRead = finalization.LoadForOverview(new(workspaceId),
+                out var qualitiesRead, out var magicRead);
+            // Present drafts were just evaluated by the full finalizer. Return
+            // those exact results, not another expensive pass through the same
+            // catalogs. This is local to this admitted read, never a save cache.
+            // If finalization did not load a domain, its overview still needs the
+            // real domain loader (including its failures and available choices).
             return new(
-                new CharacterCreationContactsService(view, resolver).Load(new(workspaceId)),
-                includePriorityDrafts ? qualities.Load(new(workspaceId)) : null,
-                includePriorityDrafts ? magic.Load(new(workspaceId)) : null,
-                new CharacterCreationLifestylesService(view, resolver).Load(new(workspaceId)),
-                finalization.Load(new(workspaceId))) { Foundation = foundation };
+                contactsRead,
+                includePriorityDrafts ? qualitiesRead ?? qualities.Load(new(workspaceId)) : null,
+                includePriorityDrafts ? magicRead ?? magic.Load(new(workspaceId)) : null,
+                lifestylesRead,
+                finalizationRead) { Foundation = foundation };
         }
     }
 

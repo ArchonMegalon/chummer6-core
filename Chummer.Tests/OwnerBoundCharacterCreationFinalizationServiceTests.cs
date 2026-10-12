@@ -66,14 +66,22 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             ? new OwnerBoundCharacterCreationLifeModuleFinalizationService(
                 baselineStore, fixture.Owner, s_source.Queries, baselineResolver, OverviewCatalog())
                 .Load(stamp, fixture.Id) : null;
+        int duplicateDomainQueries = 0;
+        T CountOverviewDomain<T>(Func<T> load)
+        {
+            int beforeQueries = baselineResolver.Scopes.Sum(scope => scope.Calls);
+            T result = load();
+            duplicateDomainQueries += baselineResolver.Scopes.Sum(scope => scope.Calls) - beforeQueries;
+            return result;
+        }
         var expected = new CharacterCreationOverviewRead(
             new OwnerBoundCharacterCreationContactsService(
                 new CharacterCreationContactsService(baselineStore, baselineResolver), fixture.Owner)
                 .Load(stamp, new(fixture.Id)),
-            includePriorityDrafts ? new OwnerBoundCharacterCreationQualitiesService(
-                baselineStore, fixture.Owner, s_source.Queries, baselineResolver).Load(stamp, new(fixture.Id)) : null,
-            includePriorityDrafts ? new OwnerBoundCharacterCreationMagicResonanceService(
-                baselineStore, fixture.Owner, baselineResolver).Load(stamp, new(fixture.Id)) : null,
+            includePriorityDrafts ? CountOverviewDomain(() => new OwnerBoundCharacterCreationQualitiesService(
+                baselineStore, fixture.Owner, s_source.Queries, baselineResolver).Load(stamp, new(fixture.Id))) : null,
+            includePriorityDrafts ? CountOverviewDomain(() => new OwnerBoundCharacterCreationMagicResonanceService(
+                baselineStore, fixture.Owner, baselineResolver).Load(stamp, new(fixture.Id))) : null,
             new OwnerBoundCharacterCreationLifestylesReader(baselineStore, fixture.Owner, baselineResolver)
                 .Load(stamp, new(fixture.Id)),
             new OwnerBoundCharacterCreationFinalizationService(
@@ -101,7 +109,9 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         Assert.AreEqual(linked ? 0 : 1, store.LocalReads);
         Assert.HasCount(1, resolver.Scopes);
         var first = resolver.Scopes[0];
-        Assert.AreEqual(queries, first.Calls, "No live source admission was skipped.");
+        Assert.AreEqual(queries - duplicateDomainQueries, first.Calls,
+            "The full finalizer still admits every source. Overview must use its freshly evaluated "
+            + "Qualities/Magic results instead of evaluating those same domains twice.");
         Assert.HasCount(2, first.UniqueContexts,
             "The raw pending XML and exact complete price projection require distinct source contexts.");
         Assert.IsTrue(first.Disposed);
@@ -115,6 +125,40 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             "Neither raw nor projected authority may cross a public operation boundary.");
         Assert.IsTrue(resolver.Scopes[1].Disposed);
         Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Commits);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        fixture.AssertPartitionsUnchanged(before);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.Karma)]
+    public void Overview_loads_choices_when_finalizer_did_not_evaluate_domains(string method)
+    {
+        using var source = ReadyContext.CreateUnprepared(method);
+        using var fixture = new Fixture(AccountA, source);
+        var before = fixture.CaptureAllPartitions();
+        var stamp = fixture.Owner.Capture();
+        var baselineStore = new ScopedAtomicStore(fixture);
+        var expectedQualities = new OwnerBoundCharacterCreationQualitiesService(
+            baselineStore, fixture.Owner, source.Queries, source.Resolver).Load(stamp, new(fixture.Id));
+        var expectedMagic = new OwnerBoundCharacterCreationMagicResonanceService(
+            baselineStore, fixture.Owner, source.Resolver).Load(stamp, new(fixture.Id));
+        var expectedFinalization = new OwnerBoundCharacterCreationFinalizationService(
+            baselineStore, fixture.Owner, source.Queries, source.Resolver).Load(stamp, new(fixture.Id));
+
+        var store = new ScopedAtomicStore(fixture);
+        var service = new OwnerBoundCharacterCreationFinalizationService(
+            store, fixture.Owner, source.Queries, source.Resolver);
+        var actual = service.LoadOverview(stamp, fixture.Id, true);
+        Assert.IsNotNull(actual);
+        Assert.IsNotNull(actual.Qualities, "Missing drafts must not replace the actual domain result with null.");
+        Assert.IsNotNull(actual.MagicResonance);
+        AssertJsonEquals(expectedQualities, actual.Qualities);
+        AssertJsonEquals(expectedMagic, actual.MagicResonance);
+        AssertJsonEquals(expectedFinalization, actual.Finalization);
+        Assert.IsFalse(actual.Finalization.Value!.CanReview);
+        Assert.AreEqual(1, store.Reads);
         Assert.AreEqual(0, store.Commits);
         Assert.AreEqual(0, fixture.Owner.ActiveLeases);
         fixture.AssertPartitionsUnchanged(before);
@@ -1119,10 +1163,12 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         public string Root { get; } = Directory.CreateTempSubdirectory("chummer-finalization-owner-").FullName;
         public FileWorkspaceStore Store { get; }
         public TestOwner Owner { get; }
-        public CharacterWorkspaceId Id => s_source.WorkspaceId;
+        public CharacterWorkspaceId Id { get; }
 
-        public Fixture(OwnerScope owner)
+        public Fixture(OwnerScope owner, ReadyContext? source = null)
         {
+            source ??= s_source;
+            Id = source.WorkspaceId;
             Store = new(Root);
             Owner = new(owner);
             foreach (var partition in new[] { OwnerScope.LocalSingleUser, AccountA, AccountB })
@@ -1143,11 +1189,11 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
                 // The destination was created through its real scoped FileStore API.
                 // Install exact bytes from a genuinely committed ReadyContext; never
                 // relabel a portable owner/digest or invent rule-valid draft objects.
-                string sourcePath = Path.Combine(s_source.Directory, "workspaces", Id.Value + ".json");
+                string sourcePath = Path.Combine(source.Directory, "workspaces", Id.Value + ".json");
                 File.Copy(sourcePath, recordPath, overwrite: true);
                 File.SetLastWriteTimeUtc(recordPath, File.GetLastWriteTimeUtc(sourcePath));
                 CollectionAssert.AreEqual(File.ReadAllBytes(sourcePath), File.ReadAllBytes(recordPath));
-                AssertRecordEquals(s_source.Store.Get(Id).Value!, Read(partition));
+                AssertRecordEquals(source.Store.Get(Id).Value!, Read(partition));
             }
             Assert.IsNull(Read(owner == AccountA ? AccountB : AccountA)
                 .Document.AuxiliaryState.CharacterCreationPrerequisiteDraft);
