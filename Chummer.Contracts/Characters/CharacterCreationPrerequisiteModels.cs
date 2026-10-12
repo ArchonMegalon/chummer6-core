@@ -429,9 +429,13 @@ public static class CharacterCreationPrerequisiteAuthorityDigest
         ArgumentNullException.ThrowIfNull(authority);
         if (CanonicalOptions is not null)
         {
-            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
-                authority with { AuthorityDigest = string.Empty }, CanonicalOptions);
-            return Prefix + Convert.ToHexStringLower(SHA256.HashData(bytes));
+            // Serialize the same verified ordinal metadata directly into the
+            // hash writer. Repeated startup validation must not allocate a full
+            // catalog-sized output array; every field is still read each time.
+            using var digestBuffer = new CreationDigestBufferWriter();
+            using (var writer = new Utf8JsonWriter(digestBuffer))
+                JsonSerializer.Serialize(writer, authority with { AuthorityDigest = string.Empty }, CanonicalOptions);
+            return Prefix + digestBuffer.GetDigest();
         }
 
         JsonElement root = JsonSerializer.SerializeToElement(
