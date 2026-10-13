@@ -663,6 +663,14 @@ public sealed class CreationCanonicalDigestTests
         var auxiliary = (System.Text.Json.Serialization.Metadata.JsonTypeInfo)property.GetValue(null)!;
         var decision = auxiliary.Options.GetTypeInfo(typeof(Sr6CreationFoundationDecision));
         Assert.AreEqual(System.Text.Json.Serialization.Metadata.JsonTypeInfoKind.None, decision.Kind);
+        Assert.IsTrue(auxiliary.Options.IsReadOnly);
+        Assert.AreEqual(0, auxiliary.Options.Converters.Count,
+            "A global converter disables generated writers for every SR5 child contract.");
+        var fastPath = typeof(System.Text.Json.Serialization.Metadata.JsonTypeInfo).GetProperty(
+            "CanUseSerializeHandler", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        foreach (var type in new[] { typeof(CharacterCreationSkillsDraft), typeof(CharacterCreationGearDraft) })
+            Assert.IsTrue((bool)fastPath.GetValue(auxiliary.Options.GetTypeInfo(type))!,
+                $"The generated {type.Name} writer was disabled by unrelated lazy SR6 metadata.");
     }
 
     [TestMethod]
