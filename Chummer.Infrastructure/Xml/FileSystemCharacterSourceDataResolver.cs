@@ -6080,6 +6080,43 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCareerQualityMetatype(out string sourceXml, out string authorityState)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            sourceXml = authorityState = string.Empty;
+            static bool Scalar(XElement parent, string name, bool required, out string value)
+            {
+                value = string.Empty;
+                var rows = parent.Elements().Where(row => row.Name.LocalName == name).Take(2).ToArray();
+                if (rows.Length == 0) return !required;
+                if (rows.Length != 1 || rows[0].Name != name || rows[0].HasAttributes || rows[0].HasElements
+                    || rows[0].Value != rows[0].Value.Trim()) return false;
+                value = rows[0].Value;
+                return !required || value.Length > 0;
+            }
+            if (_sourceInputs.HasSourceDrift
+                || !Scalar(_character, "metatypeguid", true, out var idText)
+                || !Guid.TryParseExact(idText, "D", out var id) || id == Guid.Empty
+                || !Scalar(_character, "metatype", true, out var name)
+                || !Scalar(_character, "metavariantguid", false, out var variantId)
+                || variantId.Length > 0 && (!Guid.TryParseExact(variantId, "D", out var variant) || variant != Guid.Empty)
+                || !Scalar(_character, "metavariant", false, out var variantName)
+                || variantName is not ("" or "None")
+                || !TryResolveTarget("metatypes.xml", ["metatypes"], "metatype", id.ToString("D"),
+                    string.Empty, out var metatype, out bool ambiguous, inspectIdentity: true)
+                || metatype is null || ambiguous || metatype.Name != "metatype" || metatype.HasAttributes
+                || !Scalar(metatype, "id", true, out var resolvedId) || !Guid.TryParseExact(resolvedId, "D", out var parsedId) || parsedId != id
+                || !Scalar(metatype, "name", true, out var resolvedName) || resolvedName != name
+                || !Scalar(metatype, "source", true, out var book) || !IsEnabledSource(book)
+                || !TryComputeEffectiveInputDigest(_catalog, "metatypes.xml", out var sourceDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "metatypes.xml", out var customDigest)
+                || _sourceInputs.HasSourceDrift) return false;
+            sourceXml = metatype.ToString(SaveOptions.DisableFormatting);
+            authorityState = string.Join('\0', "sr5-career-quality-metatype/v1", sourceDigest,
+                customDigest, _rawProfileInputsDigest, sourceXml);
+            return true;
+        }
+
         public bool TryResolveCareerQualitySettings(
             out CharacterCareerQualitySettings settings,
             out string rawRuleState)

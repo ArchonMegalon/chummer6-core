@@ -11,6 +11,8 @@ public sealed record CharacterCareerQualityTransactionEntry(
     CharacterCareerQualityQuote Quote,
     CharacterCareerQualityPlan Plan,
     CharacterCareerQualityReceipt Receipt,
+    CharacterCareerQualityStateObservation ObservedPostState,
+    CharacterCareerQualityExpenseObservation ObservedExpense,
     CharacterCareerQualitySource Source,
     int? ResolvedArmCount,
     IReadOnlyList<CharacterCareerQualityRemovedNode> RemovedNodes,
@@ -33,6 +35,8 @@ public sealed record CharacterCareerQualityCommitResult(
 
 public sealed record CharacterCareerQualityCorrectionEntry(
     CharacterCareerQualityCorrectionPlan Correction,
+    CharacterCareerQualityStateObservation ObservedRestoredState,
+    CharacterCareerQualityExpenseObservation ObservedExpense,
     string RestoredCharacterDigest,
     string PreviousEntryDigest,
     string EntryDigest);
@@ -42,3 +46,15 @@ public sealed record CharacterCareerQualityCorrectionResult(
     CharacterCareerQualityCorrectionEntry? Entry = null,
     long? CurrentRevision = null,
     string? Error = null);
+
+/// <summary>
+/// Core-owned read projection. Persisted observations are historical observations
+/// retained at commit, never invented from expected plans at read time. Only
+/// current local provenance is included; other known transaction IDs stay reserved.
+/// </summary>
+public sealed record CharacterCareerQualityWorkspaceSnapshot(
+    CharacterCareerQualityExecutionBinding Binding,
+    IReadOnlyList<CharacterCareerQualityInput> Candidates,
+    IReadOnlyList<CharacterCareerQualityTransactionEntry> Transactions,
+    IReadOnlyList<CharacterCareerQualityCorrectionEntry> Corrections,
+    IReadOnlyList<Guid> ReservedTransactionIds);

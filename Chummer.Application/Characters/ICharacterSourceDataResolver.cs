@@ -14,6 +14,16 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Exact base-metatype source for Career quality restrictions. Unknown or
+    /// variant identities fail closed; display names alone are not identity.
+    /// </summary>
+    bool TryResolveCareerQualityMetatype(out string sourceXml, out string authorityState)
+    {
+        sourceXml = authorityState = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Reads Career quality costs from the selected profile. A false result is
     /// unavailable authority, never permission to substitute creation prices.
     /// </summary>

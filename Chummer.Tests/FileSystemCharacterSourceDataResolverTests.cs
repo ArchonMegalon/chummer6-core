@@ -2737,6 +2737,40 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         finally { DeleteTempDirectory(root); }
     }
 
+    [TestMethod]
+    public void Career_quality_metatype_authority_retains_actual_restrictions_and_observed_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "metatypes.xml");
+            string character = $"<character><settings>{SettingsId}</settings>"
+                + "<metatype>Human</metatype><metatypeguid>a53d885d-a4a4-443d-b6a6-b0a55b0a96c7</metatypeguid></character>";
+            string path = Path.Combine(root, "data", "metatypes.xml");
+            string before = File.ReadAllText(path);
+            byte[] beforeBytes = File.ReadAllBytes(path);
+            var context = CreateContext(root, character)!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCareerQualityMetatype(out var original, out var originalAuthority));
+            var document = XDocument.Parse(before);
+            document.Root!.Element("metatypes")!.Elements("metatype")
+                .Single(row => row.Element("name")!.Value == "Human")
+                .Add(XElement.Parse("<qualityrestriction><positive><quality>Erased</quality></positive></qualityrestriction>"));
+            File.WriteAllText(path, document.ToString());
+            Assert.IsFalse(context.TryResolveCareerQualityMetatype(out _, out _));
+            var fresh = CreateContext(root, character)!;
+            Assert.IsTrue(fresh.TryResolveCareerQualityMetatype(out var changed, out var changedAuthority));
+            Assert.AreNotEqual(originalAuthority, changedAuthority);
+            StringAssert.Contains(changed, "<quality>Erased</quality>");
+            File.WriteAllBytes(path, beforeBytes);
+            Assert.IsFalse(context.TryResolveCareerQualityMetatype(out _, out _), "Observed A-B-A stays invalid.");
+            Assert.IsTrue(CreateContext(root, character)!.TryResolveCareerQualityMetatype(out var restored, out var restoredAuthority));
+            Assert.AreEqual(original, restored);
+            Assert.AreEqual(originalAuthority, restoredAuthority);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
     private static void WriteCareerQualitySettings(string root, string karma, string purchases, string refunds)
     {
         string path = Path.Combine(root, "data", "settings.xml");

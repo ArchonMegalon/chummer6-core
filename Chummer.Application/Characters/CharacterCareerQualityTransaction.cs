@@ -38,6 +38,8 @@ public static partial class CharacterCareerQualityTransaction
             if (entry is null || !IsValidPlan(entry.Plan)
                 || !CharacterCareerQualityRules.IsCoherent(entry.Quote)
                 || !CharacterCareerQualityRules.IsCoherent(entry.Receipt)
+                || !CharacterCareerQualityRules.IsCoherent(entry.ObservedPostState)
+                || entry.ObservedExpense is null
                 || entry.Source?.RawSourceXml is not { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength }
                 || entry.Source.Name is not { Length: > 0 and <= CharacterCareerQualityRules.MaximumTextLength }
                 || entry.Source.SourceBook is not { Length: > 0 and <= CharacterCareerQualityRules.MaximumTextLength }
@@ -75,8 +77,9 @@ public static partial class CharacterCareerQualityTransaction
             if (!CharacterCareerQualityRules.TryCreateStateObservation(entry.Plan.Identity, entry.Plan.Definition,
                     entry.Plan.Extra, entry.Plan.SourceName, entry.Plan.InstancesAfter, entry.Plan.SavedCharacterKarma,
                     binding, JsonSerializer.Serialize(entry.Source), entry.Quote.RuleDigest, out var state)
+                || !Same(state, entry.ObservedPostState) || !Same(ExpectedExpense(entry.Plan), entry.ObservedExpense)
                 || !CharacterCareerQualityRules.TryCreateReceipt(entry.Plan.TransactionId, entry.Quote, entry.Plan,
-                    state, ExpectedExpense(entry.Plan), out var receipt) || !Same(entry.Receipt, receipt)) return false;
+                    entry.ObservedPostState, entry.ObservedExpense, out var receipt) || !Same(entry.Receipt, receipt)) return false;
             return EntryDigest(entry) == entry.EntryDigest;
         }
         catch (Exception exception) when (exception is ArgumentException or NullReferenceException
@@ -179,7 +182,7 @@ public static partial class CharacterCareerQualityTransaction
             return false;
         var removed = CaptureRemovedNodes(saved.Document.Content, plan);
         if (removed is null || !admission.IsCurrent()) return false;
-        var candidate = new CharacterCareerQualityTransactionEntry(quote, plan, receipt, source, arms, removed,
+        var candidate = new CharacterCareerQualityTransactionEntry(quote, plan, receipt, state!, expense!, source, arms, removed,
             Hash(saved.Document.Content), Hash(payload!), saved.Document.AuxiliaryStateDigest,
             history is { Count: > 0 } ? history[^1].EntryDigest : LedgerRoot, "");
         candidate = candidate with { EntryDigest = EntryDigest(candidate) };

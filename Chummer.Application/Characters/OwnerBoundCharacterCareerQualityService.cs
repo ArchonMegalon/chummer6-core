@@ -11,7 +11,7 @@ namespace Chummer.Application.Characters;
 /// the full stamp before background dispatch. Stable owner-name equality cannot
 /// revive an A → B → A operation. No fallback to the anonymous local partition.
 /// </summary>
-public sealed class OwnerBoundCharacterCareerQualityService(IWorkspaceStore store,
+public sealed partial class OwnerBoundCharacterCareerQualityService(IWorkspaceStore store,
     IOwnerContextAccessor ownerContext, ICharacterCareerQualityAuthorityResolver authority)
 {
     public CharacterCareerQualityCommitResult Commit(OwnerContextStamp expectedOwner,

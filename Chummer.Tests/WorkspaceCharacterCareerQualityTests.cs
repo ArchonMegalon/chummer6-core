@@ -7,6 +7,8 @@ using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
+using Chummer.Infrastructure.Files;
+using Chummer.Infrastructure.Xml;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
@@ -14,6 +16,240 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class WorkspaceCharacterCareerQualityTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Real_owner_managed_profile_purchases_quality_with_actual_effects_and_no_free_override(bool linked)
+    {
+        string root = CoreRoot();
+        var source = XDocument.Load(System.IO.Path.Combine(root, "Chummer", "data", "qualities.xml"))
+            .Root!.Element("qualities")!.Elements("quality").Single(row => row.Element("name")!.Value == "Erased");
+        using var f = new Fixture(linked: linked, characterXml: RealCharacter());
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        using var admission = resolver.Open(f.Owner, f.Saved(), new(Guid.NewGuid(), Guid.Parse(source.Element("id")!.Value)),
+            CharacterCareerQualityOperation.AcquireLevel, f.Store.CareerQualityRuntimeFingerprint);
+        Assert.IsNotNull(admission, "Real enabled-source authority must resolve, not a synthetic fixture.");
+        Assert.IsTrue(admission.IsCurrent());
+        Assert.IsFalse(admission.Input.GmFreeCostApproved);
+        StringAssert.Contains(admission.Input.RawRuleState, OwnerManagedCareerQualityAuthorityResolver.PolicyIdentity);
+        var plan = PlanFrom(admission);
+        var service = new OwnerBoundCharacterCareerQualityService(f.Store, f.Owners, resolver);
+        var result = service.Commit(f.Owners.Capture(), plan);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, result.Outcome, result.Error);
+        var saved = f.Saved();
+        Assert.AreEqual(84, result.Entry!.Receipt.CharacterKarmaAfter);
+        var xml = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("Erased", xml.Element("qualities")!.Element("quality")!.Element("name")!.Value);
+        Assert.AreEqual("Erased", xml.Element("improvements")!.Element("improvement")!.Element("improvementttype")!.Value);
+        var correction = Correction(saved, result.Entry);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, service.Correct(f.Owners.Capture(), correction).Outcome);
+        var cold = new OwnerBoundCharacterCareerQualityService(new FileWorkspaceStore(f.Path), f.Owners, resolver);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Replayed, cold.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual("100", XElement.Parse(f.Saved().Document.Content).Element("karma")!.Value);
+    }
+
+    [TestMethod]
+    [DataRow("foreign-metatype")]
+    [DataRow("variant")]
+    [DataRow("unknown-profile")]
+    [DataRow("duplicate-restriction")]
+    [DataRow("creation")]
+    public void Real_quality_admission_rejects_unresolved_character_authority(string damage)
+    {
+        string root = CoreRoot();
+        var source = XDocument.Load(System.IO.Path.Combine(root, "Chummer", "data", "qualities.xml"))
+            .Root!.Element("qualities")!.Elements("quality").Single(row => row.Element("name")!.Value == "Erased");
+        string character = damage switch
+        {
+            "foreign-metatype" => RealCharacter().Replace("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", Guid.NewGuid().ToString("D")),
+            "variant" => RealCharacter($"<metavariantguid>{Guid.NewGuid():D}</metavariantguid>"),
+            "unknown-profile" => RealCharacter().Replace(CharacterCreationBootstrapProfiles.PrioritySettingsProfileId, Guid.NewGuid().ToString("D")),
+            "duplicate-restriction" => RealCharacter("<qualityrestriction/><qualityrestriction/>"),
+            "creation" => RealCharacter().Replace("<created>True</created>", "<created>False</created>"),
+            _ => throw new InvalidOperationException()
+        };
+        using var f = new Fixture(characterXml: character);
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        using var admission = resolver.Open(f.Owner, f.Saved(), new(Guid.NewGuid(), Guid.Parse(source.Element("id")!.Value)),
+            CharacterCareerQualityOperation.AcquireLevel, f.Store.CareerQualityRuntimeFingerprint);
+        Assert.IsNull(admission);
+        Assert.AreEqual(1L, f.Saved().ContentRevision);
+    }
+
+    [TestMethod]
+    public void Real_character_quality_allowlist_blocks_a_source_without_guessing_permission()
+    {
+        string root = CoreRoot();
+        var source = XDocument.Load(System.IO.Path.Combine(root, "Chummer", "data", "qualities.xml"))
+            .Root!.Element("qualities")!.Elements("quality").Single(row => row.Element("name")!.Value == "Erased");
+        using var f = new Fixture(characterXml: RealCharacter("<qualityrestriction><positive><quality>Other quality</quality></positive></qualityrestriction>"));
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        using var admission = resolver.Open(f.Owner, f.Saved(), new(Guid.NewGuid(), Guid.Parse(source.Element("id")!.Value)),
+            CharacterCareerQualityOperation.AcquireLevel, f.Store.CareerQualityRuntimeFingerprint);
+        Assert.IsNotNull(admission);
+        Assert.IsTrue(CharacterCareerQualityRules.TryCreateQuote(admission.Input, out var quote));
+        Assert.IsFalse(quote.CanApply);
+        Assert.AreEqual(CharacterCareerQualityBlocker.MissingRequirement, quote.Blocker);
+    }
+
+    [TestMethod]
+    public void Real_anatomy_dependent_quality_is_not_offered_without_resolved_arm_authority()
+    {
+        string root = CoreRoot();
+        using var f = new Fixture(characterXml: RealCharacter());
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        using var admission = resolver.Open(f.Owner, f.Saved(),
+            new(Guid.NewGuid(), Guid.Parse("68cfe94a-fa7e-4129-a9b9-b5d73e3ced99")),
+            CharacterCareerQualityOperation.AcquireLevel, f.Store.CareerQualityRuntimeFingerprint);
+        Assert.IsNull(admission, "A base Human identity alone must not silently assume two unmodified arms.");
+        Assert.AreEqual(1L, f.Saved().ContentRevision);
+    }
+
+    private static string RealCharacter(string extra = "") => "<character><created>True</created><karma>100</karma>"
+        + $"<settings>{CharacterCreationBootstrapProfiles.PrioritySettingsProfileId}</settings>"
+        + "<metatype>Human</metatype><metatypeguid>a53d885d-a4a4-443d-b6a6-b0a55b0a96c7</metatypeguid>"
+        + "<qualities/><improvements/><expenses/><notes>keep me</notes>" + extra + "</character>";
+
+    [TestMethod]
+    public void Real_quality_catalog_preserves_choice_identity_until_commit_and_then_offers_actual_removal()
+    {
+        string root = CoreRoot();
+        using var f = new Fixture(characterXml: RealCharacter());
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        using var first = resolver.Read(f.Owner, f.Saved(), f.Store.CareerQualityRuntimeFingerprint);
+        using var second = resolver.Read(f.Owner, f.Saved(), f.Store.CareerQualityRuntimeFingerprint);
+        Assert.IsNotNull(first);
+        Assert.IsNotNull(second);
+        Assert.IsTrue(first.IsCurrent());
+        Assert.AreEqual(first.Binding, second.Binding);
+        Assert.AreEqual(JsonSerializer.Serialize(first.Candidates), JsonSerializer.Serialize(second.Candidates));
+        Assert.IsFalse(first.Candidates.Any(row => row.Definition.Name == "Ambidextrous"));
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            ((IList<CharacterCareerQualityInput>)first.Candidates)[0] = first.Candidates[0]);
+        var selected = first.Candidates.Single(row => row.Definition.Name == "Erased"
+            && row.Operation == CharacterCareerQualityOperation.AcquireLevel);
+        var plan = PlanFrom(selected);
+        var service = new OwnerBoundCharacterCareerQualityService(f.Store, f.Owners, resolver);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, service.Commit(f.Owners.Capture(), plan).Outcome);
+        using var after = resolver.Read(f.Owner, f.Saved(), f.Store.CareerQualityRuntimeFingerprint);
+        Assert.IsNotNull(after);
+        Assert.AreEqual(first.Binding.ContentDigest, after.Binding.ContentDigest,
+            "Source authority is stable across a character-only mutation.");
+        Assert.AreEqual(2L, after.Binding.WorkspaceRevision);
+        var remove = after.Candidates.Single(row => row.Definition.Name == "Erased"
+            && row.Operation == CharacterCareerQualityOperation.RemoveLevel);
+        Assert.AreEqual(selected.Identity, remove.Identity);
+        Assert.AreEqual(84, remove.AvailableKarma);
+        Assert.AreNotEqual(selected.Identity.InternalId, after.Candidates.Single(row => row.Definition.Name == "Erased"
+            && row.Operation == CharacterCareerQualityOperation.AcquireLevel).Identity.InternalId);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied,
+            service.Commit(f.Owners.Capture(), PlanFrom(remove)).Outcome);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Owner_bound_quality_reader_recovers_actual_persisted_observations_and_correction_after_restart(bool linked)
+    {
+        string root = CoreRoot();
+        using var f = new Fixture(linked: linked, characterXml: RealCharacter());
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        var service = new OwnerBoundCharacterCareerQualityService(f.Store, f.Owners, resolver);
+        var owner = f.Owners.Capture();
+        var before = service.Read(owner, f.Id);
+        Assert.IsNotNull(before);
+        Assert.HasCount(0, before.Transactions);
+        var plan = PlanFrom(before.Candidates.Single(row => row.Definition.Name == "Erased"
+            && row.Operation == CharacterCareerQualityOperation.AcquireLevel));
+        var committed = service.Commit(owner, plan);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, committed.Outcome);
+        var cold = new OwnerBoundCharacterCareerQualityService(new FileWorkspaceStore(f.Path), f.Owners, resolver);
+        var read = cold.Read(owner, f.Id);
+        Assert.IsNotNull(read);
+        Assert.HasCount(1, read.Transactions);
+        var transaction = read.Transactions.Single();
+        Assert.IsTrue(CharacterCareerQualityRules.TryRecoverReceipt(transaction.Receipt, plan.TransactionId,
+            transaction.ObservedPostState, transaction.ObservedExpense, transaction.Receipt.ReceiptDigest, out _));
+        Assert.AreEqual(84, transaction.ObservedPostState.AvailableKarma);
+        var correction = Correction(f.Saved(), transaction);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, cold.Correct(owner, correction).Outcome);
+        read = cold.Read(owner, f.Id);
+        Assert.IsNotNull(read);
+        Assert.HasCount(1, read.Transactions);
+        Assert.HasCount(1, read.Corrections);
+        Assert.HasCount(0, read.ReservedTransactionIds);
+        Assert.AreEqual(84, read.Transactions.Single().ObservedPostState.AvailableKarma,
+            "The historical post-state must not be overwritten by today's restored state.");
+        Assert.AreEqual(100, read.Corrections.Single().ObservedRestoredState.AvailableKarma);
+        Assert.AreEqual(0, read.Corrections.Single().ObservedExpense.MatchingEntryCount);
+        Assert.HasCount(0, read.Corrections.Single().ObservedRestoredState.Instances);
+        f.Owners.Set(new("other-owner"));
+        Assert.IsNull(cold.Read(owner, f.Id));
+        f.Owners.Set(f.Owner);
+        Assert.IsNull(cold.Read(owner, f.Id), "A-B-A cannot revive the old read stamp.");
+        Assert.IsNotNull(cold.Read(f.Owners.Capture(), f.Id));
+    }
+
+    [TestMethod]
+    public void Retained_quality_observations_cannot_be_forged_by_rehashing_history()
+    {
+        using var f = new Fixture();
+        var transaction = f.Commit(f.Plan()).Entry!;
+        var forged = transaction with { ObservedPostState = transaction.ObservedPostState with { AvailableKarma = 999 } };
+        forged = forged with { EntryDigest = CharacterCareerQualityTransaction.EntryDigest(forged) };
+        Assert.IsFalse(CharacterCareerQualityTransaction.IsCoherent(forged));
+        var correction = Correction(f.Saved(), transaction);
+        var applied = f.Service.Correct(f.Owners.Capture(), correction).Entry!;
+        var altered = applied with { ObservedExpense = applied.ObservedExpense with { Amount = 100 } };
+        altered = altered with { EntryDigest = CharacterCareerQualityTransaction.CorrectionEntryDigest(altered) };
+        Assert.IsFalse(CharacterCareerQualityTransaction.IsValidLedgers(f.Id, correction.TargetWorkspaceRevision,
+            [transaction], [altered]));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Quality_reader_reserves_imported_or_retired_runtime_history_without_offering_undo(bool imported)
+    {
+        string root = CoreRoot();
+        using var f = new Fixture(characterXml: RealCharacter());
+        var resolver = new OwnerManagedCareerQualityAuthorityResolver(new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null)));
+        var service = new OwnerBoundCharacterCareerQualityService(f.Store, f.Owners, resolver);
+        var before = service.Read(f.Owners.Capture(), f.Id)!;
+        var plan = PlanFrom(before.Candidates.Single(row => row.Definition.Name == "Erased"
+            && row.Operation == CharacterCareerQualityOperation.AcquireLevel));
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, service.Commit(f.Owners.Capture(), plan).Outcome);
+        if (imported) WorkspaceImportedHistoryTestFixture.MarkImported(f.Path, f.Id);
+        var adapter = new ObservingStore(f.Store)
+        { RuntimeOverride = imported ? null : CharacterCareerQualityGraph.Hash("next runtime") };
+        var cold = new OwnerBoundCharacterCareerQualityService(adapter, f.Owners, resolver);
+        string saved = JsonSerializer.Serialize(f.Saved());
+        var read = cold.Read(f.Owners.Capture(), f.Id);
+        Assert.IsNotNull(read);
+        Assert.HasCount(0, read.Transactions);
+        Assert.HasCount(0, read.Corrections);
+        CollectionAssert.AreEqual(new[] { plan.TransactionId }, read.ReservedTransactionIds.ToArray());
+        Assert.AreEqual(saved, JsonSerializer.Serialize(f.Saved()));
+    }
+
+    private static string CoreRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(System.IO.Path.Combine(directory.FullName, "Chummer", "data", "settings.xml"))) return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Core source catalog unavailable.");
+    }
+
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -636,11 +872,25 @@ public sealed class WorkspaceCharacterCareerQualityTests
         return correction;
     }
 
+    private static CharacterCareerQualityPlan PlanFrom(ICharacterCareerQualityAdmission admission)
+        => PlanFrom(admission.Input);
+
+    private static CharacterCareerQualityPlan PlanFrom(CharacterCareerQualityInput input)
+    {
+        Assert.IsTrue(CharacterCareerQualityRules.TryCreateQuote(input, out var quote));
+        Assert.IsTrue(quote.CanApply, quote.Blocker.ToString());
+        Assert.IsTrue(CharacterCareerQualityRules.TryPlan(quote, quote.LogicalRevision, quote.SourceRevision, quote.RuleDigest,
+            quote.Binding.RuntimeFingerprint, quote.Binding.ContentDigest, quote.Binding.WorkspaceRevision,
+            quote.Binding.SavedRevision, true, false, Guid.NewGuid(), new DateTime(2081, 5, 12, 14, 30, 0), out var plan));
+        return plan;
+    }
+
     private sealed class ObservingStore(FileWorkspaceStore inner) : IWorkspaceStore, ICharacterCareerQualityAtomicCommitCapability
     {
         public bool SimulateUnwrittenSuccess, LoseResponse;
         public int Reads, Commits;
-        public string CareerQualityRuntimeFingerprint => inner.CareerQualityRuntimeFingerprint;
+        public string? RuntimeOverride;
+        public string CareerQualityRuntimeFingerprint => RuntimeOverride ?? inner.CareerQualityRuntimeFingerprint;
         public CharacterCareerQualityCommitResult CommitCareerQuality(OwnerScope owner, CharacterCareerQualityPlan plan,
             ICharacterCareerQualityAuthorityResolver authority, CancellationToken token = default)
         {
@@ -701,14 +951,15 @@ public sealed class WorkspaceCharacterCareerQualityTests
         public CharacterCreationAttributesServiceTests.AllocationOwners Owners { get; } = new();
         public TestAuthority Authority { get; }
         public OwnerBoundCharacterCareerQualityService Service { get; }
-        public Fixture(IFileWorkspaceStoreFaultInjector? fault = null, bool linked = false, bool negative = false, bool firstLevel = false)
+        public Fixture(IFileWorkspaceStoreFaultInjector? fault = null, bool linked = false, bool negative = false, bool firstLevel = false,
+            string? characterXml = null)
         {
             Owner = linked ? new("synthetic-linked-owner") : OwnerScope.LocalSingleUser;
             Owners.Set(Owner);
             Store = fault is null ? new(Path) : new(Path, fault);
             Authority = new(negative, firstLevel);
             Service = new(Store, Owners, Authority);
-            var document = new WorkspaceDocument("<character><created>True</created><karma>100</karma><qualities/><improvements/><expenses/><notes>keep me</notes></character>", "sr5");
+            var document = new WorkspaceDocument(characterXml ?? "<character><created>True</created><karma>100</karma><qualities/><improvements/><expenses/><notes>keep me</notes></character>", "sr5");
             Assert.IsTrue((linked ? Store.CreateWorkspaceDocument(Owner, Id, document) : Store.CreateWorkspaceDocument(Id, document)).Success);
             Assert.IsTrue((linked ? Store.SaveCheckpoint(Owner, Id, 1) : Store.SaveCheckpoint(Id, 1)).Success);
         }
@@ -724,12 +975,7 @@ public sealed class WorkspaceCharacterCareerQualityTests
         {
             using var admission = Authority.Open(Owner, Saved(), new(instance ?? Guid.NewGuid(), Authority.Source.SourceId),
                 operation, Store.CareerQualityRuntimeFingerprint);
-            Assert.IsTrue(CharacterCareerQualityRules.TryCreateQuote(admission!.Input, out var quote));
-            Assert.IsTrue(quote.CanApply, quote.Blocker.ToString());
-            Assert.IsTrue(CharacterCareerQualityRules.TryPlan(quote, quote.LogicalRevision, quote.SourceRevision, quote.RuleDigest,
-                quote.Binding.RuntimeFingerprint, quote.Binding.ContentDigest, quote.Binding.WorkspaceRevision,
-                quote.Binding.SavedRevision, true, false, Guid.NewGuid(), new DateTime(2081, 5, 12, 14, 30, 0), out var plan));
-            return plan;
+            return PlanFrom(admission!);
         }
         public CharacterCareerQualityCommitResult Commit(CharacterCareerQualityPlan plan) => Service.Commit(Owners.Capture(), plan);
         public void Dispose() => Directory.Delete(Path, recursive: true);

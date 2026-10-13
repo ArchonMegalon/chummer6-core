@@ -15,6 +15,16 @@ public interface ICharacterCareerQualityAuthorityResolver
     ICharacterCareerQualityAdmission? Open(OwnerScope owner, WorkspaceStoredDocument saved,
         CharacterCareerQualityIdentity identity, CharacterCareerQualityOperation operation,
         string runtimeFingerprint);
+
+    ICharacterCareerQualityCatalogAdmission? Read(OwnerScope owner, WorkspaceStoredDocument saved,
+        string runtimeFingerprint) => null;
+}
+
+public interface ICharacterCareerQualityCatalogAdmission : IDisposable
+{
+    CharacterCareerQualityExecutionBinding Binding { get; }
+    IReadOnlyList<CharacterCareerQualityInput> Candidates { get; }
+    bool IsCurrent();
 }
 
 public interface ICharacterCareerQualityAdmission : IDisposable

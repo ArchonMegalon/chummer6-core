@@ -45,6 +45,7 @@ public static partial class CharacterCareerQualityTransaction
                 || !revisions.Add(entry.Correction.TargetWorkspaceRevision)
                 || !byId.TryGetValue(entry.Correction.OriginalTransactionId, out var original)
                 || !CorrectionMatchesOriginal(original, entry.Correction)
+                || !CorrectionObservationMatches(original, entry)
                 || CorrectionEntryDigest(entry) != entry.EntryDigest) return false;
             bytes += JsonSerializer.SerializeToUtf8Bytes(entry).Length + 1;
             if (bytes > MaximumLedgerBytes) return false;
@@ -68,6 +69,17 @@ public static partial class CharacterCareerQualityTransaction
                 correction.CorrectionId, correction.Reason, false, false, original.Receipt.ReceiptDigest, out var expected)
             && Same(correction, expected);
     }
+
+    private static bool CorrectionObservationMatches(CharacterCareerQualityTransactionEntry original,
+        CharacterCareerQualityCorrectionEntry entry)
+        => CharacterCareerQualityRules.TryCreateStateObservation(original.Plan.Identity, original.Plan.Definition,
+            original.Plan.Extra, original.Plan.SourceName, original.Receipt.InstancesBefore, original.Receipt.CharacterKarmaBefore,
+            original.Quote.Binding with { WorkspaceRevision = entry.Correction.TargetWorkspaceRevision,
+                SavedRevision = entry.Correction.TargetSavedRevision }, JsonSerializer.Serialize(original.Source),
+            original.Quote.RuleDigest, out var expected)
+            && Same(expected, entry.ObservedRestoredState)
+            && Same(entry.ObservedExpense, new CharacterCareerQualityExpenseObservation(
+                0, Guid.Empty, DateTime.MinValue, 0, "", "", false, false, "", "", "", 0, ""));
 
     public static CharacterCareerQualityCorrectionResult LookupCorrection(OwnerScope owner, WorkspaceStoredDocument saved,
         CharacterCareerQualityCorrectionPlan correction)
@@ -118,8 +130,8 @@ public static partial class CharacterCareerQualityTransaction
         if (original is null || history is { Count: >= MaximumEntries }
             || !saved.CanReplayReceipt(original.Plan.TargetWorkspaceRevision)
             || !CharacterCareerQualityGraph.TryApplyCorrection(saved.Document.Content, original, correction,
-                out var payload, out _, out _)) return false;
-        var candidate = new CharacterCareerQualityCorrectionEntry(correction, Hash(payload!),
+                out var payload, out var state, out var expense)) return false;
+        var candidate = new CharacterCareerQualityCorrectionEntry(correction, state!, expense!, Hash(payload!),
             history is { Count: > 0 } ? history[^1].EntryDigest : CorrectionLedgerRoot, "");
         candidate = candidate with { EntryDigest = CorrectionEntryDigest(candidate) };
         var appended = (history ?? []).Append(candidate).ToArray();

@@ -26,6 +26,31 @@ internal static partial class CharacterCareerQualityGraph
         CharacterCareerQualityEffectProjection Effects,
         string QualityGraphXml);
 
+    internal static bool TryReadIdentities(string characterXml,
+        out IReadOnlyList<CharacterCareerQualityIdentity> identities)
+    {
+        identities = [];
+        try
+        {
+            var root = Parse(characterXml);
+            if (root.Name != "character" || root.HasAttributes
+                || !bool.TryParse(Scalar(root, "created"), out bool created) || !created
+                || !int.TryParse(Scalar(root, "karma"), NumberStyles.AllowLeadingSign,
+                    CultureInfo.InvariantCulture, out int karma)
+                || karma is < -CharacterCareerQualityRules.MaximumKarma or > CharacterCareerQualityRules.MaximumKarma)
+                return false;
+            var rows = Container(root, "qualities", "quality").Elements()
+                .Take(CharacterCareerReputationProjector.MaximumRowsPerContainer + 1)
+                .Select(row => ReadInstance(row).Identity).ToArray();
+            if (rows.Length > CharacterCareerReputationProjector.MaximumRowsPerContainer
+                || rows.Select(row => row.InternalId).Distinct().Count() != rows.Length) return false;
+            identities = Array.AsReadOnly(rows);
+            return true;
+        }
+        catch (Exception exception) when (exception is XmlException or InvalidDataException
+            or ArgumentException or InvalidOperationException or OverflowException) { return false; }
+    }
+
     internal static bool TryProject(string characterXml, CharacterCareerQualitySource source,
         CharacterCareerQualityIdentity identity, CharacterCareerQualityOperation operation,
         int? resolvedArmCount, out Projection? projection)
