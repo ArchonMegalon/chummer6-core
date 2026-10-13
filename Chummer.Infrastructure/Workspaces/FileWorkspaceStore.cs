@@ -23,6 +23,7 @@ public sealed partial class FileWorkspaceStore :
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationBootstrapAtomicCreateCapability,
     ICharacterCareerReputationAtomicCommitCapability,
+    ICharacterCareerQualityAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
     ISr6CreationFoundationAtomicCommitCapability, ISr6CreationFinalizationAtomicCommitCapability
@@ -1667,6 +1668,12 @@ public sealed partial class FileWorkspaceStore :
                 JsonSerializer.Serialize(currentState.CharacterCareerReputationReceipts),
                 JsonSerializer.Serialize(replacementState.CharacterCareerReputationReceipts),
                 StringComparison.Ordinal))
+            return false;
+
+        // Career quality history also has a dedicated source-admitted writer.
+        // Check before every lane-specific early return below.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerQualityTransactions),
+                JsonSerializer.Serialize(replacementState.CharacterCareerQualityTransactions), StringComparison.Ordinal))
             return false;
 
         // Karma selections are admitted only by their typed transaction, with

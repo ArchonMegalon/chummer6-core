@@ -120,7 +120,11 @@ internal static class CharacterCareerQualityGraph
                 Semantics = "sr5-career-quality-graph/v1", characterDigest, sourceState,
                 identity, operation, resolvedArmCount, Added = added, Removed = removed
             }));
-            projection = new(definition, identity, operation, matching.Select(row => row.Instance).ToArray(),
+            // Contract quotes canonicalize instance identity order. Saved XML
+            // insertion order is unrelated and must not reject a later level.
+            // Sort only the detached projection, never the runner's actual nodes.
+            projection = new(definition, identity, operation, matching.Select(row => row.Instance)
+                .OrderBy(row => row.Identity.InternalId).ToArray(),
                 extra, sourceName, karma, characterDigest, sourceState,
                 new(true, families.Order().ToArray(), [], added.Count + removed.Count, delta),
                 root.ToString(SaveOptions.DisableFormatting));
