@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Text.Json;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
@@ -14,6 +15,50 @@ namespace Chummer.Tests;
 
 public sealed partial class Sr6CreationFoundationTests
 {
+    [TestMethod]
+    [DataRow("Priority")]
+    [DataRow("SumtoTen")]
+    [DataRow("PointBuy")]
+    public void Auxiliary_deferred_sr6_json_preserves_pending_and_finalized_wire_bytes(string method)
+    {
+        using var fixture = new Fixture(method);
+        var request = FinalizationRequest(fixture, method);
+        var pending = fixture.Store.Get(fixture.Id).Value!.Document.AuxiliaryState;
+        Assert.IsNotNull(pending.Sr6CreationFoundationDecisions);
+        Check(pending);
+        Assert.IsNotNull(fixture.Service.ConfirmFinalization(fixture.Stamp, request).Value);
+        var finalized = fixture.Store.Get(fixture.Id).Value!.Document.AuxiliaryState;
+        Assert.IsNotNull(finalized.Sr6CreationFinalizationArchive);
+        Check(finalized);
+
+        static void Check(WorkspaceDocumentAuxiliaryState state)
+        {
+            var options = new JsonSerializerOptions();
+            options.Converters.Add(new WorkspaceDocumentAuxiliaryStateJsonConverter());
+            string expected = JsonSerializer.Serialize(state);
+            Assert.AreEqual(expected, JsonSerializer.Serialize(state, options));
+            Parallel.For(0, 4, _ =>
+            {
+                var first = JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(expected, options)!;
+                var second = JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(expected, options)!;
+                Assert.AreNotSame(first, second);
+                Assert.AreEqual(expected, JsonSerializer.Serialize(first));
+                Assert.AreEqual(expected, JsonSerializer.Serialize(second, options));
+                Assert.AreEqual(WorkspaceDocumentAuxiliaryStateDigest.Compute(state),
+                    WorkspaceDocumentAuxiliaryStateDigest.Compute(first));
+                var firstHistory = first.Sr6CreationFoundationDecisions
+                    ?? first.Sr6CreationFinalizationArchive!.OriginalState.Sr6CreationFoundationDecisions!;
+                var secondHistory = second.Sr6CreationFoundationDecisions
+                    ?? second.Sr6CreationFinalizationArchive!.OriginalState.Sr6CreationFoundationDecisions!;
+                Assert.AreNotSame(firstHistory, secondHistory);
+                Assert.AreNotSame(firstHistory[0], secondHistory[0]);
+            });
+            Assert.ThrowsExactly<JsonException>(() => JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(
+                """{"Sr6CreationFoundationDecisions":[42]}""", options));
+            Assert.AreEqual(expected, JsonSerializer.Serialize(state, options));
+        }
+    }
+
     private static Sr6CreationFinalizationRequest FinalizationRequest(Fixture fixture, string method = "Priority")
     {
         var choice = KarmaSeed(method) with { Karma = new([], [], 0),
