@@ -6117,6 +6117,34 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCareerSettingsProfile(out string settingsXml, out string authorityState)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            settingsXml = authorityState = string.Empty;
+            XElement[] savedSettings = _character.Elements("settings").Take(2).ToArray();
+            if (_sourceInputs.HasSourceDrift || savedSettings.Length != 1
+                || savedSettings[0].HasElements || savedSettings[0].HasAttributes
+                || !string.Equals(savedSettings[0].Value.Trim(), _settingsProfileId, StringComparison.Ordinal)
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out XElement? profile, out bool ambiguousProfile, inspectIdentity: true)
+                || profile is null || ambiguousProfile || profile.HasAttributes
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
+                || !string.Equals(BindSelectedProfile(settingsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest, StringComparison.Ordinal)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, SettingsFile,
+                    out string customSettingsDigest)
+                || _sourceInputs.HasSourceDrift)
+                return false;
+
+            // Only adapt the catalog row's wrapper to the existing settings
+            // document shape. Every effective child is retained verbatim; costs
+            // and flags are never filled from UI defaults or another profile.
+            settingsXml = new XElement("settings", profile.Nodes()).ToString(SaveOptions.DisableFormatting);
+            authorityState = string.Join('\0', "sr5-career-settings-profile/v1", _settingsProfileId,
+                _rawProfileInputsDigest, customSettingsDigest, settingsXml);
+            return true;
+        }
+
         public bool TryResolveCareerQualitySettings(
             out CharacterCareerQualitySettings settings,
             out string rawRuleState)

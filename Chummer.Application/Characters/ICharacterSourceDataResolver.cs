@@ -14,6 +14,18 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Reads the exact effective saved profile for legacy Career editors that
+    /// still consume settings XML. No Standard-profile substitution is allowed.
+    /// The detached XML and source state are read authority, not permission to
+    /// mutate a character or an assertion that every rule is implemented.
+    /// </summary>
+    bool TryResolveCareerSettingsProfile(out string settingsXml, out string authorityState)
+    {
+        settingsXml = authorityState = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Exact base-metatype source for Career quality restrictions. Unknown or
     /// variant identities fail closed; display names alone are not identity.
     /// </summary>

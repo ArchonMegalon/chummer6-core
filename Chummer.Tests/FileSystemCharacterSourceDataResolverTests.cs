@@ -20,6 +20,79 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CharacterCreationBootstrapProfiles.PrioritySettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.SumToTenSettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.KarmaSettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId)]
+    public void Career_settings_profile_reads_exact_canonical_children_without_UI_defaults(string id)
+    {
+        string root = FindCoreRoot();
+        var context = CreateContext(root, $"<character><settings>{id}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCareerSettingsProfile(out string xml, out string authority));
+        XElement canonical = XDocument.Load(Path.Combine(root, "Chummer", "data",
+                CharacterCreationBootstrapProfiles.SettingsSourceFile(id)))
+            .Root!.Element("settings")!.Elements("setting").Single(row => row.Element("id")?.Value == id);
+        var expected = new XElement("settings", canonical.Nodes());
+        Assert.IsTrue(XNode.DeepEquals(expected, XElement.Parse(xml)));
+        StringAssert.Contains(authority, id);
+        StringAssert.Contains(authority, xml);
+        XElement.Parse(xml).Element("karmacost")!.Remove();
+        Assert.IsTrue(context.TryResolveCareerSettingsProfile(out string reread, out string reauthority));
+        Assert.AreEqual(xml, reread, "The returned document must be detached from retained source authority.");
+        Assert.AreEqual(authority, reauthority);
+    }
+
+    [TestMethod]
+    [DataRow("missing")]
+    [DataRow("unknown")]
+    [DataRow("duplicate")]
+    [DataRow("structured")]
+    public void Career_settings_profile_never_substitutes_another_profile(string scenario)
+    {
+        string selection = scenario switch
+        {
+            "missing" => "",
+            "unknown" => "<settings>not-a-profile</settings>",
+            "duplicate" => $"<settings>{SettingsId}</settings><settings>{SettingsId}</settings>",
+            _ => $"<settings><id>{SettingsId}</id></settings>"
+        };
+        var context = CreateContext(FindCoreRoot(), $"<character>{selection}</character>");
+        if (context is null) return;
+        Assert.IsFalse(context.TryResolveCareerSettingsProfile(out string xml, out string authority));
+        Assert.AreEqual("", xml);
+        Assert.AreEqual("", authority);
+    }
+
+    [TestMethod]
+    public void Career_settings_profile_rejects_drift_and_does_not_revive_after_ABA()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            byte[] original = File.ReadAllBytes(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCareerSettingsProfile(out string before, out string beforeAuthority));
+            var changed = XDocument.Load(path);
+            changed.Root!.Element("settings")!.Element("setting")!.Add(new XElement("career-test", "changed"));
+            changed.Save(path);
+            Assert.IsFalse(context.TryResolveCareerSettingsProfile(out _, out _));
+            var fresh = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCareerSettingsProfile(out string after, out string afterAuthority));
+            Assert.AreNotEqual(before, after);
+            Assert.AreNotEqual(beforeAuthority, afterAuthority);
+            File.WriteAllBytes(path, original);
+            Assert.IsFalse(context.TryResolveCareerSettingsProfile(out _, out _), "A poisoned context cannot revive.");
+            Assert.IsFalse(fresh.TryResolveCareerSettingsProfile(out _, out _));
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCareerSettingsProfile(out string restored, out _));
+            Assert.AreEqual(before, restored);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     [DataRow("none")]
     [DataRow("disabled")]
     [DataRow("empty-key")]
