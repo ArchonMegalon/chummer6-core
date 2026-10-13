@@ -6080,6 +6080,163 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCareerQualityMetatype(out string sourceXml, out string authorityState)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            sourceXml = authorityState = string.Empty;
+            static bool Scalar(XElement parent, string name, bool required, out string value)
+            {
+                value = string.Empty;
+                var rows = parent.Elements().Where(row => row.Name.LocalName == name).Take(2).ToArray();
+                if (rows.Length == 0) return !required;
+                if (rows.Length != 1 || rows[0].Name != name || rows[0].HasAttributes || rows[0].HasElements
+                    || rows[0].Value != rows[0].Value.Trim()) return false;
+                value = rows[0].Value;
+                return !required || value.Length > 0;
+            }
+            if (_sourceInputs.HasSourceDrift
+                || !Scalar(_character, "metatypeguid", true, out var idText)
+                || !Guid.TryParseExact(idText, "D", out var id) || id == Guid.Empty
+                || !Scalar(_character, "metatype", true, out var name)
+                || !Scalar(_character, "metavariantguid", false, out var variantId)
+                || variantId.Length > 0 && (!Guid.TryParseExact(variantId, "D", out var variant) || variant != Guid.Empty)
+                || !Scalar(_character, "metavariant", false, out var variantName)
+                || variantName is not ("" or "None")
+                || !TryResolveTarget("metatypes.xml", ["metatypes"], "metatype", id.ToString("D"),
+                    string.Empty, out var metatype, out bool ambiguous, inspectIdentity: true)
+                || metatype is null || ambiguous || metatype.Name != "metatype" || metatype.HasAttributes
+                || !Scalar(metatype, "id", true, out var resolvedId) || !Guid.TryParseExact(resolvedId, "D", out var parsedId) || parsedId != id
+                || !Scalar(metatype, "name", true, out var resolvedName) || resolvedName != name
+                || !Scalar(metatype, "source", true, out var book) || !IsEnabledSource(book)
+                || !TryComputeEffectiveInputDigest(_catalog, "metatypes.xml", out var sourceDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "metatypes.xml", out var customDigest)
+                || _sourceInputs.HasSourceDrift) return false;
+            sourceXml = metatype.ToString(SaveOptions.DisableFormatting);
+            authorityState = string.Join('\0', "sr5-career-quality-metatype/v1", sourceDigest,
+                customDigest, _rawProfileInputsDigest, sourceXml);
+            return true;
+        }
+
+        public bool TryResolveCareerQualitySettings(
+            out CharacterCareerQualitySettings settings,
+            out string rawRuleState)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            settings = new CharacterCareerQualitySettings(0, false, false);
+            rawRuleState = string.Empty;
+            if (_sourceInputs.HasSourceDrift
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out XElement? profile, out bool ambiguousProfile, inspectIdentity: true)
+                || profile is null || ambiguousProfile
+                || !TryReadKarmaCost(profile, "karmaquality", out int cost)
+                || cost > CharacterCareerQualityRules.MaximumKarma
+                || !TryReadStrictBool(profile, "dontdoublequalities", out bool purchases)
+                || !TryReadStrictBool(profile, "dontdoublequalityrefunds", out bool refunds)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, SettingsFile,
+                    out string customSettingsDigest)
+                || _sourceInputs.HasSourceDrift)
+                return false;
+
+            settings = new CharacterCareerQualitySettings(cost, purchases, refunds);
+            rawRuleState = string.Join('\0', "sr5-career-quality-settings/v1",
+                _settingsProfileId, _rawProfileInputsDigest, customSettingsDigest,
+                cost.ToString(CultureInfo.InvariantCulture),
+                purchases.ToString(CultureInfo.InvariantCulture),
+                refunds.ToString(CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        public bool TryResolveCareerQualitySource(Guid sourceId, out CharacterCareerQualitySource? source)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            source = null;
+            if (_sourceInputs.HasSourceDrift || sourceId == Guid.Empty
+                || !TryResolveTarget("qualities.xml", ["qualities"], "quality", sourceId.ToString("D"),
+                    string.Empty, out XElement? quality, out bool ambiguousQuality, inspectIdentity: true)
+                || quality is null || ambiguousQuality
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string sourceDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "qualities.xml",
+                    out string customDigest))
+                return false;
+
+            if (!TryReadCareerQualityIdentity(quality, out Guid resolvedId, out string name, out string book)
+                || resolvedId != sourceId || !IsEnabledSource(book)
+                || _sourceInputs.HasSourceDrift)
+                return false;
+
+            source = new CharacterCareerQualitySource(resolvedId, name, book,
+                quality.ToString(SaveOptions.DisableFormatting), sourceDigest, _rawProfileInputsDigest,
+                customDigest);
+            return true;
+        }
+
+        public bool TryResolveCareerQualityCatalog(out IReadOnlyList<CharacterCareerQualitySource> sources)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            sources = [];
+            if (_sourceInputs.HasSourceDrift
+                || !TryLoadEffectiveDocument(_catalog, "qualities.xml", out XDocument? document)
+                || document?.Root?.Name != "chummer") return false;
+            XElement[] containers = document.Root.Elements()
+                .Where(row => row.Name.LocalName == "qualities").Take(2).ToArray();
+            if (containers.Length != 1 || containers[0].Name != "qualities" || containers[0].HasAttributes)
+                return false;
+            XElement[] rows = containers[0].Elements().Take(4097).ToArray();
+            if (rows.Length > 4096 || rows.Any(row => row.Name != "quality")) return false;
+            // The normal catalog is already detached from the private source
+            // snapshot. Custom overlays still need their ordered row resolver.
+            if (_customDirectories.Count > 0
+                && !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out rows)) return false;
+            if (_sourceInputs.HasSourceDrift
+                || rows.Length > 4096
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string sourceDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "qualities.xml",
+                    out string customDigest)) return false;
+            var result = new List<CharacterCareerQualitySource>();
+            var ids = new HashSet<Guid>();
+            foreach (XElement row in rows)
+            {
+                if (!TryReadCareerQualityIdentity(row, out Guid id, out string name, out string book)
+                    || !ids.Add(id)) return false;
+                if (!IsEnabledSource(book)) continue;
+                CharacterCareerQualitySource source;
+                if (_customDirectories.Count > 0)
+                {
+                    // Enumeration coalesces custom locators; resolve the exact
+                    // identity again to retain ambiguity/overlay-order rejection.
+                    if (!TryResolveCareerQualitySource(id, out var exact) || exact is null)
+                        return false;
+                    source = exact;
+                }
+                else source = new(id, name, book, row.ToString(SaveOptions.DisableFormatting),
+                    sourceDigest, _rawProfileInputsDigest, customDigest);
+                result.Add(source);
+            }
+            if (_sourceInputs.HasSourceDrift) return false;
+            sources = Array.AsReadOnly(result.OrderBy(row => row.SourceId).ToArray());
+            return true;
+        }
+
+        private static bool TryReadCareerQualityIdentity(XElement quality, out Guid sourceId,
+            out string name, out string book)
+        {
+            sourceId = Guid.Empty;
+            name = book = string.Empty;
+            // No duplicate/namespaced fields or structured text hidden by Value.
+            static bool Literal(XElement parent, string field, out string value)
+            {
+                value = string.Empty;
+                XElement[] nodes = parent.Elements().Where(node => node.Name.LocalName == field).Take(2).ToArray();
+                if (nodes.Length != 1 || nodes[0].Name != field || nodes[0].HasAttributes || nodes[0].HasElements
+                    || string.IsNullOrWhiteSpace(nodes[0].Value) || nodes[0].Value != nodes[0].Value.Trim()) return false;
+                value = nodes[0].Value;
+                return true;
+            }
+            return quality.Name == "quality" && !quality.HasAttributes
+                && Literal(quality, "id", out string id) && Guid.TryParseExact(id, "D", out sourceId)
+                && sourceId != Guid.Empty && Literal(quality, "name", out name) && Literal(quality, "source", out book);
+        }
+
         public bool TryResolveCareerReputationSettings(
             out CharacterCareerReputationSettings settings,
             out string rawRuleState)

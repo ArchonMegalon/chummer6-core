@@ -1,0 +1,60 @@
+namespace Chummer.Contracts.Characters;
+
+/// <summary>Exact removed nodes retained for correction, never display-only reconstruction.</summary>
+public sealed record CharacterCareerQualityRemovedNode(string Container, int Index, string Xml);
+
+/// <summary>
+/// Workspace-owned history. Coherent hashes do not authorize writes, imported
+/// replay or a GM decision. Only the dedicated, freshly admitted store may append.
+/// </summary>
+public sealed record CharacterCareerQualityTransactionEntry(
+    CharacterCareerQualityQuote Quote,
+    CharacterCareerQualityPlan Plan,
+    CharacterCareerQualityReceipt Receipt,
+    CharacterCareerQualityStateObservation ObservedPostState,
+    CharacterCareerQualityExpenseObservation ObservedExpense,
+    CharacterCareerQualitySource Source,
+    int? ResolvedArmCount,
+    IReadOnlyList<CharacterCareerQualityRemovedNode> RemovedNodes,
+    string CharacterDigestBefore,
+    string CharacterDigestAfter,
+    string AuxiliaryDigestBefore,
+    string PreviousEntryDigest,
+    string EntryDigest);
+
+public enum CharacterCareerQualityCommitOutcome
+{
+    NotFound, Applied, Replayed, Missing, Conflict, IdempotencyConflict, Corrupt, Unavailable
+}
+
+public sealed record CharacterCareerQualityCommitResult(
+    CharacterCareerQualityCommitOutcome Outcome,
+    CharacterCareerQualityTransactionEntry? Entry = null,
+    long? CurrentRevision = null,
+    string? Error = null);
+
+public sealed record CharacterCareerQualityCorrectionEntry(
+    CharacterCareerQualityCorrectionPlan Correction,
+    CharacterCareerQualityStateObservation ObservedRestoredState,
+    CharacterCareerQualityExpenseObservation ObservedExpense,
+    string RestoredCharacterDigest,
+    string PreviousEntryDigest,
+    string EntryDigest);
+
+public sealed record CharacterCareerQualityCorrectionResult(
+    CharacterCareerQualityCommitOutcome Outcome,
+    CharacterCareerQualityCorrectionEntry? Entry = null,
+    long? CurrentRevision = null,
+    string? Error = null);
+
+/// <summary>
+/// Core-owned read projection. Persisted observations are historical observations
+/// retained at commit, never invented from expected plans at read time. Only
+/// current local provenance is included; other known transaction IDs stay reserved.
+/// </summary>
+public sealed record CharacterCareerQualityWorkspaceSnapshot(
+    CharacterCareerQualityExecutionBinding Binding,
+    IReadOnlyList<CharacterCareerQualityInput> Candidates,
+    IReadOnlyList<CharacterCareerQualityTransactionEntry> Transactions,
+    IReadOnlyList<CharacterCareerQualityCorrectionEntry> Corrections,
+    IReadOnlyList<Guid> ReservedTransactionIds);

@@ -2446,6 +2446,341 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CharacterCreationBootstrapProfiles.PrioritySettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.SumToTenSettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.KarmaSettingsProfileId)]
+    [DataRow(CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId)]
+    public void Career_quality_source_and_costs_resolve_the_real_selected_profile(string settingsId)
+    {
+        string root = FindCoreRoot();
+        var context = CreateContext(root, $"<character><settings>{settingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCareerQualitySettings(out var settings, out string rules));
+        Assert.AreEqual(new CharacterCareerQualitySettings(1, false, false), settings);
+        StringAssert.Contains(rules, settingsId);
+        var row = XDocument.Load(Path.Combine(root, "Chummer", "data", "qualities.xml"))
+            .Root!.Element("qualities")!.Elements("quality")
+            .Single(item => item.Element("name")?.Value == "Ambidextrous");
+        Guid sourceId = Guid.Parse(row.Element("id")!.Value);
+        Assert.IsTrue(context.TryResolveCareerQualitySource(sourceId, out var source));
+        Assert.AreEqual(sourceId, source!.SourceId);
+        Assert.AreEqual("Ambidextrous", source.Name);
+        Assert.AreEqual("SR5", source.SourceBook);
+        Assert.IsTrue(XNode.DeepEquals(row, XElement.Parse(source.RawSourceXml)));
+        StringAssert.StartsWith(source.SourceInputsDigest, "sha256:");
+        StringAssert.StartsWith(source.ProfileInputsDigest, "sha256:");
+        Assert.IsFalse(context.TryResolveCareerQualitySource(Guid.Empty, out _));
+        Assert.IsFalse(context.TryResolveCareerQualitySource(Guid.NewGuid(), out _),
+            "An unrelated saved instance ID must not fall back to a matching display name.");
+        Assert.IsTrue(context.TryResolveCareerQualityCatalog(out var catalog));
+        Assert.AreEqual(source, catalog.Single(item => item.SourceId == sourceId));
+        Assert.AreEqual(catalog.Count, catalog.Select(item => item.SourceId).Distinct().Count());
+        Assert.IsTrue(catalog.Count > 10, "The real profile must offer a catalog, not a hand-picked fixture.");
+    }
+
+    [TestMethod]
+    [DataRow("1", "False", "False", true)]
+    [DataRow("3", "True", "True", true)]
+    [DataRow("0", "True", "False", true)]
+    [DataRow("-1", "False", "False", false)]
+    [DataRow("2147483647", "False", "False", false)]
+    [DataRow("1", "", "False", false)]
+    [DataRow("1", " True ", "False", false)]
+    [DataRow("1", "False", "1", false)]
+    [DataRow("<value>1</value>", "False", "False", false)]
+    public void Career_quality_settings_require_exact_profile_values(string karma, string purchases, string refunds, bool valid)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteCareerQualitySettings(root, karma, purchases, refunds);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.AreEqual(valid, context.TryResolveCareerQualitySettings(out var settings, out string raw));
+            if (valid)
+            {
+                Assert.AreEqual(int.Parse(karma, System.Globalization.CultureInfo.InvariantCulture), settings.KarmaQuality);
+                Assert.AreEqual(bool.Parse(purchases), settings.DontDoubleQualityPurchases);
+                Assert.AreEqual(bool.Parse(refunds), settings.DontDoubleQualityRefunds);
+                Assert.IsFalse(string.IsNullOrEmpty(raw));
+            }
+            else Assert.AreEqual(string.Empty, raw);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("missing-settings")]
+    [DataRow("duplicate-settings")]
+    [DataRow("duplicate-quality")]
+    [DataRow("duplicate-id")]
+    [DataRow("duplicate-name")]
+    [DataRow("namespace-name")]
+    [DataRow("disabled-book")]
+    [DataRow("structured-name")]
+    public void Career_quality_authority_rejects_missing_ambiguous_or_disabled_inputs(string scenario)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            if (scenario != "missing-settings") WriteCareerQualitySettings(root, "1", "False", "False");
+            var row = XElement.Parse(QualityRow("<source>SR5</source><karma>4</karma><bonus><ambidextrous/></bonus>"));
+            if (scenario == "duplicate-id") row.Add(new XElement("id", QualityLevelId));
+            if (scenario == "duplicate-name") row.Add(new XElement("name", "Ambiguous"));
+            if (scenario == "namespace-name") row.Add(new XElement(XName.Get("name", "urn:quality-test"), "Ambiguous"));
+            if (scenario == "structured-name") row.Element("name")!.Add(new XElement("value", "Nested"));
+            if (scenario == "disabled-book") row.Element("source")!.Value = "DISABLED";
+            WriteQualityCatalog(root, row.ToString(SaveOptions.DisableFormatting)
+                + (scenario == "duplicate-quality" ? row.ToString(SaveOptions.DisableFormatting) : string.Empty));
+            if (scenario == "duplicate-settings")
+            {
+                string path = Path.Combine(root, "data", "settings.xml");
+                var document = XDocument.Load(path);
+                var profile = document.Root!.Element("settings")!.Element("setting")!;
+                profile.AddAfterSelf(new XElement(profile));
+                document.Save(path);
+            }
+            var context = CreateContext(root, CharacterXml());
+            if (context is null) return; // A context-level rejection also fails closed.
+            if (scenario.EndsWith("settings", StringComparison.Ordinal))
+                Assert.IsFalse(context.TryResolveCareerQualitySettings(out _, out _));
+            else
+                Assert.IsFalse(context.TryResolveCareerQualitySource(Guid.Parse(QualityLevelId), out _), scenario);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Career_quality_retained_context_rejects_source_and_profile_drift_without_revival()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteCareerQualitySettings(root, "1", "False", "False");
+            string quality = QualityRow("<source>SR5</source><karma>4</karma><bonus><ambidextrous/></bonus>");
+            WriteQualityCatalog(root, quality);
+            Guid id = Guid.Parse(QualityLevelId);
+            var original = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(original.TryResolveCareerQualitySource(id, out var oldSource));
+            Assert.IsTrue(original.TryResolveCareerQualitySettings(out _, out string oldRules));
+            WriteQualityCatalog(root, quality.Replace("<karma>4", "<karma>5", StringComparison.Ordinal));
+            Assert.IsFalse(original.TryResolveCareerQualitySource(id, out _));
+            var fresh = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCareerQualitySource(id, out var changedSource));
+            Assert.AreNotEqual(oldSource!.SourceInputsDigest, changedSource!.SourceInputsDigest);
+            WriteQualityCatalog(root, quality);
+            Assert.IsFalse(original.TryResolveCareerQualitySource(id, out _), "Observed source drift must remain rejected after A-B-A.");
+            var profileContext = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(profileContext.TryResolveCareerQualitySettings(out _, out _));
+            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            string before = File.ReadAllText(settingsPath);
+            File.WriteAllText(settingsPath, before.Replace("#,0.###", "#,0.##", StringComparison.Ordinal));
+            Assert.IsFalse(profileContext.TryResolveCareerQualitySettings(out _, out _));
+            Assert.IsFalse(profileContext.TryResolveCareerQualitySource(id, out _));
+            var newProfileContext = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(newProfileContext.TryResolveCareerQualitySettings(out _, out string newRules));
+            Assert.AreNotEqual(oldRules, newRules, "Raw profile changes bind even when the quality price is identical.");
+            File.WriteAllText(settingsPath, before);
+            Assert.IsFalse(profileContext.TryResolveCareerQualitySettings(out _, out _));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(ContentOverlayModes.ReplaceFile)]
+    [DataRow(ContentOverlayModes.MergeCatalog)]
+    public void Career_quality_source_preserves_exact_overlay_effects_and_digest(string mode)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteCareerQualitySettings(root, "1", "False", "False");
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><karma>4</karma><bonus><ambidextrous/></bonus>"));
+            Guid id = Guid.Parse(QualityLevelId);
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCareerQualitySource(id, out var baseline));
+            string overlayData = Path.Combine(root, "overlay", "data");
+            Directory.CreateDirectory(overlayData);
+            var row = XElement.Parse(QualityRow("<source>SR5</source><karma>7</karma><bonus><unknown-effect/></bonus>"));
+            File.WriteAllText(Path.Combine(overlayData, "qualities.xml"), $"<chummer><qualities>{row}</qualities></chummer>");
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"),
+                [new("quality-test", "Quality test", Path.Combine(root, "overlay"), overlayData,
+                    Path.Combine(root, "overlay", "lang"), 1, true, mode, string.Empty)]));
+            var context = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCareerQualitySource(id, out var source));
+            Assert.IsTrue(XNode.DeepEquals(row, XElement.Parse(source!.RawSourceXml)),
+                "Even an unsupported effect must reach the rule projector intact; source lookup grants no mutation authority.");
+            Assert.AreNotEqual(baseline!.SourceInputsDigest, source.SourceInputsDigest);
+            Assert.IsTrue(context.TryResolveCareerQualityCatalog(out var catalog));
+            Assert.AreEqual(source, catalog.Single(item => item.SourceId == id));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Career_quality_selected_custom_amendments_are_ordered_and_bound()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root,
+                "<customdatadirectoryname><directoryname>Quality Rules</directoryname><order>0</order><enabled>True</enabled></customdatadirectoryname>");
+            WriteCareerQualitySettings(root, "1", "False", "False");
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><karma>4</karma><bonus><ambidextrous/></bonus>"));
+            string directory = Path.Combine(root, "customdata", "Quality Rules");
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "amend_qualities.xml");
+            File.WriteAllText(path, $"<chummer><qualities><quality><id>{QualityLevelId}</id><karma>7</karma></quality></qualities></chummer>");
+            string character = CharacterXml("<customdatadirectorynames><directoryname>Quality Rules</directoryname></customdatadirectorynames>");
+            var context = CreateContext(root, character)!;
+            Assert.IsTrue(context.TryResolveCareerQualitySource(Guid.Parse(QualityLevelId), out var first));
+            Assert.AreEqual("7", XElement.Parse(first!.RawSourceXml).Element("karma")!.Value);
+            Assert.IsTrue(context.TryResolveCareerQualityCatalog(out var catalog));
+            Assert.AreEqual(first, catalog.Single(item => item.SourceId == first.SourceId));
+            File.WriteAllText(path, File.ReadAllText(path).Replace("<karma>7", "<karma>8", StringComparison.Ordinal));
+            Assert.IsFalse(context.TryResolveCareerQualitySource(Guid.Parse(QualityLevelId), out _));
+            var fresh = CreateContext(root, character)!;
+            Assert.IsTrue(fresh.TryResolveCareerQualitySource(Guid.Parse(QualityLevelId), out var second));
+            Assert.AreEqual("8", XElement.Parse(second!.RawSourceXml).Element("karma")!.Value);
+            Assert.AreNotEqual(first.CustomDataInputsDigest, second.CustomDataInputsDigest);
+            Assert.IsFalse(context.TryResolveCareerQualityCatalog(out _));
+            Assert.IsTrue(fresh.TryResolveCareerQualityCatalog(out var freshCatalog));
+            Assert.AreEqual(second, freshCatalog.Single(item => item.SourceId == second.SourceId));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("duplicate-quality")]
+    [DataRow("duplicate-container")]
+    [DataRow("namespaced-container")]
+    [DataRow("namespaced-row")]
+    [DataRow("unknown-row")]
+    [DataRow("empty-id")]
+    [DataRow("malformed-id")]
+    [DataRow("duplicate-id-field")]
+    [DataRow("structured-name")]
+    [DataRow("too-many")]
+    public void Career_quality_catalog_rejects_ambiguous_or_malformed_inventory(string scenario)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><karma>4</karma>"));
+            string path = Path.Combine(root, "data", "qualities.xml");
+            var document = XDocument.Load(path);
+            var container = document.Root!.Element("qualities")!;
+            var row = container.Element("quality")!;
+            switch (scenario)
+            {
+                case "duplicate-quality": container.Add(new XElement(row)); break;
+                case "duplicate-container": document.Root.Add(new XElement(container)); break;
+                case "namespaced-container": document.Root.Add(new XElement(XName.Get("qualities", "urn:test"))); break;
+                case "namespaced-row": row.Name = XName.Get("quality", "urn:test"); break;
+                case "unknown-row": container.Add(new XElement("not-a-quality")); break;
+                case "empty-id": row.Element("id")!.Value = Guid.Empty.ToString("D"); break;
+                case "malformed-id": row.Element("id")!.Value = "not-a-guid"; break;
+                case "duplicate-id-field": row.Add(new XElement(row.Element("id")!)); break;
+                case "structured-name": row.Element("name")!.Add(new XElement("value", "Nested")); break;
+                case "too-many":
+                    for (int i = 0; i < 4096; i++)
+                    {
+                        var extra = new XElement(row);
+                        extra.Element("id")!.Value = Guid.NewGuid().ToString("D");
+                        container.Add(extra);
+                    }
+                    break;
+            }
+            document.Save(path);
+            var context = CreateContext(root, CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsFalse(context.TryResolveCareerQualityCatalog(out var catalog), scenario);
+            Assert.HasCount(0, catalog, "A failed read must not leak a partial selectable list.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Career_quality_catalog_filters_disabled_books_and_keeps_snapshots_detached_and_drift_bound()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string enabled = QualityRow("<source>SR5</source><karma>4</karma>");
+            var disabled = XElement.Parse(enabled);
+            disabled.Element("id")!.Value = Guid.NewGuid().ToString("D");
+            disabled.Element("source")!.Value = "DISABLED";
+            WriteQualityCatalog(root, enabled + disabled.ToString(SaveOptions.DisableFormatting));
+            string path = Path.Combine(root, "data", "qualities.xml");
+            string before = File.ReadAllText(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCareerQualityCatalog(out var catalog));
+            Assert.HasCount(1, catalog);
+            Assert.AreEqual(Guid.Parse(QualityLevelId), catalog[0].SourceId);
+            Assert.IsTrue(context.TryResolveCareerQualityCatalog(out var again));
+            Assert.AreNotSame(catalog, again);
+            CollectionAssert.AreEqual(catalog.ToArray(), again.ToArray());
+            Assert.ThrowsExactly<NotSupportedException>(() =>
+                ((IList<CharacterCareerQualitySource>)catalog)[0] = catalog[0] with { Name = "Modified" });
+            File.WriteAllText(path, before.Replace("<karma>4", "<karma>5", StringComparison.Ordinal));
+            Assert.IsFalse(context.TryResolveCareerQualityCatalog(out _));
+            File.WriteAllText(path, before);
+            Assert.IsFalse(context.TryResolveCareerQualityCatalog(out _), "An observed A-B-A must not revive the snapshot.");
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCareerQualityCatalog(out var fresh));
+            CollectionAssert.AreEqual(catalog.ToArray(), fresh.ToArray());
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Career_quality_metatype_authority_retains_actual_restrictions_and_observed_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "metatypes.xml");
+            string character = $"<character><settings>{SettingsId}</settings>"
+                + "<metatype>Human</metatype><metatypeguid>a53d885d-a4a4-443d-b6a6-b0a55b0a96c7</metatypeguid></character>";
+            string path = Path.Combine(root, "data", "metatypes.xml");
+            string before = File.ReadAllText(path);
+            byte[] beforeBytes = File.ReadAllBytes(path);
+            var context = CreateContext(root, character)!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCareerQualityMetatype(out var original, out var originalAuthority));
+            var document = XDocument.Parse(before);
+            document.Root!.Element("metatypes")!.Elements("metatype")
+                .Single(row => row.Element("name")!.Value == "Human")
+                .Add(XElement.Parse("<qualityrestriction><positive><quality>Erased</quality></positive></qualityrestriction>"));
+            File.WriteAllText(path, document.ToString());
+            Assert.IsFalse(context.TryResolveCareerQualityMetatype(out _, out _));
+            var fresh = CreateContext(root, character)!;
+            Assert.IsTrue(fresh.TryResolveCareerQualityMetatype(out var changed, out var changedAuthority));
+            Assert.AreNotEqual(originalAuthority, changedAuthority);
+            StringAssert.Contains(changed, "<quality>Erased</quality>");
+            File.WriteAllBytes(path, beforeBytes);
+            Assert.IsFalse(context.TryResolveCareerQualityMetatype(out _, out _), "Observed A-B-A stays invalid.");
+            Assert.IsTrue(CreateContext(root, character)!.TryResolveCareerQualityMetatype(out var restored, out var restoredAuthority));
+            Assert.AreEqual(original, restored);
+            Assert.AreEqual(originalAuthority, restoredAuthority);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static void WriteCareerQualitySettings(string root, string karma, string purchases, string refunds)
+    {
+        string path = Path.Combine(root, "data", "settings.xml");
+        File.WriteAllText(path, File.ReadAllText(path)
+            .Replace("</karmacost>", $"<karmaquality>{karma}</karmaquality></karmacost>", StringComparison.Ordinal)
+            .Replace("</setting>", $"<dontdoublequalities>{purchases}</dontdoublequalities>"
+                + $"<dontdoublequalityrefunds>{refunds}</dontdoublequalityrefunds></setting>", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Canonical_career_reputation_policy_is_profile_bound()
     {
         ICharacterSourceDataContext context = CreateContext(FindCoreRoot(),

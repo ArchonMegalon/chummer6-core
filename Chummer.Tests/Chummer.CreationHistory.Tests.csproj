@@ -31,6 +31,8 @@
     <Compile Include="CharacterCreationContactsServiceTests.cs" />
     <Compile Include="CharacterCreationLifestylesServiceTests.cs" />
     <Compile Include="FileSystemCharacterSourceDataResolverTests.cs" />
+    <Compile Include="CharacterCareerQualityGraphTests.cs" />
+    <Compile Include="WorkspaceCharacterCareerQualityTests.cs" />
     <Compile Include="WorkspaceContinuationSnapshotDigestTests.cs" />
     <Compile Include="WorkspaceContinuationReadIntegrityTests.cs" />
     <Compile Include="WorkspaceContinuationExportTests.cs" />

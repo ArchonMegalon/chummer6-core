@@ -14,6 +14,51 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Exact base-metatype source for Career quality restrictions. Unknown or
+    /// variant identities fail closed; display names alone are not identity.
+    /// </summary>
+    bool TryResolveCareerQualityMetatype(out string sourceXml, out string authorityState)
+    {
+        sourceXml = authorityState = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Reads Career quality costs from the selected profile. A false result is
+    /// unavailable authority, never permission to substitute creation prices.
+    /// </summary>
+    bool TryResolveCareerQualitySettings(
+        out CharacterCareerQualitySettings settings,
+        out string rawRuleState)
+    {
+        settings = new CharacterCareerQualitySettings(0, false, false);
+        rawRuleState = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Reads a source GUID (never a saved instance GUID or a display name) through
+    /// the exact enabled-book and ordered overlay profile. This does not assert
+    /// that the quality is eligible, implemented, or safe to apply.
+    /// </summary>
+    bool TryResolveCareerQualitySource(Guid sourceId, out CharacterCareerQualitySource? source)
+    {
+        source = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Enumerates exact enabled sources, including unsupported definitions, so
+    /// the Career executor can project capabilities without using creation prices.
+    /// A returned row is source data, not a grant to purchase it.
+    /// </summary>
+    bool TryResolveCareerQualityCatalog(out IReadOnlyList<CharacterCareerQualitySource> sources)
+    {
+        sources = [];
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the explicit public-awareness policy from the exact saved profile.
     /// False means missing, malformed, ambiguous or stale authority; consumers
     /// must not treat the returned placeholder as a default setting.
