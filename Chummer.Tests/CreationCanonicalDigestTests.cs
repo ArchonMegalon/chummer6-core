@@ -13,6 +13,39 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Finalization_preview_generated_snapshot_preserves_default_bytes_and_observes_mutation()
+    {
+        var sources = new List<string> { "z", "a", "Zoë 東京 😀 <>&\"\\\r\n\t" };
+        var blockers = new List<string> { "pending" };
+        var preview = new CharacterCreationFoundationFinalizationPreview("preview",
+            new(new("snapshot-fixture"), 2, 2, "raw", "raw-semantics", "source", "source-semantics", true, sources),
+            new("compilation", "runtime", 1, "draft", [], [], blockers, false, "digest"),
+            blockers, true, false, false, false, false, "");
+        foreach (CharacterCreationFoundationFinalizationPreview? value in new[] { null, preview })
+        {
+            using var captured = WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureFinalizationPreview(value);
+            Assert.AreEqual(JsonSerializer.Serialize(value), captured.RootElement.GetRawText());
+            Assert.AreEqual("sha256:" + LegacyDigest(value),
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value));
+        }
+
+        using var before = WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureFinalizationPreview(preview);
+        string digest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(preview);
+        sources.Reverse();
+        blockers.Add("changed");
+        Assert.AreNotEqual(digest, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(preview));
+        Assert.AreNotEqual(JsonSerializer.Serialize(preview), before.RootElement.GetRawText(),
+            "The returned snapshot must not retain mutable caller collections.");
+        Parallel.For(0, 4, _ =>
+        {
+            using var fresh = WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureFinalizationPreview(preview);
+            Assert.AreEqual(JsonSerializer.Serialize(preview), fresh.RootElement.GetRawText());
+            Assert.AreEqual("sha256:" + LegacyDigest(preview),
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(preview));
+        });
+    }
+
+    [TestMethod]
     public void Quality_source_node_digest_preserves_raw_XML_nulls_unicode_and_large_values()
     {
         foreach (string? xml in new string?[]
