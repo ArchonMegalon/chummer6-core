@@ -770,6 +770,7 @@ public class LifeModuleOriginDossierServiceTests
         LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> timelineResult =
             interaction.Restore(timelineTampered);
         Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, timelineResult.Outcome);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, interaction.Reopen(timelineTampered).Outcome);
 
         LifeModuleOriginDossierDraftCheckpoint ltdTampered = prepared with
         {
@@ -783,6 +784,7 @@ public class LifeModuleOriginDossierServiceTests
         LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> ltdResult =
             interaction.Restore(ltdTampered);
         Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, ltdResult.Outcome);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, interaction.Reopen(ltdTampered).Outcome);
         Assert.AreEqual(0, authority.MechanicsMutationCount);
     }
 
@@ -810,6 +812,89 @@ public class LifeModuleOriginDossierServiceTests
         authority.Current = authority.Current with
         { LegalChoices = [choice with { FollowUps = [prompt with { Label = "Different canonical question" }] }] };
         Assert.AreEqual(LifeModuleOriginDossierOutcomes.Conflict, interaction.Restore(checkpoint).Outcome);
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+    }
+
+    [TestMethod]
+    public void Reopen_reads_fresh_admission_but_does_not_revalidate_an_old_command()
+    {
+        var choice = CreateChoice("choice-a", "Street path");
+        var authority = new FakeDecisionAuthority(CreateInitialStep(choice));
+        var interaction = new LifeModuleOriginDossierInteractionService(new(authority));
+        var opening = AssertSuccess(interaction.Start("workspace-1"));
+        string original = JsonSerializer.Serialize(opening);
+        authority.Current = authority.Current with
+        {
+            DecisionDigest = Digest("saved-decision"),
+            DecisionGraphDigest = Digest("saved-graph"),
+            MechanicsSnapshotDigest = Digest("saved-mechanics-binding"),
+            LegalChoices = [choice with { DecisionCommandDigest = Digest("saved-command") }]
+        };
+
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Conflict, interaction.Restore(opening).Outcome);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Conflict, interaction.Prepare(opening, "choice-a").Outcome);
+        var fresh = AssertSuccess(interaction.Reopen(opening));
+        Assert.AreEqual(AssertSuccess(interaction.Start("workspace-1")).CheckpointDigest, fresh.CheckpointDigest);
+        Assert.AreNotEqual(opening.CheckpointDigest, fresh.CheckpointDigest);
+        Assert.AreEqual(original, JsonSerializer.Serialize(opening));
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Reopen_never_discards_a_pending_or_accepted_decision(bool accepted)
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(CreateChoice("choice-a", "Street path")));
+        var interaction = new LifeModuleOriginDossierInteractionService(new(authority));
+        var checkpoint = AssertSuccess(interaction.Prepare(
+            AssertSuccess(interaction.Start("workspace-1")), "choice-a"));
+        if (accepted)
+            checkpoint = AssertSuccess(interaction.Confirm(checkpoint, checkpoint.PendingPreview!.PreviewDigest,
+                "reopen-accepted", true)).Checkpoint;
+        int mutations = authority.MechanicsMutationCount;
+        string original = JsonSerializer.Serialize(checkpoint);
+        authority.Current = authority.Current with { DecisionDigest = Digest("different-admission") };
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Conflict, interaction.Reopen(checkpoint).Outcome);
+        Assert.AreEqual(original, JsonSerializer.Serialize(checkpoint));
+        Assert.AreEqual(mutations, authority.MechanicsMutationCount);
+    }
+
+    [TestMethod]
+    [DataRow("owner")]
+    [DataRow("workspace")]
+    [DataRow("content")]
+    [DataRow("source")]
+    [DataRow("rules")]
+    [DataRow("runtime")]
+    [DataRow("locale")]
+    [DataRow("label")]
+    [DataRow("cost")]
+    [DataRow("choice")]
+    public void Reopen_rejects_changed_opening_authority_or_choices(string changed)
+    {
+        var choice = CreateChoice("choice-a", "Street path");
+        var authority = new FakeDecisionAuthority(CreateInitialStep(choice));
+        var interaction = new LifeModuleOriginDossierInteractionService(new(authority));
+        var opening = AssertSuccess(interaction.Start("workspace-1"));
+        var current = authority.Current with { DecisionDigest = Digest("different-admission") };
+        authority.Current = changed switch
+        {
+            "owner" => current with { OwnerId = "other-owner" },
+            "workspace" => current with { WorkspaceRevision = current.WorkspaceRevision + 1 },
+            "content" => current with { ContentDigest = Digest("other-content") },
+            "source" => current with { SourceDigest = Digest("other-source") },
+            "rules" => current with { RulesDigest = Digest("other-rules") },
+            "runtime" => current with { RuntimeDigest = Digest("other-runtime") },
+            "locale" => current with { Locale = "de-DE" },
+            "label" => current with { LegalChoices = [choice with { Label = "Another story choice" }] },
+            "cost" => current with { LegalChoices = [choice with { MechanicsPreview = choice.MechanicsPreview with
+                { KarmaCost = 99, KarmaRaw = "99" } }] },
+            "choice" => current with { LegalChoices = [CreateChoice("choice-b", "Street path")] },
+            _ => throw new InvalidOperationException()
+        };
+        AssertSuccess(interaction.Start("workspace-1"));
+        Assert.AreNotEqual(LifeModuleOriginDossierOutcomes.Success, interaction.Reopen(opening).Outcome);
         Assert.AreEqual(0, authority.MechanicsMutationCount);
     }
 
