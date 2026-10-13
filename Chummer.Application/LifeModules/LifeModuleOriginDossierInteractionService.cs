@@ -11,7 +11,7 @@ namespace Chummer.Application.LifeModules;
 /// Dossier. It persists a user-owned view of the authoritative story ledger;
 /// mechanics still advance only through <see cref="LifeModuleOriginDossierService"/>.
 /// </summary>
-public sealed class LifeModuleOriginDossierInteractionService
+public sealed partial class LifeModuleOriginDossierInteractionService
 {
     private readonly LifeModuleOriginDossierService _dossier;
     private readonly string? _workspaceOwnerId;

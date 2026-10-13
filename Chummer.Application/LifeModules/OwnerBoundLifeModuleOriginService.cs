@@ -12,6 +12,9 @@ public interface IOwnerBoundLifeModuleOriginService
     bool IsCurrent(OwnerContextStamp owner);
     LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> Start(OwnerContextStamp owner, string workspaceId);
     LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> Restore(OwnerContextStamp owner, LifeModuleOriginDossierDraftCheckpoint checkpoint);
+    LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> Reopen(
+        OwnerContextStamp owner, LifeModuleOriginDossierDraftCheckpoint checkpoint)
+        => Restore(owner, checkpoint);
     LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> AdoptLocalCheckpoint(
         OwnerContextStamp owner, LifeModuleOriginDossierDraftCheckpoint checkpoint)
         => new(LifeModuleOriginDossierOutcomes.Blocked, null, [LifeModuleOriginDossierBlockers.AuthorityInvalid]);
@@ -67,6 +70,12 @@ public sealed class OwnerBoundLifeModuleOriginService(
         OwnerContextStamp owner, LifeModuleOriginDossierDraftCheckpoint checkpoint)
         => MatchesOwner(owner, checkpoint)
             ? Invoke(owner, checkpoint.WorkspaceId, service => service.Restore(checkpoint))
+            : Denied<LifeModuleOriginDossierDraftCheckpoint>();
+
+    public LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> Reopen(
+        OwnerContextStamp owner, LifeModuleOriginDossierDraftCheckpoint checkpoint)
+        => MatchesOwner(owner, checkpoint)
+            ? Invoke(owner, checkpoint.WorkspaceId, service => service.Reopen(checkpoint))
             : Denied<LifeModuleOriginDossierDraftCheckpoint>();
 
     public LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> AdoptLocalCheckpoint(

@@ -57,6 +57,7 @@
     <Compile Include="CharacterFileServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="LifeModulesServiceTests.cs" />
+    <Compile Include="LifeModuleOriginDossierServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.*.cs" />
     <Compile Include="CharacterCreationTalentRestrictionAuthorityTests.cs" />
