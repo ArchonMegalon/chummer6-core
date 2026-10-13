@@ -12,7 +12,7 @@ namespace Chummer.Application.Characters;
 /// shapes accepted by the typed SR5 creation authorities. Unsupported source semantics fail
 /// closed; callers never synthesize a partial legacy instance from display-only catalog data.
 /// </summary>
-public static class CharacterCreationLegacySourceProjector
+public static partial class CharacterCreationLegacySourceProjector
 {
     private const string DefaultNotesColor = "#000000";
 

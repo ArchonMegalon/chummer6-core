@@ -46,6 +46,19 @@ public sealed record CharacterCareerQualitySettings(
     bool DontDoubleQualityPurchases,
     bool DontDoubleQualityRefunds);
 
+/// <summary>
+/// An exact enabled-profile quality source, not eligibility or effect authority.
+/// A runtime projector must still evaluate the complete source against the runner.
+/// </summary>
+public sealed record CharacterCareerQualitySource(
+    Guid SourceId,
+    string Name,
+    string SourceBook,
+    string RawSourceXml,
+    string SourceInputsDigest,
+    string ProfileInputsDigest,
+    string CustomDataInputsDigest);
+
 public sealed record CharacterCareerQualityDefinition(
     Guid SourceId,
     string Name,
