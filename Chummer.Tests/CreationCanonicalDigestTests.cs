@@ -653,6 +653,19 @@ public sealed class CreationCanonicalDigestTests
     }
 
     [TestMethod]
+    public void Auxiliary_metadata_defers_unrelated_sr6_decision_graph_until_a_value_is_read()
+    {
+        // Inspect the primary generated contract, not process-wide timing or
+        // test-order-dependent static initialization. SR6 decisions must be an
+        // opaque converter leaf here; their own contract is used on demand.
+        var property = typeof(WorkspaceDocumentAuxiliaryStateJsonConverter).GetProperty("TypeInfo",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var auxiliary = (System.Text.Json.Serialization.Metadata.JsonTypeInfo)property.GetValue(null)!;
+        var decision = auxiliary.Options.GetTypeInfo(typeof(Sr6CreationFoundationDecision));
+        Assert.AreEqual(System.Text.Json.Serialization.Metadata.JsonTypeInfoKind.None, decision.Kind);
+    }
+
+    [TestMethod]
     public void Auxiliary_generated_converter_preserves_default_wire_shape_and_fresh_reads()
     {
         var options = new JsonSerializerOptions();
