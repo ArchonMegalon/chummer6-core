@@ -1673,7 +1673,9 @@ public sealed partial class FileWorkspaceStore :
         // Career quality history also has a dedicated source-admitted writer.
         // Check before every lane-specific early return below.
         if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerQualityTransactions),
-                JsonSerializer.Serialize(replacementState.CharacterCareerQualityTransactions), StringComparison.Ordinal))
+                JsonSerializer.Serialize(replacementState.CharacterCareerQualityTransactions), StringComparison.Ordinal)
+            || !string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerQualityCorrections),
+                JsonSerializer.Serialize(replacementState.CharacterCareerQualityCorrections), StringComparison.Ordinal))
             return false;
 
         // Karma selections are admitted only by their typed transaction, with

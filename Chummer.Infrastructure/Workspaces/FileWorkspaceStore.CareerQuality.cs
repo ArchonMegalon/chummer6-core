@@ -72,6 +72,60 @@ public sealed partial class FileWorkspaceStore
                 Error: "quality_commit_not_observed") : recovered;
     }
 
+    public CharacterCareerQualityCorrectionResult CorrectCareerQuality(OwnerScope owner,
+        CharacterCareerQualityCorrectionPlan correction, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CharacterCareerQualityTransaction.IsValidOwner(owner)
+            || !CharacterCareerQualityTransaction.IsValidCorrection(correction) || owner.NormalizedValue != correction.OwnerId)
+            return new(CharacterCareerQualityCommitOutcome.Conflict, Error: "quality_correction_invalid");
+        var id = new CharacterWorkspaceId(correction.WorkspaceId);
+        string? path = TryGetPath(owner, id);
+        if (path is null) return new(CharacterCareerQualityCommitOutcome.Missing);
+        bool wrote = false;
+        try
+        {
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            var read = ReadWorkspaceUnderLease(owner, id, path, out var delegatedLedger);
+            if (!read.Success || read.Value is not { } saved) return QualityCorrectionReadFailure(read);
+            var prior = CharacterCareerQualityTransaction.LookupCorrection(owner, saved, correction);
+            if (prior.Outcome != CharacterCareerQualityCommitOutcome.NotFound) return prior;
+            // An exact inverse uses the retained local transaction, not new
+            // catalog defaults or a new acquisition/GM permission.
+            if (!CharacterCareerQualityTransaction.TryBuildCorrection(owner, saved, correction,
+                    CareerQualityRuntimeFingerprint, out var replacement, out _))
+                return new(CharacterCareerQualityCommitOutcome.Conflict, CurrentRevision: saved.ContentRevision,
+                    Error: "quality_correction_state_changed_or_unavailable");
+            if (!IsValidAuxiliaryState(id, correction.TargetWorkspaceRevision, replacement!.AuxiliaryState))
+                return new(CharacterCareerQualityCommitOutcome.Corrupt, Error: "quality_auxiliary_invalid");
+            var record = BuildPersistedRecord(replacement, correction.TargetWorkspaceRevision, correction.TargetSavedRevision,
+                saved.LocalHistory!, delegatedLedger, saved.DelegatedGmHistorySegmentStarts);
+            cancellationToken.ThrowIfCancellationRequested();
+            WriteRecordAtomically(path, record, WorkspaceWriteDisposition.ReplaceExisting,
+                beforeTargetReplace: cancellationToken.ThrowIfCancellationRequested);
+            wrote = true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or InvalidOperationException or OperationCanceledException)
+        {
+            // Reconcile with the same identity after an uncertain write.
+        }
+        var observed = GetCore(owner, id);
+        if (!observed.Success || observed.Value is not { } current) return QualityCorrectionReadFailure(observed);
+        var recovered = CharacterCareerQualityTransaction.LookupCorrection(owner, current, correction);
+        if (recovered.Outcome == CharacterCareerQualityCommitOutcome.Replayed && wrote)
+            return recovered with { Outcome = CharacterCareerQualityCommitOutcome.Applied };
+        return recovered.Outcome == CharacterCareerQualityCommitOutcome.NotFound
+            ? new(CharacterCareerQualityCommitOutcome.Unavailable, CurrentRevision: current.ContentRevision,
+                Error: "quality_correction_not_observed") : recovered;
+    }
+
+    private static CharacterCareerQualityCorrectionResult QualityCorrectionReadFailure(WorkspaceStoreReadResult read)
+    {
+        var failure = QualityReadFailure(read);
+        return new(failure.Outcome, Error: failure.Error);
+    }
+
     private static CharacterCareerQualityCommitResult QualityReadFailure(WorkspaceStoreReadResult read)
         => new(read.Outcome switch
         {

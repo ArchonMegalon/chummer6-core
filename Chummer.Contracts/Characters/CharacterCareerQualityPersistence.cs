@@ -30,3 +30,15 @@ public sealed record CharacterCareerQualityCommitResult(
     CharacterCareerQualityTransactionEntry? Entry = null,
     long? CurrentRevision = null,
     string? Error = null);
+
+public sealed record CharacterCareerQualityCorrectionEntry(
+    CharacterCareerQualityCorrectionPlan Correction,
+    string RestoredCharacterDigest,
+    string PreviousEntryDigest,
+    string EntryDigest);
+
+public sealed record CharacterCareerQualityCorrectionResult(
+    CharacterCareerQualityCommitOutcome Outcome,
+    CharacterCareerQualityCorrectionEntry? Entry = null,
+    long? CurrentRevision = null,
+    string? Error = null);

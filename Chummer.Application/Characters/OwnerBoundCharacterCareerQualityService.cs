@@ -51,6 +51,63 @@ public sealed class OwnerBoundCharacterCareerQualityService(IWorkspaceStore stor
         }
     }
 
+    public CharacterCareerQualityCorrectionResult Correct(OwnerContextStamp expectedOwner,
+        CharacterCareerQualityCorrectionPlan correction, CancellationToken cancellationToken = default)
+    {
+        if (!CharacterCareerQualityTransaction.IsValidCorrection(correction)
+            || !CharacterCareerQualityTransaction.IsValidOwner(expectedOwner.Owner)
+            || correction.OwnerId != expectedOwner.Owner.NormalizedValue
+            || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return new(CharacterCareerQualityCommitOutcome.Conflict, Error: "quality_owner_admission_rejected");
+        using (lease)
+        {
+            var prior = LookupCorrectionAdmitted(expectedOwner, correction);
+            if (prior.Outcome != CharacterCareerQualityCommitOutcome.NotFound) return prior;
+            if (store is not ICharacterCareerQualityAtomicCommitCapability atomic)
+                return new(CharacterCareerQualityCommitOutcome.Unavailable, Error: "quality_atomic_correction_unavailable");
+            try
+            {
+                var result = atomic.CorrectCareerQuality(expectedOwner.Owner, correction, cancellationToken);
+                var readback = LookupCorrectionAdmitted(expectedOwner, correction);
+                if (readback.Outcome == CharacterCareerQualityCommitOutcome.Replayed)
+                    return readback with { Outcome = result.Outcome == CharacterCareerQualityCommitOutcome.Applied
+                        && JsonSerializer.Serialize(result.Entry) == JsonSerializer.Serialize(readback.Entry)
+                        ? CharacterCareerQualityCommitOutcome.Applied : CharacterCareerQualityCommitOutcome.Replayed };
+                if (readback.Outcome != CharacterCareerQualityCommitOutcome.NotFound) return readback;
+                return result.Outcome is CharacterCareerQualityCommitOutcome.Applied or CharacterCareerQualityCommitOutcome.Replayed
+                    ? new(CharacterCareerQualityCommitOutcome.Unavailable, Error: "quality_correction_not_observed")
+                    : result with { Entry = null, CurrentRevision = readback.CurrentRevision };
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                or InvalidOperationException or OperationCanceledException)
+            {
+                var readback = LookupCorrectionAdmitted(expectedOwner, correction);
+                return readback.Outcome == CharacterCareerQualityCommitOutcome.NotFound
+                    ? new(CharacterCareerQualityCommitOutcome.Unavailable, Error: "quality_correction_result_unknown") : readback;
+            }
+        }
+    }
+
+    private CharacterCareerQualityCorrectionResult LookupCorrectionAdmitted(OwnerContextStamp owner,
+        CharacterCareerQualityCorrectionPlan correction)
+    {
+        var id = new CharacterWorkspaceId(correction.WorkspaceId);
+        try
+        {
+            var read = owner.Owner.IsLocalSingleUser ? store.Get(id) : store.Get(owner.Owner, id);
+            if (!read.Success || read.Value is not { } saved)
+                return new(read.Outcome switch
+                {
+                    WorkspaceOperationOutcome.Missing => CharacterCareerQualityCommitOutcome.Missing,
+                    WorkspaceOperationOutcome.Corrupt => CharacterCareerQualityCommitOutcome.Corrupt,
+                    _ => CharacterCareerQualityCommitOutcome.Unavailable
+                }, Error: "quality_workspace_unavailable");
+            return CharacterCareerQualityTransaction.LookupCorrection(owner.Owner, saved, correction);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        { return new(CharacterCareerQualityCommitOutcome.Unavailable, Error: "quality_workspace_unavailable"); }
+    }
+
     private CharacterCareerQualityCommitResult LookupAdmitted(OwnerContextStamp owner, CharacterCareerQualityPlan plan)
     {
         var id = new CharacterWorkspaceId(plan.WorkspaceId);

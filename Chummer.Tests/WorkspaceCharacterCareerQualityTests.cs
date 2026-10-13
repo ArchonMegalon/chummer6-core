@@ -216,6 +216,7 @@ public sealed class WorkspaceCharacterCareerQualityTests
         using var f = new Fixture();
         Assert.IsNull(f.Saved().Document.AuxiliaryState.CharacterCareerQualityTransactions);
         Assert.DoesNotContain(JsonSerializer.Serialize(f.Saved().Document.AuxiliaryState), "CharacterCareerQualityTransactions");
+        Assert.DoesNotContain(JsonSerializer.Serialize(f.Saved().Document.AuxiliaryState), "CharacterCareerQualityCorrections");
     }
 
     [TestMethod]
@@ -324,6 +325,317 @@ public sealed class WorkspaceCharacterCareerQualityTests
         Assert.AreEqual(corrupted, File.ReadAllText(path));
     }
 
+    [TestMethod]
+    [DataRow(false, CharacterCareerQualityOperation.AcquireLevel)]
+    [DataRow(true, CharacterCareerQualityOperation.AcquireLevel)]
+    [DataRow(false, CharacterCareerQualityOperation.RemoveLevel)]
+    [DataRow(true, CharacterCareerQualityOperation.RemoveLevel)]
+    [DataRow(false, CharacterCareerQualityOperation.RemoveAllLevels)]
+    [DataRow(true, CharacterCareerQualityOperation.RemoveAllLevels)]
+    public void Correction_restores_exact_saved_nodes_notes_and_first_level_ownership_and_cold_replays_once(
+        bool negative, CharacterCareerQualityOperation operation)
+    {
+        using var f = new Fixture(negative: negative, firstLevel: true);
+        var first = f.Plan(instance: Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+        if (operation != CharacterCareerQualityOperation.AcquireLevel)
+        {
+            Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Commit(first).Outcome);
+            Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Commit(f.Plan()).Outcome);
+            var saved = f.Saved();
+            var xml = XElement.Parse(saved.Document.Content);
+            xml.Element("qualities")!.Elements().First().SetElementValue("notes", "  preserved personal note é😀  ");
+            var annotated = saved.Document with { State = saved.Document.State with { Payload = xml.ToString() } };
+            Assert.IsTrue(f.Store.ReplaceWorkspaceDocument(f.Id, saved.ContentRevision, annotated).Success);
+            Assert.IsTrue(f.Store.SaveCheckpoint(f.Id, saved.ContentRevision + 1).Success);
+        }
+        var before = f.Saved();
+        var plan = operation == CharacterCareerQualityOperation.AcquireLevel ? first : f.Plan(operation, first.Identity.InternalId);
+        var result = f.Commit(plan);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, result.Outcome, result.Error);
+        var post = f.Saved();
+        var correction = Correction(post, result.Entry!);
+        Assert.IsTrue(CharacterCareerQualityGraph.TryApplyCorrection(post.Document.Content, result.Entry!, correction,
+            out var payload, out var restored, out var expense));
+        Assert.IsTrue(XNode.DeepEquals(XElement.Parse(before.Document.Content), XElement.Parse(payload!)));
+        Assert.AreEqual(result.Entry!.Receipt.CharacterKarmaBefore, restored!.AvailableKarma);
+        Assert.AreEqual(0, expense!.MatchingEntryCount);
+        Assert.AreEqual(correction.TargetWorkspaceRevision, restored.Binding.WorkspaceRevision);
+        Assert.AreEqual(JsonSerializer.Serialize(post), JsonSerializer.Serialize(f.Saved()), "Pure inverse must not claim persistence.");
+        int admissions = f.Authority.OpenCount;
+        f.Authority.Current = false;
+        var applied = f.Service.Correct(f.Owners.Capture(), correction);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, applied.Outcome, applied.Error);
+        var durable = f.Saved();
+        Assert.AreEqual(correction.TargetWorkspaceRevision, durable.ContentRevision);
+        Assert.AreEqual(durable.ContentRevision, durable.SavedRevision);
+        Assert.IsTrue(XNode.DeepEquals(XElement.Parse(before.Document.Content), XElement.Parse(durable.Document.Content)));
+        Assert.AreEqual(JsonSerializer.Serialize(post.Document.AuxiliaryState.CharacterCareerQualityTransactions),
+            JsonSerializer.Serialize(durable.Document.AuxiliaryState.CharacterCareerQualityTransactions));
+        Assert.HasCount(1, durable.Document.AuxiliaryState.CharacterCareerQualityCorrections!);
+        var cold = new OwnerBoundCharacterCareerQualityService(new FileWorkspaceStore(f.Path), f.Owners, f.Authority);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Replayed, cold.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Replayed, cold.Commit(f.Owners.Capture(), plan).Outcome);
+        Assert.AreEqual(JsonSerializer.Serialize(durable), JsonSerializer.Serialize(f.Saved()));
+        Assert.AreEqual(admissions, f.Authority.OpenCount, "Undo must use the retained transaction, not catalog defaults.");
+        Assert.AreEqual(0, f.Owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Correction_cancellation_reconciles_actual_replace_outcome(bool afterReplace)
+    {
+        var fault = new Fault();
+        using var f = new Fixture(fault);
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        using var cancellation = new CancellationTokenSource();
+        fault.Action = stage =>
+        {
+            if (stage == (afterReplace ? FileWorkspaceStoreFaultStage.AfterTargetReplaced : FileWorkspaceStoreFaultStage.AfterTempFileFlushed))
+                cancellation.Cancel();
+        };
+        var observed = f.Service.Correct(f.Owners.Capture(), correction, cancellation.Token);
+        Assert.AreEqual(afterReplace ? CharacterCareerQualityCommitOutcome.Applied : CharacterCareerQualityCommitOutcome.Unavailable,
+            observed.Outcome, observed.Error);
+        Assert.AreEqual(afterReplace ? 3L : 2L, f.Saved().ContentRevision);
+        fault.Action = null;
+        Assert.AreEqual(afterReplace ? CharacterCareerQualityCommitOutcome.Replayed : CharacterCareerQualityCommitOutcome.Applied,
+            f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(3L, f.Saved().ContentRevision);
+        Assert.HasCount(1, f.Saved().Document.AuxiliaryState.CharacterCareerQualityCorrections!);
+        Assert.HasCount(0, Directory.GetFiles(f.Path, "*.tmp.*", SearchOption.AllDirectories));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Correction_readback_rejects_simulated_success_and_recovers_a_lost_adapter_response(bool actuallyWritten)
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        var adapter = new ObservingStore(f.Store) { SimulateUnwrittenSuccess = !actuallyWritten, LoseResponse = actuallyWritten };
+        var service = new OwnerBoundCharacterCareerQualityService(adapter, f.Owners, f.Authority);
+        var observed = service.Correct(f.Owners.Capture(), correction);
+        Assert.AreEqual(actuallyWritten ? CharacterCareerQualityCommitOutcome.Replayed : CharacterCareerQualityCommitOutcome.Unavailable,
+            observed.Outcome, observed.Error);
+        Assert.AreEqual(actuallyWritten ? 3L : 2L, f.Saved().ContentRevision);
+        if (!actuallyWritten) Assert.IsNull(observed.Entry);
+        adapter.SimulateUnwrittenSuccess = adapter.LoseResponse = false;
+        Assert.AreEqual(actuallyWritten ? CharacterCareerQualityCommitOutcome.Replayed : CharacterCareerQualityCommitOutcome.Applied,
+            service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.HasCount(1, f.Saved().Document.AuxiliaryState.CharacterCareerQualityCorrections!);
+    }
+
+    [TestMethod]
+    public void Correction_owner_transition_and_identical_foreign_workspace_cannot_cross_partitions()
+    {
+        using var f = new Fixture(linked: true);
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        var other = new OwnerScope("other-synthetic-owner");
+        Assert.IsTrue(f.Store.CreateWorkspaceDocument(other, f.Id, new WorkspaceDocument(
+            "<character><notes>untouched other account</notes></character>", "sr5")).Success);
+        Assert.IsTrue(f.Store.SaveCheckpoint(other, f.Id, 1).Success);
+        string foreign = JsonSerializer.Serialize(f.Store.Get(other, f.Id).Value);
+        var stamp = f.Owners.Capture();
+        f.Owners.Set(other);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Conflict, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        f.Owners.Set(f.Owner);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Conflict, f.Service.Correct(stamp, correction).Outcome);
+        Assert.AreEqual(2L, f.Saved().ContentRevision);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(foreign, JsonSerializer.Serialize(f.Store.Get(other, f.Id).Value));
+        Assert.IsFalse(f.Store.Get(f.Id).Success);
+        Assert.AreEqual(0, f.Owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    public void Generic_writer_cannot_forge_or_drop_a_correction_and_old_correction_cannot_change_newer_state()
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var before = f.Saved();
+        var correction = Correction(before, result.Entry!);
+        var competing = Correction(before, result.Entry!);
+        Assert.IsTrue(CharacterCareerQualityTransaction.TryBuildCorrection(f.Owner, before, correction,
+            f.Store.CareerQualityRuntimeFingerprint, out var replacement, out _));
+        Assert.IsFalse(f.Store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(f.Id, before.ContentRevision,
+            before.Document.AuxiliaryStateDigest, replacement!).Success);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.IdempotencyConflict, f.Service.Correct(f.Owners.Capture(), competing).Outcome);
+        var corrected = f.Saved();
+        var stripped = corrected.Document with { State = corrected.Document.State with
+        { AuxiliaryState = corrected.Document.AuxiliaryState with { CharacterCareerQualityCorrections = null } } };
+        Assert.IsFalse(f.Store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(f.Id, corrected.ContentRevision,
+            corrected.Document.AuxiliaryStateDigest, stripped).Success);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Commit(f.Plan()).Outcome);
+        var newer = f.Saved();
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Replayed, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(JsonSerializer.Serialize(newer), JsonSerializer.Serialize(f.Saved()));
+        var second = Correction(newer, newer.Document.AuxiliaryState.CharacterCareerQualityTransactions![^1]);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Service.Correct(f.Owners.Capture(), second).Outcome);
+        Assert.HasCount(2, f.Saved().Document.AuxiliaryState.CharacterCareerQualityCorrections!);
+        Assert.AreEqual(5L, f.Saved().ContentRevision);
+        Assert.AreEqual("100", XElement.Parse(f.Saved().Document.Content).Element("karma")!.Value);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Imported_history_cannot_admit_or_replay_a_local_correction(bool alreadyCorrected)
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        if (alreadyCorrected)
+            Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        WorkspaceImportedHistoryTestFixture.MarkImported(f.Path, f.Id);
+        string before = JsonSerializer.Serialize(f.Saved());
+        Assert.AreEqual(alreadyCorrected ? CharacterCareerQualityCommitOutcome.IdempotencyConflict : CharacterCareerQualityCommitOutcome.Conflict,
+            f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(before, JsonSerializer.Serialize(f.Saved()));
+    }
+
+    [TestMethod]
+    public void Correction_cannot_rewind_a_later_character_edit()
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var saved = f.Saved();
+        var correction = Correction(saved, result.Entry!);
+        var edit = saved.Document with { State = saved.Document.State with
+        { Payload = saved.Document.Content.Replace("keep me", "keep later change", StringComparison.Ordinal) } };
+        Assert.IsTrue(f.Store.ReplaceWorkspaceDocument(f.Id, saved.ContentRevision, edit).Success);
+        Assert.IsTrue(f.Store.SaveCheckpoint(f.Id, saved.ContentRevision + 1).Success);
+        string before = JsonSerializer.Serialize(f.Saved());
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Conflict, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(before, JsonSerializer.Serialize(f.Saved()));
+    }
+
+    [TestMethod]
+    public void Concurrent_corrections_claim_one_identity_and_cannot_repeat_the_refund()
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        var competing = Correction(f.Saved(), result.Entry!);
+        var cold = new FileWorkspaceStore(f.Path);
+        var results = Task.WhenAll(Task.Run(() => f.Store.CorrectCareerQuality(f.Owner, correction)),
+            Task.Run(() => cold.CorrectCareerQuality(f.Owner, correction))).GetAwaiter().GetResult();
+        Assert.AreEqual(1, results.Count(row => row.Outcome == CharacterCareerQualityCommitOutcome.Applied));
+        Assert.AreEqual(1, results.Count(row => row.Outcome == CharacterCareerQualityCommitOutcome.Replayed));
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.IdempotencyConflict, f.Service.Correct(f.Owners.Capture(), competing).Outcome);
+        Assert.AreEqual(3L, f.Saved().ContentRevision);
+        Assert.AreEqual("100", XElement.Parse(f.Saved().Document.Content).Element("karma")!.Value);
+    }
+
+    [TestMethod]
+    [DataRow("null")]
+    [DataRow("identity")]
+    [DataRow("karma")]
+    [DataRow("runtime")]
+    public void Invalid_correction_never_reaches_the_atomic_writer(string damage)
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        correction = damage switch
+        {
+            "null" => null!,
+            "identity" => correction with { Identity = null! },
+            "karma" => correction with { SavedCharacterKarma = 101 },
+            "runtime" => correction with { ExpectedRuntimeFingerprint = "not-a-digest" },
+            _ => throw new InvalidOperationException()
+        };
+        var adapter = new ObservingStore(f.Store);
+        var service = new OwnerBoundCharacterCareerQualityService(adapter, f.Owners, f.Authority);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Conflict, service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(0, adapter.Commits);
+        Assert.AreEqual(0, adapter.Reads);
+    }
+
+    [TestMethod]
+    [DataRow("payload")]
+    [DataRow("chain")]
+    [DataRow("missing-original")]
+    public void Corrupt_correction_cold_state_fails_closed_without_replay(string damage)
+    {
+        using var f = new Fixture();
+        var result = f.Commit(f.Plan());
+        var correction = Correction(f.Saved(), result.Entry!);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        var document = f.Saved().Document;
+        if (damage == "payload") document = document with { State = document.State with
+        { Payload = document.Content.Replace("<karma>100</karma>", "<karma>101</karma>", StringComparison.Ordinal) } };
+        else if (damage == "missing-original") document = document with { State = document.State with
+        { AuxiliaryState = document.AuxiliaryState with { CharacterCareerQualityTransactions = null } } };
+        else
+        {
+            var entry = document.AuxiliaryState.CharacterCareerQualityCorrections!.Single() with { PreviousEntryDigest = new('a', 64) };
+            entry = entry with { EntryDigest = CharacterCareerQualityTransaction.CorrectionEntryDigest(entry) };
+            document = document with { State = document.State with
+            { AuxiliaryState = document.AuxiliaryState with { CharacterCareerQualityCorrections = [entry] } } };
+        }
+        string path = Directory.GetFiles(f.Path, f.Id.Value + ".json", SearchOption.AllDirectories).Single();
+        var record = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        record["Envelope"] = JsonSerializer.SerializeToNode(document.PayloadEnvelope);
+        record["AuxiliaryState"] = JsonSerializer.SerializeToNode(document.AuxiliaryState);
+        File.WriteAllText(path, record.ToJsonString());
+        string corrupted = File.ReadAllText(path);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Corrupt, f.Service.Correct(f.Owners.Capture(), correction).Outcome);
+        Assert.AreEqual(corrupted, File.ReadAllText(path));
+    }
+
+    [TestMethod]
+    [DataRow("state")]
+    [DataRow("wrong-id")]
+    [DataRow("malformed-fragment")]
+    [DataRow("wrong-container")]
+    [DataRow("wrong-position")]
+    [DataRow("missing-fragment")]
+    public void Correction_graph_rejects_changed_state_or_invalid_retained_fragments(string damage)
+    {
+        using var f = new Fixture();
+        var first = f.Plan();
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, f.Commit(first).Outcome);
+        var removal = f.Plan(CharacterCareerQualityOperation.RemoveLevel, first.Identity.InternalId);
+        var result = f.Commit(removal);
+        Assert.AreEqual(CharacterCareerQualityCommitOutcome.Applied, result.Outcome);
+        var post = f.Saved();
+        var entry = result.Entry!;
+        var correction = Correction(post, entry);
+        string xml = post.Document.Content;
+        if (damage == "state") xml = xml.Replace("keep me", "changed", StringComparison.Ordinal);
+        else
+        {
+            var fragments = entry.RemovedNodes.ToArray();
+            fragments[0] = damage switch
+            {
+                "wrong-id" => fragments[0] with { Xml = fragments[0].Xml.Replace(first.Identity.InternalId.ToString("D"), Guid.NewGuid().ToString("D")) },
+                "malformed-fragment" => fragments[0] with { Xml = "<!DOCTYPE quality [<!ENTITY x SYSTEM 'file:///unavailable'>]><quality>&x;</quality>" },
+                "wrong-container" => fragments[0] with { Container = "expenses" },
+                "wrong-position" => fragments[0] with { Index = 999 },
+                "missing-fragment" => fragments[0],
+                _ => throw new InvalidOperationException()
+            };
+            entry = entry with { RemovedNodes = damage == "missing-fragment" ? [] : fragments };
+            entry = entry with { EntryDigest = CharacterCareerQualityTransaction.EntryDigest(entry) };
+        }
+        Assert.IsFalse(CharacterCareerQualityGraph.TryApplyCorrection(xml, entry, correction, out _, out _, out _));
+    }
+
+    private static CharacterCareerQualityCorrectionPlan Correction(WorkspaceStoredDocument saved, CharacterCareerQualityTransactionEntry entry)
+    {
+        Assert.IsTrue(CharacterCareerQualityGraph.TryObserve(saved.Document.Content, entry.Source, entry.Plan.Identity,
+            entry.ResolvedArmCount, entry.Quote.Binding with { WorkspaceRevision = saved.ContentRevision,
+                SavedRevision = saved.SavedRevision }, entry.Quote.RuleDigest, entry.Plan.TransactionId, out var state, out var expense));
+        Assert.IsTrue(CharacterCareerQualityRules.TryPlanCorrection(entry.Receipt, state, expense,
+            Guid.NewGuid(), "Correct the last selection", false, false, entry.Receipt.ReceiptDigest, out var correction));
+        return correction;
+    }
+
     private sealed class ObservingStore(FileWorkspaceStore inner) : IWorkspaceStore, ICharacterCareerQualityAtomicCommitCapability
     {
         public bool SimulateUnwrittenSuccess, LoseResponse;
@@ -343,6 +655,21 @@ public sealed class WorkspaceCharacterCareerQualityTests
             }
             var result = inner.CommitCareerQuality(owner, plan, authority, token);
             if (LoseResponse) throw new IOException("synthetic lost adapter response");
+            return result;
+        }
+        public CharacterCareerQualityCorrectionResult CorrectCareerQuality(OwnerScope owner,
+            CharacterCareerQualityCorrectionPlan correction, CancellationToken token = default)
+        {
+            Commits++;
+            if (SimulateUnwrittenSuccess)
+            {
+                var saved = (owner.IsLocalSingleUser ? inner.Get(new(correction.WorkspaceId)) : inner.Get(owner, new(correction.WorkspaceId))).Value!;
+                Assert.IsTrue(CharacterCareerQualityTransaction.TryBuildCorrection(owner, saved, correction,
+                    CareerQualityRuntimeFingerprint, out _, out var entry));
+                return new(CharacterCareerQualityCommitOutcome.Applied, entry, correction.TargetWorkspaceRevision);
+            }
+            var result = inner.CorrectCareerQuality(owner, correction, token);
+            if (LoseResponse) throw new IOException("synthetic lost correction response");
             return result;
         }
         public WorkspaceStoreReadResult Get(CharacterWorkspaceId id) { Reads++; return inner.Get(id); }
@@ -374,12 +701,12 @@ public sealed class WorkspaceCharacterCareerQualityTests
         public CharacterCreationAttributesServiceTests.AllocationOwners Owners { get; } = new();
         public TestAuthority Authority { get; }
         public OwnerBoundCharacterCareerQualityService Service { get; }
-        public Fixture(IFileWorkspaceStoreFaultInjector? fault = null, bool linked = false, bool negative = false)
+        public Fixture(IFileWorkspaceStoreFaultInjector? fault = null, bool linked = false, bool negative = false, bool firstLevel = false)
         {
             Owner = linked ? new("synthetic-linked-owner") : OwnerScope.LocalSingleUser;
             Owners.Set(Owner);
             Store = fault is null ? new(Path) : new(Path, fault);
-            Authority = new(negative);
+            Authority = new(negative, firstLevel);
             Service = new(Store, Owners, Authority);
             var document = new WorkspaceDocument("<character><created>True</created><karma>100</karma><qualities/><improvements/><expenses/><notes>keep me</notes></character>", "sr5");
             Assert.IsTrue((linked ? Store.CreateWorkspaceDocument(Owner, Id, document) : Store.CreateWorkspaceDocument(Id, document)).Success);
@@ -416,12 +743,14 @@ public sealed class WorkspaceCharacterCareerQualityTests
         public CharacterCareerQualitySource Source { get; }
         public bool Current = true;
         public int OpenCount, DisposeCount;
-        public TestAuthority(bool negative)
+        public TestAuthority(bool negative, bool firstLevel)
         {
             var id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
             Source = new(id, "Synthetic quality", "SR5", $"<quality><id>{id:D}</id><name>Synthetic quality</name>"
                 + $"<category>{(negative ? "Negative" : "Positive")}</category><karma>{(negative ? -4 : 4)}</karma>"
-                + "<limit>5</limit><bonus><ambidextrous/></bonus><source>SR5</source><page>1</page></quality>",
+                + "<limit>5</limit><bonus><ambidextrous/></bonus>"
+                + (firstLevel ? "<firstlevelbonus><erased/></firstlevelbonus>" : "")
+                + "<source>SR5</source><page>1</page></quality>",
                 "sha256:" + Digest, "sha256:" + Digest, "sha256:" + Digest);
         }
         public ICharacterCareerQualityAdmission? Open(OwnerScope owner, WorkspaceStoredDocument saved,

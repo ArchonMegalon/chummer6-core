@@ -9,7 +9,7 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 /// <summary>Pure preparation and history validation; never a generic-write authorization.</summary>
-public static class CharacterCareerQualityTransaction
+public static partial class CharacterCareerQualityTransaction
 {
     public const int MaximumEntries = 1024;
     public const int MaximumLedgerBytes = 8 * 1024 * 1024;
@@ -107,10 +107,17 @@ public static class CharacterCareerQualityTransaction
     public static bool IsValidHistory(WorkspaceStoredDocument saved)
     {
         var entries = saved.Document.AuxiliaryState.CharacterCareerQualityTransactions;
-        return IsValidLedger(saved.Id, saved.ContentRevision, entries)
-            && (entries is not { Count: > 0 } || saved.SavedRevision >= entries[^1].Plan.TargetWorkspaceRevision
-                && (saved.ContentRevision != entries[^1].Plan.TargetWorkspaceRevision
-                    || Hash(saved.Document.Content) == entries[^1].CharacterDigestAfter));
+        var corrections = saved.Document.AuxiliaryState.CharacterCareerQualityCorrections;
+        if (!IsValidLedgers(saved.Id, saved.ContentRevision, entries, corrections)) return false;
+        long lastRevision = entries is { Count: > 0 } ? entries[^1].Plan.TargetWorkspaceRevision : 0;
+        string? lastDigest = entries is { Count: > 0 } ? entries[^1].CharacterDigestAfter : null;
+        if (corrections is { Count: > 0 } && corrections[^1].Correction.TargetWorkspaceRevision > lastRevision)
+        {
+            lastRevision = corrections[^1].Correction.TargetWorkspaceRevision;
+            lastDigest = corrections[^1].RestoredCharacterDigest;
+        }
+        return saved.SavedRevision >= lastRevision
+            && (lastRevision == 0 || saved.ContentRevision != lastRevision || Hash(saved.Document.Content) == lastDigest);
     }
 
     public static CharacterCareerQualityCommitResult Lookup(OwnerScope owner, WorkspaceStoredDocument saved,
@@ -154,7 +161,8 @@ public static class CharacterCareerQualityTransaction
             || plan.ExpectedSavedRevision != saved.SavedRevision || plan.ExpectedRuntimeFingerprint != runtimeFingerprint)
             return false;
         var history = saved.Document.AuxiliaryState.CharacterCareerQualityTransactions;
-        if (history is { Count: >= MaximumEntries } || history?.Any(row => row.Plan.TransactionId == plan.TransactionId) == true)
+        if (history is { Count: >= MaximumEntries } || history?.Any(row => row.Plan.TransactionId == plan.TransactionId) == true
+            || saved.Document.AuxiliaryState.CharacterCareerQualityCorrections?.Any(row => row.Correction.CorrectionId == plan.TransactionId) == true)
             return false;
         var input = admission.Input;
         var source = admission.Source;
@@ -176,7 +184,8 @@ public static class CharacterCareerQualityTransaction
             history is { Count: > 0 } ? history[^1].EntryDigest : LedgerRoot, "");
         candidate = candidate with { EntryDigest = EntryDigest(candidate) };
         var appended = (history ?? []).Append(candidate).ToArray();
-        if (!IsValidLedger(saved.Id, plan.TargetWorkspaceRevision, appended)) return false;
+        if (!IsValidLedgers(saved.Id, plan.TargetWorkspaceRevision, appended,
+                saved.Document.AuxiliaryState.CharacterCareerQualityCorrections)) return false;
         replacement = saved.Document with { State = saved.Document.State with { Payload = payload!,
             AuxiliaryState = saved.Document.AuxiliaryState with { CharacterCareerQualityTransactions = Array.AsReadOnly(appended) } } };
         entry = candidate;

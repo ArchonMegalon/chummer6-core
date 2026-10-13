@@ -14,7 +14,7 @@ namespace Chummer.Application.Characters;
 /// performed; the executor must re-resolve sources and commit the complete
 /// document, expense and receipt through one owner-bound revision CAS.
 /// </summary>
-internal static class CharacterCareerQualityGraph
+internal static partial class CharacterCareerQualityGraph
 {
     internal sealed record Projection(
         CharacterCareerQualityDefinition Definition,

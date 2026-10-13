@@ -36,4 +36,8 @@ public interface ICharacterCareerQualityAtomicCommitCapability
     CharacterCareerQualityCommitResult CommitCareerQuality(OwnerScope owner,
         CharacterCareerQualityPlan plan, ICharacterCareerQualityAuthorityResolver authority,
         CancellationToken cancellationToken = default);
+
+    CharacterCareerQualityCorrectionResult CorrectCareerQuality(OwnerScope owner,
+        CharacterCareerQualityCorrectionPlan correction, CancellationToken cancellationToken = default)
+        => new(CharacterCareerQualityCommitOutcome.Unavailable);
 }

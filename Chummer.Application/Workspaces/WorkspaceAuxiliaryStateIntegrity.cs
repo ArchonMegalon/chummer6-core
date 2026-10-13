@@ -287,8 +287,9 @@ public static class WorkspaceAuxiliaryStateIntegrity
                && afterRunRewardReceiptsValid
                && CharacterCareerReputationTransaction.IsValidLedger(
                    workspaceId, currentContentRevision, state.CharacterCareerReputationReceipts)
-               && CharacterCareerQualityTransaction.IsValidLedger(
-                   workspaceId, currentContentRevision, state.CharacterCareerQualityTransactions)
+               && CharacterCareerQualityTransaction.IsValidLedgers(
+                   workspaceId, currentContentRevision, state.CharacterCareerQualityTransactions,
+                   state.CharacterCareerQualityCorrections)
                && bootstrapValid
                && lifeModuleAcceptancesValid
                && finalizationReceiptsValid;
