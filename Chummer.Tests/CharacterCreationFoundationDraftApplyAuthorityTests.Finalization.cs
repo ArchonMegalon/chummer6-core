@@ -20,6 +20,30 @@ namespace Chummer.Tests;
 public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
 {
     [TestMethod]
+    [DataRow("mundane")]
+    [DataRow(MagicianTalentId)]
+    public void Life_module_full_finalization_preview_reuses_generated_wire_contract(string talentId)
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            var f = LifeCharacterProjectionFixture(directory, talentId);
+            var preview = f.Preview with { PreviewDigest = string.Empty };
+            using var captured = WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureFinalizationPreview(preview);
+            Assert.AreEqual(JsonSerializer.Serialize(preview), captured.RootElement.GetRawText());
+            // JsonElement follows the unchanged generic serializer/canonical
+            // path, independently of the exact-DTO generated snapshot dispatch.
+            using var legacy = JsonSerializer.SerializeToDocument(preview);
+            Assert.AreEqual(f.Preview.PreviewDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(legacy.RootElement));
+            Assert.AreEqual(f.Preview.PreviewDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(preview));
+            CollectionAssert.AreEqual(f.Before, File.ReadAllBytes(WorkspacePath(directory, f.Request.Binding.WorkspaceId)));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [TestMethod]
     public void Life_module_finalization_service_is_registered_in_headless_runtime()
     {
         var services = new ServiceCollection();

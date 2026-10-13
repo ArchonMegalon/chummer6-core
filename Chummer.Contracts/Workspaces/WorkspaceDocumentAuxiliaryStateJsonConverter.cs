@@ -23,6 +23,16 @@ public sealed partial class WorkspaceDocumentAuxiliaryStateJsonConverter
 
     internal static JsonTypeInfo<WorkspaceDocumentAuxiliaryState> TypeInfo => AuxiliaryTypeInfo.Value;
 
+    /// <summary>
+    /// Capture a fresh finalization preview with the default workspace wire
+    /// contract. The caller owns the returned document. Reuse only generated
+    /// metadata, never a mutable preview or a previously computed digest.
+    /// </summary>
+    public static JsonDocument CaptureFinalizationPreview(CharacterCreationFoundationFinalizationPreview? value) =>
+        JsonSerializer.SerializeToDocument(value,
+            (JsonTypeInfo<CharacterCreationFoundationFinalizationPreview?>)TypeInfo.Options.GetTypeInfo(
+                typeof(CharacterCreationFoundationFinalizationPreview)));
+
     public override WorkspaceDocumentAuxiliaryState? Read(
         ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
         JsonSerializer.Deserialize(ref reader, TypeInfo);

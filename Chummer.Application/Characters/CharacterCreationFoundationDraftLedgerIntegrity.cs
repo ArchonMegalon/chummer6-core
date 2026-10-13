@@ -200,7 +200,15 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
 
     internal static string ComputeCanonicalSha256<T>(T value)
     {
-        using JsonDocument document = JsonSerializer.SerializeToDocument(value);
+        // Finalized Life Modules runners retain the full reviewed catalog graph.
+        // Ordinary workspace reads already configure its generated contract;
+        // rebuilding the same metadata through reflection here adds cold-start
+        // cost. Restrict this to the exact sealed DTO, preserving all generic
+        // serializers/custom converters and the existing canonical hash below.
+        using JsonDocument document = typeof(T) == typeof(CharacterCreationFoundationFinalizationPreview)
+            ? WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureFinalizationPreview(
+                (CharacterCreationFoundationFinalizationPreview?)(object?)value)
+            : JsonSerializer.SerializeToDocument(value);
         return ComputeElementSha256(document.RootElement, canonical: true);
     }
 
