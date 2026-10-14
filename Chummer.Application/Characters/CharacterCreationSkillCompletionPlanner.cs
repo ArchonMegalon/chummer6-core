@@ -14,6 +14,38 @@ public static class CharacterCreationSkillCompletionPlanner
     public const int MaximumTargets = 128;
 
     public static CharacterCreationFoundationResult<CharacterCreationSkillCompletionPlan> Plan(
+        CharacterCreationSkillsCompletionInputs inputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CharacterCreationSkillCompletionRequest request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        ArgumentNullException.ThrowIfNull(attributeAllocations);
+        ArgumentNullException.ThrowIfNull(request);
+        ct.ThrowIfCancellationRequested();
+        if (!IsValidRequest(request))
+            return Reject(CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationSkillCompletionBlockers.RequestInvalid);
+
+        request = request with { PermittedTargetOrder = request.PermittedTargetOrder.ToArray() };
+        attributeAllocations = attributeAllocations.ToArray();
+        inputs = JsonSerializer.Deserialize<CharacterCreationSkillsCompletionInputs>(
+            JsonSerializer.SerializeToUtf8Bytes(inputs))!;
+        if (request.Binding != inputs.Binding
+            || inputs.Attributes is null
+            || !CharacterCreationSkillsDigest.EqualsFixedTime(request.AttributesSnapshotDigest, inputs.Attributes.SnapshotDigest)
+            || !CharacterCreationSkillsDigest.EqualsFixedTime(request.SkillsSnapshotDigest, inputs.SnapshotDigest))
+            return Reject(CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationSkillCompletionBlockers.SnapshotConflict);
+
+        var prepared = CharacterCreationSkillsService.PrepareCompletionPreview(inputs, attributeAllocations, ct);
+        if (prepared.Value is not { } session)
+            return new(prepared.Outcome, null, prepared.Blockers);
+        return PlanPrepared(inputs.Authority, inputs.PrerequisiteDraft.BuildMethod, session,
+            inputs.Allocations, inputs.GroupAllocations, attributeAllocations, request, ct);
+    }
+
+    public static CharacterCreationFoundationResult<CharacterCreationSkillCompletionPlan> Plan(
         CharacterCreationAttributesState attributesState,
         CharacterCreationSkillsState skillsState,
         IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
@@ -25,11 +57,7 @@ public static class CharacterCreationSkillCompletionPlanner
         ArgumentNullException.ThrowIfNull(attributeAllocations);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        if (request.Binding is null || request.PermittedTargetOrder is null
-            || request.PermittedTargetOrder.Count > MaximumTargets
-            || request.PermittedTargetOrder.Any(target => target is null)
-            || request.ActivePointsToReserve < 0 || request.GroupPointsToReserve < 0
-            || request.KnowledgePointsToReserve < 0)
+        if (!IsValidRequest(request))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
 
@@ -49,7 +77,24 @@ public static class CharacterCreationSkillCompletionPlanner
             attributesState, skillsState, attributeAllocations, cancellationToken);
         if (prepared.Value is not { } session)
             return new(prepared.Outcome, null, prepared.Blockers);
-        if (skillsState.PrerequisiteDraft!.BuildMethod is not
+        return PlanPrepared(skillsState.Authority, skillsState.PrerequisiteDraft!.BuildMethod, session,
+            skillsState.Skills.Select(skill => new CharacterCreationSkillAllocation(
+                skill.SourceSkillId, skill.Kind, skill.Rating, skill.SpecializationOptionId, skill.IsNativeLanguage)),
+            skillsState.SkillGroups.Select(group => new CharacterCreationSkillGroupAllocation(group.GroupId, group.Rating)),
+            attributeAllocations, request, cancellationToken);
+    }
+
+    private static CharacterCreationFoundationResult<CharacterCreationSkillCompletionPlan> PlanPrepared(
+        CharacterCreationSkillsAuthority authority,
+        string buildMethod,
+        CharacterCreationSkillsService.CompletionPreviewSession session,
+        IEnumerable<CharacterCreationSkillAllocation> baselineAllocations,
+        IEnumerable<CharacterCreationSkillGroupAllocation> baselineGroups,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CharacterCreationSkillCompletionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (buildMethod is not
             (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen))
             return Reject(CharacterCreationFoundationOutcomes.Blocked,
                 CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported);
@@ -57,17 +102,15 @@ public static class CharacterCreationSkillCompletionPlanner
         var permitted = request.PermittedTargetOrder.Select(target => (target.Kind, target.SourceId)).ToHashSet();
         if (permitted.Count != request.PermittedTargetOrder.Count
             || request.PermittedTargetOrder.Any(target => string.IsNullOrWhiteSpace(target.SourceId)
-                || !IsKnownTarget(skillsState.Authority, target)))
+                || !IsKnownTarget(authority, target)))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
 
         // Core projections include free source grants, but not implicit group
         // member allocations. Preserve both kinds exactly, including identity
         // choices and specializations; never trade them away to fit a proposal.
-        var allocations = skillsState.Skills.Select(skill => new CharacterCreationSkillAllocation(
-            skill.SourceSkillId, skill.Kind, skill.Rating, skill.SpecializationOptionId, skill.IsNativeLanguage)).ToArray();
-        var groups = skillsState.SkillGroups.Select(group =>
-            new CharacterCreationSkillGroupAllocation(group.GroupId, group.Rating)).ToArray();
+        var allocations = baselineAllocations.ToArray();
+        var groups = baselineGroups.ToArray();
         var initial = session.Preview(allocations, groups, cancellationToken);
         if (initial.Value is not { } preview || !AllowsPlanning(preview.Blockers))
             return new(CharacterCreationFoundationOutcomes.Blocked, null, initial.Blockers);
@@ -85,7 +128,7 @@ public static class CharacterCreationSkillCompletionPlanner
             cancellationToken.ThrowIfCancellationRequested();
             bool isGroup = target.Kind == CharacterCreationSkillCompletionKinds.Group;
             if (isGroup && Remaining(preview, target.Kind) > Reserve(request, target.Kind)
-                && skillsState.Authority.SkillGroups.Single(group => group.GroupId == target.SourceId)
+                && authority.SkillGroups.Single(group => group.GroupId == target.SourceId)
                     .MemberSkillSourceIds.Any(id => !permitted.Contains((CharacterCreationSkillKinds.Active, id))))
             {
                 groupMemberLocked = true;
@@ -159,6 +202,13 @@ public static class CharacterCreationSkillCompletionPlanner
         return new(plan.Blockers.Count == 0 ? CharacterCreationFoundationOutcomes.Success
             : CharacterCreationFoundationOutcomes.Blocked, plan, plan.Blockers);
     }
+
+    private static bool IsValidRequest(CharacterCreationSkillCompletionRequest request) =>
+        request.Binding is not null && request.PermittedTargetOrder is not null
+        && request.PermittedTargetOrder.Count <= MaximumTargets
+        && !request.PermittedTargetOrder.Any(target => target is null)
+        && request.ActivePointsToReserve >= 0 && request.GroupPointsToReserve >= 0
+        && request.KnowledgePointsToReserve >= 0;
 
     private static bool AllowsPlanning(IReadOnlyList<string> blockers) =>
         blockers.All(blocker => blocker == CharacterCreationSkillsBlockers.NativeLanguageRequired);

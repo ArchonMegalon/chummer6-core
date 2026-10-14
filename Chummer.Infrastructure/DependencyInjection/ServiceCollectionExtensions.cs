@@ -223,6 +223,9 @@ public static class ServiceCollectionExtensions
             CharacterCreationSkillsService>();
         services.AddSingleton<IOwnerBoundCharacterCreationSkillsService,
             OwnerBoundCharacterCreationSkillsService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationSkillsCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationSkillsCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationSkillsService>());
         services.AddSingleton<ICharacterCreationQualitiesService,
             CharacterCreationQualitiesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationQualitiesService,

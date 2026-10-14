@@ -13,8 +13,31 @@ public sealed class OwnerBoundCharacterCreationSkillsService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
     ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationSkillsService,
-    IOwnerBoundCharacterCreationSkillsReReviewService
+    IOwnerBoundCharacterCreationSkillsReReviewService,
+    IOwnerBoundCharacterCreationSkillsCompletionReader
 {
+    public CharacterCreationFoundationResult<CharacterCreationSkillsCompletionInputs> LoadCompletionInputs(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
+            || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                [CharacterCreationSkillsBlockers.WorkspaceUnavailable]);
+
+        using (lease)
+        {
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            ICharacterSourceDataResolver operationResolver = sourceScope ?? sourceResolver;
+            // This read shares one owner-bound workspace observation across its
+            // Attributes and Skills inputs. Nothing survives the synchronous call.
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner,
+                request.WorkspaceId, reuseReadObservation: true);
+            return new CharacterCreationSkillsService(view, operationResolver).LoadCompletionInputs(request);
+        }
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationSkillsState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request)
     {

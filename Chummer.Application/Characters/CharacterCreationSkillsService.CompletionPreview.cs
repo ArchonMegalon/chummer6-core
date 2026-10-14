@@ -29,6 +29,107 @@ public sealed partial class CharacterCreationSkillsService
             : new(prepared.Outcome, null, prepared.Blockers);
     }
 
+    /// <summary>
+    /// Plan from admitted original inputs even before Attributes is saved.
+    /// This is a detached historical projection, not permission to apply it.
+    /// </summary>
+    public static CharacterCreationFoundationResult<CharacterCreationAttributeSkillsPreview>
+        PreviewWithProposedAttributes(
+            CharacterCreationSkillsCompletionInputs inputs,
+            IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+            IReadOnlyList<CharacterCreationSkillAllocation> skillAllocations,
+            IReadOnlyList<CharacterCreationSkillGroupAllocation> groupAllocations,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(skillAllocations);
+        ArgumentNullException.ThrowIfNull(groupAllocations);
+        var prepared = PrepareCompletionPreview(inputs, attributeAllocations, cancellationToken);
+        return prepared.Value is { } session
+            ? session.Preview(skillAllocations, groupAllocations, cancellationToken)
+            : new(prepared.Outcome, null, prepared.Blockers);
+    }
+
+    internal static CharacterCreationFoundationResult<CompletionPreviewSession> PrepareCompletionPreview(
+        CharacterCreationSkillsCompletionInputs inputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        ArgumentNullException.ThrowIfNull(attributeAllocations);
+        cancellationToken.ThrowIfCancellationRequested();
+        inputs = JsonSerializer.Deserialize<CharacterCreationSkillsCompletionInputs>(
+            JsonSerializer.SerializeToUtf8Bytes(inputs))!;
+        attributeAllocations = attributeAllocations.ToArray();
+        if (!IsValidCompletionInputs(inputs))
+            return Blocked<CompletionPreviewSession>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationSkillsBlockers.AuthorityUnavailable);
+        var attributesSession = CharacterCreationAttributesService.CreateDraftSession(inputs.Attributes);
+        if (attributesSession is null)
+            return Blocked<CompletionPreviewSession>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationAttributesBlockers.AuthorityUnavailable);
+        cancellationToken.ThrowIfCancellationRequested();
+        var attributesResult = attributesSession.Preview(attributeAllocations);
+        if (attributesResult.Value is not { } attributes
+            || attributes.Blockers.Any(blocker => blocker != CharacterCreationAttributesBlockers.DraftDuplicate))
+            return new(CharacterCreationFoundationOutcomes.Blocked, null, attributesResult.Blockers);
+        return new(CharacterCreationFoundationOutcomes.Success,
+            new CompletionPreviewSession(inputs.Attributes.SnapshotDigest, inputs.SnapshotDigest,
+                inputs.Binding, inputs.Authority, inputs.PrerequisiteDraft,
+                inputs.SelectedActiveSkillPoints, inputs.SelectedSkillGroupPoints,
+                inputs.MovementCapability, inputs.KnowledgePointContributions, attributes), []);
+    }
+
+    private static bool IsValidCompletionInputs(CharacterCreationSkillsCompletionInputs inputs)
+    {
+        if (inputs.Schema != CharacterCreationSkillsCompletionSchemas.InputsV1
+            || inputs.Binding is null || inputs.Attributes?.Binding is null
+            || inputs.PrerequisiteDraft?.Assignments is null
+            || inputs.Allocations is null || inputs.GroupAllocations is null
+            || inputs.KnowledgePointContributions is null
+            || !CharacterCreationSkillsDigest.EqualsFixedTime(inputs.SnapshotDigest,
+                CharacterCreationSkillsDigest.Compute(inputs with { SnapshotDigest = string.Empty }))
+            || !CharacterCreationSkillsDraftIntegrity.IsValidAuthority(inputs.Authority)
+            || !CharacterCreationSkillsAccessRules.MatchesPrerequisite(inputs.Authority, inputs.PrerequisiteDraft)
+            || !MatchesCompletionAttributes(inputs.Binding, inputs.PrerequisiteDraft, inputs.Attributes)
+            || !CharacterCreationSkillsDigest.EqualsFixedTime(inputs.Binding.SkillsAuthorityDigest, inputs.Authority.AuthorityDigest)
+            || !CharacterCreationSkillsDigest.EqualsFixedTime(inputs.Binding.RuntimeDigest, inputs.Authority.RuntimeDigest)
+            || !CharacterCreationSkillsDigest.EqualsFixedTime(inputs.Binding.ContributionInputsDigest,
+                CharacterCreationSkillsDigest.Compute(inputs.KnowledgePointContributions))
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                inputs.KnowledgePointContributions, inputs.Authority.KnowledgePointContributions)
+            || inputs.KnowledgePointContributions.Any(contribution =>
+                !CharacterCreationSkillsDigest.EqualsFixedTime(contribution.SourceCharacterXmlDigest, inputs.Binding.RawCharacterXmlDigest))
+            || inputs.MovementCapability != ResolveMovementCapability(inputs.PrerequisiteDraft.HeritageSelection?.Movement)
+            || inputs.PrerequisiteDraft.BuildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+            || inputs.PrerequisiteDraft.PriorityTable != "Standard")
+            return false;
+
+        var assignments = inputs.PrerequisiteDraft.Assignments.Where(item =>
+            item.CategoryId == CharacterCreationPriorityCategoryIds.Skills).Take(2).ToArray();
+        if (assignments.Length != 1
+            || !CharacterCreationStandardPrioritySkillsRules.TryGetBudget(assignments[0].Rank, out int active, out int groups)
+            || active != inputs.SelectedActiveSkillPoints || groups != inputs.SelectedSkillGroupPoints)
+            return false;
+
+        if (inputs.SavedSkillsState is { } saved)
+            return saved.PendingDraft is { } draft && CreateDraftSession(saved) is not null
+                && saved.Binding == inputs.Binding
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(saved.Authority, inputs.Authority)
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(saved.PrerequisiteDraft, inputs.PrerequisiteDraft)
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(saved.AttributesDraft, inputs.Attributes.PendingDraft)
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(draft.Allocations, inputs.Allocations)
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(draft.GroupAllocations, inputs.GroupAllocations);
+
+        if (!CharacterCreationTalentSkillGrants.TryResolve(inputs.PrerequisiteDraft, inputs.Authority, out var grants))
+            return false;
+        var initialSkills = grants.InitialSkills(inputs.Authority).Select(skill => new CharacterCreationSkillAllocation(
+            skill.SourceSkillId, skill.Kind, skill.Rating, skill.SpecializationOptionId, skill.IsNativeLanguage)).ToArray();
+        var initialGroups = grants.InitialGroups(inputs.Authority).Select(group =>
+            new CharacterCreationSkillGroupAllocation(group.GroupId, group.Rating)).ToArray();
+        return CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(initialSkills, inputs.Allocations)
+            && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(initialGroups, inputs.GroupAllocations);
+    }
+
     // The bounded planner validates/clones the original source snapshots once,
     // not once per tentative point. This session has no workspace/write path.
     internal static CharacterCreationFoundationResult<CompletionPreviewSession> PrepareCompletionPreview(
@@ -87,12 +188,22 @@ public sealed partial class CharacterCreationSkillsService
             return new(CharacterCreationFoundationOutcomes.Blocked, null, attributesResult.Blockers);
 
         return new(CharacterCreationFoundationOutcomes.Success,
-            new CompletionPreviewSession(attributesState.SnapshotDigest, skillsState, attributes), []);
+            new CompletionPreviewSession(attributesState.SnapshotDigest, skillsState.SnapshotDigest,
+                skillsState.Binding, skillsState.Authority, skillsState.PrerequisiteDraft!,
+                skillsState.SelectedActiveSkillPoints, skillsState.SelectedSkillGroupPoints,
+                skillsState.MovementCapability, skillsState.KnowledgePointContributions, attributes), []);
     }
 
     internal sealed class CompletionPreviewSession(
         string attributesSnapshotDigest,
-        CharacterCreationSkillsState skillsState,
+        string skillsSnapshotDigest,
+        CharacterCreationSkillsBinding binding,
+        CharacterCreationSkillsAuthority authority,
+        CharacterCreationPrerequisiteDraft prerequisite,
+        int selectedActiveSkillPoints,
+        int selectedSkillGroupPoints,
+        CharacterCreationMovementCapability movement,
+        IReadOnlyList<CharacterCreationKnowledgePointContribution> contributions,
         CharacterCreationAttributesPreview attributes)
     {
         internal CharacterCreationFoundationResult<CharacterCreationAttributeSkillsPreview> Preview(
@@ -108,13 +219,13 @@ public sealed partial class CharacterCreationSkillsService
             // Core retains the source, talent, movement, grant and overflow rules.
             var blockers = new List<string>();
             var projected = EvaluateAllocations(
-                skillsState.Authority,
-                skillsState.PrerequisiteDraft,
-                skillsState.SelectedActiveSkillPoints,
-                skillsState.SelectedSkillGroupPoints,
+                authority,
+                prerequisite,
+                selectedActiveSkillPoints,
+                selectedSkillGroupPoints,
                 attributes.Attributes.Single(item => item.AttributeId == "INT").UnaugmentedCurrent,
                 attributes.Attributes.Single(item => item.AttributeId == "LOG").UnaugmentedCurrent,
-                skillsState.MovementCapability,
+                movement,
                 skillAllocations.ToArray(),
                 groupAllocations.ToArray(),
                 blockers);
@@ -123,12 +234,12 @@ public sealed partial class CharacterCreationSkillsService
             var preview = new CharacterCreationAttributeSkillsPreview(
                 CharacterCreationAttributeSkillsPreviewSchemas.PreviewV1,
                 attributesSnapshotDigest,
-                skillsState.SnapshotDigest,
+                skillsSnapshotDigest,
                 attributes,
-                skillsState.Binding,
+                binding,
                 projected.Skills,
                 projected.Groups,
-                skillsState.KnowledgePointContributions,
+                contributions,
                 projected.ActiveBudget,
                 projected.GroupBudget,
                 projected.KnowledgeBudget,
