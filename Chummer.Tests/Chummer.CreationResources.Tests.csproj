@@ -17,6 +17,7 @@
     <Compile Include="CharacterCreationSkillsServiceTests.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.AttributeReReview.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.CompletionPreview.cs" />
+    <Compile Include="CharacterCreationSkillsServiceTests.CompletionPlanner.cs" />
     <Compile Include="FileSystemCharacterSourceDataResolverTests.cs" />
     <Compile Include="WorkspaceRuleQuestionServiceTests.cs" />
     <Compile Include="WorkspaceRuleQuestionIntegrityTests.cs" />
