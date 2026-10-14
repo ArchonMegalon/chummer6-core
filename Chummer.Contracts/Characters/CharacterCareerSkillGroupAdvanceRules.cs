@@ -66,7 +66,13 @@ public sealed record CharacterCareerSkillGroupAdvanceInput(
     IReadOnlyList<CharacterCareerSkillGroupMember> Members,
     IReadOnlyList<CharacterCareerSkillGroupKarmaModifier> Modifiers,
     string RawSourceState,
-    string RawRuleState);
+    string RawRuleState)
+{
+    /// <summary>Exact uncapped free contribution, separate from saved allocations.
+    /// The source projector must admit KarmaUnbroken and the one-point transition.
+    /// Zero preserves the existing v2 rule/receipt identities.</summary>
+    public int FreeRatingPoints { get; init; }
+}
 
 public enum CharacterCareerSkillGroupAdvanceBlocker
 {
@@ -233,7 +239,7 @@ public static class CharacterCareerSkillGroupAdvanceRules
             costRating = enabled.Length == 0
                 ? 0
                 : enabled.Min(static member => member.TotalBaseRating);
-            groupRating = checked(valid.BasePoints + valid.KarmaPoints);
+            groupRating = checked(valid.BasePoints + valid.KarmaPoints + valid.FreeRatingPoints);
             if (groupRating >= MaximumRating)
             {
                 return false;
@@ -485,7 +491,7 @@ public static class CharacterCareerSkillGroupAdvanceRules
             && quote.Name.Length <= MaximumNameLength
             && quote.BasePoints is >= 0 and <= MaximumRating
             && quote.KarmaPoints is >= 0 and <= MaximumRating
-            && quote.GroupRating == quote.BasePoints + quote.KarmaPoints
+            && quote.GroupRating >= quote.BasePoints + quote.KarmaPoints
             && quote.GroupRating is >= 0 and <= MaximumRating
             && quote.CostRating is >= 0 and <= MaximumRating
             && quote.TargetGroupRating == Math.Min(MaximumRating, quote.GroupRating + 1)
@@ -633,6 +639,7 @@ public static class CharacterCareerSkillGroupAdvanceRules
             || input.Name.Length > MaximumNameLength
             || input.BasePoints is < 0 or > MaximumRating
             || input.KarmaPoints is < 0 or > MaximumRating
+            || input.FreeRatingPoints is < 0 or > MaximumRating
             || input.RatingMaximum is < 0 or > MaximumRating
             || input.AvailableKarma is < 0 or > MaximumKarma
             || input.Settings is not
@@ -1067,7 +1074,7 @@ public static class CharacterCareerSkillGroupAdvanceRules
                 modifier.Maximum.ToString(CultureInfo.InvariantCulture),
                 modifier.Value.ToString(CultureInfo.InvariantCulture)))
             .ToArray());
-        return Sha256(Canonical(
+        string legacyDigest = Sha256(Canonical(
             ContractName,
             "rule",
             input.RulesetId,
@@ -1087,6 +1094,12 @@ public static class CharacterCareerSkillGroupAdvanceRules
             members,
             modifiers,
             input.RawRuleState));
+        // Existing paid-only receipts must remain readable/correctable after this
+        // additive input extension. A positive free contribution gets an explicit
+        // domain-separated binding; quote/receipt hashes already bind GroupRating.
+        return input.FreeRatingPoints == 0 ? legacyDigest : Sha256(Canonical(
+            ContractName, "free-rating/v1", legacyDigest,
+            input.FreeRatingPoints.ToString(CultureInfo.InvariantCulture)));
     }
 
     private static string CalculateLogicalRevision(

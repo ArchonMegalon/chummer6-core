@@ -36,6 +36,9 @@ public sealed class CharacterCareerSkillGroupAdvanceRulesTests
         Assert.AreEqual(64, quote.LogicalRevision.Length);
         Assert.AreEqual(64, quote.SourceRevision.Length);
         Assert.AreEqual(64, quote.RuleDigest.Length);
+        // Captured against the unchanged v2 rule before free-rating support.
+        Assert.AreEqual("2cac5f72083d4536ce216694d2730989e062135913043e05d0920ace1f81550f",
+            quote.RuleDigest);
     }
 
     [TestMethod]
@@ -59,6 +62,52 @@ public sealed class CharacterCareerSkillGroupAdvanceRulesTests
         Assert.AreEqual(6, plan.TargetGroupRating);
         Assert.AreEqual(3, plan.TargetCostRating);
         Assert.AreEqual("Skill Group Stealth 5 -> 6", plan.ExpenseReason);
+    }
+
+    [TestMethod]
+    public void Free_module_group_levels_survive_advance_recovery_and_correction()
+    {
+        var input = Input() with { BasePoints = 0, KarmaPoints = 0, FreeRatingPoints = 2 };
+        var before = Quote(input);
+        Assert.AreEqual(2, before.GroupRating);
+        Assert.AreEqual(3, before.CostRating);
+        Assert.AreEqual(20, before.KarmaCost);
+        var plan = Plan(before);
+        Assert.AreEqual(1, plan.SavedGroupKarmaPoints);
+        Assert.AreEqual(3, plan.TargetGroupRating);
+        var after = PostQuote(input, plan);
+        var expense = Expense(plan);
+        Assert.IsTrue(CharacterCareerSkillGroupAdvanceRules.TryCreateReceipt(
+            plan.TransactionId, before, plan, after, expense, out var receipt));
+        var persisted = System.Text.Json.JsonSerializer.Deserialize<CharacterCareerSkillGroupAdvanceReceipt>(
+            System.Text.Json.JsonSerializer.Serialize(receipt))!;
+        Assert.IsTrue(CharacterCareerSkillGroupAdvanceRules.TryRecoverReceipt(
+            persisted, plan.TransactionId, after, expense, receipt.ReceiptDigest, out var recovered));
+        Assert.AreEqual(receipt, recovered);
+        Assert.IsTrue(CharacterCareerSkillGroupAdvanceRules.TryPlanCorrection(
+            recovered, after, expense, Guid.NewGuid(), "Undo this purchase", false, false,
+            recovered.ReceiptDigest, out var correction));
+        Assert.AreEqual(0, correction.SavedGroupKarmaPoints);
+        Assert.AreEqual(2, correction.RestoredGroupRating);
+        Assert.AreEqual(40, correction.SavedCharacterKarma);
+        Assert.AreEqual(2, input.FreeRatingPoints);
+    }
+
+    [TestMethod]
+    public void Free_group_ratings_are_bound_and_cannot_be_replaced_with_paid_points()
+    {
+        var input = Input() with { BasePoints = 0, KarmaPoints = 0, FreeRatingPoints = 2 };
+        var before = Quote(input);
+        var plan = Plan(before);
+        Assert.AreNotEqual(before.RuleDigest, Quote(input with { FreeRatingPoints = 1 }).RuleDigest);
+        Assert.AreNotEqual(before.RuleDigest, Quote(input with { FreeRatingPoints = 0, KarmaPoints = 2 }).RuleDigest);
+        Assert.IsFalse(CharacterCareerSkillGroupAdvanceRules.IsCoherent(before with { GroupRating = 3 }));
+        Assert.IsFalse(CharacterCareerSkillGroupAdvanceRules.TryCreateReceipt(plan.TransactionId,
+            before, plan, Quote(PostInput(input, plan) with { FreeRatingPoints = 1 }), Expense(plan), out _));
+        Assert.IsFalse(CharacterCareerSkillGroupAdvanceRules.TryCreateQuote(
+            input with { FreeRatingPoints = -1 }, out _));
+        Assert.IsFalse(CharacterCareerSkillGroupAdvanceRules.TryCreateQuote(
+            input with { FreeRatingPoints = int.MaxValue }, out _));
     }
 
     [TestMethod]
