@@ -14,6 +14,7 @@ public static class CharacterCreationSkillCompletionBlockers
     public const string KnowledgePointsUnallocated = "creation-skill-completion-knowledge-points-unallocated";
     public const string GroupMemberLocked = "creation-skill-completion-group-member-locked";
     public const string WorkLimitReached = "creation-skill-completion-work-limit-reached";
+    public const string NativeLanguageChoiceConflict = "creation-skill-completion-native-language-choice-conflict";
 }
 
 /// <summary>Kind is active, knowledge or group; SourceId is the exact admitted catalog identity.</summary>
@@ -33,11 +34,20 @@ public sealed record CharacterCreationSkillCompletionRequest(
     IReadOnlyList<CharacterCreationSkillCompletionTarget> PermittedTargetOrder,
     int ActivePointsToReserve = 0,
     int GroupPointsToReserve = 0,
-    int KnowledgePointsToReserve = 0);
+    int KnowledgePointsToReserve = 0)
+{
+    /// <summary>
+    /// Optional explicit candidate for an unfilled native-language choice.
+    /// Null leaves it unchanged. This never replaces an existing language or
+    /// converts a purchased language rating; Core checks source eligibility.
+    /// </summary>
+    public string? NativeLanguageSourceId { get; init; }
+}
 
 /// <summary>
 /// Read-only skill/group additions in the context of explicit proposed attributes.
-/// Existing specializations and native language are preserved, never invented.
+/// Existing specializations and native language are preserved. A missing native
+/// language is filled only from the request's explicit admitted source identity.
 /// Missing prerequisites or unspent points remain explicit blockers. HasChanges
 /// describes skill/group changes only; the outer assistant owns attribute locks.
 /// This is neither a receipt nor authority to save/finalize a character.

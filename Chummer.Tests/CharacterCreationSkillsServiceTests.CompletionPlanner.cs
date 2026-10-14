@@ -8,6 +8,66 @@ namespace Chummer.Tests;
 public sealed partial class CharacterCreationSkillsServiceTests
 {
     [TestMethod]
+    public void Skill_completion_cannot_turn_a_saved_paid_language_into_a_free_native_language()
+    {
+        WithRealTalentSkills("Magician", (_, store, resolver, service, id) =>
+        {
+            var initial = Load(service, id);
+            var languages = initial.Authority.KnowledgeSkills.Where(row => row.CanBeNativeLanguage).Take(2).ToArray();
+            Assert.AreEqual(2, languages.Length);
+            SaveCompletionSkills(service, id,
+                [new(languages[0].SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                    new(languages[1].SourceSkillId, CharacterCreationSkillKinds.Knowledge, 2, null, false)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills, []) with
+            {
+                NativeLanguageSourceId = languages[1].SourceSkillId
+            };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+            Assert.IsNull(result.Value);
+            CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationSkillCompletionBlockers.NativeLanguageChoiceConflict);
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_repeating_the_existing_native_choice_preserves_the_actual_saved_selection()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                    new(KnowledgeIds[0], CharacterCreationSkillKinds.Knowledge, 2, null, false)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills, []) with
+            {
+                NativeLanguageSourceId = LanguageId,
+                ActivePointsToReserve = 28, GroupPointsToReserve = 2, KnowledgePointsToReserve = 10
+            };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            Assert.IsFalse(result.Value!.HasChanges);
+            Assert.AreEqual(1, result.Value.Allocations.Count(row => row.IsNativeLanguage));
+            Assert.AreEqual(2, result.Value.Allocations.Single(row => row.SourceSkillId == KnowledgeIds[0]).Rating);
+            var ordinary = service.Preview(new(skills.Binding, result.Value.Allocations, result.Value.GroupAllocations)).Value!;
+            CollectionAssert.AreEqual(new[] { CharacterCreationSkillsBlockers.DraftDuplicate }, ordinary.Blockers.ToArray());
+            Assert.IsFalse(ordinary.CanConfirm);
+            Assert.AreEqual(0, result.Value.Preview.Blockers.Count);
+            // The ordinary save route rejects duplicate writes. A read-only
+            // proposal retains the same rows/budgets without that write blocker.
+            AssertCompletionProjectionMatches(result.Value.Preview, ordinary with { Blockers = [] });
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
     public void Skill_completion_preserves_chosen_and_omitted_values_and_obeys_preference_reserves()
     {
         WithReadySkillsContext((store, service, id, _, _, resolver) =>

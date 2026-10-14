@@ -12,6 +12,10 @@
     <Compile Include="CharacterCreationResourcesServiceTests.cs" />
     <Compile Include="CharacterCreationResourcesServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationCompletionReviewServiceTests.cs" />
+    <Compile Include="CharacterCreationCompletionPlannerTests.cs" />
+    <Compile Include="CharacterCreationPurchaseCompletionPlannerTests.cs" />
+    <Compile Include="CharacterCreationMagicCompletionPlannerTests.cs" />
+    <Compile Include="CharacterCreationFinalizationEvaluatedGraphTests.cs" />
     <Compile Include="CharacterCreationCompletionPreservationTests.cs" />
     <Compile Include="OwnerBoundCharacterCreationCompletionReaderTests.cs" />
     <Compile Include="CreationCanonicalDigestTests.cs" />

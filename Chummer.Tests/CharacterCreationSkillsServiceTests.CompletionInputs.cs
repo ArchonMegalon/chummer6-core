@@ -10,6 +10,47 @@ namespace Chummer.Tests;
 public sealed partial class CharacterCreationSkillsServiceTests
 {
     [TestMethod]
+    public void Completion_inputs_can_fill_an_explicit_native_language_without_inventing_saved_state()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            var before = store.Get(id).Value!;
+            var inputs = new CharacterCreationSkillsService(store, resolver).LoadCompletionInputs(new(id)).Value!;
+            CharacterCreationAttributeAllocation[] attributes = [new("INT", 2, 0), new("LOG", 1, 0)];
+            var request = InitialSkillCompletionRequest(inputs,
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2])]) with
+            {
+                NativeLanguageSourceId = LanguageId,
+                ActivePointsToReserve = 26, GroupPointsToReserve = 2, KnowledgePointsToReserve = 12
+            };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(inputs, attributes, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var plan = result.Value!;
+            Assert.IsTrue(plan.HasChanges);
+            var native = plan.Allocations.Single(row => row.SourceSkillId == LanguageId);
+            Assert.IsTrue(native.IsNativeLanguage);
+            Assert.IsNull(native.Rating);
+            Assert.IsNull(native.SpecializationOptionId);
+            Assert.AreEqual(2, plan.Allocations.Single(row => row.SourceSkillId == ActiveIds[2]).Rating);
+            Assert.AreEqual(0m, plan.Preview.KnowledgeSkillPointBudget.Used);
+            Assert.AreEqual(plan.PlanDigest, CharacterCreationSkillCompletionPlanner.Plan(inputs, attributes, request).Value!.PlanDigest);
+            Assert.AreEqual(0, inputs.Allocations.Count);
+            Assert.IsNull(store.Get(id).Value!.Document.AuxiliaryState.CharacterCreationSkillsDraft);
+            Assert.IsFalse(Load(service, id).CanEdit);
+
+            foreach (string invalid in new[] { "unknown-language", " ", ActiveIds[0], KnowledgeIds[0] })
+            {
+                var rejected = CharacterCreationSkillCompletionPlanner.Plan(inputs, attributes,
+                    request with { NativeLanguageSourceId = invalid });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, rejected.Outcome);
+                Assert.IsNull(rejected.Value);
+                CollectionAssert.Contains(rejected.Blockers.ToArray(), CharacterCreationSkillCompletionBlockers.RequestInvalid);
+            }
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        }, saveAttributes: false);
+    }
+
+    [TestMethod]
     public void Completion_inputs_respect_store_rejection_of_an_empty_persisted_skill_receipt_ledger()
     {
         var observer = new CompletionInputWorkspacePathObserver();

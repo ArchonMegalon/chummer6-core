@@ -118,11 +118,38 @@ public static class CharacterCreationSkillCompletionPlanner
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
 
-        int baselineOverflow = preview.KnowledgePointOverflowToActive;
         int evaluations = 1;
         bool changed = false;
         bool workLimitReached = false;
         bool groupMemberLocked = false;
+        if (request.NativeLanguageSourceId is { } nativeId)
+        {
+            if (string.IsNullOrWhiteSpace(nativeId)
+                || !authority.KnowledgeSkills.Any(skill => skill.SourceSkillId == nativeId && skill.CanBeNativeLanguage))
+                return Reject(CharacterCreationFoundationOutcomes.Invalid,
+                    CharacterCreationSkillCompletionBlockers.RequestInvalid);
+            var existing = allocations.FirstOrDefault(skill =>
+                skill.Kind == CharacterCreationSkillKinds.Knowledge && skill.SourceSkillId == nativeId);
+            if (existing is not null && (!existing.IsNativeLanguage || existing.Rating is not null
+                    || existing.SpecializationOptionId is not null))
+                return Reject(CharacterCreationFoundationOutcomes.Blocked,
+                    CharacterCreationSkillCompletionBlockers.NativeLanguageChoiceConflict);
+            if (existing is null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                CharacterCreationSkillAllocation[] candidate = [.. allocations,
+                    new(nativeId, CharacterCreationSkillKinds.Knowledge, null, null, true)];
+                var native = session.Preview(candidate, groups, cancellationToken);
+                evaluations++;
+                if (native.Value is not { } proposed || !AllowsPlanning(proposed.Blockers)
+                    || !PreservesReserves(proposed, request))
+                    return new(CharacterCreationFoundationOutcomes.Blocked, null, native.Blockers);
+                allocations = candidate;
+                preview = proposed;
+                changed = true;
+            }
+        }
+        int baselineOverflow = preview.KnowledgePointOverflowToActive;
         foreach (var target in request.PermittedTargetOrder)
         {
             cancellationToken.ThrowIfCancellationRequested();
