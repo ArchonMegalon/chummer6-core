@@ -24,14 +24,6 @@ public sealed partial class CharacterCreationResourcesService
         WorkspaceStoredDocument workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        // Completion currently composes Gear purchases only. A retained Lifestyle
-        // is a separate real expense even while its XML has not been finalized;
-        // do not treat its absent contribution to this proposal as zero spending.
-        if (workspace.Document.AuxiliaryState.CharacterCreationLifestylesDraft is not null
-            || workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts is { Count: > 0 })
-            return Blocked<CharacterCreationResourcesCompletionInputs>(CharacterCreationResourcesOutcomes.Blocked,
-                CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
-
         AuthorityContext context = BuildContext(workspace);
         string[] blockers = Normalize(context.Blockers.Concat(context.Budget.Blockers)
             .Concat(ValidateContinuationDraft(workspace)));
@@ -43,7 +35,29 @@ public sealed partial class CharacterCreationResourcesService
             CharacterCreationResourcesCompletionSchemas.InputsV1,
             context.Binding, context.Authority, context.Prerequisite, context.PriorityOption,
             context.PendingDraft, workspace.Document.AuxiliaryState.CharacterCreationResourcesReceipts ?? [],
-            context.PurchaseAuthorityExact, context.KnownPurchaseCost, string.Empty);
+            context.PurchaseAuthorityExact, context.KnownPurchaseCost, string.Empty)
+        {
+            LifestylesDraft = workspace.Document.AuxiliaryState.CharacterCreationLifestylesDraft,
+            LifestyleReceipts = workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts ?? []
+        };
+        // Validate retained purchases against the actual saved graph and current
+        // source before carrying their original draft/ledger into a proposal.
+        // TryLoad may project that real history; it never receives proposed data.
+        if (!TryGetRetainedCompletionLifestyleCost(inputs, out decimal lifestyleCost)
+            || inputs.LifestylesDraft is { } retained
+                && (!CharacterCreationLifestylesDraftRules.TryLoad(workspace, _sourceData,
+                        out var current, out _, out _)
+                    || current is null
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                        retained.ProjectionAuthority, current.ProjectionAuthority)))
+            return Blocked<CharacterCreationResourcesCompletionInputs>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
+        try { inputs = inputs with { KnownPurchaseCost = checked(context.KnownPurchaseCost + lifestyleCost) }; }
+        catch (OverflowException)
+        {
+            return Blocked<CharacterCreationResourcesCompletionInputs>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
+        }
         inputs = inputs with
         {
             SnapshotDigest = CharacterCreationResourcesCompletionRules.ComputeInputsDigest(inputs)
@@ -89,7 +103,8 @@ public sealed partial class CharacterCreationResourcesService
         var upstreamResult = CharacterCreationCompletionBudgetService.Preview(magicInputs, qualitiesInputs,
             attributeAllocations, magicSelections, qualityOptionIds, cancellationToken);
         if (upstreamResult.Value is not { AvailableKarmaBeforeResources: int available } upstream)
-            return new(CharacterCreationResourcesOutcomes.Blocked, null,
+            return new(upstreamResult.Outcome == CharacterCreationFoundationOutcomes.Conflict
+                    ? CharacterCreationResourcesOutcomes.Conflict : CharacterCreationResourcesOutcomes.Blocked, null,
                 Normalize(upstreamResult.Blockers.Append(CharacterCreationResourcesCompletionSchemas.UpstreamBudgetUnavailable)));
         cancellationToken.ThrowIfCancellationRequested();
         CharacterCreationResourceAllocationOption[] options = BuildOptions(resourcesInputs.Authority,
@@ -129,9 +144,23 @@ public sealed partial class CharacterCreationResourcesService
         CharacterCreationResourcesCompletionProjection projection,
         decimal sourcePricedGearCost)
     {
+        if (!TryGetRetainedCompletionLifestyleCost(inputs, out decimal retainedCost))
+            throw new ArgumentException("The retained Lifestyle purchase history is invalid.", nameof(inputs));
+        return RepriceCompletionPurchases(inputs, projection, sourcePricedGearCost, retainedCost);
+    }
+
+    // Lifestyle completion supplies a full source-priced replacement list. Gear
+    // alone uses the overload above, preserving the original Lifestyle spending.
+    internal static CharacterCreationResourcesCompletionProjection RepriceCompletionPurchases(
+        CharacterCreationResourcesCompletionInputs inputs,
+        CharacterCreationResourcesCompletionProjection projection,
+        decimal sourcePricedGearCost,
+        decimal sourcePricedLifestyleCost)
+    {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentOutOfRangeException.ThrowIfNegative(sourcePricedGearCost);
+        ArgumentOutOfRangeException.ThrowIfNegative(sourcePricedLifestyleCost);
         if (inputs.Binding != projection.Binding
             || !SameCompletionDigest(inputs.SnapshotDigest, projection.ResourcesSnapshotDigest))
             throw new ArgumentException("The funding projection must match the original Resources inputs.", nameof(projection));
@@ -142,7 +171,7 @@ public sealed partial class CharacterCreationResourcesService
         blockers.AddRange(projection.SelectedOption.Blockers);
         CharacterCreationResourcesBudget budget = BuildBudget(inputs.Authority,
             inputs.PriorityOption, projection.SelectedOption, inputs.PurchaseAuthorityExact,
-            sourcePricedGearCost, blockers);
+            checked(sourcePricedGearCost + sourcePricedLifestyleCost), blockers);
         var repriced = projection with { Budget = budget, Blockers = Normalize(blockers), ProposalDigest = string.Empty };
         return repriced with
         {
@@ -159,6 +188,8 @@ public sealed partial class CharacterCreationResourcesService
             || authority.Blockers is null || !CharacterCreationResourcesRules.IsValidAuthority(authority)
             || !CharacterCreationResourcesRules.IsValidPriorityOption(priority)
             || !inputs.PurchaseAuthorityExact || inputs.KnownPurchaseCost < 0m
+            || !TryGetRetainedCompletionLifestyleCost(inputs, out decimal lifestyleCost)
+            || inputs.KnownPurchaseCost < lifestyleCost
             || string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             || binding.WorkspaceRevision != binding.ContentRevision
             || binding.ContentRevision <= 0 || binding.ContentRevision != binding.SavedRevision
@@ -234,6 +265,38 @@ public sealed partial class CharacterCreationResourcesService
                 resources.PrerequisiteDraft, magic.PrerequisiteDraft)
             && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                 resources.PrerequisiteDraft, qualities.PrerequisiteDraft);
+    }
+
+    internal static bool TryGetRetainedCompletionLifestyleCost(
+        CharacterCreationResourcesCompletionInputs inputs, out decimal cost)
+    {
+        cost = 0m;
+        try
+        {
+            if (inputs?.Binding is not { } binding || inputs.Authority is not { } resources
+                || inputs.LifestyleReceipts is not { } receipts
+                || receipts.Count >= CharacterCreationLifestyleReceiptLedgerIntegrity.MaximumEntries
+                || !CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
+                    binding.WorkspaceId, binding.ContentRevision, receipts)) return false;
+            if (inputs.LifestylesDraft is not { } draft) return receipts.Count == 0;
+            if (!CharacterCreationLifestylesDraftRules.IsValidShape(binding.WorkspaceId, binding.ContentRevision, draft)
+                || receipts.Count == 0
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    draft, receipts[^1].Receipt.WritePlan.PendingDraft)
+                || draft.InputAuthority.PrerequisiteDraftDigest != binding.PrerequisiteDraftDigest
+                || draft.InputAuthority.RawCharacterXmlDigest != binding.RawCharacterXmlDigest
+                || draft.ProjectionAuthority.SettingsProfileId != resources.SettingsProfileId
+                || draft.ProjectionAuthority.ProfileDigest != resources.ProfileDigest) return false;
+            foreach (var selection in draft.Lifestyles)
+            {
+                if (!CharacterCreationLifestylesRules.TryProject(selection, draft.ProjectionAuthority,
+                        out var projection, out _)) return false;
+                cost = checked(cost + projection.Economics.TotalCost);
+            }
+            return cost >= 0m && cost == receipts[^1].Receipt.LifestyleCostAfter;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
+        { cost = 0m; return false; }
     }
 
     private static bool SameCompletionDigest(string? left, string? right)

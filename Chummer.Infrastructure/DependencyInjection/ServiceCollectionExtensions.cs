@@ -251,10 +251,15 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<CharacterCreationContactsService>());
         services.AddSingleton<IOwnerBoundCharacterCreationContactsService,
             OwnerBoundCharacterCreationContactsService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationContactsCompletionReader,
+            OwnerBoundCharacterCreationContactsCompletionReader>();
         services.AddSingleton<ICharacterCreationLifestylesService,
             CharacterCreationLifestylesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationLifestylesService,
             OwnerBoundCharacterCreationLifestylesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationLifestylesCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationLifestylesCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationLifestylesService>());
         services.AddSingleton<IOwnerBoundCharacterCreationLifestylesReader,
             OwnerBoundCharacterCreationLifestylesReader>();
         services.AddSingleton<ICharacterCreationResourcesService,

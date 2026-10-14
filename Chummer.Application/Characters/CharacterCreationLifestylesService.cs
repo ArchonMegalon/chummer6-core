@@ -14,7 +14,7 @@ namespace Chummer.Application.Characters;
 /// Governed SR5 creation-mode lifestyle authority. Catalog identity and prices come from
 /// <see cref="ICharacterSourceDataResolver"/>; callers submit stable option ids only.
 /// </summary>
-public sealed class CharacterCreationLifestylesService : ICharacterCreationLifestylesService
+public sealed partial class CharacterCreationLifestylesService : ICharacterCreationLifestylesService
 {
     private const int MaximumIdempotencyKeyLength = 200;
 
@@ -38,13 +38,16 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterSourceDataResolver _sourceData;
+    private readonly ICharacterFileQueries? _completionQueries;
 
     public CharacterCreationLifestylesService(
         IWorkspaceStore workspaceStore,
-        ICharacterSourceDataResolver sourceData)
+        ICharacterSourceDataResolver sourceData,
+        ICharacterFileQueries? completionQueries = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _sourceData = sourceData ?? throw new ArgumentNullException(nameof(sourceData));
+        _completionQueries = completionQueries;
     }
 
     public CharacterCreationLifestyleResult<CharacterCreationLifestylesState> Load(

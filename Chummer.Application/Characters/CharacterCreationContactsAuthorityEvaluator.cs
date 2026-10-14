@@ -42,6 +42,9 @@ public static class CharacterCreationContactsAuthorityEvaluator
             Version = typeof(CharacterCreationContactsService).Assembly.GetName().Version?.ToString() ?? string.Empty
         });
 
+    internal static string RulesDigest => s_RulesDigest;
+    internal static string RuntimeDigest => s_RuntimeDigest;
+
     public static CharacterCreationContactsAuthoritySnapshot Evaluate(WorkspaceDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -74,25 +77,34 @@ public static class CharacterCreationContactsAuthorityEvaluator
         if (created)
             blockers.Add(CharacterCreationContactsBlockers.CareerModeRejected);
 
+        var inputs = (root.Element("contacts")?.Elements("contact") ?? [])
+            .Where(contact => ReadValue(contact, "type").Length == 0
+                || string.Equals(ReadValue(contact, "type"), "Contact", StringComparison.OrdinalIgnoreCase))
+            .Select(contact => CharacterContactEditSemanticsResolver.ReadInput(root, contact)).ToArray();
+        bool totalExact = TryParseNonNegativeInt(ReadValue(root, "contactpoints"), out int total);
+        bool charismaExact = TryReadCharismaValue(root, out int charisma);
+        return EvaluateInputs(created, ComputeSourceDigest(root), total, totalExact, charisma, charismaExact,
+            inputs, CharacterContactEditSemanticsResolver.ReadEffects(root), blockers);
+    }
+
+    // Both the original-document evaluator and completion use this same math.
+    // Only source-admitted application callers may supply projected facts here.
+    internal static CharacterCreationContactsAuthoritySnapshot EvaluateInputs(
+        bool created, string sourceDigest, int contactTotal, bool contactTotalExact,
+        int charisma, bool charismaExact, IReadOnlyList<CharacterContactEditInput> inputs,
+        IReadOnlyList<CharacterContactRuleEffect> effects, IReadOnlyList<string> initialBlockers)
+    {
+        var blockers = new List<string>(initialBlockers);
         bool friendsInHighPlaces = HasApplicableImprovement(
-            root,
+            effects,
             "FriendsInHighPlaces",
             improvedName: null,
             careerMode: false);
         var contacts = new List<CharacterCreationContactAuthorityCost>();
         var identities = new HashSet<Guid>();
-        int editableContactCount = 0;
-        foreach (XElement contact in root.Element("contacts")?.Elements("contact") ?? [])
+        foreach (CharacterContactEditInput contact in inputs)
         {
-            string type = ReadValue(contact, "type");
-            if (type.Length != 0
-                && !string.Equals(type, "Contact", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            editableContactCount++;
-            if (!Guid.TryParseExact(ReadValue(contact, "guid"), "D", out Guid id)
+            if (!Guid.TryParseExact(contact.ContactId, "D", out Guid id)
                 || id == Guid.Empty)
             {
                 blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
@@ -104,10 +116,10 @@ public static class CharacterCreationContactsAuthorityEvaluator
                 continue;
             }
             if (!CharacterContactEditSemanticsResolver.TryResolve(
-                    root,
                     contact,
+                    effects,
                     out CharacterContactEditSemantics semantics)
-                || !TryComputeContactCost(root, semantics, out int cost))
+                || !TryComputeContactCost(effects, semantics, out int cost))
             {
                 blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
                 continue;
@@ -123,10 +135,9 @@ public static class CharacterCreationContactsAuthorityEvaluator
                 CountsAgainstContactBudget: !semantics.IsGroup && !semantics.Free && !highPlaces,
                 CountsAgainstHighPlacesBudget: highPlaces));
         }
-        if (contacts.Count != editableContactCount)
+        if (contacts.Count != inputs.Count)
             blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
 
-        bool contactTotalExact = TryParseNonNegativeInt(ReadValue(root, "contactpoints"), out int contactTotal);
         if (!contactTotalExact)
             blockers.Add(CharacterCreationContactsBlockers.BudgetAuthorityRequired);
         bool contactUsedExact = TrySumContactCosts(
@@ -138,8 +149,7 @@ public static class CharacterCreationContactsAuthorityEvaluator
 
         int highPlacesTotal = 0;
         bool highPlacesExact = true;
-        int charisma = 0;
-        if (friendsInHighPlaces && !TryReadCharismaValue(root, out charisma))
+        if (friendsInHighPlaces && !charismaExact)
         {
             highPlacesExact = false;
             blockers.Add(CharacterCreationContactsBlockers.FriendsInHighPlacesAuthorityRequired);
@@ -165,7 +175,7 @@ public static class CharacterCreationContactsAuthorityEvaluator
 
         return new CharacterCreationContactsAuthoritySnapshot(
             created,
-            ComputeSourceDigest(root),
+            sourceDigest,
             s_RulesDigest,
             s_RuntimeDigest,
             contacts.OrderBy(contact => contact.ContactId).ToArray(),
@@ -187,15 +197,15 @@ public static class CharacterCreationContactsAuthorityEvaluator
     }
 
     private static bool TryComputeContactCost(
-        XElement root,
+        IReadOnlyList<CharacterContactRuleEffect> effects,
         CharacterContactEditSemantics semantics,
         out int cost)
     {
         cost = 0;
         if (semantics.Free)
             return true;
-        if (!TrySumApplicableImprovement(root, "ContactKarmaDiscount", out decimal discount)
-            || !TrySumApplicableImprovement(root, "ContactKarmaMinimum", out decimal minimum))
+        if (!TrySumApplicableImprovement(effects, "ContactKarmaDiscount", out decimal discount)
+            || !TrySumApplicableImprovement(effects, "ContactKarmaMinimum", out decimal minimum))
         {
             return false;
         }
@@ -203,18 +213,19 @@ public static class CharacterCreationContactsAuthorityEvaluator
             semantics.Free, semantics.Family, semantics.Blackmail, discount, minimum, out cost);
     }
 
-    private static bool TrySumApplicableImprovement(XElement root, string type, out decimal total)
+    private static bool TrySumApplicableImprovement(IReadOnlyList<CharacterContactRuleEffect> effects,
+        string type, out decimal total)
     {
         total = 0;
-        foreach (XElement improvement in root.Element("improvements")?.Elements("improvement") ?? [])
+        foreach (CharacterContactRuleEffect improvement in effects)
         {
-            if (!string.Equals(ReadValue(improvement, "improvementttype"), type, StringComparison.Ordinal)
-                || !IsApplicable(improvement, careerMode: false))
+            if (!string.Equals(improvement.ImprovementType, type, StringComparison.Ordinal)
+                || !CharacterContactEditSemanticsResolver.IsApplicable(improvement, careerMode: false))
             {
                 continue;
             }
             if (!decimal.TryParse(
-                    ReadValue(improvement, "val"),
+                    improvement.Value,
                     NumberStyles.Number,
                     CultureInfo.InvariantCulture,
                     out decimal value))
@@ -234,32 +245,15 @@ public static class CharacterCreationContactsAuthorityEvaluator
     }
 
     private static bool HasApplicableImprovement(
-        XElement root,
+        IReadOnlyList<CharacterContactRuleEffect> effects,
         string type,
         string? improvedName,
         bool careerMode) =>
-        (root.Element("improvements")?.Elements("improvement") ?? []).Any(improvement =>
-            string.Equals(ReadValue(improvement, "improvementttype"), type, StringComparison.Ordinal)
+        effects.Any(improvement =>
+            string.Equals(improvement.ImprovementType, type, StringComparison.Ordinal)
             && (improvedName is null
-                || string.Equals(ReadValue(improvement, "improvedname"), improvedName, StringComparison.OrdinalIgnoreCase))
-            && IsApplicable(improvement, careerMode));
-
-    private static bool IsApplicable(XElement improvement, bool careerMode)
-    {
-        if (!int.TryParse(
-                ReadValue(improvement, "enabled"),
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out int enabled))
-        {
-            enabled = 1;
-        }
-        if (enabled <= 0)
-            return false;
-        string condition = ReadValue(improvement, "condition");
-        return condition.Length == 0
-               || string.Equals(condition, careerMode ? "career" : "create", StringComparison.Ordinal);
-    }
+                || string.Equals(improvement.ImprovedName, improvedName, StringComparison.OrdinalIgnoreCase))
+            && CharacterContactEditSemanticsResolver.IsApplicable(improvement, careerMode));
 
     private static bool TryReadCharismaValue(XElement root, out int value)
     {

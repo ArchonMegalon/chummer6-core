@@ -23,7 +23,11 @@ public sealed record CharacterCreationResourcesCompletionInputs(
     IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> Receipts,
     bool PurchaseAuthorityExact,
     decimal KnownPurchaseCost,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    public CharacterCreationLifestylesDraft? LifestylesDraft { get; init; }
+    public IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry> LifestyleReceipts { get; init; } = [];
+}
 
 /// <summary>
 /// Pure cumulative budget projection, not a draft or confirmation capability.

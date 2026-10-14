@@ -17,6 +17,13 @@ public sealed partial class CharacterCreationGearService
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationGearCompletionInputs>(read);
+        return LoadCompletionInputsFromObservation(workspace);
+    }
+
+    internal CharacterCreationGearResult<CharacterCreationGearCompletionInputs> LoadCompletionInputsFromObservation(
+        WorkspaceStoredDocument workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
 
         AuthorityContext context = BuildContext(workspace);
         var receipts = workspace.Document.AuxiliaryState.CharacterCreationGearReceipts ?? [];
@@ -147,9 +154,8 @@ public sealed partial class CharacterCreationGearService
             || binding.ResourcesDraftRevision != (resources.PendingDraft?.DraftRevision ?? 0)
             || binding.ResourcesDraftDigest != (resources.PendingDraft?.DraftDigest ?? string.Empty)
             || !resources.PurchaseAuthorityExact
-            // At present the exact Resources purchase lane contains Gear only.
-            // New/unsupported retained purchase domains cannot be silently lost.
-            || resources.KnownPurchaseCost != (state.PendingDraft?.Budget?.BasketCost ?? 0m))
+            || !CharacterCreationResourcesService.TryGetRetainedCompletionLifestyleCost(resources, out decimal lifestyleCost)
+            || resources.KnownPurchaseCost - lifestyleCost != (state.PendingDraft?.Budget?.BasketCost ?? 0m))
             return false;
 
         if (state.ResourcesDraft is { } savedResources && (savedResources.Budget?.Blockers is null

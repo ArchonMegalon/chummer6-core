@@ -9,7 +9,7 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
 
-public sealed class CharacterCreationContactsService : ICharacterCreationContactsService
+public sealed partial class CharacterCreationContactsService : ICharacterCreationContactsService
 {
     private const int MaximumTextLength = 32_767;
     private const int MinimumConnection = 1;
@@ -30,11 +30,14 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterSourceDataResolver? _sourceData;
+    private readonly ICharacterFileQueries? _characterQueries;
 
-    public CharacterCreationContactsService(IWorkspaceStore workspaceStore, ICharacterSourceDataResolver? sourceData = null)
+    public CharacterCreationContactsService(IWorkspaceStore workspaceStore, ICharacterSourceDataResolver? sourceData = null,
+        ICharacterFileQueries? characterQueries = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _sourceData = sourceData;
+        _characterQueries = characterQueries;
     }
 
     public CharacterCreationContactResult<CharacterCreationContactsState> Load(

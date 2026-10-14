@@ -9,8 +9,29 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationLifestylesService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationLifestylesService
+    ICharacterSourceDataResolver sourceResolver,
+    ICharacterFileQueries? completionQueries = null) : IOwnerBoundCharacterCreationLifestylesService,
+    IOwnerBoundCharacterCreationLifestylesCompletionReader
 {
+    public CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionInputs> LoadCompletionInputs(
+        OwnerContextStamp expectedOwner, CharacterCreationLifestylesLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
+            || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return new(CharacterCreationLifestyleOutcomes.Blocked, null,
+                [CharacterCreationLifestylesBlockers.StaleWorkspaceRevision]);
+        using (lease)
+        {
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, request.WorkspaceId,
+                reuseReadObservation: true);
+            using ICharacterSourceDataResolverOperationScope? scope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            return new CharacterCreationLifestylesService(view, scope ?? sourceResolver, completionQueries)
+                .LoadCompletionInputs(request);
+        }
+    }
+
     public CharacterCreationLifestyleResult<CharacterCreationLifestylesState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationLifestylesLoadRequest request)
     {

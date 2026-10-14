@@ -15,6 +15,10 @@
     <Compile Include="CharacterCreationGearServiceTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.Completion.cs" />
     <Compile Include="OwnerBoundCreationResourcesGearTests.cs" />
+    <Compile Include="CharacterCreationContactsServiceTests.cs" />
+    <Compile Include="CharacterCreationContactsServiceTests.Completion.cs" />
+    <Compile Include="CharacterCreationLifestylesServiceTests.cs" />
+    <Compile Include="CharacterCreationLifestylesServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
     <Compile Include="CharacterCreationAttributesServiceTests.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.cs" />

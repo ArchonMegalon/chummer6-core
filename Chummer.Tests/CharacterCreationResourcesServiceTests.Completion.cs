@@ -180,6 +180,13 @@ public sealed class ResourcesCompletionTests
         Assert.AreEqual(CharacterCreationResourcesOutcomes.Conflict, mixed.Outcome);
         Assert.IsNull(mixed.Value);
         CollectionAssert.Contains(mixed.Blockers.ToArray(), CharacterCreationResourcesCompletionSchemas.SnapshotConflict);
+        // A conflict found deeper in the shared budget evaluator must retain
+        // its exact classification through Resources, Gear and Lifestyles.
+        var mixedMagic = CharacterCreationResourcesService.PreviewCompletion(inputs.Resources, current.Magic,
+            inputs.Qualities, attributes, choices, qualityIds, 3);
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Conflict, mixedMagic.Outcome);
+        Assert.IsNull(mixedMagic.Value);
+        CollectionAssert.Contains(mixedMagic.Blockers.ToArray(), CharacterCreationCompletionBudgetSchemas.SnapshotConflict);
         var stale = resources.Confirm(new(projected.Binding, projected.SelectedOption.OptionId,
             projected.ProposalDigest, "completion-stale-resource-confirm", true));
         Assert.AreEqual(CharacterCreationResourcesOutcomes.Conflict, stale.Outcome);
@@ -256,7 +263,7 @@ public sealed class ResourcesCompletionTests
     }
 
     [TestMethod]
-    public void Retained_real_lifestyle_spending_blocks_completion_without_changing_ordinary_resources_or_history()
+    public void Retained_real_lifestyle_spending_is_preserved_in_completion_and_gear_replacement_after_reopen()
     {
         using ReadyContext context = ReadyContext.Create(true, buildMethod: CharacterCreationBuildMethods.Priority);
         var resources = new CharacterCreationResourcesService(context.Store, context.Resolver);
@@ -289,14 +296,67 @@ public sealed class ResourcesCompletionTests
         var coldResources = new CharacterCreationResourcesService(cold.Store, cold.Resolver);
         var ordinary = coldResources.Load(new(cold.WorkspaceId));
         Assert.IsTrue(ordinary.Value?.CanEdit == true, string.Join(",", ordinary.Blockers));
-        var denied = coldResources.LoadCompletionInputs(new(cold.WorkspaceId));
-        Assert.AreEqual(CharacterCreationResourcesOutcomes.Blocked, denied.Outcome);
-        Assert.IsNull(denied.Value);
-        CollectionAssert.Contains(denied.Blockers.ToArray(), CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
+        var admitted = coldResources.LoadCompletionInputs(new(cold.WorkspaceId));
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Available, admitted.Outcome, string.Join(",", admitted.Blockers));
+        Assert.AreEqual(2000m + saved.Document.AuxiliaryState.CharacterCreationGearDraft!.Budget.BasketCost,
+            admitted.Value!.KnownPurchaseCost);
+        Assert.AreEqual(saved.Document.AuxiliaryState.CharacterCreationLifestylesDraft!.DraftDigest,
+            admitted.Value.LifestylesDraft!.DraftDigest);
+        Assert.AreEqual(saved.Document.AuxiliaryState.CharacterCreationLifestyleReceipts![0].Receipt.ReceiptDigest,
+            admitted.Value.LifestyleReceipts[0].Receipt.ReceiptDigest);
         var gear = new CharacterCreationGearService(cold.Store, cold.Resolver).LoadCompletionInputs(new(cold.WorkspaceId));
-        Assert.AreEqual(CharacterCreationGearOutcomes.Blocked, gear.Outcome);
-        Assert.IsNull(gear.Value);
-        CollectionAssert.Contains(gear.Blockers.ToArray(), CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
+        Assert.AreEqual(CharacterCreationGearOutcomes.Available, gear.Outcome, string.Join(",", gear.Blockers));
+        var inputs = LoadInputs(cold);
+        var attributes = inputs.Qualities.Attributes.PendingDraft!.Allocations;
+        var replaced = CharacterCreationGearService.PreviewCompletion(gear.Value!, inputs.Magic,
+            inputs.Qualities, attributes, inputs.Magic.Selections, inputs.Qualities.SelectedOptionIds,
+            admitted.Value.PendingDraft!.KarmaInvestment, []);
+        Assert.AreEqual(CharacterCreationGearOutcomes.Available, replaced.Outcome, string.Join(",", replaced.Blockers));
+        Assert.AreEqual(0m, replaced.Value!.Budget.BasketCost);
+        Assert.AreEqual(2000m, replaced.Value.Resources.Budget.KnownPurchaseCost,
+            "Replacing Gear must not erase the saved apartment or charge it twice.");
+        Assert.AreEqual(replaced.Value.Resources.Budget.TotalStartingNuyen - 2000m,
+            replaced.Value.Resources.Budget.RemainingNuyen);
+
+        var corrupt = admitted.Value with { LifestyleReceipts = [], SnapshotDigest = string.Empty };
+        corrupt = corrupt with { SnapshotDigest = CharacterCreationResourcesCompletionRules.ComputeInputsDigest(corrupt) };
+        var rejected = CharacterCreationResourcesService.PreviewCompletion(corrupt, inputs.Magic, inputs.Qualities,
+            attributes, inputs.Magic.Selections, inputs.Qualities.SelectedOptionIds,
+            admitted.Value.PendingDraft.KarmaInvestment);
+        Assert.IsNull(rejected.Value);
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Blocked, rejected.Outcome);
+
+        // Re-sealing detached hashes must not make a different retained price
+        // agree with the actual purchase receipt's full-list spending.
+        var originalDraft = admitted.Value.LifestylesDraft!;
+        var forgedOptions = originalDraft.ProjectionAuthority.LifestyleOptions.Select(option =>
+        {
+            if (option.OptionId != low.OptionId) return option;
+            var changed = option with { BaseCost = 1m, OptionDigest = string.Empty };
+            return changed with { OptionDigest = CharacterCreationLifestylesRules.ComputeOptionDigest(changed) };
+        }).ToArray();
+        var forgedAuthority = originalDraft.ProjectionAuthority with
+        { LifestyleOptions = forgedOptions, AuthorityDigest = string.Empty };
+        forgedAuthority = forgedAuthority with
+        { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(forgedAuthority) };
+        var forgedDraft = originalDraft with { ProjectionAuthority = forgedAuthority, DraftDigest = string.Empty };
+        forgedDraft = forgedDraft with { DraftDigest = CharacterCreationLifestylesDraftRules.Digest(forgedDraft) };
+        var originalEntry = admitted.Value.LifestyleReceipts.Single();
+        var forgedPlan = originalEntry.Receipt.WritePlan with { PendingDraft = forgedDraft, PlanDigest = string.Empty };
+        forgedPlan = forgedPlan with { PlanDigest = CharacterCreationLifestylesRules.ComputePlanDigest(forgedPlan) };
+        var forgedReceipt = originalEntry.Receipt with { WritePlan = forgedPlan, ReceiptDigest = string.Empty };
+        forgedReceipt = forgedReceipt with { ReceiptDigest = CharacterCreationLifestylesRules.ComputeReceiptDigest(forgedReceipt) };
+        var forgedEntry = originalEntry with { Receipt = forgedReceipt };
+        Assert.IsTrue(CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
+            cold.WorkspaceId, saved.ContentRevision, [forgedEntry]), "The cost check must add protection beyond ledger shape.");
+        var repricedHistory = admitted.Value with
+        { LifestylesDraft = forgedDraft, LifestyleReceipts = [forgedEntry], SnapshotDigest = string.Empty };
+        repricedHistory = repricedHistory with
+        { SnapshotDigest = CharacterCreationResourcesCompletionRules.ComputeInputsDigest(repricedHistory) };
+        var refused = CharacterCreationResourcesService.PreviewCompletion(repricedHistory, inputs.Magic, inputs.Qualities,
+            attributes, inputs.Magic.Selections, inputs.Qualities.SelectedOptionIds, admitted.Value.PendingDraft.KarmaInvestment);
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Blocked, refused.Outcome);
+        Assert.IsNull(refused.Value);
         AssertWorkspaceUnchanged(cold, saved, files);
     }
 

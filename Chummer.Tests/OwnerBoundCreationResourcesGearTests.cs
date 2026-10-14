@@ -73,8 +73,18 @@ public sealed class OwnerBoundCreationResourcesGearTests
         IOwnerBoundCharacterCreationResourcesCompletionReader resourceCompletion = resources;
         IOwnerBoundCharacterCreationGearCompletionReader initialGearCompletion =
             new OwnerBoundCharacterCreationGearService(store, owners, fixture.Resolver);
+        IOwnerBoundCharacterCreationContactsCompletionReader contactCompletion =
+            new OwnerBoundCharacterCreationContactsCompletionReader(store, owners, fixture.Resolver, fixture.Queries);
+        IOwnerBoundCharacterCreationLifestylesCompletionReader lifestyleCompletion =
+            new OwnerBoundCharacterCreationLifestylesService(store, owners, fixture.Resolver, fixture.Queries);
         var originalResources = resourceCompletion.LoadCompletionInputs(original, new(id));
         var originalGear = initialGearCompletion.LoadCompletionInputs(original, new(id));
+        var originalContacts = contactCompletion.LoadCompletionInputs(original, new(id));
+        var originalLifestyles = lifestyleCompletion.LoadCompletionInputs(original, new(id));
+        Assert.AreEqual(CharacterCreationContactOutcomes.Available, originalContacts.Outcome,
+            string.Join(",", originalContacts.Blockers));
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Available, originalLifestyles.Outcome,
+            string.Join(",", originalLifestyles.Blockers));
         Assert.AreEqual(CharacterCreationResourcesOutcomes.Available, originalResources.Outcome,
             string.Join(",", originalResources.Blockers));
         Assert.AreEqual(CharacterCreationGearOutcomes.Available, originalGear.Outcome,
@@ -87,24 +97,38 @@ public sealed class OwnerBoundCreationResourcesGearTests
             .LoadCompletionInputs(new(id)).Value);
         Assert.IsNull(new CharacterCreationGearService(store, fixture.Resolver)
             .LoadCompletionInputs(new(id)).Value);
+        Assert.IsNull(new CharacterCreationContactsService(store, fixture.Resolver, fixture.Queries)
+            .LoadCompletionInputs(new(id)).Value);
+        Assert.IsNull(new CharacterCreationLifestylesService(store, fixture.Resolver, fixture.Queries)
+            .LoadCompletionInputs(new(id)).Value);
         foreach (var denied in new[] { default(OwnerContextStamp), original with { Owner = ownerB },
                      original with { AuthorityInstanceId = "foreign" } })
         {
             Assert.IsNull(resourceCompletion.LoadCompletionInputs(denied, new(id)).Value);
             Assert.IsNull(initialGearCompletion.LoadCompletionInputs(denied, new(id)).Value);
+            Assert.IsNull(contactCompletion.LoadCompletionInputs(denied, new(id)).Value);
+            Assert.IsNull(lifestyleCompletion.LoadCompletionInputs(denied, new(id)).Value);
         }
         owners.Set(ownerB);
         Assert.IsNull(resourceCompletion.LoadCompletionInputs(owners.Capture(), new(id)).Value,
             "Owner B cannot use A's prerequisite or purchase authority for the same workspace ID.");
         Assert.IsNull(initialGearCompletion.LoadCompletionInputs(owners.Capture(), new(id)).Value);
+        Assert.IsNull(contactCompletion.LoadCompletionInputs(owners.Capture(), new(id)).Value);
+        Assert.IsNull(lifestyleCompletion.LoadCompletionInputs(owners.Capture(), new(id)).Value);
         owners.Set(ownerA);
         Assert.IsNull(resourceCompletion.LoadCompletionInputs(original, new(id)).Value);
         Assert.IsNull(initialGearCompletion.LoadCompletionInputs(original, new(id)).Value);
+        Assert.IsNull(contactCompletion.LoadCompletionInputs(original, new(id)).Value);
+        Assert.IsNull(lifestyleCompletion.LoadCompletionInputs(original, new(id)).Value);
         original = owners.Capture();
         Assert.AreEqual(originalResources.Value.SnapshotDigest,
             resourceCompletion.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
         Assert.AreEqual(originalGear.Value.SnapshotDigest,
             initialGearCompletion.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
+        Assert.AreEqual(originalContacts.Value!.SnapshotDigest,
+            contactCompletion.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
+        Assert.AreEqual(originalLifestyles.Value!.SnapshotDigest,
+            lifestyleCompletion.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
         Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(ownerA, id).Value!.Document.AuxiliaryStateDigest);
         Assert.AreEqual(other.Document.AuxiliaryStateDigest, store.Get(ownerB, id).Value!.Document.AuxiliaryStateDigest);
         Assert.AreEqual(0, owners.ActiveLeases);
