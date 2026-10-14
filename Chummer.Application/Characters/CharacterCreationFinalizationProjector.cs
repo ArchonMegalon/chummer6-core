@@ -109,9 +109,10 @@ public static class CharacterCreationFinalizationProjector
 
         if (!CharacterCreationAwakenedLegacyProjector.TryResolvePowerPointPurchase(magic, attributes!, out var powerPointPurchase))
             failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-        karmaRemaining = checked(qualities!.KarmaRemaining - resources!.KarmaInvestment - (powerPointPurchase?.KarmaCost ?? 0));
-        if (karmaRemaining < 0)
+        if (!CharacterCreationPriorityKarmaBudget.TryEvaluate(
+                qualities!.KarmaRemaining, resources!.KarmaInvestment, powerPointPurchase, out int remaining))
             failures.Add(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
+        karmaRemaining = remaining;
         startingNuyen = resources.FinalizationContribution.StartingNuyen;
         nuyenRemaining = gear!.Budget.RemainingNuyen;
         CharacterCreationBootstrapBinding? bootstrap = auxiliary.CharacterCreationBootstrapBinding;

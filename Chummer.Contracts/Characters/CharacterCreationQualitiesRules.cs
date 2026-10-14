@@ -399,6 +399,58 @@ public static class CharacterCreationQualitiesRules
         IReadOnlyList<string> envelope,
         Dictionary<string, CharacterCreationQualityCatalogOption> catalog)
     {
+        var evaluation = EvaluateSelectionCore(input, envelope, catalog, input.Binding.CreationKarmaUsedBeforeQualities);
+        var preview = new CharacterCreationQualitiesPreview(
+            CharacterCreationQualitiesSchemas.PreviewV1,
+            input.Binding,
+            evaluation.AuthorityDigest,
+            evaluation.Selections,
+            evaluation.GrantedQualities,
+            evaluation.PositiveQualityBudget,
+            evaluation.NegativeQualityBudget,
+            evaluation.MetagenicPositiveKarma,
+            evaluation.MetagenicNegativeKarma,
+            evaluation.KarmaRemaining,
+            evaluation.SourceAnchorIds,
+            evaluation.Blockers,
+            RequiresExplicitConfirmation: true,
+            CanConfirm: evaluation.Blockers.Count == 0,
+            PreviewDigest: string.Empty);
+        return preview with { PreviewDigest = CharacterCreationQualitiesDigest.Compute(preview) };
+    }
+
+    /// <summary>
+    /// Read-only quality math with an explicitly proposed Attributes cost. The
+    /// original binding is not rewritten to invent a saved Attributes draft.
+    /// Source admission and attribute evaluation belong to the completion reader;
+    /// this result cannot be passed to TryPlan or Confirm.
+    /// </summary>
+    public static CharacterCreationQualitiesCompletionEvaluation EvaluateCompletion(
+        CharacterCreationQualitiesInput input, int proposedAttributeKarmaUsed)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var envelope = ValidateEnvelope(input.Binding, input.Authority);
+        // Only this distinct, non-confirmable path accepts the exact absence of
+        // saved Attributes. Ordinary ValidateEnvelope and Evaluate are unchanged.
+        if (input.Binding.AttributesDraftRevision == 0 && input.Binding.AttributesDraftDigest == string.Empty)
+            envelope.Remove(CharacterCreationQualitiesBlockers.AttributesDraftRequired);
+        if (proposedAttributeKarmaUsed < 0 || proposedAttributeKarmaUsed > input.Binding.CreationKarmaTotal)
+            envelope.Add(CharacterCreationQualitiesBlockers.KarmaExceeded);
+        return EvaluateSelectionCore(input, envelope, Catalog(input.Authority), proposedAttributeKarmaUsed);
+    }
+
+    public static string ComputeCompletionInputsDigest(CharacterCreationQualitiesCompletionInputs inputs)
+        => CharacterCreationQualitiesDigest.Compute(inputs with { SnapshotDigest = string.Empty });
+
+    public static string ComputeCompletionPreviewDigest(CharacterCreationAttributeQualitiesPreview preview)
+        => CharacterCreationQualitiesDigest.Compute(preview with { ProposalDigest = string.Empty });
+
+    private static CharacterCreationQualitiesCompletionEvaluation EvaluateSelectionCore(
+        CharacterCreationQualitiesInput input,
+        IReadOnlyList<string> envelope,
+        Dictionary<string, CharacterCreationQualityCatalogOption> catalog,
+        int attributeKarmaUsed)
+    {
         List<string> blockers = new(envelope);
         var selected = new List<CharacterCreationQualitySelection>();
         string[] optionIds;
@@ -465,7 +517,7 @@ public static class CharacterCreationQualitiesRules
         {
             karmaRemaining = checked(
                 input.Binding.CreationKarmaTotal
-                - input.Binding.CreationKarmaUsedBeforeQualities
+                - attributeKarmaUsed
                 - karmaUsed);
         }
         catch (OverflowException)
@@ -506,10 +558,9 @@ public static class CharacterCreationQualitiesRules
             .Distinct(StringComparer.Ordinal)
             .OrderBy(static item => item, StringComparer.Ordinal)
             .ToArray();
-        var preview = new CharacterCreationQualitiesPreview(
-            CharacterCreationQualitiesSchemas.PreviewV1,
-            input.Binding,
+        return new CharacterCreationQualitiesCompletionEvaluation(
             input.Authority.AuthorityDigest,
+            attributeKarmaUsed,
             normalizedSelections,
             normalizedGrants,
             Budget(input.Authority.QualityKarmaLimit, positiveUsed,
@@ -522,15 +573,7 @@ public static class CharacterCreationQualitiesRules
             metagenicNegative,
             karmaRemaining,
             anchors,
-            normalizedBlockers,
-            RequiresExplicitConfirmation: true,
-            CanConfirm: normalizedBlockers.Length == 0,
-            PreviewDigest: string.Empty);
-        return preview with
-        {
-            PreviewDigest = CharacterCreationQualitiesDigest.Compute(
-                preview with { PreviewDigest = string.Empty })
-        };
+            normalizedBlockers);
     }
 
     public static bool TryPlan(

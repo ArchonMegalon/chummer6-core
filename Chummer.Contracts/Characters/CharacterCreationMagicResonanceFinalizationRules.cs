@@ -306,12 +306,29 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 CharacterCreationMagicResonanceDigest.Compute(attributes with { DraftDigest = string.Empty })))
             return false;
 
+        return TryResolveEffectiveAttributes(talent, attributes.Attributes, attributes.Allocations, out effective);
+    }
+
+    /// <summary>
+    /// Projects effective special attributes from an already source-admitted
+    /// attribute evaluation. This does not manufacture a saved draft or confer
+    /// mutation authority; callers must validate the original source snapshot.
+    /// </summary>
+    public static bool TryResolveEffectiveAttributes(
+        CharacterCreationMagicResonanceTalentOption talent,
+        IReadOnlyList<CharacterCreationAttributeProjection> attributeProjections,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        out CharacterCreationMagicResonanceEffectiveAttributes effective)
+    {
+        effective = new(talent.Magic, talent.Resonance, talent.Depth, talent.AdeptPowerPointBudget);
+        if (attributeProjections is null || attributeAllocations is null)
+            return false;
         var values = new List<int>();
         foreach ((string id, int grant) in new[] { ("MAG", talent.Magic), ("RES", talent.Resonance), ("DEP", talent.Depth) })
         {
-            CharacterCreationAttributeProjection[] projections = attributes.Attributes
+            CharacterCreationAttributeProjection[] projections = attributeProjections
                 .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
-            CharacterCreationAttributeAllocation[] allocations = attributes.Allocations
+            CharacterCreationAttributeAllocation[] allocations = attributeAllocations
                 .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
             if (projections.Length != 1 || allocations.Length != 1)
                 return false;

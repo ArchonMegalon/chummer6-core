@@ -20,6 +20,12 @@
     <Compile Include="CharacterCreationSkillsServiceTests.CompletionPlanner.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.CompletionInputs.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.Owner.cs" />
+    <Compile Include="CharacterCreationPriorityKarmaBudgetTests.cs" />
+    <Compile Include="CharacterCreationFinalizationServiceTests.cs" />
+    <Compile Include="CharacterCreationQualitiesServiceTests.Completion.cs" />
+    <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
+    <Compile Include="CharacterCreationMagicResonanceServiceTests.cs" />
+    <Compile Include="MagicResonanceServiceTests.Completion.cs" />
     <Compile Include="FileSystemCharacterSourceDataResolverTests.cs" />
     <Compile Include="WorkspaceRuleQuestionServiceTests.cs" />
     <Compile Include="WorkspaceRuleQuestionIntegrityTests.cs" />
