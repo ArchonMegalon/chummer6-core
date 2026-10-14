@@ -10,8 +10,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CharacterCreationResourcesServiceTests.cs" />
+    <Compile Include="CharacterCreationResourcesServiceTests.Completion.cs" />
     <Compile Include="CreationCanonicalDigestTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.cs" />
+    <Compile Include="CharacterCreationGearServiceTests.Completion.cs" />
+    <Compile Include="OwnerBoundCreationResourcesGearTests.cs" />
     <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
     <Compile Include="CharacterCreationAttributesServiceTests.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.cs" />

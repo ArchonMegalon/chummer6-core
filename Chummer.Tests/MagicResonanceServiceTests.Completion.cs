@@ -371,12 +371,12 @@ public sealed class MagicResonanceCompletionTests
         AssertWorkspaceUnchanged(context, before, files);
     }
 
-    private static CharacterCreationQualitiesService CompletionQualities(ReadyContext context)
+    internal static CharacterCreationQualitiesService CompletionQualities(ReadyContext context)
         => new(context.Store, context.Resolver,
             new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver),
             new CharacterCreationAttributesService(context.Store, context.Resolver));
 
-    private static void SavePrerequisite(ReadyContext context, string talentName, string talentRank)
+    internal static void SavePrerequisite(ReadyContext context, string talentName, string talentRank)
     {
         var service = new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver);
         var loaded = service.Load(new(context.WorkspaceId));
@@ -414,7 +414,7 @@ public sealed class MagicResonanceCompletionTests
         Assert.IsNull(context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryState.CharacterCreationAttributesDraft);
     }
 
-    private static void SaveAttributes(ReadyContext context, IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
+    internal static void SaveAttributes(ReadyContext context, IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
     {
         var service = new CharacterCreationAttributesService(context.Store, context.Resolver);
         var state = service.Load(new(context.WorkspaceId)).Value!;
@@ -424,7 +424,7 @@ public sealed class MagicResonanceCompletionTests
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, saved.Outcome, string.Join(",", saved.Blockers));
     }
 
-    private static CharacterCreationMagicResonanceSelections CompleteSelections(
+    internal static CharacterCreationMagicResonanceSelections CompleteSelections(
         CharacterCreationMagicResonanceCompletionInputs inputs, int magic, int mysticPowerPoints = 0)
     {
         var talent = inputs.SelectedTalent;

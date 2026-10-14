@@ -9,8 +9,29 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationGearService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationGearService
+    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationGearService,
+    IOwnerBoundCharacterCreationGearCompletionReader
 {
+    public CharacterCreationGearResult<CharacterCreationGearCompletionInputs> LoadCompletionInputs(
+        OwnerContextStamp expectedOwner, CharacterCreationGearLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
+            || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return new(CharacterCreationGearOutcomes.Blocked, null,
+                [CharacterCreationGearBlockers.StaleWorkspaceRevision]);
+
+        using (lease)
+        {
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner,
+                request.WorkspaceId, reuseReadObservation: true);
+            return new CharacterCreationGearService(view, sourceScope ?? sourceResolver)
+                .LoadCompletionInputs(request);
+        }
+    }
+
     public CharacterCreationGearResult<CharacterCreationGearState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationGearLoadRequest request)
     {

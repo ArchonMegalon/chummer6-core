@@ -13,7 +13,7 @@ namespace Chummer.Application.Characters;
 /// an authority-bound finalization contribution, keeping all raw XML byte-identical
 /// until the single creation finalizer can compose every wizard lane atomically.
 /// </summary>
-public sealed class CharacterCreationResourcesService : ICharacterCreationResourcesService
+public sealed partial class CharacterCreationResourcesService : ICharacterCreationResourcesService
 {
     private const int MaximumIdempotencyKeyLength = 200;
 
@@ -393,24 +393,8 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
                 blockers);
         blockers.AddRange(budgetAfter.Blockers);
         string rawDigest = context.Binding.RawCharacterXmlDigest;
-        var contributionCandidate = new CharacterCreationResourcesFinalizationContribution(
-            CharacterCreationResourcesSchemas.ContributionV1,
-            context.PriorityOption?.Rank ?? string.Empty,
-            context.PriorityOption?.SourceId ?? string.Empty,
-            context.PriorityOption?.BasePriorityNuyen ?? 0m,
-            option?.KarmaInvestment ?? 0,
-            rawDigest,
-            context.PriorityOption?.SourceAnchorIds
-                .Concat(CharacterCreationResourcesSourceAnchors.All)
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(anchor => anchor, StringComparer.Ordinal)
-                .ToArray() ?? CharacterCreationResourcesSourceAnchors.All,
-            ContributionDigest: string.Empty);
-        CharacterCreationResourcesFinalizationContribution contribution = contributionCandidate with
-        {
-            ContributionDigest = CharacterCreationResourcesRules.ComputeContributionDigest(
-                contributionCandidate)
-        };
+        CharacterCreationResourcesFinalizationContribution contribution = BuildContribution(
+            context.PriorityOption, option, rawDigest);
         var draftCandidate = new CharacterCreationResourcesDraft(
             CharacterCreationResourcesSchemas.DraftV1,
             workspace.Id,
@@ -644,6 +628,30 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             knownPurchaseCost,
             binding,
             Normalize(blockers));
+    }
+
+    private static CharacterCreationResourcesFinalizationContribution BuildContribution(
+        CharacterCreationResourcePriorityOption? priority,
+        CharacterCreationResourceAllocationOption? option,
+        string rawDigest)
+    {
+        var candidate = new CharacterCreationResourcesFinalizationContribution(
+            CharacterCreationResourcesSchemas.ContributionV1,
+            priority?.Rank ?? string.Empty,
+            priority?.SourceId ?? string.Empty,
+            priority?.BasePriorityNuyen ?? 0m,
+            option?.KarmaInvestment ?? 0,
+            rawDigest,
+            priority?.SourceAnchorIds
+                .Concat(CharacterCreationResourcesSourceAnchors.All)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(anchor => anchor, StringComparer.Ordinal)
+                .ToArray() ?? CharacterCreationResourcesSourceAnchors.All,
+            ContributionDigest: string.Empty);
+        return candidate with
+        {
+            ContributionDigest = CharacterCreationResourcesRules.ComputeContributionDigest(candidate)
+        };
     }
 
     private static CharacterCreationResourceAllocationOption[] BuildOptions(

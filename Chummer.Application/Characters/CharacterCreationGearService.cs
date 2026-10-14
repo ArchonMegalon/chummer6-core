@@ -12,7 +12,7 @@ namespace Chummer.Application.Characters;
 /// profile. Confirmation persists a finalization contribution and leaves character XML
 /// byte-identical so all creation lanes can be finalized once, atomically, later.
 /// </summary>
-public sealed class CharacterCreationGearService : ICharacterCreationGearService
+public sealed partial class CharacterCreationGearService : ICharacterCreationGearService
 {
     private const int MaximumIdempotencyKeyLength = 200;
 
@@ -36,6 +36,15 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             return ReadFailure<CharacterCreationGearState>(read);
 
         AuthorityContext context = BuildContext(workspace);
+        CharacterCreationGearState state = CreateState(context);
+        return new CharacterCreationGearResult<CharacterCreationGearState>(
+            CharacterCreationGearOutcomes.Available,
+            state,
+            context.Blockers);
+    }
+
+    private static CharacterCreationGearState CreateState(AuthorityContext context)
+    {
         var candidate = new CharacterCreationGearState(
             CharacterCreationGearSchemas.StateV1,
             CharacterCreationWizardStepIds.Resources,
@@ -47,14 +56,10 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             context.Blockers,
             CanEdit: context.Blockers.Count == 0,
             SnapshotDigest: string.Empty);
-        CharacterCreationGearState state = candidate with
+        return candidate with
         {
             SnapshotDigest = CharacterCreationGearRules.ComputeStateDigest(candidate)
         };
-        return new CharacterCreationGearResult<CharacterCreationGearState>(
-            CharacterCreationGearOutcomes.Available,
-            state,
-            context.Blockers);
     }
 
     public CharacterCreationGearResult<CharacterCreationGearPreview> Preview(

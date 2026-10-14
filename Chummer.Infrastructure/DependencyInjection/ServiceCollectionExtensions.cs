@@ -261,10 +261,16 @@ public static class ServiceCollectionExtensions
             CharacterCreationResourcesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationResourcesService,
             OwnerBoundCharacterCreationResourcesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationResourcesCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationResourcesCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationResourcesService>());
         services.AddSingleton<ICharacterCreationGearService,
             CharacterCreationGearService>();
         services.AddSingleton<IOwnerBoundCharacterCreationGearService,
             OwnerBoundCharacterCreationGearService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationGearCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationGearCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationGearService>());
         services.AddSingleton<ICharacterCreationFinalizationService,
             CharacterCreationFinalizationService>();
         services.AddSingleton<IOwnerBoundCharacterCreationFinalizationService,

@@ -70,6 +70,44 @@ public sealed class OwnerBoundCreationResourcesGearTests
         Assert.IsNull(new CharacterCreationGearService(store, fixture.Resolver).Load(new(id)).Value);
 
         var resources = new OwnerBoundCharacterCreationResourcesService(store, owners, fixture.Resolver);
+        IOwnerBoundCharacterCreationResourcesCompletionReader resourceCompletion = resources;
+        IOwnerBoundCharacterCreationGearCompletionReader initialGearCompletion =
+            new OwnerBoundCharacterCreationGearService(store, owners, fixture.Resolver);
+        var originalResources = resourceCompletion.LoadCompletionInputs(original, new(id));
+        var originalGear = initialGearCompletion.LoadCompletionInputs(original, new(id));
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Available, originalResources.Outcome,
+            string.Join(",", originalResources.Blockers));
+        Assert.AreEqual(CharacterCreationGearOutcomes.Available, originalGear.Outcome,
+            string.Join(",", originalGear.Blockers));
+        Assert.IsNull(originalResources.Value!.PendingDraft);
+        Assert.IsNull(originalGear.Value!.State.ResourcesDraft);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, originalResources.Value.Binding.AuxiliaryStateDigest);
+        Assert.AreEqual(originalResources.Value.SnapshotDigest, originalGear.Value.Resources.SnapshotDigest);
+        Assert.IsNull(new CharacterCreationResourcesService(store, fixture.Resolver)
+            .LoadCompletionInputs(new(id)).Value);
+        Assert.IsNull(new CharacterCreationGearService(store, fixture.Resolver)
+            .LoadCompletionInputs(new(id)).Value);
+        foreach (var denied in new[] { default(OwnerContextStamp), original with { Owner = ownerB },
+                     original with { AuthorityInstanceId = "foreign" } })
+        {
+            Assert.IsNull(resourceCompletion.LoadCompletionInputs(denied, new(id)).Value);
+            Assert.IsNull(initialGearCompletion.LoadCompletionInputs(denied, new(id)).Value);
+        }
+        owners.Set(ownerB);
+        Assert.IsNull(resourceCompletion.LoadCompletionInputs(owners.Capture(), new(id)).Value,
+            "Owner B cannot use A's prerequisite or purchase authority for the same workspace ID.");
+        Assert.IsNull(initialGearCompletion.LoadCompletionInputs(owners.Capture(), new(id)).Value);
+        owners.Set(ownerA);
+        Assert.IsNull(resourceCompletion.LoadCompletionInputs(original, new(id)).Value);
+        Assert.IsNull(initialGearCompletion.LoadCompletionInputs(original, new(id)).Value);
+        original = owners.Capture();
+        Assert.AreEqual(originalResources.Value.SnapshotDigest,
+            resourceCompletion.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
+        Assert.AreEqual(originalGear.Value.SnapshotDigest,
+            initialGearCompletion.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(ownerA, id).Value!.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(other.Document.AuxiliaryStateDigest, store.Get(ownerB, id).Value!.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(0, owners.ActiveLeases);
         var loaded = resources.Load(original, new(id));
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
         Assert.IsTrue(loaded.Value.CanEdit, string.Join(",", loaded.Blockers));
@@ -160,6 +198,14 @@ public sealed class OwnerBoundCreationResourcesGearTests
         Assert.AreEqual(before.Document.Content, after.Document.Content);
         Assert.AreEqual(1, after.Document.AuxiliaryState.CharacterCreationResourcesReceipts!.Count);
         Assert.AreEqual(1, after.Document.AuxiliaryState.CharacterCreationGearReceipts!.Count);
+        var coldCompletion = ((IOwnerBoundCharacterCreationGearCompletionReader)gearReopened)
+            .LoadCompletionInputs(current, new(id));
+        Assert.AreEqual(CharacterCreationGearOutcomes.Available, coldCompletion.Outcome,
+            string.Join(",", coldCompletion.Blockers));
+        Assert.AreEqual(finalState.PendingDraft!.DraftDigest, coldCompletion.Value!.State.PendingDraft!.DraftDigest);
+        Assert.AreEqual(gearSaved.Value.ReceiptDigest, coldCompletion.Value.Receipts.Single().Receipt.ReceiptDigest);
+        Assert.AreEqual(after.Document.AuxiliaryStateDigest,
+            finalStore.Get(ownerA, id).Value!.Document.AuxiliaryStateDigest);
         Assert.AreEqual(other.Document.AuxiliaryStateDigest, finalStore.Get(ownerB, id).Value!.Document.AuxiliaryStateDigest);
         Assert.AreEqual(other.ContentRevision, finalStore.Get(ownerB, id).Value!.ContentRevision);
         Assert.IsFalse(finalStore.Get(id).Success);
