@@ -15,10 +15,15 @@ public static class CharacterCreationSkillCompletionBlockers
     public const string GroupMemberLocked = "creation-skill-completion-group-member-locked";
     public const string WorkLimitReached = "creation-skill-completion-work-limit-reached";
     public const string NativeLanguageChoiceConflict = "creation-skill-completion-native-language-choice-conflict";
+    public const string TargetsUnfulfilled = "creation-skill-completion-targets-unfulfilled";
 }
 
 /// <summary>Kind is active, knowledge or group; SourceId is the exact admitted catalog identity.</summary>
 public sealed record CharacterCreationSkillCompletionTarget(string Kind, string SourceId);
+
+/// <summary>Desired source-grant-inclusive effective rating. A higher existing
+/// rating is retained; native languages remain non-numeric identity choices.</summary>
+public sealed record CharacterCreationSkillCompletionRatingTarget(string Kind, string SourceId, int TargetRating);
 
 /// <summary>
 /// Explicit permission and deterministic preference order, not an archetype or
@@ -42,13 +47,21 @@ public sealed record CharacterCreationSkillCompletionRequest(
     /// converts a purchased language rating; Core checks source eligibility.
     /// </summary>
     public string? NativeLanguageSourceId { get; init; }
+
+    /// <summary>Optional numeric goals in allocation order. Null retains legacy
+    /// fill-to-cap behavior; an empty list makes no numeric additions. Permissions
+    /// remain explicit and separate, so a group member can be permitted without
+    /// requesting an individual allocation. Every goal must be permitted. Legal
+    /// unused points are retained when the requested goals have been met.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationSkillCompletionRatingTarget>? Targets { get; init; }
 }
 
 /// <summary>
 /// Read-only skill/group additions in the context of explicit proposed attributes.
 /// Existing specializations and native language are preserved. A missing native
 /// language is filled only from the request's explicit admitted source identity.
-/// Missing prerequisites or unspent points remain explicit blockers. HasChanges
+/// Missing prerequisites, unmet targets or legacy unspent points remain explicit blockers. HasChanges
 /// describes skill/group changes only; the outer assistant owns attribute locks.
 /// This is neither a receipt nor authority to save/finalize a character.
 /// </summary>

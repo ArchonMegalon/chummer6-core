@@ -27,7 +27,11 @@ public static class CharacterCreationSkillCompletionPlanner
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
 
-        request = request with { PermittedTargetOrder = request.PermittedTargetOrder.ToArray() };
+        request = request with
+        {
+            PermittedTargetOrder = request.PermittedTargetOrder.ToArray(),
+            Targets = request.Targets?.ToArray()
+        };
         attributeAllocations = attributeAllocations.ToArray();
         inputs = JsonSerializer.Deserialize<CharacterCreationSkillsCompletionInputs>(
             JsonSerializer.SerializeToUtf8Bytes(inputs))!;
@@ -41,7 +45,7 @@ public static class CharacterCreationSkillCompletionPlanner
         var prepared = CharacterCreationSkillsService.PrepareCompletionPreview(inputs, attributeAllocations, ct);
         if (prepared.Value is not { } session)
             return new(prepared.Outcome, null, prepared.Blockers);
-        return PlanPrepared(inputs.Authority, inputs.PrerequisiteDraft.BuildMethod, session,
+        return PlanPrepared(inputs.Authority, inputs.PrerequisiteDraft.BuildMethod, inputs.MovementCapability, session,
             inputs.Allocations, inputs.GroupAllocations, attributeAllocations, request, ct);
     }
 
@@ -61,7 +65,11 @@ public static class CharacterCreationSkillCompletionPlanner
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
 
-        request = request with { PermittedTargetOrder = request.PermittedTargetOrder.ToArray() };
+        request = request with
+        {
+            PermittedTargetOrder = request.PermittedTargetOrder.ToArray(),
+            Targets = request.Targets?.ToArray()
+        };
         attributeAllocations = attributeAllocations.ToArray();
         attributesState = JsonSerializer.Deserialize<CharacterCreationAttributesState>(
             JsonSerializer.SerializeToUtf8Bytes(attributesState))!;
@@ -77,7 +85,7 @@ public static class CharacterCreationSkillCompletionPlanner
             attributesState, skillsState, attributeAllocations, cancellationToken);
         if (prepared.Value is not { } session)
             return new(prepared.Outcome, null, prepared.Blockers);
-        return PlanPrepared(skillsState.Authority, skillsState.PrerequisiteDraft!.BuildMethod, session,
+        return PlanPrepared(skillsState.Authority, skillsState.PrerequisiteDraft!.BuildMethod, skillsState.MovementCapability, session,
             skillsState.Skills.Select(skill => new CharacterCreationSkillAllocation(
                 skill.SourceSkillId, skill.Kind, skill.Rating, skill.SpecializationOptionId, skill.IsNativeLanguage)),
             skillsState.SkillGroups.Select(group => new CharacterCreationSkillGroupAllocation(group.GroupId, group.Rating)),
@@ -87,6 +95,7 @@ public static class CharacterCreationSkillCompletionPlanner
     private static CharacterCreationFoundationResult<CharacterCreationSkillCompletionPlan> PlanPrepared(
         CharacterCreationSkillsAuthority authority,
         string buildMethod,
+        CharacterCreationMovementCapability movementCapability,
         CharacterCreationSkillsService.CompletionPreviewSession session,
         IEnumerable<CharacterCreationSkillAllocation> baselineAllocations,
         IEnumerable<CharacterCreationSkillGroupAllocation> baselineGroups,
@@ -102,7 +111,10 @@ public static class CharacterCreationSkillCompletionPlanner
         var permitted = request.PermittedTargetOrder.Select(target => (target.Kind, target.SourceId)).ToHashSet();
         if (permitted.Count != request.PermittedTargetOrder.Count
             || request.PermittedTargetOrder.Any(target => string.IsNullOrWhiteSpace(target.SourceId)
-                || !IsKnownTarget(authority, target)))
+                || !IsKnownTarget(authority, target))
+            || request.Targets is { } targets &&
+                (targets.Select(target => (target.Kind, target.SourceId)).Distinct().Count() != targets.Count
+                || targets.Any(target => !permitted.Contains((target.Kind, target.SourceId)))))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
 
@@ -150,9 +162,15 @@ public static class CharacterCreationSkillCompletionPlanner
             }
         }
         int baselineOverflow = preview.KnowledgePointOverflowToActive;
-        foreach (var target in request.PermittedTargetOrder)
+        IEnumerable<(string Kind, string SourceId, int? Rating)> allocationOrder = request.Targets is null
+            ? request.PermittedTargetOrder.Select(target => (target.Kind, target.SourceId, (int?)null))
+            : request.Targets.Select(target => (target.Kind, target.SourceId, (int?)target.TargetRating));
+        foreach (var target in allocationOrder)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (target.Rating is int desired && MeetsTarget(preview, authority, movementCapability,
+                    target.Kind, target.SourceId, desired))
+                continue;
             bool isGroup = target.Kind == CharacterCreationSkillCompletionKinds.Group;
             if (isGroup && Remaining(preview, target.Kind) > Reserve(request, target.Kind)
                 && authority.SkillGroups.Single(group => group.GroupId == target.SourceId)
@@ -161,10 +179,12 @@ public static class CharacterCreationSkillCompletionPlanner
                 groupMemberLocked = true;
                 continue;
             }
-            while (Remaining(preview, target.Kind) > Reserve(request, target.Kind))
+            while (Remaining(preview, target.Kind) > Reserve(request, target.Kind)
+                && (target.Rating is null || !MeetsTarget(preview, authority, movementCapability,
+                    target.Kind, target.SourceId, target.Rating.Value)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (evaluations > MaximumCandidateEvaluations)
+                if (request.Targets is null ? evaluations > MaximumCandidateEvaluations : evaluations >= MaximumCandidateEvaluations)
                 {
                     workLimitReached = true;
                     break;
@@ -212,15 +232,25 @@ public static class CharacterCreationSkillCompletionPlanner
 
         cancellationToken.ThrowIfCancellationRequested();
         var blockers = preview.Blockers.ToList();
-        if (preview.ActiveSkillPointBudget.Remaining > request.ActivePointsToReserve)
-            blockers.Add(CharacterCreationSkillCompletionBlockers.ActivePointsUnallocated);
-        if (preview.SkillGroupPointBudget.Remaining > request.GroupPointsToReserve)
+        if (request.Targets is null)
         {
-            blockers.Add(CharacterCreationSkillCompletionBlockers.GroupPointsUnallocated);
+            if (preview.ActiveSkillPointBudget.Remaining > request.ActivePointsToReserve)
+                blockers.Add(CharacterCreationSkillCompletionBlockers.ActivePointsUnallocated);
+            if (preview.SkillGroupPointBudget.Remaining > request.GroupPointsToReserve)
+            {
+                blockers.Add(CharacterCreationSkillCompletionBlockers.GroupPointsUnallocated);
+                if (groupMemberLocked) blockers.Add(CharacterCreationSkillCompletionBlockers.GroupMemberLocked);
+            }
+            if (preview.KnowledgeSkillPointBudget.Remaining > request.KnowledgePointsToReserve)
+                blockers.Add(CharacterCreationSkillCompletionBlockers.KnowledgePointsUnallocated);
+        }
+        else
+        {
+            if (request.Targets.Any(target => !MeetsTarget(preview, authority, movementCapability,
+                    target.Kind, target.SourceId, target.TargetRating)))
+                blockers.Add(CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled);
             if (groupMemberLocked) blockers.Add(CharacterCreationSkillCompletionBlockers.GroupMemberLocked);
         }
-        if (preview.KnowledgeSkillPointBudget.Remaining > request.KnowledgePointsToReserve)
-            blockers.Add(CharacterCreationSkillCompletionBlockers.KnowledgePointsUnallocated);
         if (workLimitReached) blockers.Add(CharacterCreationSkillCompletionBlockers.WorkLimitReached);
         var plan = new CharacterCreationSkillCompletionPlan(request, attributeAllocations, allocations, groups,
             preview, changed, evaluations, blockers.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
@@ -234,11 +264,37 @@ public static class CharacterCreationSkillCompletionPlanner
         request.Binding is not null && request.PermittedTargetOrder is not null
         && request.PermittedTargetOrder.Count <= MaximumTargets
         && !request.PermittedTargetOrder.Any(target => target is null)
+        && (request.Targets is null || request.Targets.Count <= MaximumTargets
+            && request.Targets.All(target => target is not null && target.TargetRating >= 0
+                && !string.IsNullOrWhiteSpace(target.SourceId)))
         && request.ActivePointsToReserve >= 0 && request.GroupPointsToReserve >= 0
         && request.KnowledgePointsToReserve >= 0;
 
     private static bool AllowsPlanning(IReadOnlyList<string> blockers) =>
         blockers.All(blocker => blocker == CharacterCreationSkillsBlockers.NativeLanguageRequired);
+
+    private static bool MeetsTarget(CharacterCreationAttributeSkillsPreview preview,
+        CharacterCreationSkillsAuthority authority, CharacterCreationMovementCapability movement,
+        string kind, string sourceId, int desired)
+    {
+        if (kind == CharacterCreationSkillCompletionKinds.Group)
+            return (preview.SkillGroups.SingleOrDefault(group => group.GroupId == sourceId)?.Rating ?? 0) >= desired;
+        var skill = preview.Skills.SingleOrDefault(row => row.Kind == kind && row.SourceSkillId == sourceId);
+        // Native is never a numeric rating, even when a caller asks for zero.
+        if (skill is not null) return skill.EffectiveRating is int rating && rating >= desired;
+        if (desired == 0) return true;
+        if (kind != CharacterCreationSkillKinds.Active) return false;
+        var source = authority.ActiveSkills.Single(item => item.SourceSkillId == sourceId);
+        // Group projections retain disabled canonical members for authority
+        // matching. They must not imply an effective skill the runner cannot use.
+        if (!CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, sourceId)
+            || source.RequiresGroundMovement && !movement.Ground
+            || source.RequiresSwimMovement && !movement.Swim
+            || source.RequiresFlyMovement && !movement.Fly)
+            return false;
+        return preview.SkillGroups.Any(group => group.IsEnabled && group.Rating >= desired
+            && group.MemberSkillSourceIds.Contains(sourceId, StringComparer.Ordinal));
+    }
 
     private static bool IsKnownTarget(CharacterCreationSkillsAuthority authority, CharacterCreationSkillCompletionTarget target) =>
         target.Kind switch

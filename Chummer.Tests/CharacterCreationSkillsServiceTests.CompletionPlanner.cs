@@ -448,6 +448,391 @@ public sealed partial class CharacterCreationSkillsServiceTests
         });
     }
 
+    [TestMethod]
+    public void Skill_completion_explicit_targets_stop_at_requested_ratings_preserve_manual_values_and_detach_inputs()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                    new(ActiveIds[2], CharacterCreationSkillKinds.Active, 4, "spec-2", false),
+                    new(ActiveIds[3], CharacterCreationSkillKinds.Active, 1, null, false)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            CharacterCreationSkillCompletionTarget[] permissions =
+            [new(CharacterCreationSkillKinds.Active, ActiveIds[2]),
+                new(CharacterCreationSkillKinds.Active, ActiveIds[3]),
+                new(CharacterCreationSkillKinds.Active, ActiveIds[4]),
+                new(CharacterCreationSkillKinds.Knowledge, KnowledgeIds[0])];
+            CharacterCreationSkillCompletionRatingTarget[] targets =
+            [new(CharacterCreationSkillKinds.Active, ActiveIds[2], 2),
+                new(CharacterCreationSkillKinds.Active, ActiveIds[4], 2),
+                new(CharacterCreationSkillKinds.Knowledge, KnowledgeIds[0], 1)];
+            var request = SkillCompletionRequest(attributes, skills, permissions) with { Targets = targets };
+            var proposedAttributes = attributes.PendingDraft!.Allocations.ToArray();
+            var inputDigest = CharacterCreationSkillsDigest.Compute(new { attributes, skills, request, proposedAttributes });
+
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills, proposedAttributes, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var plan = result.Value!;
+            Assert.IsTrue(plan.HasChanges);
+            Assert.AreEqual(4, plan.Allocations.Single(row => row.SourceSkillId == ActiveIds[2]).Rating);
+            Assert.AreEqual("spec-2", plan.Allocations.Single(row => row.SourceSkillId == ActiveIds[2]).SpecializationOptionId);
+            Assert.AreEqual(1, plan.Allocations.Single(row => row.SourceSkillId == ActiveIds[3]).Rating,
+                "Permission alone must not add a numeric target.");
+            Assert.AreEqual(2, plan.Allocations.Single(row => row.SourceSkillId == ActiveIds[4]).Rating);
+            Assert.AreEqual(1, plan.Allocations.Single(row => row.SourceSkillId == KnowledgeIds[0]).Rating);
+            Assert.IsTrue(plan.Allocations.Single(row => row.SourceSkillId == LanguageId).IsNativeLanguage);
+            Assert.IsTrue(plan.Preview.ActiveSkillPointBudget.Remaining > 0);
+            Assert.IsTrue(plan.Preview.SkillGroupPointBudget.Remaining > 0);
+            Assert.IsTrue(plan.Preview.KnowledgeSkillPointBudget.Remaining > 0);
+            Assert.AreEqual(0, plan.Blockers.Count, "Met explicit targets do not require spending every pool.");
+            Assert.AreEqual(inputDigest, CharacterCreationSkillsDigest.Compute(new { attributes, skills, request, proposedAttributes }));
+            AssertCompletionProjectionMatches(plan.Preview,
+                service.Preview(new(skills.Binding, plan.Allocations, plan.GroupAllocations)).Value!);
+            var captured = CharacterCreationSkillsDigest.Compute(plan);
+            targets[0] = targets[0] with { TargetRating = int.MaxValue };
+            permissions[0] = new(CharacterCreationSkillKinds.Active, "mutated");
+            proposedAttributes[0] = proposedAttributes[0] with { PriorityPoints = 100 };
+            Assert.AreEqual(captured, CharacterCreationSkillsDigest.Compute(plan));
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_explicit_target_order_not_permission_order_controls_a_limited_pool()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2]),
+                    new(CharacterCreationSkillKinds.Active, ActiveIds[3])]) with
+            {
+                ActivePointsToReserve = 26,
+                Targets = [new(CharacterCreationSkillKinds.Active, ActiveIds[3], 2),
+                    new(CharacterCreationSkillKinds.Active, ActiveIds[2], 2)]
+            };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+            var plan = result.Value!;
+            Assert.AreEqual(2, plan.Allocations.Single(row => row.SourceSkillId == ActiveIds[3]).Rating);
+            Assert.IsFalse(plan.Allocations.Any(row => row.SourceSkillId == ActiveIds[2]));
+            Assert.AreEqual(26m, plan.Preview.ActiveSkillPointBudget.Remaining);
+            CollectionAssert.AreEquivalent(new[] { CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled },
+                plan.Blockers.ToArray());
+            Assert.AreEqual(0, plan.Preview.Blockers.Count);
+            Assert.AreEqual(plan.PlanDigest, CharacterCreationSkillCompletionPlanner.Plan(
+                attributes, skills, attributes.PendingDraft.Allocations, request).Value!.PlanDigest);
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_explicit_group_target_requires_all_member_permissions_without_buying_member_rows()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var group = skills.Authority.SkillGroups.Single();
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(CharacterCreationSkillCompletionKinds.Group, group.GroupId),
+                    new(CharacterCreationSkillKinds.Active, ActiveIds[0])]) with
+            {
+                Targets = [new(CharacterCreationSkillCompletionKinds.Group, group.GroupId, 1)]
+            };
+            var locked = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, locked.Outcome);
+            Assert.IsNotNull(locked.Value);
+            Assert.AreEqual(0, locked.Value.GroupAllocations.Count);
+            CollectionAssert.Contains(locked.Blockers.ToArray(), CharacterCreationSkillCompletionBlockers.GroupMemberLocked);
+            CollectionAssert.Contains(locked.Blockers.ToArray(), CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled);
+
+            request = request with
+            {
+                PermittedTargetOrder = [.. request.PermittedTargetOrder,
+                    new(CharacterCreationSkillKinds.Active, ActiveIds[1])]
+            };
+            var allowed = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, allowed.Outcome, string.Join(",", allowed.Blockers));
+            var plan = allowed.Value!;
+            Assert.AreEqual(1, plan.GroupAllocations.Single().Rating);
+            Assert.AreEqual(1m, plan.Preview.SkillGroupPointBudget.Remaining);
+            Assert.AreEqual(0m, plan.Preview.ActiveSkillPointBudget.Used);
+            Assert.IsFalse(plan.Allocations.Any(row => group.MemberSkillSourceIds.Contains(row.SourceSkillId)));
+            AssertCompletionProjectionMatches(plan.Preview,
+                service.Preview(new(skills.Binding, plan.Allocations, plan.GroupAllocations)).Value!);
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    [DataRow("Magician")]
+    [DataRow("Aspected Magician")]
+    public void Skill_completion_explicit_target_rating_includes_real_source_grants(string talent)
+    {
+        WithRealTalentSkills(talent, (_, store, resolver, service, id) =>
+        {
+            var initial = Load(service, id);
+            var native = initial.Authority.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
+            SaveCompletionSkills(service, id,
+                [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var grants = skills.PrerequisiteDraft!.TalentSelection!.GrantPlan!;
+            bool activeGrant = grants.ActiveSkills.Count > 0;
+            CharacterCreationSkillCompletionTarget[] permissions;
+            CharacterCreationSkillCompletionRatingTarget target;
+            if (activeGrant)
+            {
+                var grant = grants.ActiveSkills[0];
+                permissions = [new(CharacterCreationSkillKinds.Active, grant.SourceId)];
+                target = new(CharacterCreationSkillKinds.Active, grant.SourceId, grant.BaseRating + 1);
+            }
+            else
+            {
+                var grant = grants.SkillGroups[0];
+                var group = skills.Authority.SkillGroups.Single(row => row.Name == grant.CanonicalName);
+                permissions = [new(CharacterCreationSkillCompletionKinds.Group, group.GroupId),
+                    .. group.MemberSkillSourceIds.Select(sourceId =>
+                        new CharacterCreationSkillCompletionTarget(CharacterCreationSkillKinds.Active, sourceId))];
+                target = new(CharacterCreationSkillCompletionKinds.Group, group.GroupId, grant.BaseRating + 1);
+            }
+            var request = SkillCompletionRequest(attributes, skills, permissions) with { Targets = [target] };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var plan = result.Value!;
+            Assert.AreEqual(activeGrant ? 1m : 0m, plan.Preview.ActiveSkillPointBudget.Used);
+            Assert.AreEqual(activeGrant ? 0m : 1m, plan.Preview.SkillGroupPointBudget.Used);
+            if (activeGrant)
+            {
+                var row = plan.Preview.Skills.Single(value => value.SourceSkillId == target.SourceId);
+                Assert.AreEqual(target.TargetRating, row.Rating);
+                Assert.AreEqual(target.TargetRating - 1, row.GrantedRating);
+            }
+            else
+            {
+                var row = plan.Preview.SkillGroups.Single(value => value.GroupId == target.SourceId);
+                Assert.AreEqual(target.TargetRating, row.Rating);
+                Assert.AreEqual(target.TargetRating - 1, row.GrantedRating);
+                Assert.IsFalse(plan.Allocations.Any(value => row.MemberSkillSourceIds.Contains(value.SourceSkillId)));
+            }
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_explicit_group_rating_satisfies_only_enabled_member_targets_without_individual_rows()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var group = skills.Authority.SkillGroups.Single();
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(CharacterCreationSkillCompletionKinds.Group, group.GroupId),
+                    .. group.MemberSkillSourceIds.Select(sourceId =>
+                        new CharacterCreationSkillCompletionTarget(CharacterCreationSkillKinds.Active, sourceId))]) with
+            {
+                Targets = [new(CharacterCreationSkillCompletionKinds.Group, group.GroupId, 2),
+                    new(CharacterCreationSkillKinds.Active, ActiveIds[0], 2)]
+            };
+            var allowed = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, allowed.Outcome, string.Join(",", allowed.Blockers));
+            Assert.AreEqual(2, allowed.Value!.GroupAllocations.Single().Rating);
+            Assert.AreEqual(0m, allowed.Value.Preview.ActiveSkillPointBudget.Used);
+            Assert.IsFalse(allowed.Value.Allocations.Any(row => group.MemberSkillSourceIds.Contains(row.SourceSkillId)));
+
+            var disabled = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft.Allocations, request with
+                {
+                    Targets = [.. request.Targets!, new(CharacterCreationSkillKinds.Active, ActiveIds[1], 2)]
+                });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, disabled.Outcome);
+            CollectionAssert.AreEquivalent(new[] { CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled },
+                disabled.Blockers.ToArray());
+            Assert.AreEqual(2, disabled.Value!.GroupAllocations.Single().Rating);
+            Assert.IsFalse(disabled.Value.Allocations.Any(row => group.MemberSkillSourceIds.Contains(row.SourceSkillId)));
+            Assert.AreEqual(0, disabled.Value.Preview.Blockers.Count);
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_explicit_targets_reject_invalid_ids_permissions_duplicates_and_negative_ratings()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2])]);
+            CharacterCreationSkillCompletionRatingTarget[][] invalid =
+            [
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2], -1)],
+                [new(CharacterCreationSkillKinds.Active, "unknown", 1)],
+                [new("not-a-kind", ActiveIds[2], 1)],
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[3], 1)],
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2], 1),
+                    new(CharacterCreationSkillKinds.Active, ActiveIds[2], 2)],
+                [null!],
+                Enumerable.Repeat(new CharacterCreationSkillCompletionRatingTarget(
+                    CharacterCreationSkillKinds.Active, ActiveIds[2], 1), 129).ToArray()
+            ];
+            foreach (var targets in invalid)
+            {
+                var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                    attributes.PendingDraft!.Allocations, request with { Targets = targets });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, result.Outcome);
+                Assert.IsNull(result.Value);
+                CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationSkillCompletionBlockers.RequestInvalid);
+            }
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_explicit_unavailable_and_huge_targets_return_bounded_legal_partials()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            CharacterCreationSkillCompletionRatingTarget[] targets =
+            [new(CharacterCreationSkillKinds.Active, ActiveIds[2], int.MaxValue),
+                new(CharacterCreationSkillKinds.Knowledge, KnowledgeIds[0], int.MaxValue),
+                new(CharacterCreationSkillKinds.Active, ActiveIds[1], 1)];
+            foreach (var target in targets)
+            {
+                var request = SkillCompletionRequest(attributes, skills,
+                    [new(target.Kind, target.SourceId)]) with { Targets = [target] };
+                var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                    attributes.PendingDraft!.Allocations, request);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+                var plan = result.Value!;
+                CollectionAssert.AreEquivalent(new[] { CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled },
+                    plan.Blockers.ToArray());
+                Assert.IsTrue(plan.Evaluations is >= 1 and <= 16,
+                    "An impossible target must stop at the actual source/budget boundary.");
+                Assert.AreEqual(0, plan.Preview.Blockers.Count);
+                if (target.SourceId == ActiveIds[1])
+                    Assert.IsFalse(plan.Allocations.Any(row => row.SourceSkillId == target.SourceId));
+                else
+                    Assert.AreEqual(6, plan.Allocations.Single(row => row.SourceSkillId == target.SourceId).Rating);
+            }
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_empty_targets_make_no_numeric_additions_and_preserve_explicit_native_language_behavior()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2]),
+                    new(CharacterCreationSkillKinds.Knowledge, KnowledgeIds[0])]) with { Targets = [] };
+            var missingNative = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, missingNative.Outcome);
+            Assert.IsFalse(missingNative.Value!.HasChanges);
+            CollectionAssert.AreEquivalent(new[] { CharacterCreationSkillsBlockers.NativeLanguageRequired },
+                missingNative.Blockers.ToArray());
+
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft.Allocations, request with { NativeLanguageSourceId = LanguageId });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var plan = result.Value!;
+            Assert.AreEqual(1, plan.Allocations.Count);
+            Assert.AreEqual(LanguageId, plan.Allocations.Single().SourceSkillId);
+            Assert.IsTrue(plan.Allocations.Single().IsNativeLanguage);
+            Assert.IsNull(plan.Allocations.Single().Rating);
+            Assert.AreEqual(0, plan.GroupAllocations.Count);
+            Assert.AreEqual(0m, plan.Preview.ActiveSkillPointBudget.Used);
+            Assert.AreEqual(0m, plan.Preview.SkillGroupPointBudget.Used);
+            Assert.AreEqual(0m, plan.Preview.KnowledgeSkillPointBudget.Used);
+            var zero = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft.Allocations, request with
+                {
+                    NativeLanguageSourceId = LanguageId,
+                    Targets = [new(CharacterCreationSkillKinds.Active, ActiveIds[2], 0)]
+                });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, zero.Outcome);
+            Assert.AreEqual(CharacterCreationSkillsDigest.Compute(plan.Allocations),
+                CharacterCreationSkillsDigest.Compute(zero.Value!.Allocations));
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_omitted_targets_preserve_legacy_json_digest_and_planning_semantics()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(CharacterCreationSkillKinds.Active, ActiveIds[2])]) with
+            {
+                ActivePointsToReserve = 26, GroupPointsToReserve = 2, KnowledgePointsToReserve = 12
+            };
+            var legacy = new
+            {
+                request.Binding, request.AttributesSnapshotDigest, request.SkillsSnapshotDigest,
+                request.PermittedTargetOrder, request.ActivePointsToReserve, request.GroupPointsToReserve,
+                request.KnowledgePointsToReserve, request.NativeLanguageSourceId
+            };
+            var json = System.Text.Json.JsonSerializer.Serialize(request);
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            Assert.IsFalse(document.RootElement.TryGetProperty("Targets", out _));
+            Assert.AreEqual(CharacterCreationSkillsDigest.Compute(legacy), CharacterCreationSkillsDigest.Compute(request));
+            var restored = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationSkillCompletionRequest>(
+                System.Text.Json.JsonSerializer.Serialize(legacy))!;
+            Assert.IsNull(restored.Targets);
+            var original = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            var replay = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft.Allocations, restored);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, original.Outcome);
+            Assert.AreEqual(2, original.Value!.Allocations.Single(row => row.SourceSkillId == ActiveIds[2]).Rating);
+            Assert.AreEqual(original.Value.PlanDigest, replay.Value!.PlanDigest);
+            using var explicitEmpty = System.Text.Json.JsonDocument.Parse(
+                System.Text.Json.JsonSerializer.Serialize(request with { Targets = [] }));
+            Assert.AreEqual(0, explicitEmpty.RootElement.GetProperty("Targets").GetArrayLength());
+            Assert.AreNotEqual(CharacterCreationSkillsDigest.Compute(request),
+                CharacterCreationSkillsDigest.Compute(request with { Targets = [] }));
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
     private static CharacterCreationSkillCompletionRequest SkillCompletionRequest(
         CharacterCreationAttributesState attributes,
         CharacterCreationSkillsState skills,

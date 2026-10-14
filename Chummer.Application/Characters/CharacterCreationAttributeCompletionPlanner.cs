@@ -23,13 +23,19 @@ public static class CharacterCreationAttributeCompletionPlanner
 
         if (request.Binding is null || request.PermittedAttributeOrder is null
             || request.PermittedAttributeOrder.Count > 13
+            || request.Targets is { } requestedTargets && (requestedTargets.Count > 13
+                || requestedTargets.Any(target => target is null || target.TargetUnaugmentedRating < 0))
             || request.NormalPointsToReserve < 0 || request.SpecialPointsToReserve < 0)
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationAttributeCompletionBlockers.RequestInvalid);
 
         // Both input collections and the rules session are detached. Never read
         // the caller's mutable arrays again once planning starts.
-        request = request with { PermittedAttributeOrder = request.PermittedAttributeOrder.ToArray() };
+        request = request with
+        {
+            PermittedAttributeOrder = request.PermittedAttributeOrder.ToArray(),
+            Targets = request.Targets?.ToArray()
+        };
         state = JsonSerializer.Deserialize<CharacterCreationAttributesState>(
             JsonSerializer.SerializeToUtf8Bytes(state))!;
         if (request.Binding != state.Binding
@@ -56,7 +62,11 @@ public static class CharacterCreationAttributeCompletionPlanner
         if (request.PermittedAttributeOrder.Distinct(StringComparer.Ordinal).Count()
                 != request.PermittedAttributeOrder.Count
             || request.PermittedAttributeOrder.Any(id => string.IsNullOrWhiteSpace(id)
-                || !attributes.Any(item => item.AttributeId == id && item.IsEnabled)))
+                || !attributes.Any(item => item.AttributeId == id && item.IsEnabled))
+            || request.Targets is { } targets &&
+                (targets.Select(target => target.AttributeId).Distinct(StringComparer.Ordinal).Count() != targets.Count
+                || targets.Any(target => string.IsNullOrWhiteSpace(target.AttributeId)
+                    || !request.PermittedAttributeOrder.Contains(target.AttributeId, StringComparer.Ordinal))))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationAttributeCompletionBlockers.RequestInvalid);
 
@@ -75,15 +85,20 @@ public static class CharacterCreationAttributeCompletionPlanner
         bool changed = false;
         bool workLimitReached = false;
         decimal originalKarmaUsed = preview.CreationKarmaBudget.Used;
-        foreach (string id in request.PermittedAttributeOrder)
+        var goals = request.Targets?.ToDictionary(target => target.AttributeId,
+            target => target.TargetUnaugmentedRating, StringComparer.Ordinal);
+        IEnumerable<string> allocationOrder = request.Targets is null
+            ? request.PermittedAttributeOrder : request.Targets.Select(target => target.AttributeId);
+        foreach (string id in allocationOrder)
         {
             int index = Array.FindIndex(allocations, item => item.AttributeId == id);
             bool normal = attributes[index].Category == CharacterCreationAttributeCategories.Normal;
             int reserve = normal ? request.NormalPointsToReserve : request.SpecialPointsToReserve;
-            while ((normal ? preview.NormalPointBudget : preview.SpecialPointBudget).Remaining > reserve)
+            while ((normal ? preview.NormalPointBudget : preview.SpecialPointBudget).Remaining > reserve
+                && (goals is null || preview.Attributes.Single(item => item.AttributeId == id).UnaugmentedCurrent < goals[id]))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (evaluations > MaximumCandidateEvaluations)
+                if (goals is null ? evaluations > MaximumCandidateEvaluations : evaluations >= MaximumCandidateEvaluations)
                 {
                     workLimitReached = true;
                     break;
@@ -114,10 +129,16 @@ public static class CharacterCreationAttributeCompletionPlanner
 
         cancellationToken.ThrowIfCancellationRequested();
         var blockers = new List<string>();
-        if (preview.NormalPointBudget.Remaining > request.NormalPointsToReserve)
-            blockers.Add(CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
-        if (preview.SpecialPointBudget.Remaining > request.SpecialPointsToReserve)
-            blockers.Add(CharacterCreationAttributeCompletionBlockers.SpecialPointsUnallocated);
+        if (request.Targets is null)
+        {
+            if (preview.NormalPointBudget.Remaining > request.NormalPointsToReserve)
+                blockers.Add(CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
+            if (preview.SpecialPointBudget.Remaining > request.SpecialPointsToReserve)
+                blockers.Add(CharacterCreationAttributeCompletionBlockers.SpecialPointsUnallocated);
+        }
+        else if (request.Targets.Any(target => preview.Attributes.Single(item =>
+                     item.AttributeId == target.AttributeId).UnaugmentedCurrent < target.TargetUnaugmentedRating))
+            blockers.Add(CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled);
         if (workLimitReached)
             blockers.Add(CharacterCreationAttributeCompletionBlockers.WorkLimitReached);
         var plan = new CharacterCreationAttributeCompletionPlan(

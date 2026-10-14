@@ -7,7 +7,12 @@ public static class CharacterCreationAttributeCompletionBlockers
     public const string NormalPointsUnallocated = "creation-attribute-completion-normal-points-unallocated";
     public const string SpecialPointsUnallocated = "creation-attribute-completion-special-points-unallocated";
     public const string WorkLimitReached = "creation-attribute-completion-work-limit-reached";
+    public const string TargetsUnfulfilled = "creation-attribute-completion-targets-unfulfilled";
 }
+
+/// <summary>Desired unaugmented total, including source grants and retained Karma
+/// levels. This is an additive goal: an existing higher value is never lowered.</summary>
+public sealed record CharacterCreationAttributeCompletionTarget(string AttributeId, int TargetUnaugmentedRating);
 
 /// <summary>
 /// Explicit permission to add priority points, in preference order. Omitted IDs
@@ -20,7 +25,15 @@ public sealed record CharacterCreationAttributeCompletionRequest(
     string SnapshotDigest,
     IReadOnlyList<string> PermittedAttributeOrder,
     int NormalPointsToReserve = 0,
-    int SpecialPointsToReserve = 0);
+    int SpecialPointsToReserve = 0)
+{
+    /// <summary>Optional bounded goals in allocation order, separate from the
+    /// permission list. Null retains the legacy fill-to-cap behavior; an empty
+    /// list makes no additions. Every goal must be explicitly permitted. Legal
+    /// unused points are retained when all goals have been met.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationAttributeCompletionTarget>? Targets { get; init; }
+}
 
 /// <summary>
 /// A detached, deterministic attribute-only proposal, not AI output, a save

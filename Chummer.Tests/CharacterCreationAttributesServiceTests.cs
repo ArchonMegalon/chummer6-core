@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Text.Json;
 using System.Diagnostics.CodeAnalysis;
 using Chummer.Application.Characters;
 using Chummer.Application.Owners;
@@ -303,7 +304,206 @@ public sealed class CharacterCreationAttributesServiceTests
                 service.Preview(new(state.Binding, plan.Allocations)).Value, plan.Preview));
             Assert.AreEqual(before.ContentRevision, store.Get(id).Value!.ContentRevision);
             Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+
+            var targeted = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                new(state.Binding, state.SnapshotDigest, ["BOD"])
+                { Targets = [new("BOD", 400)] });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, targeted.Outcome);
+            Assert.IsNotNull(targeted.Value);
+            Assert.AreEqual(CharacterCreationAttributeCompletionPlanner.MaximumCandidateEvaluations, targeted.Value.Evaluations);
+            Assert.AreEqual(CharacterCreationAttributeCompletionPlanner.MaximumCandidateEvaluations - 1,
+                targeted.Value.Allocations.Single(a => a.AttributeId == "BOD").PriorityPoints);
+            CollectionAssert.Contains(targeted.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled);
+            CollectionAssert.Contains(targeted.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.WorkLimitReached);
+            CollectionAssert.DoesNotContain(targeted.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
         }, authority);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Completion_explicit_targets_stop_at_totals_and_leave_permitted_untargeted_attributes_unchanged(string method)
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var before = store.Get(id).Value!;
+            CharacterCreationAttributeCompletionTarget[] targets = [new("AGI", 3), new("BOD", 2)];
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest, ["BOD", "AGI", "EDG"])
+            { Targets = targets };
+            var result = CharacterCreationAttributeCompletionPlanner.Plan(state, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            Assert.IsNotNull(result.Value);
+            var plan = result.Value;
+            Assert.AreEqual(3, plan.Preview.Attributes.Single(a => a.AttributeId == "AGI").UnaugmentedCurrent);
+            Assert.AreEqual(2, plan.Preview.Attributes.Single(a => a.AttributeId == "BOD").UnaugmentedCurrent);
+            Assert.AreEqual(0, plan.Allocations.Single(a => a.AttributeId == "EDG").PriorityPoints);
+            Assert.IsTrue(plan.Allocations.Where(a => a.AttributeId is not ("AGI" or "BOD"))
+                .All(a => a.PriorityPoints == 0 && a.KarmaLevels == 0));
+            Assert.AreEqual(17m, plan.Preview.NormalPointBudget.Remaining);
+            Assert.AreEqual(1m, plan.Preview.SpecialPointBudget.Remaining);
+            Assert.AreEqual(0, plan.Blockers.Count);
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                service.Preview(new(state.Binding, plan.Allocations)).Value, plan.Preview));
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                plan, CharacterCreationAttributeCompletionPlanner.Plan(state, request).Value));
+            targets[0] = new("ESS", 100);
+            Assert.AreEqual("AGI", plan.Request.Targets![0].AttributeId);
+            Assert.AreEqual(3, plan.Request.Targets[0].TargetUnaugmentedRating);
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(state, Load(service, id)));
+            Assert.AreEqual(before.ContentRevision, store.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(before.Document.Content, store.Get(id).Value!.Document.Content);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        }, method: method);
+    }
+
+    [TestMethod]
+    public void Completion_explicit_target_order_and_reserves_report_unmet_goals_not_unused_pools()
+    {
+        WithConfirmedPrerequisite((_, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var result = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                new(state.Binding, state.SnapshotDigest, ["BOD", "AGI", "EDG"], NormalPointsToReserve: 19, SpecialPointsToReserve: 1)
+                { Targets = [new("AGI", 3), new("BOD", 3), new("EDG", 3)] });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+            Assert.IsNotNull(result.Value);
+            Assert.AreEqual(1, result.Value.Allocations.Single(a => a.AttributeId == "AGI").PriorityPoints);
+            Assert.AreEqual(0, result.Value.Allocations.Single(a => a.AttributeId == "BOD").PriorityPoints);
+            Assert.AreEqual(0, result.Value.Allocations.Single(a => a.AttributeId == "EDG").PriorityPoints);
+            Assert.AreEqual(19m, result.Value.Preview.NormalPointBudget.Remaining);
+            Assert.AreEqual(1m, result.Value.Preview.SpecialPointBudget.Remaining);
+            CollectionAssert.AreEqual(new[] { CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled }, result.Blockers.ToArray());
+            Assert.IsTrue(result.Value.Preview.CanConfirm);
+        });
+    }
+
+    [TestMethod]
+    public void Completion_explicit_targets_preserve_higher_manual_values_and_never_reprice_existing_Karma()
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var initial = Load(service, id);
+            CharacterCreationAttributeAllocation[] baseline = [new("BOD", 2, 0), new("AGI", 0, 1)];
+            var preview = service.Preview(new(initial.Binding, baseline)).Value!;
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(new(initial.Binding, baseline, preview.PreviewDigest, true)).Outcome);
+            var state = Load(service, id);
+            var before = store.Get(id).Value!;
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest, ["BOD", "AGI"])
+            { Targets = [new("BOD", 2), new("AGI", 1)] };
+            var preserved = CharacterCreationAttributeCompletionPlanner.Plan(state, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preserved.Outcome);
+            Assert.IsNotNull(preserved.Value);
+            Assert.IsFalse(preserved.Value.HasChanges);
+            Assert.AreEqual(3, preserved.Value.Preview.Attributes.Single(a => a.AttributeId == "BOD").Current);
+            Assert.AreEqual(2, preserved.Value.Preview.Attributes.Single(a => a.AttributeId == "AGI").Current);
+            Assert.AreEqual(10m, preserved.Value.Preview.CreationKarmaBudget.Used);
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                state.PendingDraft!.Allocations, preserved.Value.Allocations));
+
+            var blocked = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                request with { Targets = [new("AGI", 3)] });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, blocked.Outcome);
+            Assert.IsNotNull(blocked.Value);
+            Assert.IsFalse(blocked.Value.HasChanges);
+            Assert.AreEqual(10m, blocked.Value.Preview.CreationKarmaBudget.Used);
+            CollectionAssert.AreEqual(new[] { CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled }, blocked.Blockers.ToArray());
+            Assert.AreEqual(before.ContentRevision, store.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
+    public void Completion_explicit_magic_target_includes_the_source_grant_without_spending_it_again()
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var before = store.Get(id).Value!;
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest, ["MAG", "EDG"])
+            { Targets = [new("MAG", 3)] };
+            var retained = CharacterCreationAttributeCompletionPlanner.Plan(state, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, retained.Outcome);
+            Assert.IsFalse(retained.Value!.HasChanges);
+            Assert.AreEqual(0m, retained.Value.Preview.SpecialPointBudget.Used);
+
+            var raised = CharacterCreationAttributeCompletionPlanner.Plan(state, request with { Targets = [new("MAG", 4)] });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, raised.Outcome);
+            Assert.AreEqual(4, raised.Value!.Preview.Attributes.Single(a => a.AttributeId == "MAG").UnaugmentedCurrent);
+            Assert.AreEqual(1, raised.Value.Allocations.Single(a => a.AttributeId == "MAG").PriorityPoints);
+            Assert.AreEqual(0, raised.Value.Allocations.Single(a => a.AttributeId == "EDG").PriorityPoints);
+            Assert.AreEqual(1m, raised.Value.Preview.SpecialPointBudget.Used);
+            Assert.AreEqual(20m, raised.Value.Preview.NormalPointBudget.Remaining);
+            Assert.AreEqual(0m, raised.Value.Preview.CreationKarmaBudget.Used);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        }, WithTalent("Magician", "MAG", 3), "awakened");
+    }
+
+    [TestMethod]
+    public void Completion_explicit_targets_validate_shape_permissions_and_bound_unreachable_ratings()
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var before = store.Get(id).Value!;
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest, ["BOD"]);
+            IReadOnlyList<CharacterCreationAttributeCompletionTarget>[] invalid =
+            [
+                [new("BOD", -1)], [new("BOD", 2), new("BOD", 3)], [new("AGI", 2)],
+                [new("UNKNOWN", 2)], [new("bod", 2)], [new("ESS", 2)], [new("", 2)], [null!],
+                Enumerable.Range(0, 14).Select(_ => new CharacterCreationAttributeCompletionTarget("BOD", 2)).ToArray()
+            ];
+            foreach (var targets in invalid)
+            {
+                var result = CharacterCreationAttributeCompletionPlanner.Plan(state, request with { Targets = targets });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, result.Outcome);
+                Assert.IsNull(result.Value);
+                CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.RequestInvalid);
+            }
+
+            var capped = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                request with { Targets = [new("BOD", int.MaxValue)] });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, capped.Outcome);
+            Assert.IsNotNull(capped.Value);
+            Assert.AreEqual(6, capped.Value.Preview.Attributes.Single(a => a.AttributeId == "BOD").Current);
+            Assert.IsTrue(capped.Value.Evaluations <= CharacterCreationAttributeCompletionPlanner.MaximumCandidateEvaluations);
+            CollectionAssert.AreEqual(new[] { CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled }, capped.Blockers.ToArray());
+            Assert.IsTrue(capped.Value.Preview.CanConfirm);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
+    public void Completion_empty_and_zero_targets_do_not_allocate_and_null_targets_keep_legacy_serialization()
+    {
+        WithConfirmedPrerequisite((_, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var legacy = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest, ["BOD"]);
+            Assert.IsFalse(JsonSerializer.SerializeToElement(legacy).TryGetProperty("Targets", out _));
+            Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(new
+            {
+                legacy.Binding, legacy.SnapshotDigest, legacy.PermittedAttributeOrder,
+                legacy.NormalPointsToReserve, legacy.SpecialPointsToReserve
+            }), CharacterCreationFinalizationDigest.Compute(legacy));
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                CharacterCreationAttributeCompletionPlanner.Plan(state, legacy),
+                CharacterCreationAttributeCompletionPlanner.Plan(state, legacy with { Targets = null })));
+            foreach (var targets in new IReadOnlyList<CharacterCreationAttributeCompletionTarget>[] { [], [new("BOD", 0)] })
+            {
+                var result = CharacterCreationAttributeCompletionPlanner.Plan(state, legacy with { Targets = targets });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome);
+                Assert.IsNotNull(result.Value);
+                Assert.IsFalse(result.Value.HasChanges);
+                Assert.AreEqual(1, result.Value.Evaluations);
+                Assert.AreEqual(state.NormalPointBudget.Remaining, result.Value.Preview.NormalPointBudget.Remaining);
+                Assert.AreEqual(state.SpecialPointBudget.Remaining, result.Value.Preview.SpecialPointBudget.Remaining);
+            }
+            Assert.Throws<OperationCanceledException>(() => CharacterCreationAttributeCompletionPlanner.Plan(state,
+                legacy with { Targets = [new("BOD", 2)] }, new CancellationToken(true)));
+        });
     }
 
     [TestMethod]
