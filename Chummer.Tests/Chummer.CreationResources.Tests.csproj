@@ -11,6 +11,9 @@
   <ItemGroup>
     <Compile Include="CharacterCreationResourcesServiceTests.cs" />
     <Compile Include="CharacterCreationResourcesServiceTests.Completion.cs" />
+    <Compile Include="CharacterCreationCompletionReviewServiceTests.cs" />
+    <Compile Include="CharacterCreationCompletionPreservationTests.cs" />
+    <Compile Include="OwnerBoundCharacterCreationCompletionReaderTests.cs" />
     <Compile Include="CreationCanonicalDigestTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.Completion.cs" />
