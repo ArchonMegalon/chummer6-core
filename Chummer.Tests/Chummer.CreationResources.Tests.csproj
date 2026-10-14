@@ -13,6 +13,7 @@
     <Compile Include="CreationCanonicalDigestTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.cs" />
     <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
+    <Compile Include="CharacterCreationAttributesServiceTests.cs" />
     <Compile Include="FileSystemCharacterSourceDataResolverTests.cs" />
     <Compile Include="WorkspaceRuleQuestionServiceTests.cs" />
     <Compile Include="WorkspaceRuleQuestionIntegrityTests.cs" />
