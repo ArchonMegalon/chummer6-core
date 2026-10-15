@@ -8,6 +8,10 @@ public static class CharacterCreationAttributeCompletionBlockers
     public const string SpecialPointsUnallocated = "creation-attribute-completion-special-points-unallocated";
     public const string WorkLimitReached = "creation-attribute-completion-work-limit-reached";
     public const string TargetsUnfulfilled = "creation-attribute-completion-targets-unfulfilled";
+    public const string KarmaTargetsRequired = "creation-attribute-completion-karma-targets-required";
+    public const string KarmaTargetsUnfulfilled = "creation-attribute-completion-karma-targets-unfulfilled";
+    public const string KarmaSpendLimit = "creation-attribute-completion-karma-spend-limit";
+    public const string AutomaticPermissionUnavailable = "creation-attribute-completion-automatic-permission-unavailable";
 }
 
 /// <summary>Desired unaugmented total, including source grants and retained Karma
@@ -42,6 +46,20 @@ public sealed record CharacterCreationAttributeCompletionRequest(
     /// existing target-only/legacy behavior and serialized request identity.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool FillRemainingPoints { get; init; }
+
+    /// <summary>Explicit useful unaugmented totals for the whole-character Karma
+    /// phase, in preference order. Every identity must also be permitted. Null
+    /// or empty supplies no spending goals; neither implies fill-to-cap. The
+    /// attribute-only planner never spends Karma. Only the whole request's
+    /// AllocateRemainingAttributeKarma flag activates these goals.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationAttributeCompletionTarget>? KarmaTargets { get; init; }
+
+    /// <summary>Maximum additional source-priced attribute Karma across all
+    /// KarmaTargets, after Priority allocation. Zero allows no spending. The
+    /// whole-character shared wallet and reserve can further reduce this cap.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int MaximumAdditionalKarmaSpend { get; init; }
 }
 
 /// <summary>

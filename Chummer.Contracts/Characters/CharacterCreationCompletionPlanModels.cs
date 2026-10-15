@@ -34,7 +34,18 @@ public sealed record CharacterCreationCompletionPlanRequest(
     decimal NuyenToReserve = 0m,
     decimal MaximumAdditionalPurchaseSpend = 0m,
     int MaximumPurchaseEvaluations = 32,
-    bool PermitNegativeQualityAdditions = false);
+    bool PermitNegativeQualityAdditions = false)
+{
+    /// <summary>Opt-in bounded attribute Karma allocation after composing all
+    /// other choices. Requires Attributes.KarmaTargets and an explicit spend
+    /// cap. Each level must pass the complete dependent review and final shared
+    /// Karma/Nuyen reserves; magic and other choices are never re-selected.
+    /// Permitted attribute IDs must be known untouched/automatic: original
+    /// player choices (including zero) and unknown/imported intent stay locked.
+    /// False retains legacy behavior and serialized request/digest identity.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllocateRemainingAttributeKarma { get; init; }
+}
 
 /// <summary>
 /// One detached, source-reviewed proposal composed from bounded deterministic

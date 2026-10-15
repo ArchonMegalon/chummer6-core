@@ -5,7 +5,7 @@ namespace Chummer.Application.Characters;
 
 /// <summary>Pure proposal composition. Original observations are never rewritten
 /// as intermediate drafts; the final review re-evaluates the complete proposal.</summary>
-public static class CharacterCreationCompletionPlanner
+public static partial class CharacterCreationCompletionPlanner
 {
     public static CharacterCreationFoundationResult<CharacterCreationCompletionPlan> Plan(
         CharacterCreationCompletionReviewInputs inputs,
@@ -48,6 +48,14 @@ public static class CharacterCreationCompletionPlanner
                     && option.Type == CharacterCreationQualityType.Negative)))
             return Reject(CharacterCreationFoundationOutcomes.Blocked,
                 CharacterCreationCompletionPlanBlockers.NegativeQualityPermissionRequired);
+
+        // Opt-in automatic spending cannot override recorded player choices or
+        // manufacture provenance for dense legacy/imported allocations. Apply
+        // this to the Priority pass too, before it can change the same IDs.
+        if (request.AllocateRemainingAttributeKarma
+            && !HasAutomaticAttributePermissions(inputs.Skills.Attributes, request.Attributes.PermittedAttributeOrder))
+            return Reject(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationAttributeCompletionBlockers.AutomaticPermissionUnavailable);
 
         var findings = new List<string>();
         var attributeResult = CharacterCreationAttributeCompletionPlanner.Plan(inputs.Skills.Attributes,
@@ -116,7 +124,27 @@ public static class CharacterCreationCompletionPlanner
         var final = CharacterCreationCompletionReviewService.Review(inputs,
             new(request.InputsSnapshotDigest, choices), cancellationToken);
         if (final.Value is not { } review) return new(final.Outcome, null, final.Blockers);
-        findings.AddRange(final.Blockers);
+        if (request.AllocateRemainingAttributeKarma && attributes is not null
+            && skills is not null && magic is not null && purchases is not null)
+        {
+            var karmaResult = AllocateAttributeKarma(inputs, request, attributes, choices, review, cancellationToken);
+            if (karmaResult.Value is not { } allocation) return new(karmaResult.Outcome, null, karmaResult.Blockers);
+            attributes = allocation.Attributes;
+            choices = allocation.Selections;
+            review = allocation.Review;
+            // A Karma level can satisfy a Priority floor that was previously
+            // capped. Keep other domain findings and all unmet goals visible.
+            findings.RemoveAll(value => value == CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled);
+            findings.AddRange(attributes.Blockers);
+            if (allocation.Changed)
+            {
+                var previousSkillBlockers = skills.Blockers;
+                RefreshDependentPlans(choices, review, ref skills, ref magic, ref purchases);
+                findings.RemoveAll(value => previousSkillBlockers.Contains(value, StringComparer.Ordinal));
+                findings.AddRange(skills!.Blockers);
+            }
+        }
+        findings.AddRange(review.Blockers);
         if (request.KarmaToReserve > 0 && (review.Balances.RemainingCreationKarma is not int karma || karma < request.KarmaToReserve))
             findings.Add(CharacterCreationCompletionPlanBlockers.KarmaReserveRequired);
         if (request.NuyenToReserve > 0 && (review.Balances.RemainingNuyen is not decimal nuyen || nuyen < request.NuyenToReserve))
@@ -162,6 +190,9 @@ public static class CharacterCreationCompletionPlanner
     private static bool ValidRequest(CharacterCreationCompletionPlanRequest request)
         => request is { Attributes: { PermittedAttributeOrder: not null }, Skills: { PermittedTargetOrder: not null },
                 Magic: { ManualSelections: not null }, QualityOptionIds: not null, Contacts: not null, Purchases: not null }
+            && request.Attributes.MaximumAdditionalKarmaSpend >= 0
+            && (request.Attributes.KarmaTargets is null || request.Attributes.KarmaTargets.Count <= 13
+                && request.Attributes.KarmaTargets.All(target => target is not null && target.TargetUnaugmentedRating >= 0))
             && request.QualityOptionIds.Count <= 65_536 && request.QualityOptionIds.All(id => !string.IsNullOrWhiteSpace(id))
             && request.Contacts.Count <= CharacterCreationKarmaContactsRules.MaximumSelections && request.Contacts.All(row => row is not null)
             && request.Purchases.Count <= CharacterCreationPurchaseCompletionPlanner.MaximumTargets && request.Purchases.All(row => row is not null)

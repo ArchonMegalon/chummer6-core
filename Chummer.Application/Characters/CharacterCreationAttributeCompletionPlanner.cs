@@ -25,6 +25,9 @@ public static class CharacterCreationAttributeCompletionPlanner
             || request.PermittedAttributeOrder.Count > 13
             || request.Targets is { } requestedTargets && (requestedTargets.Count > 13
                 || requestedTargets.Any(target => target is null || target.TargetUnaugmentedRating < 0))
+            || request.KarmaTargets is { } karmaTargets && (karmaTargets.Count > 13
+                || karmaTargets.Any(target => target is null || target.TargetUnaugmentedRating < 0))
+            || request.MaximumAdditionalKarmaSpend < 0
             || request.NormalPointsToReserve < 0 || request.SpecialPointsToReserve < 0)
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationAttributeCompletionBlockers.RequestInvalid);
@@ -34,7 +37,8 @@ public static class CharacterCreationAttributeCompletionPlanner
         request = request with
         {
             PermittedAttributeOrder = request.PermittedAttributeOrder.ToArray(),
-            Targets = request.Targets?.ToArray()
+            Targets = request.Targets?.ToArray(),
+            KarmaTargets = request.KarmaTargets?.ToArray()
         };
         state = JsonSerializer.Deserialize<CharacterCreationAttributesState>(
             JsonSerializer.SerializeToUtf8Bytes(state))!;
@@ -66,6 +70,10 @@ public static class CharacterCreationAttributeCompletionPlanner
             || request.Targets is { } targets &&
                 (targets.Select(target => target.AttributeId).Distinct(StringComparer.Ordinal).Count() != targets.Count
                 || targets.Any(target => string.IsNullOrWhiteSpace(target.AttributeId)
+                    || !request.PermittedAttributeOrder.Contains(target.AttributeId, StringComparer.Ordinal)))
+            || request.KarmaTargets is { } karmaGoals &&
+                (karmaGoals.Select(target => target.AttributeId).Distinct(StringComparer.Ordinal).Count() != karmaGoals.Count
+                || karmaGoals.Any(target => string.IsNullOrWhiteSpace(target.AttributeId)
                     || !request.PermittedAttributeOrder.Contains(target.AttributeId, StringComparer.Ordinal))))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationAttributeCompletionBlockers.RequestInvalid);

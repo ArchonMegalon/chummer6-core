@@ -22,7 +22,7 @@ using ReadyContext = Chummer.Tests.CharacterCreationFinalizationServiceTests.Rea
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class CharacterCreationCompletionApplyTests
+public sealed partial class CharacterCreationCompletionApplyTests
 {
     [TestMethod]
     public void Completion_apply_commits_and_cold_replays_a_real_linked_owner_workspace_without_a_local_copy()

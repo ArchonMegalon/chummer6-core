@@ -13,12 +13,14 @@
     <Compile Include="CharacterCreationResourcesServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationCompletionReviewServiceTests.cs" />
     <Compile Include="CharacterCreationCompletionPlannerTests.cs" />
+    <Compile Include="CharacterCreationCompletionPlannerTests.AttributeKarma.cs" />
     <Compile Include="CharacterCreationCompletionFinalizationProjectorTests.cs" />
     <Compile Include="CharacterCreationCompletionReplayCodecTests.cs" />
     <Compile Include="CharacterCreationCompletionLoadoutReplayTests.cs" />
     <Compile Include="CharacterCreationLoadoutSourceTests.cs" />
     <Compile Include="CharacterCreationPurchaseLoadoutCompletionPlannerTests.cs" />
     <Compile Include="CharacterCreationCompletionApplyTests.cs" />
+    <Compile Include="CharacterCreationCompletionApplyTests.AttributeKarma.cs" />
     <Compile Include="CharacterCreationCompletionStartingCashTests.cs" />
     <Compile Include="CharacterCreationPurchaseCompletionPlannerTests.cs" />
     <Compile Include="CharacterCreationMagicCompletionPlannerTests.cs" />

@@ -6,7 +6,7 @@ using ReadyContext = Chummer.Tests.CharacterCreationFinalizationServiceTests.Rea
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class CharacterCreationCompletionPlannerTests
+public sealed partial class CharacterCreationCompletionPlannerTests
 {
     [TestMethod]
     public void Whole_plan_retains_cold_saved_choices_and_uses_one_final_review_without_writing()
@@ -208,7 +208,7 @@ public sealed class CharacterCreationCompletionPlannerTests
         AssertUnchanged(context, files);
     }
 
-    private static CharacterCreationCompletionPlanRequest RetainingRequest(CharacterCreationCompletionReviewInputs inputs)
+    internal static CharacterCreationCompletionPlanRequest RetainingRequest(CharacterCreationCompletionReviewInputs inputs)
     {
         var attributes = inputs.Skills.Attributes.Attributes.Select(row => new CharacterCreationAttributeAllocation(
             row.AttributeId, row.PriorityPointsSpent, row.KarmaLevels)).ToArray();
