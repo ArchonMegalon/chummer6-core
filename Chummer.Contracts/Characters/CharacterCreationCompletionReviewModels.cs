@@ -1,9 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace Chummer.Contracts.Characters;
 
 public static class CharacterCreationCompletionReviewSchemas
 {
     public const string InputsV1 = "chummer.creation-completion-review-inputs.v1";
     public const string ReviewV1 = "chummer.creation-completion-review.v1";
+    public const string InputsV2 = "chummer.creation-completion-review-inputs.v2";
+    public const string ReviewV2 = "chummer.creation-completion-review.v2";
     public const string SnapshotConflict = "creation-completion-review-snapshot-conflict";
     public const string RequestInvalid = "creation-completion-review-request-invalid";
     public const string AuthorityUnavailable = "creation-completion-review-authority-unavailable";
@@ -19,7 +23,11 @@ public sealed record CharacterCreationCompletionReviewInputs(
     CharacterCreationMagicResonanceCompletionInputs Magic,
     CharacterCreationLifestylesCompletionInputs Lifestyles,
     CharacterCreationContactsCompletionInputs Contacts,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutCompletionInputs? Loadout { get; init; }
+}
 
 /// <summary>Complete hypothetical choices. Explicit change permissions are part of the reviewed request.</summary>
 public sealed record CharacterCreationCompletionSelections(
@@ -34,6 +42,9 @@ public sealed record CharacterCreationCompletionSelections(
     IReadOnlyList<CharacterCreationLifestyleConfiguration> Lifestyles,
     Guid? StartingLifestyleId)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutSelections? Loadout { get; init; }
+
     public IReadOnlyList<string> ChangeableAttributeIds { get; init; } = [];
     /// <summary>Overrides locks on existing skill rows, not an allowlist for new individual skills.
     /// New or increased groups require permission for the group and every active member.</summary>
@@ -58,7 +69,11 @@ public sealed record CharacterCreationCompletionPoolBalances(
     decimal? GearCost,
     decimal? LifestyleCost,
     decimal? RemainingNuyen,
-    decimal? NuyenOverspend);
+    decimal? NuyenOverspend)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? LoadoutCost { get; init; }
+}
 
 /// <summary>A detached rules review, not an ordinary preview, pending draft, receipt or permission to save.</summary>
 public sealed record CharacterCreationCompletionReview(
@@ -71,7 +86,11 @@ public sealed record CharacterCreationCompletionReview(
     CharacterCreationContactsCompletionProjection? Contacts,
     CharacterCreationCompletionPoolBalances Balances,
     IReadOnlyList<string> Blockers,
-    string ReviewDigest);
+    string ReviewDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
+}
 
 public static class CharacterCreationCompletionReviewRules
 {

@@ -80,6 +80,14 @@ public static class CharacterCreationCompletionTransaction
             if (contacts.Value is null) { blockers = contacts.Blockers; return false; }
             var inputs = new CharacterCreationCompletionReviewInputs(CharacterCreationCompletionReviewSchemas.InputsV1,
                 skills.Value, magic.Value, lifestyles.Value, contacts.Value, string.Empty);
+            if (proposal.Selections.Loadout is not null)
+            {
+                var loadout = CharacterCreationLoadoutCompletionService.LoadFromObservation(workspace, live,
+                    requireAuthority: true);
+                if (loadout.Outcome != CharacterCreationFoundationOutcomes.Success || loadout.Value is null)
+                { blockers = loadout.Blockers; return false; }
+                inputs = inputs with { Schema = CharacterCreationCompletionReviewSchemas.InputsV2, Loadout = loadout.Value };
+            }
             inputs = inputs with { SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs) };
             var evaluated = CharacterCreationCompletionFinalizationProjector.ReviewAndProject(workspace, bootstrap, inputs,
                 proposal, sourceId => TryResolveStartingCash(context, sourceId, out var source) ? source : null,
@@ -203,6 +211,7 @@ public static class CharacterCreationCompletionTransaction
                 // Preserve the original full-envelope reader and byte identity.
                 // A V2 history must never borrow V3's reduced source semantics.
                 if (authority.SelectedReplay is not null || authority.Inputs is null
+                    || authority.Inputs.Loadout is not null || authority.Proposal.Selections.Loadout is not null
                     || authority.BootstrapSourceSnapshot is not { ValueKind: JsonValueKind.Object } snapshot)
                     return false;
                 var bootstrap = snapshot.Deserialize<CharacterCreationCompletionBootstrapSnapshot>();
@@ -275,7 +284,8 @@ public static class CharacterCreationCompletionTransaction
             new(witness.ContactsPolicy, proposal.Selections.Contacts), witness.CarryoverPolicy,
             remainingKarma, remainingNuyen,
             new CharacterCreationCompletionFinalizationProjector.SelectedAwakenedGraphInputs(
-                witness.Magic, witness.Skills.Attributes.Attributes, evaluated.Magic.Proposed.SourceAnchorIds));
+                witness.Magic, witness.Skills.Attributes.Attributes, evaluated.Magic.Proposed.SourceAnchorIds))
+            { Loadout = evaluated.Loadout };
         return CharacterCreationCompletionFinalizationProjector.ProjectEvaluated(graph,
             startingCashSource, startingCash, cancellationToken);
     }

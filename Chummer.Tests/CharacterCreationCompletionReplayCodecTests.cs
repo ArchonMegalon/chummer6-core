@@ -70,6 +70,8 @@ public sealed class CharacterCreationCompletionReplayCodecTests
             valid with { Schema = null! },
             valid with { Encoding = "gzip-base64" },
             valid with { Encoding = null! },
+            valid with { Encoding = CharacterCreationCompletionReplayCodec.LoadoutEncodingName,
+                Data = valid.Data.TrimEnd('=').Replace('+', '-').Replace('/', '_') },
             valid with { UncompressedBytes = -1 },
             valid with { UncompressedBytes = 0 },
             valid with { UncompressedBytes = CharacterCreationCompletionReplayCodec.MaximumUncompressedBytes + 1 },

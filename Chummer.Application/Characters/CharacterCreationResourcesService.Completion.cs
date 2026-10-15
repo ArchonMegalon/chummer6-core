@@ -181,12 +181,14 @@ public sealed partial class CharacterCreationResourcesService
         CharacterCreationResourcesCompletionInputs inputs,
         CharacterCreationResourcesCompletionProjection projection,
         decimal sourcePricedGearCost,
-        decimal sourcePricedLifestyleCost)
+        decimal sourcePricedLifestyleCost,
+        decimal sourcePricedLoadoutCost = 0m)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentOutOfRangeException.ThrowIfNegative(sourcePricedGearCost);
         ArgumentOutOfRangeException.ThrowIfNegative(sourcePricedLifestyleCost);
+        ArgumentOutOfRangeException.ThrowIfNegative(sourcePricedLoadoutCost);
         if (inputs.Binding != projection.Binding
             || !SameCompletionDigest(inputs.SnapshotDigest, projection.ResourcesSnapshotDigest))
             throw new ArgumentException("The funding projection must match the original Resources inputs.", nameof(projection));
@@ -197,7 +199,7 @@ public sealed partial class CharacterCreationResourcesService
         blockers.AddRange(projection.SelectedOption.Blockers);
         CharacterCreationResourcesBudget budget = BuildBudget(inputs.Authority,
             inputs.PriorityOption, projection.SelectedOption, inputs.PurchaseAuthorityExact,
-            checked(sourcePricedGearCost + sourcePricedLifestyleCost), blockers);
+            checked(sourcePricedGearCost + sourcePricedLifestyleCost + sourcePricedLoadoutCost), blockers);
         var repriced = projection with { Budget = budget, Blockers = Normalize(blockers), ProposalDigest = string.Empty };
         return repriced with
         {

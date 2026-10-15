@@ -18,6 +18,16 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
     public CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> LoadCompletionInputs(
         OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request,
         CancellationToken cancellationToken = default)
+        => Load(expectedOwner, request, false, cancellationToken);
+
+    public CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> LoadCompletionInputsWithLoadout(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request,
+        CancellationToken cancellationToken = default)
+        => Load(expectedOwner, request, true, cancellationToken);
+
+    private CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> Load(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request,
+        bool includeLoadout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
@@ -32,7 +42,7 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
             ICharacterSourceDataResolver resolver = scope ?? sourceResolver;
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner,
                 request.WorkspaceId, reuseReadObservation: true);
-            return LoadFromObservation(view, resolver, characterQueries, request, cancellationToken);
+            return LoadFromObservation(view, resolver, characterQueries, request, cancellationToken, includeLoadout);
         }
     }
 
@@ -41,7 +51,7 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
     // never accepts a constructed intermediate draft or portable save authority.
     internal static CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> LoadFromObservation(
         IWorkspaceStore view, ICharacterSourceDataResolver resolver, ICharacterFileQueries characterQueries,
-        CharacterCreationSkillsLoadRequest request, CancellationToken cancellationToken)
+        CharacterCreationSkillsLoadRequest request, CancellationToken cancellationToken, bool includeLoadout = false)
     {
         var skills = new CharacterCreationSkillsService(view, resolver).LoadCompletionInputs(request);
         if (skills.Value is null) return Reject(skills.Blockers);
@@ -59,9 +69,22 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
         if (contacts.Value is null) return Reject(contacts.Blockers);
         cancellationToken.ThrowIfCancellationRequested();
 
+        CharacterCreationLoadoutCompletionInputs? loadout = null;
+        if (includeLoadout)
+        {
+            var original = view.Get(request.WorkspaceId);
+            if (!original.Success || original.Value is null)
+                return Reject([CharacterCreationLoadoutCompletionSchemas.SnapshotConflict]);
+            var loaded = CharacterCreationLoadoutCompletionService.LoadFromObservation(original.Value, resolver,
+                requireAuthority: true);
+            if (loaded.Outcome != CharacterCreationFoundationOutcomes.Success) return Reject(loaded.Blockers);
+            loadout = loaded.Value;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+
         var inputs = new CharacterCreationCompletionReviewInputs(
-            CharacterCreationCompletionReviewSchemas.InputsV1,
-            skills.Value, magic.Value, lifestyles.Value, contacts.Value, string.Empty);
+            loadout is null ? CharacterCreationCompletionReviewSchemas.InputsV1 : CharacterCreationCompletionReviewSchemas.InputsV2,
+            skills.Value, magic.Value, lifestyles.Value, contacts.Value, string.Empty) { Loadout = loadout };
         inputs = inputs with { SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs) };
         return new(CharacterCreationFoundationOutcomes.Success, inputs, []);
     }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Chummer.Contracts.Characters;
 
 public static class CharacterCreationPurchaseCompletionBlockers
@@ -24,12 +26,18 @@ public static class CharacterCreationPurchaseCompletionTargetOutcomes
     public const string WorkLimit = "work-limit";
 }
 
-/// <summary>Exactly one payload. List order ranks Gear and Lifestyles together.
+/// <summary>Exactly one payload. List order ranks Gear, Weapons, Armor and Lifestyles together.
 /// Gear Quantity is the complete requested line, not an increment. Existing
 /// lines/configurations cannot be replaced or increased by this planner.</summary>
 public sealed record CharacterCreationPurchaseCompletionTarget(
     CharacterCreationGearSelection? Gear = null,
-    CharacterCreationLifestyleConfiguration? Lifestyle = null);
+    CharacterCreationLifestyleConfiguration? Lifestyle = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationWeaponSelection? Weapon { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationArmorSelection? Armor { get; init; }
+}
 
 /// <summary>Explicit purchase wishes and limits, not an instruction to spend all
 /// funds. Zero spending is the safe default. Karma investment is a caller choice,
@@ -46,7 +54,11 @@ public sealed record CharacterCreationPurchaseCompletionRequest(
     Guid? StartingLifestyleId = null,
     decimal NuyenToReserve = 0m,
     decimal MaximumAdditionalSpend = 0m,
-    int MaximumEvaluations = 32);
+    int MaximumEvaluations = 32)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LoadoutSnapshotDigest { get; init; }
+}
 
 public sealed record CharacterCreationPurchaseCompletionTargetResult(
     int TargetIndex,
@@ -68,7 +80,11 @@ public sealed record CharacterCreationPurchaseCompletionPlan(
     bool IsPurchasePlanComplete,
     int Evaluations,
     IReadOnlyList<string> Blockers,
-    string PlanDigest);
+    string PlanDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutSelections? Loadout { get; init; }
+}
 
 public static class CharacterCreationPurchaseCompletionRules
 {

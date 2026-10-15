@@ -18,6 +18,7 @@ internal static class CharacterCreationCompletionReplayCodec
 {
     internal const string SchemaV1 = CharacterCreationCompletionReplayArchive.SchemaV1;
     internal const string EncodingName = "br-base64";
+    internal const string LoadoutEncodingName = "br-base64url";
     internal const int MaximumUncompressedBytes = 8 * 1024 * 1024;
     internal const int MaximumCompressedBytes = 384 * 1024;
     private const int MaximumBase64Characters = ((MaximumCompressedBytes + 2) / 3) * 4;
@@ -50,8 +51,14 @@ internal static class CharacterCreationCompletionReplayCodec
             if (!BrotliEncoder.TryCompress(serialized, compressed, out int written,
                     CompressionQuality, CompressionWindow) || written <= 0)
                 return false;
-            archive = new(SchemaV1, EncodingName, serialized.Length, Digest(serialized),
-                Convert.ToBase64String(compressed, 0, written));
+            // Keep legacy V1 witness bytes unchanged. New loadout witnesses use
+            // unpadded base64url so the enclosing strict JSON serializer need
+            // not expand '+' into six-byte escapes. The Brotli bytes, exact
+            // uncompressed digest, size limits and retained history are identical.
+            bool urlEncoding = witness.Schema == CharacterCreationSelectedCompletionWitness.SchemaV2;
+            string data = Convert.ToBase64String(compressed, 0, written);
+            archive = new(SchemaV1, urlEncoding ? LoadoutEncodingName : EncodingName,
+                serialized.Length, Digest(serialized), urlEncoding ? ToBase64Url(data) : data);
             return true;
         }
         catch (Exception error) when (IsMalformed(error))
@@ -67,21 +74,33 @@ internal static class CharacterCreationCompletionReplayCodec
     {
         bootstrap = null;
         witness = null;
-        if (archive is null || archive.Schema != SchemaV1 || archive.Encoding != EncodingName
+        if (archive is null || archive.Schema != SchemaV1
+            || archive.Encoding is not (EncodingName or LoadoutEncodingName)
             || archive.UncompressedBytes is <= 0 or > MaximumUncompressedBytes
             || !IsDigest(archive.UncompressedDigest)
-            || archive.Data is not { Length: > 0 and <= MaximumBase64Characters }
-            || archive.Data.Length % 4 != 0)
+            || archive.Data is not { Length: > 0 and <= MaximumBase64Characters })
             return false;
         try
         {
             // Check the wire length before allocating or decoding. Canonical
             // base64 below also rejects whitespace and nonzero padding bits.
-            byte[] compressed = new byte[archive.Data.Length / 4 * 3];
-            if (!Convert.TryFromBase64String(archive.Data, compressed, out int compressedLength)
+            bool urlEncoding = archive.Encoding == LoadoutEncodingName;
+            string base64 = archive.Data;
+            if (urlEncoding)
+            {
+                if (base64.Length % 4 == 1 || base64.Any(character => character is not
+                    (>= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_')))
+                    return false;
+                base64 = base64.Replace('-', '+').Replace('_', '/')
+                    .PadRight((base64.Length + 3) / 4 * 4, '=');
+            }
+            else if (base64.Length % 4 != 0) return false;
+            byte[] compressed = new byte[base64.Length / 4 * 3];
+            if (!Convert.TryFromBase64String(base64, compressed, out int compressedLength)
                 || compressedLength is <= 0 or > MaximumCompressedBytes
-                || !string.Equals(archive.Data, Convert.ToBase64String(compressed, 0, compressedLength),
-                    StringComparison.Ordinal))
+                || !string.Equals(archive.Data, urlEncoding
+                    ? ToBase64Url(Convert.ToBase64String(compressed, 0, compressedLength))
+                    : Convert.ToBase64String(compressed, 0, compressedLength), StringComparison.Ordinal))
                 return false;
 
             // The declared decoded length was bounded before any output buffer
@@ -102,7 +121,8 @@ internal static class CharacterCreationCompletionReplayCodec
             // Done alone is insufficient: exact consumption rejects trailing
             // bytes and concatenated streams; exact output rejects length lies.
             if (!string.Equals(archive.UncompressedDigest, Digest(serialized), StringComparison.Ordinal)
-                || !TryReadPayload(serialized, out var payload))
+                || !TryReadPayload(serialized, out var payload)
+                || urlEncoding && payload.Witness.Schema != CharacterCreationSelectedCompletionWitness.SchemaV2)
                 return false;
             bootstrap = payload.Bootstrap;
             witness = payload.Witness;
@@ -114,6 +134,8 @@ internal static class CharacterCreationCompletionReplayCodec
         }
     }
 
+    private static string ToBase64Url(string base64) => base64.TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
     private static bool TryReadPayload(byte[] serialized, [NotNullWhen(true)] out Payload? payload)
     {
         payload = null;
@@ -124,6 +146,7 @@ internal static class CharacterCreationCompletionReplayCodec
         RejectDuplicateProperties(document.RootElement);
         Payload? decoded = document.RootElement.Deserialize<Payload>(Options);
         if (decoded?.Bootstrap is null || decoded.Witness is null
+            || !HasVersionedShape(decoded.Witness)
             || !serialized.AsSpan().SequenceEqual(Serialize(decoded)))
             return false;
         // Exact typed reserialization rejects ignored/defaulted fields and
@@ -131,6 +154,17 @@ internal static class CharacterCreationCompletionReplayCodec
         payload = decoded;
         return true;
     }
+
+    // This is only a format boundary, not rules/source admission. Keeping the
+    // optional field absent preserves old V1 bytes; presence requires the new
+    // witness version, so a rehashed mixed envelope cannot borrow old semantics.
+    private static bool HasVersionedShape(CharacterCreationSelectedCompletionWitness witness)
+        => witness.Schema switch
+        {
+            CharacterCreationSelectedCompletionWitness.SchemaV1 => witness.Loadout is null,
+            CharacterCreationSelectedCompletionWitness.SchemaV2 => witness.Loadout is not null,
+            _ => false
+        };
 
     private static byte[] Serialize(Payload payload)
     {

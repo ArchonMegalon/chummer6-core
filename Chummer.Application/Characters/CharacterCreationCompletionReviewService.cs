@@ -17,23 +17,32 @@ public static class CharacterCreationCompletionReviewService
         cancellationToken.ThrowIfCancellationRequested();
         inputs = Detach(inputs);
         request = Detach(request);
-        if (!HasSelectionsShape(request.Selections))
+        if (!HasSelectionsShape(request.Selections)
+            || (inputs.Loadout is null) != (request.Selections.Loadout is null))
             return Refused(CharacterCreationFoundationOutcomes.Invalid, CharacterCreationCompletionReviewSchemas.RequestInvalid);
         if (!HasInputsShape(inputs)
-            || inputs.Schema != CharacterCreationCompletionReviewSchemas.InputsV1
+            || inputs.Schema != (inputs.Loadout is null ? CharacterCreationCompletionReviewSchemas.InputsV1
+                : CharacterCreationCompletionReviewSchemas.InputsV2)
             || !SameDigest(inputs.SnapshotDigest, CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs)))
             return Refused(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationCompletionReviewSchemas.AuthorityUnavailable);
         if (!SameDigest(inputs.SnapshotDigest, request.InputsSnapshotDigest) || !HasCoherentInputs(inputs))
             return Refused(CharacterCreationFoundationOutcomes.Conflict, CharacterCreationCompletionReviewSchemas.SnapshotConflict);
 
         var choices = request.Selections;
+        CharacterCreationLoadoutCompletionProjection? loadout = null;
+        if (inputs.Loadout is not null)
+        {
+            var loadoutResult = CharacterCreationLoadoutCompletionService.Preview(inputs.Loadout, choices.Loadout!);
+            if (loadoutResult.Value is null) return new(loadoutResult.Outcome, null, loadoutResult.Blockers);
+            loadout = loadoutResult.Value;
+        }
         var skillsResult = CharacterCreationSkillsService.PreviewWithProposedAttributes(inputs.Skills,
             choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, cancellationToken);
         var upstreamResult = CharacterCreationCompletionBudgetService.Preview(inputs.Magic, inputs.Lifestyles.Qualities,
             choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, cancellationToken);
         var lifestylesResult = CharacterCreationLifestylesService.PreviewCompletion(inputs.Lifestyles, inputs.Magic,
             choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, choices.TotalKarmaInvestment,
-            choices.Gear, choices.Lifestyles, choices.StartingLifestyleId, cancellationToken);
+            choices.Gear, choices.Lifestyles, choices.StartingLifestyleId, loadout, cancellationToken);
         var contactsResult = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
             choices.AttributeAllocations, choices.QualityOptionIds, choices.Contacts, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -50,11 +59,12 @@ public static class CharacterCreationCompletionReviewService
 
         blockers.AddRange(CharacterCreationCompletionPreservationRules.Check(inputs, choices));
         var balances = BuildBalances(inputs, skillsResult.Value, upstreamResult.Value,
-            lifestylesResult.Value, contactsResult.Value, blockers);
+            lifestylesResult.Value, contactsResult.Value, blockers, loadout);
         string[] normalized = Normalize(blockers);
-        var review = new CharacterCreationCompletionReview(CharacterCreationCompletionReviewSchemas.ReviewV1,
+        var review = new CharacterCreationCompletionReview(loadout is null ? CharacterCreationCompletionReviewSchemas.ReviewV1
+                : CharacterCreationCompletionReviewSchemas.ReviewV2,
             inputs.SnapshotDigest, request, skillsResult.Value, upstreamResult.Value, lifestylesResult.Value,
-            contactsResult.Value, balances, normalized, string.Empty);
+            contactsResult.Value, balances, normalized, string.Empty) { Loadout = loadout };
         review = review with { ReviewDigest = CharacterCreationCompletionReviewRules.ComputeReviewDigest(review) };
         cancellationToken.ThrowIfCancellationRequested();
         return new(normalized.Length == 0 ? CharacterCreationFoundationOutcomes.Success : CharacterCreationFoundationOutcomes.Blocked,
@@ -67,7 +77,8 @@ public static class CharacterCreationCompletionReviewService
         CharacterCreationCompletionBudgetPreview? upstream,
         CharacterCreationLifestylesCompletionProjection? lifestyles,
         CharacterCreationContactsCompletionProjection? contacts,
-        ICollection<string> blockers)
+        ICollection<string> blockers,
+        CharacterCreationLoadoutCompletionProjection? loadout)
     {
         var resources = lifestyles?.Gear.Resources;
         // The supported Priority Skills allocation contract has point costs only.
@@ -111,7 +122,7 @@ public static class CharacterCreationCompletionReviewService
             nuyenExact ? lifestyles!.Gear.Budget.BasketCost : null,
             nuyenExact ? lifestyles!.Budget.Used : null,
             nuyenExact ? resources!.Budget.RemainingNuyen : null,
-            nuyenExact ? resources!.Budget.Overspend : null);
+            nuyenExact ? resources!.Budget.Overspend : null) { LoadoutCost = loadout?.PurchaseCost };
     }
 
     private static bool HasCoherentInputs(CharacterCreationCompletionReviewInputs inputs)
@@ -146,6 +157,11 @@ public static class CharacterCreationCompletionReviewService
                 contacts.Binding.ContentDigest, contacts.Binding.AuxiliaryStateDigest)) return false;
 
         string profile = contacts.BootstrapBinding.SettingsProfileId;
+        if (inputs.Loadout is { } loadout && (loadout.Authority.SettingsProfileId != profile
+                || loadout.Authority.ProfileDigest != contacts.BootstrapBinding.RawProfileInputsDigest
+                || !SameObservation(basis, loadout.Binding.WorkspaceId, loadout.Binding.ContentRevision,
+                    loadout.Binding.SavedRevision, loadout.Binding.RawCharacterXmlDigest, loadout.Binding.AuxiliaryStateDigest)))
+            return false;
         if (skills.Authority.SettingsProfileId != profile || magic.Authority.SettingsProfileId != profile
             || qualities.Authority.SettingsProfileId != profile || resources.Authority.SettingsProfileId != profile
             || gear.State.Authority.SettingsProfileId != profile || lifestyles.Authority.SettingsProfileId != profile
@@ -216,7 +232,8 @@ public static class CharacterCreationCompletionReviewService
                     && inputs.Lifestyles.Gear.State.PendingDraft.Lines.All(value => value is not null))
             && inputs.Contacts is { Binding: not null, BootstrapBinding: not null, Qualities: not null,
                 Contacts: not null, TalentQualitySources: not null }
-            && inputs.Contacts.Contacts.All(value => value is not null);
+            && inputs.Contacts.Contacts.All(value => value is not null)
+            && (inputs.Loadout is null || CharacterCreationLoadoutCompletionService.IsValidInputs(inputs.Loadout));
 
     private static bool HasSelectionsShape(CharacterCreationCompletionSelections? choices)
         => choices is { AttributeAllocations: not null, SkillAllocations: not null, GroupAllocations: not null,
@@ -233,7 +250,8 @@ public static class CharacterCreationCompletionReviewService
             && choices.Gear.All(value => value is not null)
             && choices.Contacts.All(value => value is not null)
             && choices.Lifestyles.All(value => value is not null)
-            && HasMagicShape(choices.MagicSelections);
+            && HasMagicShape(choices.MagicSelections)
+            && (choices.Loadout is null || CharacterCreationLoadoutCompletionService.IsValidSelections(choices.Loadout));
 
     private static bool HasMagicShape(CharacterCreationMagicResonanceSelections? selections)
         => selections is { AdeptPowers: not null, Spells: not null, ComplexForms: not null }

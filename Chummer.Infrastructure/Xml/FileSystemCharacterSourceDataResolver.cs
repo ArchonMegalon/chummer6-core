@@ -3565,6 +3565,126 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationLoadoutAuthority(out CharacterCreationLoadoutAuthority authority)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            authority = CharacterCreationLoadoutAuthority.Unavailable;
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || _creationMaximumAvailability is not int maximumAvailability || maximumAvailability < 0
+                || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId, string.Empty, out XElement? profile)
+                || profile is null
+                || !TryReadStrictBool(profile, "multiplyrestrictedcost", out bool multiplyRestricted)
+                || !TryReadStrictBool(profile, "multiplyforbiddencost", out bool multiplyForbidden)
+                || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "armor.xml", out string armorDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "weapons.xml", out string weaponsCustomDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "armor.xml", out string armorCustomDigest)
+                || !TryValidateLoadoutCustomCategoryScope("weapons.xml")
+                || !TryValidateLoadoutCustomCategoryScope("armor.xml")
+                || !TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weaponRows)
+                || !TryEnumerateTargets("armor.xml", ["armors"], "armor", out XElement[] armorRows)
+                || !TryLoadEffectiveDocument(_catalog, "weapons.xml", out XDocument? weapons)
+                || !TryLoadEffectiveDocument(_catalog, "armor.xml", out XDocument? armor)
+                || weapons?.Root?.Elements("categories").ToArray() is not [var weaponCategories]
+                || armor?.Root?.Elements("categories").ToArray() is not [var armorCategories]) return false;
+
+            var options = new List<CharacterCreationLoadoutCatalogOption>();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var source in new[]
+                     {
+                         (Kind: CharacterCreationLoadoutKinds.Weapon, Rows: weaponRows, Categories: weaponCategories),
+                         (Kind: CharacterCreationLoadoutKinds.Armor, Rows: armorRows, Categories: armorCategories)
+                     })
+            {
+                foreach (XElement row in source.Rows.OrderBy(item => ReadValue(item, "id"), StringComparer.Ordinal))
+                {
+                    string categoryName = ReadValue(row, "category");
+                    XElement[] categories = source.Categories.Elements("category")
+                        .Where(category => category.Value == categoryName).Take(2).ToArray();
+                    if (categories.Length > 1) return false;
+                    bool enabled = _enabledSourcebooks.Contains(ReadValue(row, "source"));
+                    if (!CharacterCreationLoadoutSourceProjector.TryCreateOption(source.Kind, row, categories.SingleOrDefault(),
+                            enabled, maximumAvailability, out CharacterCreationLoadoutCatalogOption? option)
+                        || option is null || !identities.Add(option.OptionId)) return false;
+                    // This source-bound subset cannot quote profile R/F multipliers.
+                    // Keep unaffected legal items admitted, but never quote an affected
+                    // item at its unmodified source price as though that were exact.
+                    if (multiplyRestricted && option.Legality == CharacterCreationGearLegality.Restricted
+                        || multiplyForbidden && option.Legality == CharacterCreationGearLegality.Forbidden)
+                    {
+                        option = option with
+                        {
+                            IsSelectable = false,
+                            PricingIsExact = false,
+                            Blockers = option.Blockers.Append(CharacterCreationLoadoutBlockers.UnsupportedSemantics)
+                                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()
+                        };
+                        option = option with { OptionDigest = CharacterCreationLoadoutRules.ComputeOptionDigest(option) };
+                    }
+                    options.Add(option);
+                }
+            }
+            if (_sourceInputs.HasSourceDrift || options.Count == 0) return false;
+            var candidate = new CharacterCreationLoadoutAuthority(
+                CharacterCreationLoadoutSchemas.AuthorityV1, "sr5", _settingsProfileId, maximumAvailability,
+                CharacterCreationLoadoutRules.MaximumBasketLines, CharacterCreationLoadoutRules.MaximumQuantityPerLine,
+                options.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray(),
+                ["weapons.xml#weapons", "weapons.xml#categories", "armor.xml#armors", "armor.xml#categories", $"{SettingsAnchor}:availability"],
+                [], true,
+                CharacterCreationLoadoutRules.Compute(new { weaponsDigest, armorDigest, weaponsCustomDigest, armorCustomDigest }),
+                _rawProfileInputsDigest,
+                CharacterCreationLoadoutRules.Compute(new
+                {
+                    Schema = CharacterCreationLoadoutSchemas.RulesV1, maximumAvailability,
+                    FixedNumericCostAndAvailability = true, multiplyRestricted, multiplyForbidden,
+                    UnsupportedLegalityMultipliersExcluded = true, SelectedCustomCategoryMutationsExcluded = true,
+                    PlainUnloadedFirearms = true, SinglePlainArmor = true, SourceCategoriesCaptured = true
+                }),
+                CharacterCreationLoadoutRules.Compute(new
+                {
+                    Schema = CharacterCreationLoadoutSchemas.RuntimeV1, DistinctWeaponArmorGraphs = true,
+                    StableInstanceIds = true, NoChildrenPromptsOrImprovements = true,
+                    NoAmmoOrLoadedClipClaims = true, AtomicCompletionOnly = true
+                }), string.Empty);
+            candidate = candidate with { AuthorityDigest = CharacterCreationLoadoutRules.ComputeAuthorityDigest(candidate) };
+            if (!CharacterCreationLoadoutRules.IsValidAuthority(candidate) || _sourceInputs.HasSourceDrift) return false;
+            authority = candidate;
+            return true;
+        }
+
+        private bool TryValidateLoadoutCustomCategoryScope(string fileName)
+        {
+            // TryEnumerateTargets applies selected legacy custom item rows, whereas
+            // TryLoadEffectiveDocument applies only catalog overlays. Category names
+            // are scalar text (not the ID/name children supported by the item merger).
+            // Until that category merger is supported, reject its entire mutation
+            // container, including removals/attribute-only amendments and empty ones.
+            // Use the same captured directory inventory and bytes as the source digest;
+            // installed but unselected custom data must not affect admission.
+            try
+            {
+                foreach (CustomDirectory directory in _customDirectories)
+                {
+                    foreach (string path in EnumerateSourceFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
+                                 .Where(path => IsLegacyCustomDataInputFor(path, fileName)))
+                    {
+                        if (!TryLoadXml(path, out XDocument? customDocument)
+                            || customDocument?.Root is null
+                            || customDocument.Root.Elements().Any(element => element.Name.LocalName == "categories"))
+                            return false;
+                    }
+                }
+                return !_sourceInputs.HasSourceDrift;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
         private static CharacterCreationGearAuthority CopyGearAuthority(
             CharacterCreationGearAuthority source) => source with
         {

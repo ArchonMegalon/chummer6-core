@@ -85,7 +85,10 @@ public static class CharacterCreationCompletionFinalizationProjector
         CharacterCreationKarmaCarryoverPolicy CarryoverPolicy,
         int RemainingCreationKarma,
         decimal RemainingNuyen,
-        AwakenedGraphInputs Awakened);
+        AwakenedGraphInputs Awakened)
+    {
+        internal CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
+    }
 
     internal sealed record EvaluatedQualities(
         IReadOnlyList<CharacterCreationQualitySelection> Selections,
@@ -189,7 +192,8 @@ public static class CharacterCreationCompletionFinalizationProjector
                 new(lifestyles.Authority, lifestyles.Lifestyles, lifestyles.StartingLifestyleId, lifestyles.SourceAnchorIds),
                 new(inputs.Contacts.Policy, review.Request.Selections.Contacts), inputs.Contacts.CarryoverPolicy,
                 review.Balances.RemainingCreationKarma.Value, review.Balances.RemainingNuyen.Value,
-                new FullAwakenedGraphInputs(inputs.Magic, review.UpstreamBudget.Magic));
+                new FullAwakenedGraphInputs(inputs.Magic, review.UpstreamBudget.Magic))
+                { Loadout = review.Loadout };
             var projected = ProjectEvaluated(graph, startingCashSource, cashChoice, cancellationToken);
             return new(projected.Outcome, projected.Value is null ? null :
                 new(inputs, bootstrap, review.Request, startingLifestyleSourceId, projected.Value), projected.Blockers);
@@ -265,6 +269,16 @@ public static class CharacterCreationCompletionFinalizationProjector
                 return RefusedProjection(CharacterCreationFinalizationBlockers.CharacterAlreadyCreated);
             foreach (string name in new[] { "qualities", "gears", "contacts", "lifestyles" })
                 EnsureEmptyContainer(root, name);
+            // New loadout proposals own these containers only after an explicit
+            // source-bound review. Old archives must retain their original graph
+            // shape, including the absence of empty weapons/armors containers.
+            if (graph.Loadout is not null)
+            {
+                EnsureEmptyContainer(root, "weapons");
+                EnsureEmptyContainer(root, "armors");
+                if (root.Element("weapons")?.HasAttributes == true || root.Element("armors")?.HasAttributes == true)
+                    return RefusedProjection(CharacterCreationLoadoutCompletionSchemas.ExistingGraphUnsupported);
+            }
             var deltas = new List<CharacterCreationFinalizationDelta>();
             int order = 0;
             foreach (string field in CharacterCreationCareerBaseline.InitializeMissing(root))
@@ -310,6 +324,20 @@ public static class CharacterCreationCompletionFinalizationProjector
             if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order))
                 return RefusedProjection(CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable);
             ReplaceDirect(root, BuildGearGraph(gear.Lines, graph.OriginalReviewDigest, deltas, ref order));
+            if (graph.Loadout is { } loadout)
+            {
+                if (loadout.Blockers.Count != 0
+                    || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)
+                    || !CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines,
+                        graph.OriginalReviewDigest, out var weapons, out var armor))
+                    return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+                ReplaceDirect(root, new XElement("weapons", weapons));
+                ReplaceDirect(root, new XElement("armors", armor));
+                foreach (var line in loadout.Lines)
+                    AddDelta(deltas, ref order, $"{line.Kind}:{line.OptionId}", line.Kind,
+                        line.OptionId, null, Number(line.Quantity), 0, line.TotalCost,
+                        line.SourceAnchorIds, line.Name);
+            }
             if (!TryApplyAwakened(root, graph, deltas, ref order))
                 return RefusedProjection(CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable);
             CharacterCareerReputationProjector.ValidateSavedInputShape(root);
@@ -354,7 +382,11 @@ public static class CharacterCreationCompletionFinalizationProjector
                 "startingnuyen", null, Number(resources.Budget.TotalStartingNuyen), resources.SelectedOption.KarmaInvestment,
                 0, resources.Budget.SourceAnchorIds);
             AddDelta(deltas, ref order, "resources:remaining-nuyen", CharacterCreationFinalizationDeltaKinds.Resources,
-                "nuyen", null, Number(nuyenBefore), 0, gear.Budget.BasketCost, gear.SourceAnchorIds);
+                "nuyen", null, Number(nuyenBefore), 0,
+                checked(gear.Budget.BasketCost + (graph.Loadout?.PurchaseCost ?? 0m)),
+                graph.Loadout is null ? gear.SourceAnchorIds : gear.SourceAnchorIds
+                    .Concat(graph.Loadout.Lines.SelectMany(line => line.SourceAnchorIds))
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray());
             AddDelta(deltas, ref order, "carryover:karma", CharacterCreationFinalizationDeltaKinds.Resources,
                 "karma", Number(karmaBefore), Number(karmaAfter), 0, 0, carryover.SourceAnchorIds);
             AddDelta(deltas, ref order, "carryover:nuyen", CharacterCreationFinalizationDeltaKinds.Resources,

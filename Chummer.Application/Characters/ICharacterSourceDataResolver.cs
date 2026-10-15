@@ -412,6 +412,16 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Exact effective SR5 weapon/armor source admission for bounded completion purchases.
+    /// This never treats a weapon or armor as generic Gear; unsupported sources remain disabled.
+    /// </summary>
+    bool TryResolveCreationLoadoutAuthority(out CharacterCreationLoadoutAuthority authority)
+    {
+        authority = CharacterCreationLoadoutAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the exact enabled SR5 drug grades, Foundation/Block/Enhancer
     /// components and every source-defined effect level from the runner's
     /// effective drugcomponents.xml overlay. Unknown effect semantics or an

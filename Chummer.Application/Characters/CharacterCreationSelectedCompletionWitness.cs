@@ -1,4 +1,5 @@
 using Chummer.Contracts.Characters;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Application.Characters;
 
@@ -26,6 +27,12 @@ internal sealed record CharacterCreationSelectedCompletionWitness(
     string WitnessDigest)
 {
     internal const string SchemaV1 = "chummer.creation-selected-completion-witness.v1";
+    internal const string SchemaV2 = "chummer.creation-selected-completion-witness.v2";
+
+    // Omission is part of the historical V1 byte contract. A V2 witness
+    // explicitly carries the independently replayable selected loadout closure.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSelectedLoadoutAuthority? Loadout { get; init; }
 }
 
 /// <summary>Independently recomputed rows, not a fabricated full review or saved draft.</summary>
@@ -42,7 +49,11 @@ internal sealed record CharacterCreationSelectedCompletionEvaluation(
     SelectedCompletionLifestylesPrice Lifestyles,
     SelectedCompletionContactsPrice Contacts,
     CharacterCreationCompletionPoolBalances Balances,
-    string ReplayDigest);
+    string ReplayDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
+}
 
 // Derived from an actual original document (or the admitted full observation),
 // never a persisted claim about which player choices may be overwritten.
@@ -52,4 +63,8 @@ internal sealed record CharacterCreationCompletionOriginalSelections(
     IReadOnlyList<CharacterCreationGearSelection> Gear,
     int KarmaInvestment,
     IReadOnlyList<CharacterCreationKarmaContactSelection> Contacts,
-    IReadOnlyList<CharacterCreationLifestyleConfiguration> Lifestyles);
+    IReadOnlyList<CharacterCreationLifestyleConfiguration> Lifestyles)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutSelections? Loadout { get; init; }
+}

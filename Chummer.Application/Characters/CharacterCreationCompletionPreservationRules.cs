@@ -32,7 +32,7 @@ public static class CharacterCreationCompletionPreservationRules
             inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(value =>
                 new CharacterCreationGearSelection(value.OptionId, value.Quantity)).ToArray() ?? [],
             inputs.Lifestyles.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0,
-            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles);
+            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles) { Loadout = inputs.Loadout?.OriginalSelections };
         return Check(inputs.Skills, original, proposed);
     }
 
@@ -113,6 +113,12 @@ public static class CharacterCreationCompletionPreservationRules
         preserved &= Retains(originalSelections.QualityOptionIds, proposed.QualityOptionIds,
             value => value, (before, after) => before == after);
         preserved &= Retains(originalSelections.Gear, proposed.Gear, value => value.OptionId, (before, after) => before == after);
+        preserved &= originalSelections.Loadout is null ? proposed.Loadout is null
+            : proposed.Loadout is not null
+                && Retains(originalSelections.Loadout.Weapons, proposed.Loadout.Weapons, value => value.OptionId,
+                    (before, after) => before == after)
+                && Retains(originalSelections.Loadout.Armor, proposed.Loadout.Armor, value => value.OptionId,
+                    (before, after) => before == after);
         preserved &= proposed.TotalKarmaInvestment >= originalSelections.KarmaInvestment;
         preserved &= Retains(originalSelections.Contacts, proposed.Contacts, value => value.ContactId,
             (before, after) => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(before, after));

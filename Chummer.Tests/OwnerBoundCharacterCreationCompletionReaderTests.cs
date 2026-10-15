@@ -19,7 +19,9 @@ namespace Chummer.Tests;
 public sealed class OwnerBoundCharacterCreationCompletionReaderTests
 {
     [TestMethod]
-    public void Completion_reader_uses_one_owner_observation_rejects_ABA_and_cancels_without_writes()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Completion_reader_uses_one_owner_observation_rejects_ABA_and_cancels_without_writes(bool includeLoadout)
     {
         using var fixture = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
         string directory = Path.Combine(fixture.Directory, "completion-owner-only");
@@ -75,9 +77,16 @@ public sealed class OwnerBoundCharacterCreationCompletionReaderTests
         var observed = new ObservedStore(store);
         IOwnerBoundCharacterCreationCompletionReader reader = new OwnerBoundCharacterCreationCompletionReader(
             observed, owners, fixture.Resolver, fixture.Queries);
-        var first = reader.LoadCompletionInputs(original, new(id));
+        CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> Load(
+            OwnerContextStamp stamp, CancellationToken token = default)
+            => includeLoadout ? reader.LoadCompletionInputsWithLoadout(stamp, new(id), token)
+                : reader.LoadCompletionInputs(stamp, new(id), token);
+        var first = Load(original);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, first.Outcome, string.Join(",", first.Blockers));
         Assert.IsNotNull(first.Value);
+        Assert.AreEqual(includeLoadout, first.Value.Loadout is not null);
+        Assert.AreEqual(includeLoadout ? CharacterCreationCompletionReviewSchemas.InputsV2
+            : CharacterCreationCompletionReviewSchemas.InputsV1, first.Value.Schema);
         Assert.AreEqual(1, observed.OwnerReads, "All completion domains must reuse one original store observation.");
         Assert.AreEqual(0, observed.LocalReads);
         Assert.AreEqual(before.Document.AuxiliaryStateDigest, first.Value.Skills.Binding.AuxiliaryStateDigest);
@@ -87,18 +96,18 @@ public sealed class OwnerBoundCharacterCreationCompletionReaderTests
 
         foreach (var denied in new[] { default(OwnerContextStamp), original with { Owner = ownerB },
                      original with { AuthorityInstanceId = "foreign" } })
-            Assert.IsNull(reader.LoadCompletionInputs(denied, new(id)).Value);
+            Assert.IsNull(Load(denied).Value);
         Assert.AreEqual(1, observed.OwnerReads, "Rejected owner stamps must not read a partition.");
         owners.Set(ownerB);
-        Assert.IsNull(reader.LoadCompletionInputs(owners.Capture(), new(id)).Value,
+        Assert.IsNull(Load(owners.Capture()).Value,
             "B's same workspace ID must not expose A's confirmed prerequisite or attribute state.");
         Assert.AreEqual(2, observed.OwnerReads);
         owners.Set(ownerA);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
-            reader.LoadCompletionInputs(original, new(id)).Outcome);
+            Load(original).Outcome);
         Assert.AreEqual(2, observed.OwnerReads, "A -> B -> A must not revive the original stamp.");
         var current = owners.Capture();
-        var fresh = reader.LoadCompletionInputs(current, new(id));
+        var fresh = Load(current);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, fresh.Outcome, string.Join(",", fresh.Blockers));
         Assert.AreEqual(first.Value.SnapshotDigest, fresh.Value!.SnapshotDigest);
         Assert.AreEqual(3, observed.OwnerReads);
@@ -106,12 +115,12 @@ public sealed class OwnerBoundCharacterCreationCompletionReaderTests
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
         AssertCanceled(() =>
-            reader.LoadCompletionInputs(current, new(id), cancelled.Token));
+            Load(current, cancelled.Token));
         Assert.AreEqual(3, observed.OwnerReads, "Pre-cancellation must not enter the store.");
         using var interrupted = new CancellationTokenSource();
         observed.AfterOwnerRead = interrupted.Cancel;
         AssertCanceled(() =>
-            reader.LoadCompletionInputs(current, new(id), interrupted.Token));
+            Load(current, interrupted.Token));
         Assert.AreEqual(4, observed.OwnerReads, "Cancellation after observation must not trigger a second read.");
         Assert.AreEqual(0, observed.LocalReads);
         Assert.AreEqual(0, owners.ActiveLeases, "Both cancellation paths must release owner admission.");

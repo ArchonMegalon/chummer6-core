@@ -53,13 +53,19 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             var magic = CharacterCreationMagicResonanceService.CaptureSelectedMagicAuthority(
                 inputs.Magic, choices.MagicSelections, cancellationToken);
             if (magic.Value is null) return new(magic.Outcome, null, magic.Blockers);
+            CharacterCreationSelectedLoadoutAuthority? loadout = null;
+            if (inputs.Loadout is { } loadoutInputs
+                && (choices.Loadout is null || !CharacterCreationLoadoutRules.TryCaptureSelectedAuthority(
+                    loadoutInputs.Authority, loadoutInputs.OriginalSelections, choices.Loadout, out loadout)))
+                return Refuse<CharacterCreationSelectedCompletionWitness>(Invalid);
             var candidate = new CharacterCreationSelectedCompletionWitness(
-                CharacterCreationSelectedCompletionWitness.SchemaV1, inputs.SnapshotDigest, review.ReviewDigest,
+                loadout is null ? CharacterCreationSelectedCompletionWitness.SchemaV1
+                    : CharacterCreationSelectedCompletionWitness.SchemaV2, inputs.SnapshotDigest, review.ReviewDigest,
                 inputs.Skills, qualities!, magic.Value, gear!, inputs.Lifestyles.Gear.Resources,
                 inputs.Lifestyles.Authority, inputs.Contacts.BootstrapBinding, inputs.Contacts.Policy,
                 inputs.Contacts.CarryoverPolicy, inputs.Contacts.Binding.SourceDigest,
                 review.UpstreamBudget.Qualities.ProposalDigest,
-                CharacterCreationFinalizationDigest.Compute(request), string.Empty);
+                CharacterCreationFinalizationDigest.Compute(request), string.Empty) { Loadout = loadout };
             candidate = candidate with { WitnessDigest = ComputeWitnessDigest(candidate) };
             var replay = Replay(original, bootstrap, candidate, request, cancellationToken);
             if (replay.Value is null || replay.Outcome != CharacterCreationFoundationOutcomes.Success)
@@ -139,14 +145,30 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, gearBlockers);
             string[] gearAnchors = gear.SelectMany(row => row.SourceAnchorIds).Concat(CharacterCreationGearSourceAnchors.All)
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            CharacterCreationLoadoutCompletionProjection? loadout = null;
+            if (witness.Loadout is { } loadoutAuthority)
+            {
+                if (!CharacterCreationLoadoutRules.TryProjectSelectedBasket(choices.Loadout!, loadoutAuthority,
+                        out var loadoutLines, out decimal loadoutCost, out var loadoutBlockers))
+                    return new(CharacterCreationFoundationOutcomes.Blocked, null, loadoutBlockers);
+                loadout = CharacterCreationLoadoutCompletionService.BuildProjection(
+                    choices.Loadout!, loadoutLines, loadoutCost);
+            }
+            decimal afterLoadout = checked(gearBudget.RemainingNuyen - (loadout?.PurchaseCost ?? 0m));
+            if (afterLoadout < 0m)
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationResourcesBlockers.InsufficientNuyen);
+            string[] purchaseAnchors = loadout is null ? gearAnchors : gearAnchors
+                .Concat(loadout.Lines.SelectMany(line => line.SourceAnchorIds))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             var lifestyles = CharacterCreationLifestylesService.PriceSelectedCompletion(new(witness.Lifestyles,
                 witness.Skills.PrerequisiteDraft, witness.Magic.Talent.GrantedQualitySources ?? [], qualities.Selections,
                 witness.ProposedQualityProjectionProvenanceSeed, choices.Lifestyles, choices.StartingLifestyleId,
-                gearBudget.RemainingNuyen, gearAnchors, []), cancellationToken);
+                afterLoadout, purchaseAnchors, []), cancellationToken);
             if (lifestyles.Value is not { } lifestylePrice || lifestyles.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, lifestyles.Blockers);
             var finalFunding = CharacterCreationResourcesService.PriceSelectedCompletion(resourcesInput with
-                { FullPurchaseCost = checked(gearBudget.BasketCost + lifestylePrice.FullLifestyleCost) }, cancellationToken);
+                { FullPurchaseCost = checked(gearBudget.BasketCost + lifestylePrice.FullLifestyleCost
+                    + (loadout?.PurchaseCost ?? 0m)) }, cancellationToken);
             if (finalFunding.Value is not { } resources || finalFunding.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, finalFunding.Blockers);
             var contactResult = CharacterCreationContactsService.PriceSelectedCompletion(new(witness.ContactsPolicy,
@@ -162,10 +184,11 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 qualities.KarmaRemaining, 0, magic.Proposed.MysticAdeptPowerPoints?.KarmaCost ?? 0,
                 resources.SelectedOption.KarmaInvestment, contactCost, remaining, 0,
                 resources.Budget.TotalStartingNuyen, gearBudget.BasketCost, lifestylePrice.FullLifestyleCost,
-                resources.Budget.RemainingNuyen, resources.Budget.Overspend);
+                resources.Budget.RemainingNuyen, resources.Budget.Overspend)
+                { LoadoutCost = loadout?.PurchaseCost };
             var result = new CharacterCreationSelectedCompletionEvaluation(witness.WitnessDigest, skills,
                 originalQualities, qualities, magic, resources, gear, gearBudget, gearAnchors,
-                lifestylePrice, contacts, balances, string.Empty);
+                lifestylePrice, contacts, balances, string.Empty) { Loadout = loadout };
             result = result with { ReplayDigest = ComputeReplayDigest(result) };
             cancellationToken.ThrowIfCancellationRequested();
             return new(CharacterCreationFoundationOutcomes.Success, result, []);
@@ -177,7 +200,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
     private static bool IsValidEnvelope(CharacterCreationSelectedCompletionWitness witness,
         CharacterCreationCompletionReviewRequest request)
     {
-        if (witness.Schema != CharacterCreationSelectedCompletionWitness.SchemaV1
+        if (!HasMatchingLoadoutSchema(witness, request)
             || witness.Skills?.Attributes?.Attributes is null || witness.Skills.Attributes.Binding is null
             || witness.Skills.Binding is null || witness.Skills.Authority is null || witness.Skills.PrerequisiteDraft is null
             || witness.Skills.Attributes.Attributes.Any(row => row is null)
@@ -232,6 +255,8 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         return witness.Skills.Authority.SettingsProfileId == profile && witness.Qualities.SettingsProfileId == profile
             && witness.Magic.SettingsProfileId == profile && witness.Gear.SettingsProfileId == profile
             && witness.Resources.Authority.SettingsProfileId == profile && witness.Lifestyles.SettingsProfileId == profile
+            && (witness.Loadout is null || witness.Loadout.SettingsProfileId == profile
+                && witness.Loadout.ProfileDigest == witness.BootstrapBinding.RawProfileInputsDigest)
             && witness.Skills.Authority.RawProfileInputsDigest == witness.BootstrapBinding.RawProfileInputsDigest
             && witness.Qualities.ProfileDigest == witness.BootstrapBinding.RawProfileInputsDigest
             && witness.Gear.ProfileDigest == witness.BootstrapBinding.RawProfileInputsDigest
@@ -246,6 +271,19 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             && witness.Gear.ProposedOptionIds.SequenceEqual(request.Selections.Gear.Select(row => row.OptionId).Order(StringComparer.Ordinal))
             && Same(witness.Magic.ProposedSelections, NormalizeMagic(request.Selections.MagicSelections));
     }
+
+    private static bool HasMatchingLoadoutSchema(CharacterCreationSelectedCompletionWitness witness,
+        CharacterCreationCompletionReviewRequest request)
+        => witness.Schema switch
+        {
+            CharacterCreationSelectedCompletionWitness.SchemaV1
+                => witness.Loadout is null && request.Selections?.Loadout is null,
+            CharacterCreationSelectedCompletionWitness.SchemaV2
+                => witness.Loadout is not null && request.Selections?.Loadout is not null
+                    && CharacterCreationLoadoutRules.IsValidSelectedAuthority(witness.Loadout)
+                    && Same(witness.Loadout.ProposedSelections, request.Selections.Loadout),
+            _ => false
+        };
 
     private static bool TryReadOriginal(WorkspaceStoredDocument original,
         CharacterCreationCompletionBootstrapSnapshot bootstrap, CharacterCreationSelectedCompletionWitness witness,
@@ -284,16 +322,27 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         var root = XDocument.Parse(original.Document.Content).Root;
         if (root?.Name != "character" || root.Elements("contacts").Count() > 1
             || root.Element("contacts")?.Elements().Any() == true) return false;
+        if (witness.Loadout is not null && (!IsEmptyOwnedContainer(root, "weapons")
+            || !IsEmptyOwnedContainer(root, "armors")
+            || !Same(witness.Loadout.OriginalSelections, CharacterCreationLoadoutSelections.Empty))) return false;
         effects = CharacterContactEditSemanticsResolver.ReadEffects(root);
         var magic = auxiliary.CharacterCreationMagicResonanceDraft?.Selections ?? new(null, null, [], [], []);
         baseline = new(magic, auxiliary.CharacterCreationQualitiesDraft?.SelectedOptionIds ?? [],
             auxiliary.CharacterCreationGearDraft?.Lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity)).ToArray() ?? [],
             auxiliary.CharacterCreationResourcesDraft?.KarmaInvestment ?? 0,
-            auxiliary.CharacterCreationContactsDraft?.Contacts ?? [], auxiliary.CharacterCreationLifestylesDraft?.Lifestyles ?? []);
+            auxiliary.CharacterCreationContactsDraft?.Contacts ?? [], auxiliary.CharacterCreationLifestylesDraft?.Lifestyles ?? [])
+            { Loadout = witness.Loadout is null ? null : CharacterCreationLoadoutSelections.Empty };
         return witness.Magic.OriginalHadSavedMagic == (auxiliary.CharacterCreationMagicResonanceDraft is not null)
             && Same(witness.Magic.OriginalSelections, NormalizeMagic(magic))
             && witness.Qualities.OriginalOptionIds.SequenceEqual(baseline.QualityOptionIds.Order(StringComparer.Ordinal))
             && witness.Gear.OriginalOptionIds.SequenceEqual(baseline.Gear.Select(row => row.OptionId).Order(StringComparer.Ordinal));
+    }
+
+    private static bool IsEmptyOwnedContainer(XElement root, string name)
+    {
+        var containers = root.Elements(name).ToArray();
+        return containers.Length <= 1 && containers.All(value => !value.HasElements
+            && !value.HasAttributes && string.IsNullOrWhiteSpace(value.Value));
     }
 
     private static bool MatchesOriginalPrices(WorkspaceStoredDocument original,
@@ -483,6 +532,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
     private static bool MatchesFullReview(CharacterCreationSelectedCompletionEvaluation selected,
         CharacterCreationCompletionReview full)
         => Same(selected.Skills, full.Skills) && Same(selected.Balances, full.Balances)
+            && Same(selected.Loadout, full.Loadout)
             && Same(selected.Qualities.Selections, full.UpstreamBudget!.Qualities.Qualities.Selections)
             && Same(selected.Qualities.GrantedQualities, full.UpstreamBudget.Qualities.Qualities.GrantedQualities)
             && Same(selected.Qualities.PositiveQualityBudget, full.UpstreamBudget.Qualities.Qualities.PositiveQualityBudget)
@@ -531,7 +581,8 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))!;
 
     private static bool IsMalformed(Exception error)
-        => error is ArgumentException or InvalidOperationException or JsonException or XmlException or OverflowException;
+        => error is ArgumentException or InvalidOperationException or InvalidDataException
+            or JsonException or XmlException or OverflowException;
 
     private static CharacterCreationFoundationResult<T> Refuse<T>(string blocker) where T : class
         => new(CharacterCreationFoundationOutcomes.Blocked, null, [blocker]);

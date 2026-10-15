@@ -100,15 +100,15 @@ public static class CharacterCreationCompletionPlanner
                         inputs.Magic.SnapshotDigest, choices.AttributeAllocations, choices.MagicSelections,
                         choices.QualityOptionIds, choices.TotalKarmaInvestment, request.Purchases,
                         request.StartingLifestyleId, request.NuyenToReserve, request.MaximumAdditionalPurchaseSpend,
-                        request.MaximumPurchaseEvaluations);
+                        request.MaximumPurchaseEvaluations) { LoadoutSnapshotDigest = inputs.Loadout?.SnapshotDigest };
                     var purchaseResult = CharacterCreationPurchaseCompletionPlanner.Plan(inputs.Lifestyles, inputs.Magic,
-                        purchaseRequest, cancellationToken);
+                        inputs.Loadout, purchaseRequest, cancellationToken);
                     if (Terminal(purchaseResult.Outcome)) return new(purchaseResult.Outcome, null, purchaseResult.Blockers);
                     findings.AddRange(purchaseResult.Blockers);
                     purchases = purchaseResult.Value;
                     if (purchases is not null)
                         choices = choices with { Gear = purchases.Gear, Lifestyles = purchases.Lifestyles,
-                            StartingLifestyleId = purchases.StartingLifestyleId };
+                            StartingLifestyleId = purchases.StartingLifestyleId, Loadout = purchases.Loadout };
                 }
             }
         }
@@ -155,7 +155,7 @@ public static class CharacterCreationCompletionPlanner
             inputs.Skills.Allocations, inputs.Skills.GroupAllocations, inputs.Magic.Selections,
             inputs.Lifestyles.Qualities.SelectedOptionIds, inputs.Lifestyles.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0,
             inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity)).ToArray() ?? [],
-            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles, null);
+            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles, null) { Loadout = inputs.Loadout?.OriginalSelections };
         return true;
     }
 

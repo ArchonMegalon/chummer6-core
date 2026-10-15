@@ -86,6 +86,21 @@ public sealed partial class CharacterCreationLifestylesService
         IReadOnlyList<CharacterCreationLifestyleConfiguration> lifestyles,
         Guid? startingLifestyleId,
         CancellationToken cancellationToken = default)
+        => PreviewCompletion(inputs, magicInputs, attributeAllocations, magicSelections, qualityOptionIds,
+            totalKarmaInvestment, basket, lifestyles, startingLifestyleId, null, cancellationToken);
+
+    internal static CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionProjection> PreviewCompletion(
+        CharacterCreationLifestylesCompletionInputs inputs,
+        CharacterCreationMagicResonanceCompletionInputs magicInputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CharacterCreationMagicResonanceSelections magicSelections,
+        IReadOnlyList<string> qualityOptionIds,
+        int totalKarmaInvestment,
+        IReadOnlyList<CharacterCreationGearSelection> basket,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration> lifestyles,
+        Guid? startingLifestyleId,
+        CharacterCreationLoadoutCompletionProjection? loadout,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(magicInputs);
@@ -118,14 +133,25 @@ public sealed partial class CharacterCreationLifestylesService
         // Any other basket failure must not be repriced as a valid partial list.
         if (gear.Budget.Blockers.Any(blocker => blocker != CharacterCreationGearBlockers.InsufficientFunds))
             return new(CharacterCreationLifestyleOutcomes.Blocked, null, gear.Blockers);
+        if (loadout is not null && (loadout.Blockers.Count != 0 || loadout.PurchaseCost < 0m
+                || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)))
+            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
+                CharacterCreationLoadoutCompletionSchemas.AuthorityUnavailable);
+        decimal loadoutCost = loadout?.PurchaseCost ?? 0m;
+        if (loadoutCost > gear.Budget.RemainingNuyen)
+            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.InsufficientNuyen);
+        IReadOnlyList<string> purchaseAnchors = loadout is null ? gear.SourceAnchorIds : gear.SourceAnchorIds
+            .Concat(loadout.Lines.SelectMany(row => row.SourceAnchorIds))
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var qualityResult = CharacterCreationQualitiesService.PreviewWithProposedAttributes(inputs.Qualities,
             attributeAllocations, qualityOptionIds, cancellationToken);
         if (qualityResult.Value is not { } qualities)
             return new(CharacterCreationLifestyleOutcomes.Blocked, null, qualityResult.Blockers);
         var pricing = PriceSelectedCompletion(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
             magicInputs.SelectedTalent.GrantedQualitySources ?? [], qualities.Qualities.Selections,
-            qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen,
-            gear.SourceAnchorIds, gear.Blockers), cancellationToken);
+            qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen - loadoutCost,
+            purchaseAnchors, gear.Blockers), cancellationToken);
         if (pricing.Value is not { } priced)
             return new(pricing.Outcome, null, pricing.Blockers);
 
@@ -133,7 +159,7 @@ public sealed partial class CharacterCreationLifestylesService
         try
         {
             funding = CharacterCreationResourcesService.RepriceCompletionPurchases(inputs.Gear.Resources,
-                gear.Resources, gear.Budget.BasketCost, priced.FullLifestyleCost);
+                gear.Resources, gear.Budget.BasketCost, priced.FullLifestyleCost, loadoutCost);
         }
         catch (OverflowException)
         {
