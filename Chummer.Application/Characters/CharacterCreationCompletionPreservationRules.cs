@@ -27,8 +27,30 @@ public static class CharacterCreationCompletionPreservationRules
             || proposed.AttributeAllocations.Any(value => value is null)
             || proposed.GroupAllocations.Any(value => value is null))
             return [CharacterCreationCompletionReviewSchemas.RequestInvalid];
-        var attributes = inputs.Skills.Attributes.Attributes;
-        var skills = inputs.Skills;
+        var original = new CharacterCreationCompletionOriginalSelections(inputs.Magic.Selections,
+            inputs.Lifestyles.Qualities.SelectedOptionIds,
+            inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(value =>
+                new CharacterCreationGearSelection(value.OptionId, value.Quantity)).ToArray() ?? [],
+            inputs.Lifestyles.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0,
+            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles);
+        return Check(inputs.Skills, original, proposed);
+    }
+
+    internal static IReadOnlyList<string> Check(CharacterCreationSkillsCompletionInputs skills,
+        CharacterCreationCompletionOriginalSelections originalSelections,
+        CharacterCreationCompletionSelections proposed)
+    {
+        if (skills?.Attributes?.Attributes is null || skills.Authority is null
+            || skills.Allocations is null || skills.GroupAllocations is null
+            || originalSelections is null || originalSelections.Magic is null
+            || proposed.AttributeAllocations is null || proposed.SkillAllocations is null
+            || proposed.GroupAllocations is null || proposed.MagicSelections is null
+            || proposed.QualityOptionIds is null || proposed.Gear is null
+            || proposed.Contacts is null || proposed.Lifestyles is null
+            || proposed.AttributeAllocations.Any(value => value is null)
+            || proposed.GroupAllocations.Any(value => value is null))
+            return [CharacterCreationCompletionReviewSchemas.RequestInvalid];
+        var attributes = skills.Attributes.Attributes;
         if (proposed.ChangeableAttributeIds is null || proposed.ChangeableSkillTargets is null
             || proposed.ChangeableAttributeIds.Count > 13
             || proposed.ChangeableSkillTargets.Count > CharacterCreationSkillCompletionPlanner.MaximumTargets
@@ -79,7 +101,7 @@ public static class CharacterCreationCompletionPreservationRules
                 preserved = false;
         }
 
-        var magic = inputs.Magic.Selections;
+        var magic = originalSelections.Magic;
         var nextMagic = proposed.MagicSelections;
         preserved &= (magic.Tradition is null || magic.Tradition == nextMagic.Tradition)
             && (magic.Stream is null || magic.Stream == nextMagic.Stream)
@@ -88,15 +110,13 @@ public static class CharacterCreationCompletionPreservationRules
             && Retains(magic.Spells, nextMagic.Spells, value => value, (before, after) => before == after)
             && Retains(magic.ComplexForms, nextMagic.ComplexForms, value => value, (before, after) => before == after);
 
-        preserved &= Retains(inputs.Lifestyles.Qualities.SelectedOptionIds, proposed.QualityOptionIds,
+        preserved &= Retains(originalSelections.QualityOptionIds, proposed.QualityOptionIds,
             value => value, (before, after) => before == after);
-        var gear = inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(value =>
-            new CharacterCreationGearSelection(value.OptionId, value.Quantity)).ToArray() ?? [];
-        preserved &= Retains(gear, proposed.Gear, value => value.OptionId, (before, after) => before == after);
-        preserved &= proposed.TotalKarmaInvestment >= (inputs.Lifestyles.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0);
-        preserved &= Retains(inputs.Contacts.Contacts, proposed.Contacts, value => value.ContactId,
+        preserved &= Retains(originalSelections.Gear, proposed.Gear, value => value.OptionId, (before, after) => before == after);
+        preserved &= proposed.TotalKarmaInvestment >= originalSelections.KarmaInvestment;
+        preserved &= Retains(originalSelections.Contacts, proposed.Contacts, value => value.ContactId,
             (before, after) => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(before, after));
-        preserved &= Retains(inputs.Lifestyles.Lifestyles, proposed.Lifestyles, value => value.LifestyleId,
+        preserved &= Retains(originalSelections.Lifestyles, proposed.Lifestyles, value => value.LifestyleId,
             (before, after) => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(before, after));
 
         return preserved ? [] : [CharacterCreationCompletionReviewSchemas.SelectionPreservationConflict];

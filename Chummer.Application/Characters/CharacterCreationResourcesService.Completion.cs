@@ -107,23 +107,15 @@ public sealed partial class CharacterCreationResourcesService
                     ? CharacterCreationResourcesOutcomes.Conflict : CharacterCreationResourcesOutcomes.Blocked, null,
                 Normalize(upstreamResult.Blockers.Append(CharacterCreationResourcesCompletionSchemas.UpstreamBudgetUnavailable)));
         cancellationToken.ThrowIfCancellationRequested();
-        CharacterCreationResourceAllocationOption[] options = BuildOptions(resourcesInputs.Authority,
-            resourcesInputs.PriorityOption, available);
-        CharacterCreationResourceAllocationOption? selected = options.SingleOrDefault(option =>
-            option.KarmaInvestment == totalKarmaInvestment);
-        if (selected is null)
-            return new(CharacterCreationResourcesOutcomes.Invalid, null,
-                Normalize(upstream.Blockers.Append(CharacterCreationResourcesBlockers.InvalidOption)));
-
-        var blockers = new List<string>(upstream.Blockers);
-        blockers.AddRange(selected.Blockers);
-        CharacterCreationResourcesBudget budget = BuildBudget(resourcesInputs.Authority,
-            resourcesInputs.PriorityOption, selected, resourcesInputs.PurchaseAuthorityExact,
-            resourcesInputs.KnownPurchaseCost, blockers);
+        var pricing = PriceSelectedCompletion(new(resourcesInputs.Authority, resourcesInputs.PriorityOption,
+            available, totalKarmaInvestment, resourcesInputs.PurchaseAuthorityExact,
+            resourcesInputs.KnownPurchaseCost, upstream.Blockers), cancellationToken);
+        if (pricing.Value is not { } priced)
+            return new(pricing.Outcome, null, pricing.Blockers);
         var projection = new CharacterCreationResourcesCompletionProjection(
             CharacterCreationResourcesCompletionSchemas.ProjectionV1, resourcesInputs.Binding,
-            resourcesInputs.SnapshotDigest, upstream, options, selected, budget,
-            available - selected.KarmaInvestment, Normalize(blockers), string.Empty);
+            resourcesInputs.SnapshotDigest, upstream, priced.Options, priced.SelectedOption, priced.Budget,
+            priced.RemainingCreationKarma, priced.Blockers, string.Empty);
         projection = projection with
         {
             ProposalDigest = CharacterCreationResourcesCompletionRules.ComputeProjectionDigest(projection)
@@ -131,6 +123,40 @@ public sealed partial class CharacterCreationResourcesService
         cancellationToken.ThrowIfCancellationRequested();
         return new(projection.Blockers.Count == 0 ? CharacterCreationResourcesOutcomes.Available
             : CharacterCreationResourcesOutcomes.Blocked, DetachCompletion(projection), projection.Blockers.ToArray());
+    }
+
+    /// <summary>
+    /// Shared pricing below the distinct live/historical admission envelopes.
+    /// FullPurchaseCost is the complete independently repriced basket, not a
+    /// saved-cost delta. This internal result cannot be confirmed or persisted.
+    /// </summary>
+    internal static CharacterCreationResourcesResult<SelectedCompletionResourcesPrice> PriceSelectedCompletion(
+        SelectedCompletionResourcesPricingInput input, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        cancellationToken.ThrowIfCancellationRequested();
+        input = DetachCompletion(input);
+        if (input.Authority is null || input.PriorityOption is null || input.UpstreamBlockers is null
+            || !CharacterCreationResourcesRules.IsValidAuthority(input.Authority)
+            || !CharacterCreationResourcesRules.IsValidPriorityOption(input.PriorityOption)
+            || input.FullPurchaseCost < 0m)
+            return Blocked<SelectedCompletionResourcesPrice>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.AuthorityUnavailable);
+        var options = BuildOptions(input.Authority, input.PriorityOption, input.AvailableKarma);
+        var selected = options.SingleOrDefault(option => option.KarmaInvestment == input.TotalKarmaInvestment);
+        if (selected is null)
+            return new(CharacterCreationResourcesOutcomes.Invalid, null,
+                Normalize(input.UpstreamBlockers.Append(CharacterCreationResourcesBlockers.InvalidOption)));
+        var blockers = new List<string>(input.UpstreamBlockers);
+        blockers.AddRange(selected.Blockers);
+        var budget = BuildBudget(input.Authority, input.PriorityOption, selected,
+            input.PurchaseAuthorityExact, input.FullPurchaseCost, blockers);
+        string[] normalized = Normalize(blockers);
+        var result = new SelectedCompletionResourcesPrice(options, selected, budget,
+            input.AvailableKarma - selected.KarmaInvestment, normalized);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new(normalized.Length == 0 ? CharacterCreationResourcesOutcomes.Available
+            : CharacterCreationResourcesOutcomes.Blocked, result, normalized);
     }
 
     /// <summary>

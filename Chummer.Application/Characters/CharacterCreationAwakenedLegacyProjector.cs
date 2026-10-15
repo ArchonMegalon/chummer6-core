@@ -130,6 +130,54 @@ internal static class CharacterCreationAwakenedLegacyProjector
         }
     }
 
+    /// <summary>
+    /// Replays selected historical Magic against the distinct original/proposed
+    /// attribute rows, then uses the ordinary source-effect compiler. The caller
+    /// must admit the actual history, attribute/skill projections, current sources
+    /// and owner separately. This mutates only its disposable projection tree;
+    /// it does not authorize a save. instanceSeed is the admitted original review
+    /// identity, not the selected witness digest, preserving existing instance IDs.
+    /// </summary>
+    internal static bool TryApplySelected(XElement root, CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationAttributeProjection> originalAttributes,
+        IReadOnlyList<CharacterCreationAttributeProjection> proposedAttributes,
+        IReadOnlyList<CharacterCreationSkillProjection> skills,
+        IReadOnlyList<CharacterCreationSkillGroupProjection> skillGroups,
+        CharacterCreationSelectedMagicAuthority witness,
+        string instanceSeed, ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
+    {
+        try
+        {
+            Require(CharacterCreationMagicResonanceDigest.IsCanonical(instanceSeed)
+                && skills is not null && skillGroups is not null
+                && skills.All(item => item is not null) && skillGroups.All(item => item is not null));
+            var replay = CharacterCreationMagicResonanceService.EvaluateSelectedMagic(
+                witness, prerequisite, originalAttributes, proposedAttributes);
+            Require(replay.Outcome == CharacterCreationFoundationOutcomes.Success
+                && replay.Value is { Proposed.Blockers.Count: 0 });
+            var evaluated = replay.Value!.Proposed;
+            ApplySkillGrants(root, prerequisite, skills, skillGroups);
+            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite)) return true;
+            Require(CharacterCreationMagicResonanceFinalizationRules.TryProjectTalent(witness.Talent, out var talent));
+            var selections = evaluated.Selections;
+            var tradition = ProjectOption(selections.Tradition, witness.Traditions, 1);
+            var stream = ProjectOption(selections.Stream, witness.Streams, 1);
+            var powers = selections.AdeptPowers.Select(item => ProjectOption(item.Identity, witness.AdeptPowers, item.Levels)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            var spells = selections.Spells.Select(item => ProjectOption(item, witness.Spells, 1)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            var forms = selections.ComplexForms.Select(item => ProjectOption(item, witness.ComplexForms, 1)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            return TryApplyEvaluatedGraph(root, prerequisite, proposedAttributes, talent!, tradition, stream,
+                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
+            or XmlException or OverflowException or FormatException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private static CharacterCreationMagicResonanceOptionFinalizationSource? ProjectOption(
         CharacterCreationMagicResonanceOptionIdentity? identity,
         IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> catalog, int levels)

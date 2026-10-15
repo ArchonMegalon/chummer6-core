@@ -93,21 +93,37 @@ public static class CharacterCreationGearRules
         out CharacterCreationGearLine[] lines,
         out CharacterCreationGearBudget budget,
         out string[] blockers)
+        => TryProjectBasketCore(requested, authority?.Options, authority?.MaximumBasketLines ?? 0,
+            authority?.MaximumQuantityPerLine ?? 0, totalStartingNuyen, IsValidAuthority(authority),
+            out lines, out budget, out blockers);
+
+    // Shared pricing kernel. The ordinary and selected-history entry points
+    // have separate validators; no public bypass or fabricated full catalog.
+    private static bool TryProjectBasketCore(
+        IReadOnlyList<CharacterCreationGearSelection>? requested,
+        IReadOnlyList<CharacterCreationGearCatalogOption>? options,
+        int maximumBasketLines,
+        int maximumQuantityPerLine,
+        decimal totalStartingNuyen,
+        bool authorityValid,
+        out CharacterCreationGearLine[] lines,
+        out CharacterCreationGearBudget budget,
+        out string[] blockers)
     {
         var findings = new List<string>();
         var projected = new List<CharacterCreationGearLine>();
-        if (!IsValidAuthority(authority) || totalStartingNuyen < 0m)
+        if (!authorityValid || totalStartingNuyen < 0m)
         {
             findings.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
         }
-        else if (requested is null || requested.Count > authority!.MaximumBasketLines)
+        else if (requested is null || requested.Count > maximumBasketLines)
         {
             findings.Add(CharacterCreationGearBlockers.InvalidBasket);
         }
         else
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            Dictionary<string, CharacterCreationGearCatalogOption> catalog = authority.Options
+            Dictionary<string, CharacterCreationGearCatalogOption> catalog = options!
                 .ToDictionary(item => item.OptionId, StringComparer.Ordinal);
             foreach (CharacterCreationGearSelection? selection in requested)
             {
@@ -121,7 +137,7 @@ public static class CharacterCreationGearRules
                     findings.Add(CharacterCreationGearBlockers.DuplicateOption);
                     continue;
                 }
-                if (selection.Quantity is < 1 || selection.Quantity > authority.MaximumQuantityPerLine)
+                if (selection.Quantity is < 1 || selection.Quantity > maximumQuantityPerLine)
                 {
                     findings.Add(CharacterCreationGearBlockers.InvalidQuantity);
                     continue;
@@ -197,6 +213,85 @@ public static class CharacterCreationGearRules
         return blockers.Length == 0;
     }
 
+    public static string ComputeSelectedAuthorityDigest(CharacterCreationSelectedGearAuthority witness)
+        => CharacterCreationFinalizationDigest.Compute(witness with { WitnessDigest = string.Empty });
+
+    /// <summary>Capture only after validating the complete original catalog,
+    /// including duplicate or malformed rows outside the requested closure.</summary>
+    public static bool TryCaptureSelectedAuthority(CharacterCreationGearAuthority authority,
+        IReadOnlyList<string> originalOptionIds, IReadOnlyList<string> proposedOptionIds,
+        out CharacterCreationSelectedGearAuthority? witness)
+    {
+        witness = null;
+        if (authority is null || !ValidSelectedIds(originalOptionIds, authority.MaximumBasketLines)
+            || !ValidSelectedIds(proposedOptionIds, authority.MaximumBasketLines)) return false;
+        try
+        {
+            // Own the exact values validated and retained, not caller-mutated
+            // collections whose digest was checked before the copy.
+            authority = JsonSerializer.Deserialize<CharacterCreationGearAuthority>(JsonSerializer.SerializeToUtf8Bytes(authority))!;
+            string[] original = originalOptionIds.Order(StringComparer.Ordinal).ToArray();
+            string[] proposed = proposedOptionIds.Order(StringComparer.Ordinal).ToArray();
+            if (!IsValidAuthority(authority) || !ValidSelectedIds(original, authority.MaximumBasketLines)
+                || !ValidSelectedIds(proposed, authority.MaximumBasketLines)) return false;
+            var required = original.Concat(proposed).ToHashSet(StringComparer.Ordinal);
+            var options = authority.Options.Where(option => required.Contains(option.OptionId))
+                .OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray();
+            if (options.Length != required.Count) return false;
+            var candidate = new CharacterCreationSelectedGearAuthority(CharacterCreationSelectedGearAuthority.SchemaV1,
+                authority.AuthorityDigest, authority.RulesetId, authority.SettingsProfileId,
+                authority.MaximumAvailability, authority.MaximumBasketLines, authority.MaximumQuantityPerLine,
+                original, proposed, options, authority.SourceAnchorIds, authority.SourceDigest,
+                authority.ProfileDigest, authority.RulesDigest, authority.RuntimeDigest, string.Empty);
+            candidate = candidate with { WitnessDigest = ComputeSelectedAuthorityDigest(candidate) };
+            if (!IsValidSelectedAuthority(candidate)) return false;
+            witness = candidate;
+            return true;
+        }
+        catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException)
+        { return false; }
+    }
+
+    /// <summary>Checks only self-consistency of a historical witness, never
+    /// whether the original catalog is currently admitted for a live mutation.</summary>
+    public static bool IsValidSelectedAuthority(CharacterCreationSelectedGearAuthority? witness)
+    {
+        if (witness is null || witness.Schema != CharacterCreationSelectedGearAuthority.SchemaV1
+            || !string.Equals(witness.RulesetId, "sr5", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(witness.SettingsProfileId)
+            || witness.MaximumAvailability < 0 || witness.MaximumBasketLines is < 1 or > 4096
+            || witness.MaximumQuantityPerLine is < 1 or > 1_000_000
+            || !ValidSelectedIds(witness.OriginalOptionIds, witness.MaximumBasketLines)
+            || !ValidSelectedIds(witness.ProposedOptionIds, witness.MaximumBasketLines)
+            || !witness.OriginalOptionIds.SequenceEqual(witness.OriginalOptionIds.Order(StringComparer.Ordinal))
+            || !witness.ProposedOptionIds.SequenceEqual(witness.ProposedOptionIds.Order(StringComparer.Ordinal))
+            || witness.Options is null || witness.Options.Count > 8192
+            || witness.Options.Any(option => !IsValidOption(option))
+            || witness.Options.Select(option => option.OptionId).Distinct(StringComparer.Ordinal).Count() != witness.Options.Count
+            || witness.Options.Select(option => option.SourceId).Distinct().Count() != witness.Options.Count
+            || !witness.Options.Select(option => option.OptionId).SequenceEqual(
+                witness.OriginalOptionIds.Concat(witness.ProposedOptionIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            || witness.SourceAnchorIds is not { Count: > 0 } || witness.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
+            || !IsCanonicalDigest(witness.ProvenanceAuthorityDigest) || !IsCanonicalDigest(witness.SourceDigest)
+            || !IsCanonicalDigest(witness.ProfileDigest) || !IsCanonicalDigest(witness.RulesDigest)
+            || !IsCanonicalDigest(witness.RuntimeDigest) || !IsCanonicalDigest(witness.WitnessDigest)) return false;
+        return DigestsEqual(witness.WitnessDigest, ComputeSelectedAuthorityDigest(witness));
+    }
+
+    /// <summary>Same exact pricing as ordinary Gear. This distinct entry point
+    /// admits an empty retained set without inventing a sentinel catalog option.</summary>
+    public static bool TryProjectSelectedBasket(IReadOnlyList<CharacterCreationGearSelection>? requested,
+        CharacterCreationSelectedGearAuthority? witness, decimal totalStartingNuyen,
+        out CharacterCreationGearLine[] lines, out CharacterCreationGearBudget budget, out string[] blockers)
+        => TryProjectBasketCore(requested, witness?.Options, witness?.MaximumBasketLines ?? 0,
+            witness?.MaximumQuantityPerLine ?? 0, totalStartingNuyen, IsValidSelectedAuthority(witness),
+            out lines, out budget, out blockers);
+
+    private static bool ValidSelectedIds(IReadOnlyList<string>? ids, int maximum)
+        => maximum is >= 1 and <= 4096 && ids is not null && ids.Count <= maximum
+            && ids.All(id => !string.IsNullOrWhiteSpace(id))
+            && ids.Distinct(StringComparer.Ordinal).Count() == ids.Count;
+
     public static bool IsValidAuthority(CharacterCreationGearAuthority? authority)
     {
         if (authority is null
@@ -215,7 +310,7 @@ public static class CharacterCreationGearRules
                != authority.Options.Count
             || authority.SourceAnchorIds is not { Count: > 0 }
             || authority.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
-            || authority.Blockers.Count != 0
+            || authority.Blockers is not { Count: 0 }
             || !IsCanonicalDigest(authority.SourceDigest)
             || !IsCanonicalDigest(authority.ProfileDigest)
             || !IsCanonicalDigest(authority.RulesDigest)
@@ -237,6 +332,7 @@ public static class CharacterCreationGearRules
         && option.Legality is CharacterCreationGearLegality.Legal
             or CharacterCreationGearLegality.Restricted
             or CharacterCreationGearLegality.Forbidden
+        && option.Blockers is not null
         && (!option.IsSelectable
             || !string.IsNullOrWhiteSpace(option.SourceBook)
                && !string.IsNullOrWhiteSpace(option.Page))

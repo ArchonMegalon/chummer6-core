@@ -13,6 +13,7 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
     CharacterWorkspaceId workspaceId, bool reuseReadObservation = false) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ICharacterCreationCompletionAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability
 {
     // Opt-in for a single synchronous Load only. Retain the complete validated
@@ -37,6 +38,24 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
             catch (ObjectDisposedException) { return false; }
         }
     }
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
+        CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsActive && request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationCompletionAtomicCommitCapability capability
+            ? capability.CommitCompletion(owner.Owner, request, resolver, queries, cancellationToken)
+            : CharacterCreationCompletionTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
+        OwnerScope requestedOwner, CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+        => requestedOwner == owner.Owner ? CommitCompletion(request, resolver, queries, cancellationToken)
+            : CharacterCreationCompletionTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
 
     public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> CommitLifeModuleFinalization(
         CharacterCreationFoundationFinalizationConfirmRequest request, ICharacterSourceDataResolver resolver,

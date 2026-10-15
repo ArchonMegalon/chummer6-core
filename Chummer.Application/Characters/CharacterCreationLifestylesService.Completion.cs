@@ -122,37 +122,18 @@ public sealed partial class CharacterCreationLifestylesService
             attributeAllocations, qualityOptionIds, cancellationToken);
         if (qualityResult.Value is not { } qualities)
             return new(CharacterCreationLifestyleOutcomes.Blocked, null, qualityResult.Blockers);
-        if (!AreCompletionGrantEffectsSupported(inputs.Qualities.PrerequisiteDraft,
-                magicInputs.SelectedTalent.GrantedQualitySources ?? [])
-            || !TryCompletionAuthority(inputs.Authority, qualities, out var authority))
-            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
-                CharacterCreationLifestylesBlockers.UnsupportedSemantics);
-
-        var rows = new List<CharacterCreationLifestyleProjection>(frozen.Length);
-        var findings = new List<string>();
-        decimal lifestyleCost = 0m;
-        foreach (var configuration in frozen)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!CharacterCreationLifestylesRules.TryProject(configuration, authority, out var row, out var blockers))
-                return new(CharacterCreationLifestyleOutcomes.Blocked, null, Normalize(gear.Blockers.Concat(blockers)));
-            try { lifestyleCost = checked(lifestyleCost + row.Economics.TotalCost); }
-            catch (OverflowException)
-            {
-                return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
-                    CharacterCreationLifestylesBlockers.AuthorityUnavailable);
-            }
-            rows.Add(row);
-        }
-        if (frozen.Length == 0 ? startingLifestyleId is not null
-            : startingLifestyleId is null || frozen.All(row => row.LifestyleId != startingLifestyleId))
-            findings.Add(CharacterCreationLifestylesCompletionSchemas.StartingLifestyleRequired);
+        var pricing = PriceSelectedCompletion(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
+            magicInputs.SelectedTalent.GrantedQualitySources ?? [], qualities.Qualities.Selections,
+            qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen,
+            gear.SourceAnchorIds, gear.Blockers), cancellationToken);
+        if (pricing.Value is not { } priced)
+            return new(pricing.Outcome, null, pricing.Blockers);
 
         CharacterCreationResourcesCompletionProjection funding;
         try
         {
             funding = CharacterCreationResourcesService.RepriceCompletionPurchases(inputs.Gear.Resources,
-                gear.Resources, gear.Budget.BasketCost, lifestyleCost);
+                gear.Resources, gear.Budget.BasketCost, priced.FullLifestyleCost);
         }
         catch (OverflowException)
         {
@@ -164,21 +145,11 @@ public sealed partial class CharacterCreationLifestylesService
         string[] gearBlockers = Normalize(funding.Blockers.Concat(gear.Budget.Blockers));
         gear = gear with { Resources = funding, Blockers = gearBlockers, ProposalDigest = string.Empty };
         gear = gear with { ProposalDigest = CharacterCreationGearCompletionRules.ComputeProjectionDigest(gear) };
-        findings.AddRange(gearBlockers);
-        decimal total = gear.Budget.RemainingNuyen;
-        decimal overspend = lifestyleCost > total ? lifestyleCost - total : 0m;
-        if (overspend > 0m) findings.Add(CharacterCreationLifestylesBlockers.InsufficientFunds);
-        string[] anchors = authority.SourceAnchorIds.Concat(rows.SelectMany(row => row.SourceAnchorIds))
-            .Concat(gear.SourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        // As in the ordinary Lifestyle budget, exact pricing is distinct from
-        // affordability and overall readiness; Overspend/Blockers expose both.
-        var budget = new CharacterCreationLifestyleBudget(total, lifestyleCost,
-            Math.Max(0m, total - lifestyleCost), overspend, true,
-            overspend > 0m ? [CharacterCreationLifestylesBlockers.InsufficientFunds] : [], anchors);
-        string[] normalized = Normalize(findings);
+        string[] normalized = Normalize(priced.Blockers.Concat(gearBlockers));
         var projection = new CharacterCreationLifestylesCompletionProjection(
             CharacterCreationLifestylesCompletionSchemas.ProjectionV1, inputs.Binding, inputs.SnapshotDigest,
-            gear, qualities, authority, rows.ToArray(), startingLifestyleId, budget, anchors, normalized, string.Empty);
+            gear, qualities, priced.Authority, priced.Lifestyles, startingLifestyleId, priced.Budget,
+            priced.SourceAnchorIds, normalized, string.Empty);
         projection = projection with
         {
             ProposalDigest = CharacterCreationLifestylesCompletionRules.ComputeProjectionDigest(projection)
@@ -186,6 +157,65 @@ public sealed partial class CharacterCreationLifestylesService
         cancellationToken.ThrowIfCancellationRequested();
         return new(normalized.Length == 0 ? CharacterCreationLifestyleOutcomes.Available : CharacterCreationLifestyleOutcomes.Blocked,
             DetachCompletion(projection), normalized);
+    }
+
+    /// <summary>
+    /// Shared source/effect pricing without a fabricated saved graph. The seed
+    /// names the admitted quality evaluation for deterministic derived authority;
+    /// it is not asserted to be a digest of these selected rows.
+    /// </summary>
+    internal static CharacterCreationLifestyleResult<SelectedCompletionLifestylesPrice> PriceSelectedCompletion(
+        SelectedCompletionLifestylesPricingInput input, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        cancellationToken.ThrowIfCancellationRequested();
+        input = DetachCompletion(input);
+        if (input.Authority is null || input.Prerequisite is null
+            || input.TalentQualitySources is null || input.QualitySelections is null
+            || input.GearSourceAnchorIds is null || input.GearBlockersBeforeReplacement is null
+            || input.RemainingNuyenAfterGear < 0m
+            || !CharacterCreationLifestylesRules.IsCanonicalDigest(input.QualityProjectionProvenanceSeed)
+            || !CharacterCreationLifestylesRules.IsValidAuthority(input.Authority)
+            || !CharacterCreationKarmaLifestylesRules.TryFreeze(input.Lifestyles, out var frozen))
+            return Blocked<SelectedCompletionLifestylesPrice>(CharacterCreationLifestyleOutcomes.Blocked,
+                CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+        if (!AreCompletionGrantEffectsSupported(input.Prerequisite, input.TalentQualitySources)
+            || !TryCompletionAuthority(input.Authority, input.QualitySelections,
+                input.QualityProjectionProvenanceSeed, out var authority))
+            return Blocked<SelectedCompletionLifestylesPrice>(CharacterCreationLifestyleOutcomes.Blocked,
+                CharacterCreationLifestylesBlockers.UnsupportedSemantics);
+        var rows = new List<CharacterCreationLifestyleProjection>(frozen.Length);
+        var findings = new List<string>();
+        decimal lifestyleCost = 0m;
+        foreach (var configuration in frozen)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!CharacterCreationLifestylesRules.TryProject(configuration, authority, out var row, out var blockers))
+                return new(CharacterCreationLifestyleOutcomes.Blocked, null,
+                    Normalize(input.GearBlockersBeforeReplacement.Concat(blockers)));
+            try { lifestyleCost = checked(lifestyleCost + row.Economics.TotalCost); }
+            catch (OverflowException)
+            {
+                return Blocked<SelectedCompletionLifestylesPrice>(CharacterCreationLifestyleOutcomes.Blocked,
+                    CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            }
+            rows.Add(row);
+        }
+        if (frozen.Length == 0 ? input.StartingLifestyleId is not null
+            : input.StartingLifestyleId is null || frozen.All(row => row.LifestyleId != input.StartingLifestyleId))
+            findings.Add(CharacterCreationLifestylesCompletionSchemas.StartingLifestyleRequired);
+        decimal total = input.RemainingNuyenAfterGear;
+        decimal overspend = lifestyleCost > total ? lifestyleCost - total : 0m;
+        if (overspend > 0m) findings.Add(CharacterCreationLifestylesBlockers.InsufficientFunds);
+        string[] anchors = authority.SourceAnchorIds.Concat(rows.SelectMany(row => row.SourceAnchorIds))
+            .Concat(input.GearSourceAnchorIds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var budget = new CharacterCreationLifestyleBudget(total, lifestyleCost,
+            Math.Max(0m, total - lifestyleCost), overspend, true,
+            overspend > 0m ? [CharacterCreationLifestylesBlockers.InsufficientFunds] : [], anchors);
+        string[] normalized = Normalize(findings);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new(normalized.Length == 0 ? CharacterCreationLifestyleOutcomes.Available : CharacterCreationLifestyleOutcomes.Blocked,
+            new(authority, rows.ToArray(), input.StartingLifestyleId, lifestyleCost, budget, anchors, normalized), normalized);
     }
 
     private static bool IsValidCompletionInputs(CharacterCreationLifestylesCompletionInputs inputs)
@@ -231,10 +261,11 @@ public sealed partial class CharacterCreationLifestylesService
     }
 
     private static bool TryCompletionAuthority(CharacterCreationLifestylesAuthority original,
-        CharacterCreationAttributeQualitiesPreview qualities, out CharacterCreationLifestylesAuthority effective)
+        IReadOnlyList<CharacterCreationQualitySelection> qualitySelections, string qualityProjectionProvenanceSeed,
+        out CharacterCreationLifestylesAuthority effective)
     {
         effective = CharacterCreationLifestylesAuthority.Unavailable;
-        if (!CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(qualities.Qualities.Selections,
+        if (!CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(qualitySelections,
                 out var effects)) return false;
         int level = original.TrustFundLevel;
         foreach (var effect in effects)
@@ -251,7 +282,7 @@ public sealed partial class CharacterCreationLifestylesService
             GmPolicyDigest = CharacterCreationFinalizationDigest.Compute(new
             {
                 original.GmPolicyDigest, OriginalAuthority = original.AuthorityDigest,
-                Qualities = qualities.ProposalDigest, TrustFundLevel = level
+                Qualities = qualityProjectionProvenanceSeed, TrustFundLevel = level
             }),
             AuthorityDigest = string.Empty
         };

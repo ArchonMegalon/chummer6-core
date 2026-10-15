@@ -13,6 +13,9 @@
     <Compile Include="CharacterCreationResourcesServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationCompletionReviewServiceTests.cs" />
     <Compile Include="CharacterCreationCompletionPlannerTests.cs" />
+    <Compile Include="CharacterCreationCompletionFinalizationProjectorTests.cs" />
+    <Compile Include="CharacterCreationCompletionReplayCodecTests.cs" />
+    <Compile Include="CharacterCreationCompletionApplyTests.cs" />
     <Compile Include="CharacterCreationPurchaseCompletionPlannerTests.cs" />
     <Compile Include="CharacterCreationMagicCompletionPlannerTests.cs" />
     <Compile Include="CharacterCreationFinalizationEvaluatedGraphTests.cs" />
@@ -21,6 +24,11 @@
     <Compile Include="CreationCanonicalDigestTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.Completion.cs" />
+    <Compile Include="CharacterCreationSelectedGearTests.cs" />
+    <Compile Include="CharacterCreationSelectedQualitiesTests.cs" />
+    <Compile Include="CharacterCreationSelectedMagicTests.cs" />
+    <Compile Include="CharacterCreationSelectedAwakenedTests.cs" />
+    <Compile Include="SelectedCompletionPricingTests.cs" />
     <Compile Include="OwnerBoundCreationResourcesGearTests.cs" />
     <Compile Include="CharacterCreationContactsServiceTests.cs" />
     <Compile Include="CharacterCreationContactsServiceTests.Completion.cs" />

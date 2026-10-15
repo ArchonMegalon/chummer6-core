@@ -237,6 +237,11 @@ public sealed record CharacterCreationFinalizationReceipt(
     public CharacterCreationStartingCashChoice? StartingCash { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? StartingCashAuthorityDigest { get; init; }
+
+    /// <summary>Identifies the completion proposal lane, whose reconstruction
+    /// archive is mandatory. Omitted for historical ordinary finalizations.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompletionAuthorityDigest { get; init; }
 }
 
 public sealed record CharacterCreationFinalizationReceiptLedgerEntry(

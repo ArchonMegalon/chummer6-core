@@ -153,11 +153,50 @@ public sealed partial class CharacterCreationContactsService
             attributeAllocations, qualityOptionIds, cancellationToken);
         if (upstreamResult.Value is not { } upstream || upstream.Qualities.Blockers.Count != 0)
             return new(CharacterCreationContactOutcomes.Blocked, null, upstreamResult.Blockers);
+        var pricing = PriceSelectedCompletion(new(inputs.Policy, inputs.Qualities.PrerequisiteDraft,
+            inputs.TalentQualitySources, inputs.OriginalEffects, inputs.Contacts,
+            upstream.Attributes.Attributes, upstream.Qualities.Selections, frozen,
+            inputs.Binding.SourceDigest, upstream.Blockers), cancellationToken);
+        if (pricing.Value is not { } priced)
+            return new(pricing.Outcome, null, pricing.Blockers);
+        var result = new CharacterCreationContactsCompletionProjection(CharacterCreationContactsCompletionSchemas.ProjectionV1,
+            inputs.Binding, inputs.SnapshotDigest, upstream, priced.Contacts, priced.ContactBudget,
+            priced.HighPlacesBudget, priced.AdditionalKarmaCost, priced.Blockers, string.Empty);
+        result = result with { ProposalDigest = CharacterCreationContactsCompletionRules.ComputeProjectionDigest(result) };
+        cancellationToken.ThrowIfCancellationRequested();
+        return new(pricing.Outcome, DetachCompletion(result), priced.Blockers);
+    }
+
+    /// <summary>
+    /// Price against already evaluated Attributes/Qualities and actual original
+    /// contacts/effects. SourceProvenanceSeed identifies admitted source evidence;
+    /// it does not pretend these rows are the old full completion input graph.
+    /// Source/history admission remains the responsibility of the calling layer.
+    /// </summary>
+    internal static CharacterCreationContactResult<SelectedCompletionContactsPrice> PriceSelectedCompletion(
+        SelectedCompletionContactsPricingInput inputs, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        cancellationToken.ThrowIfCancellationRequested();
+        inputs = DetachCompletion(inputs);
+        if (inputs.Policy is null || inputs.Prerequisite is null || inputs.TalentQualitySources is null
+            || inputs.OriginalEffects is null || inputs.OriginalEffects.Any(effect => effect is null)
+            || inputs.Attributes is null || inputs.Attributes.Any(attribute => attribute is null)
+            || inputs.Attributes.Select(attribute => attribute.AttributeId).Distinct(StringComparer.Ordinal).Count() != inputs.Attributes.Count
+            || inputs.QualitySelections is null || inputs.UpstreamBlockers is null
+            || !CharacterCreationKarmaContactsRules.IsValidPolicy(inputs.Policy)
+            || !CharacterCreationQualitiesRules.IsCanonicalDigest(inputs.SourceProvenanceSeed)
+            || !CharacterCreationKarmaContactsRules.TryFreeze(inputs.OriginalContacts, out _))
+            return Blocked<SelectedCompletionContactsPrice>(CharacterCreationContactOutcomes.Blocked,
+                CharacterCreationContactsBlockers.AuthorityUnavailable);
+        if (!CharacterCreationKarmaContactsRules.TryFreeze(inputs.Contacts, out var frozen))
+            return Blocked<SelectedCompletionContactsPrice>(CharacterCreationContactOutcomes.Blocked,
+                CharacterCreationContactsBlockers.ContactInvalid);
         if (!CharacterCreationLegacySourceProjector.AreCompletionGrantEffectsIndependent(
-                inputs.Qualities.PrerequisiteDraft, inputs.TalentQualitySources)
-            || !CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(upstream.Qualities.Selections,
+                inputs.Prerequisite, inputs.TalentQualitySources)
+            || !CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(inputs.QualitySelections,
                 out var qualityEffects))
-            return Blocked<CharacterCreationContactsCompletionProjection>(CharacterCreationContactOutcomes.Blocked,
+            return Blocked<SelectedCompletionContactsPrice>(CharacterCreationContactOutcomes.Blocked,
                 CharacterCreationContactsBlockers.AuthorityUnavailable);
 
         // The source compiler fails closed for unsupported effects (including
@@ -166,14 +205,14 @@ public sealed partial class CharacterCreationContactsService
         CharacterContactRuleEffect[] effects = inputs.OriginalEffects.Concat(qualityEffects.Select(effect =>
             new CharacterContactRuleEffect(effect.ImprovementType, effect.ImprovedName,
                 effect.Value.ToString(CultureInfo.InvariantCulture), string.Empty, false, 1, string.Empty))).ToArray();
-        var attributes = upstream.Attributes.Attributes.ToDictionary(attribute => attribute.AttributeId,
+        var attributes = inputs.Attributes.ToDictionary(attribute => attribute.AttributeId,
             attribute => attribute.Current, StringComparer.Ordinal);
         if (!CharacterCreationKarmaContactsRules.TryContactPoints(inputs.Policy, attributes, out int allowance)
             || !attributes.TryGetValue("CHA", out int charisma) || charisma < 0)
-            return Blocked<CharacterCreationContactsCompletionProjection>(CharacterCreationContactOutcomes.Blocked,
+            return Blocked<SelectedCompletionContactsPrice>(CharacterCreationContactOutcomes.Blocked,
                 CharacterCreationContactsBlockers.BudgetAuthorityRequired);
         cancellationToken.ThrowIfCancellationRequested();
-        var blockers = new List<string>(upstream.Blockers);
+        var blockers = new List<string>(inputs.UpstreamBlockers);
         var proposedInputs = frozen.Select(CompletionContactInput).ToArray();
         var semanticsById = new Dictionary<Guid, CharacterContactEditSemantics>();
         foreach (var contact in frozen)
@@ -187,7 +226,7 @@ public sealed partial class CharacterCreationContactsService
             // selection cannot use that normalization to understate its cost.
             if (contact.Connection != semantics.Connection || contact.Loyalty != semantics.Loyalty)
                 blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
-            var original = inputs.Contacts.SingleOrDefault(value => value.ContactId == contact.ContactId)
+            var original = inputs.OriginalContacts.SingleOrDefault(value => value.ContactId == contact.ContactId)
                 ?? new CharacterCreationKarmaContactSelection(contact.ContactId, contact.Identity, 1, 1);
             if (!CharacterContactEditSemanticsResolver.TryResolve(CompletionContactInput(original),
                     effects, out var originalSemantics))
@@ -202,12 +241,12 @@ public sealed partial class CharacterCreationContactsService
                 blockers.Add(CharacterCreationContactsBlockers.FieldNotEditable);
             semanticsById.Add(contact.ContactId, semantics);
         }
-        foreach (var original in inputs.Contacts.Where(original => !frozen.Any(contact => contact.ContactId == original.ContactId)))
+        foreach (var original in inputs.OriginalContacts.Where(original => !frozen.Any(contact => contact.ContactId == original.ContactId)))
             if (!CharacterContactEditSemanticsResolver.TryResolve(CompletionContactInput(original),
                     inputs.OriginalEffects, out var semantics) || !semantics.CanDelete)
                 blockers.Add(CharacterCreationContactsBlockers.FieldNotEditable);
         var authority = CharacterCreationContactsAuthorityEvaluator.EvaluateInputs(false,
-            inputs.Binding.SourceDigest, allowance, true, charisma, true, proposedInputs, effects, []);
+            inputs.SourceProvenanceSeed, allowance, true, charisma, true, proposedInputs, effects, []);
         blockers.AddRange(authority.AuthorityBlockers);
         blockers.AddRange(authority.ContactBudget.Blockers);
         blockers.AddRange(authority.HighPlacesBudget.Blockers);
@@ -232,14 +271,12 @@ public sealed partial class CharacterCreationContactsService
             });
         }
         string[] normalized = NormalizeCompletion(blockers);
-        var result = new CharacterCreationContactsCompletionProjection(CharacterCreationContactsCompletionSchemas.ProjectionV1,
-            inputs.Binding, inputs.SnapshotDigest, upstream, projections, authority.ContactBudget,
+        var result = new SelectedCompletionContactsPrice(projections, authority.ContactBudget,
             authority.HighPlacesBudget, paidGroup || authority.AuthorityBlockers.Count != 0 ? null : 0,
-            normalized, string.Empty);
-        result = result with { ProposalDigest = CharacterCreationContactsCompletionRules.ComputeProjectionDigest(result) };
+            normalized);
         cancellationToken.ThrowIfCancellationRequested();
         return new(normalized.Length == 0 ? CharacterCreationContactOutcomes.Available : CharacterCreationContactOutcomes.Blocked,
-            DetachCompletion(result), normalized);
+            result, normalized);
     }
 
     private static bool IsValidCompletionInputs(CharacterCreationContactsCompletionInputs inputs)

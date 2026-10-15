@@ -25,6 +25,7 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCareerReputationAtomicCommitCapability,
     ICharacterCareerQualityAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ICharacterCreationCompletionAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
     ISr6CreationFoundationAtomicCommitCapability, ISr6CreationFinalizationAtomicCommitCapability
 {

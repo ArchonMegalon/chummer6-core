@@ -32,6 +32,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && IsValidLedger(workspaceId, currentContentRevision, receipts)
                && CharacterCreationKarmaFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
                && CharacterCreationLifeModuleFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
+               && CharacterCreationCompletionTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
                && IsValidStartingCashArchive(archive, receipts[0].Receipt)
                && string.Equals(archive.State.ComputeDigest(),
                    receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
@@ -40,6 +41,13 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
     private static bool IsValidStartingCashArchive(CharacterCreationFinalizationArchive archive,
         CharacterCreationFinalizationReceipt receipt)
     {
+        // Completion validates cash against its actual proposed purchases in
+        // IsValidArchive above. Those are not historical saved Lifestyle drafts.
+        // The ordinary transition path still requires its exact ConsumeDrafts
+        // shape, so this branch cannot authorize a generic composite write.
+        if (archive.CompletionAuthority is { } completion)
+            return receipt.CompletionAuthorityDigest == completion.AuthorityDigest;
+        if (receipt.CompletionAuthorityDigest is not null) return false;
         if (archive.StartingCash is not { } cash)
             return receipt.StartingCash is null && receipt.StartingCashAuthorityDigest is null;
         var bootstrap = archive.State.CharacterCreationBootstrapBinding;
@@ -109,6 +117,9 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && CharacterCreationFinalizationDigest.IsCanonical(receipt.PreviewDigest)
                && CharacterCreationFinalizationDigest.IsCanonical(receipt.PlanDigest)
                && CharacterCreationFinalizationBuildMethodIsKnown(receipt.BuildMethod)
+               && (receipt.CompletionAuthorityDigest is null
+                   || receipt.BuildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
+                       && CharacterCreationFinalizationDigest.IsCanonical(receipt.CompletionAuthorityDigest))
                && (receipt.CarryoverPolicy is null
                    || CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(receipt.CarryoverPolicy))
                && (receipt.StartingCash is null ? receipt.StartingCashAuthorityDigest is null

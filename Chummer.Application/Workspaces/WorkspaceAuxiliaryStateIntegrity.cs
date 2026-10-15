@@ -18,11 +18,13 @@ public static class WorkspaceAuxiliaryStateIntegrity
         WorkspaceDocumentAuxiliaryState state)
     {
         if (!Sr6CreationFinalizationIntegrity.IsValidArchive(workspaceId, currentContentRevision, state)) return false;
-        // Karma and Life Modules finalization require reconstruction archives;
-        // unlike older Priority receipts they have no archive-less legacy form.
+        // New completion, Karma and Life Modules finalization require
+        // reconstruction archives; only older ordinary Priority receipts have
+        // an archive-less legacy form.
         if (state.CharacterCreationFinalizationArchive is null
             && state.CharacterCreationFinalizationReceipts?.Any(entry =>
-                entry?.Receipt?.BuildMethod is CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules) == true)
+                entry?.Receipt?.CompletionAuthorityDigest is not null
+                || entry?.Receipt?.BuildMethod is CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules) == true)
             return false;
         if (state.CharacterCreationFinalizationArchive is { } archive
             && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(

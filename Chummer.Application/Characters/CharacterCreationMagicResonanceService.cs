@@ -446,13 +446,20 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         CharacterCreationPrerequisiteDraft prerequisite,
         CharacterCreationMagicResonanceAuthority authority,
         ICollection<string> blockers)
+        => ResolveSelectedTalent(prerequisite, authority.Talents, authority.Metatypes, blockers);
+
+    private static CharacterCreationMagicResonanceTalentOption? ResolveSelectedTalent(
+        CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationMagicResonanceTalentOption> talents,
+        IReadOnlyList<CharacterCreationMagicResonanceMetatypeCapability> metatypeSources,
+        ICollection<string> blockers)
     {
         CharacterCreationPriorityAssignment? assignment = prerequisite.Assignments.SingleOrDefault(item =>
             string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Talent, StringComparison.Ordinal));
         CharacterCreationPriorityTalentSelection? selected = prerequisite.TalentSelection;
         CharacterCreationMagicResonanceTalentOption[] matches = assignment is null || selected is null
             ? []
-            : authority.Talents.Where(item =>
+            : talents.Where(item =>
                     string.Equals(item.Identity.PrioritySourceId, assignment.SourceId, StringComparison.Ordinal)
                     && string.Equals(item.Identity.TalentSelectionId, selected.SelectionId, StringComparison.Ordinal)
                     && string.Equals(item.Identity.TalentValue, selected.Value, StringComparison.Ordinal)
@@ -472,7 +479,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
             blockers.Add(CharacterCreationMagicResonanceBlockers.TalentUnsupported);
             AddAll(blockers, talent.Blockers);
         }
-        CharacterCreationMagicResonanceMetatypeCapability[] metatypes = authority.Metatypes
+        CharacterCreationMagicResonanceMetatypeCapability[] metatypes = metatypeSources
             .Where(item => string.Equals(
                 item.MetatypeSourceId,
                 prerequisite.HeritageSelection?.MetatypeSourceId,
@@ -515,6 +522,24 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
 
     private static SelectionEvaluation EvaluateSelections(
         CharacterCreationMagicResonanceAuthority authority,
+        CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationMagicResonanceEffectiveAttributes effective,
+        CharacterCreationMagicResonanceSelections? requested,
+        ICollection<string> blockers)
+        => EvaluateSelections(new MagicSelectionSources(authority.Traditions, authority.Streams,
+            authority.AdeptPowers, authority.Spells, authority.ComplexForms,
+            authority.MysticAdeptPowerPointPolicy), talent, effective, requested, blockers);
+
+    private sealed record MagicSelectionSources(
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> Traditions,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> Streams,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> AdeptPowers,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> Spells,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> ComplexForms,
+        CharacterCreationMysticAdeptPowerPointPolicy? MysticAdeptPowerPointPolicy);
+
+    private static SelectionEvaluation EvaluateSelections(
+        MagicSelectionSources authority,
         CharacterCreationMagicResonanceTalentOption talent,
         CharacterCreationMagicResonanceEffectiveAttributes effective,
         CharacterCreationMagicResonanceSelections? requested,
