@@ -38,11 +38,19 @@ public static class CharacterCreationCompletionReviewService
         }
         var skillsResult = CharacterCreationSkillsService.PreviewWithProposedAttributes(inputs.Skills,
             choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, cancellationToken);
-        var upstreamResult = CharacterCreationCompletionBudgetService.Preview(inputs.Magic, inputs.Lifestyles.Qualities,
-            choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, cancellationToken);
         var lifestylesResult = CharacterCreationLifestylesService.PreviewCompletion(inputs.Lifestyles, inputs.Magic,
             choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, choices.TotalKarmaInvestment,
             choices.Gear, choices.Lifestyles, choices.StartingLifestyleId, loadout, cancellationToken);
+        // Lifestyles evaluated this budget through Gear/Resources with these same
+        // detached inputs and choices. Keep its own findings, not purchase blockers.
+        // A missing projection still needs an independent upstream failure report.
+        CharacterCreationFoundationResult<CharacterCreationCompletionBudgetPreview> upstreamResult =
+            lifestylesResult.Value?.Gear.Resources.UpstreamBudget is { } upstream
+                ? new(upstream.Blockers.Count == 0
+                        ? CharacterCreationFoundationOutcomes.Success : CharacterCreationFoundationOutcomes.Blocked,
+                    upstream, upstream.Blockers)
+                : CharacterCreationCompletionBudgetService.Preview(inputs.Magic, inputs.Lifestyles.Qualities,
+                    choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, cancellationToken);
         var contactsResult = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
             choices.AttributeAllocations, choices.QualityOptionIds, choices.Contacts, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();

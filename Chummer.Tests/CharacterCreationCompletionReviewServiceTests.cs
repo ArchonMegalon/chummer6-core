@@ -73,6 +73,120 @@ public sealed class CharacterCreationCompletionReviewServiceTests
     }
 
     [TestMethod]
+    [DataRow(1)]
+    [DataRow(30)]
+    public void Whole_review_matches_independent_budget_with_a_lifestyle_projection(int increments)
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var inputs = LoadInputs(context);
+        var selections = InitialSelections(inputs);
+        selections = selections with { Lifestyles = [selections.Lifestyles.Single() with { Increments = increments }] };
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var files = CaptureFiles(context);
+        // Lifestyle pricing retains one fractional digit in this source fixture.
+        // Review digests bind that representation, not just decimal equality.
+        decimal remaining = 56000m - 100m - 2000.0m * increments;
+        var expectedBalances = new CharacterCreationCompletionPoolBalances(25, 15, 0, 5, 3, 0, 7, 0,
+            56000m, 100m, 2000.0m * increments, Math.Max(0m, remaining), Math.Max(0m, -remaining));
+
+        var result = AssertMatchesIndependentReview(inputs, selections, expectedBalances);
+        Assert.AreEqual(increments == 1 ? CharacterCreationFoundationOutcomes.Success
+            : CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+        var review = result.Value!;
+        Assert.IsNotNull(review.Lifestyles);
+        Assert.IsNotNull(review.UpstreamBudget);
+        Assert.AreEqual(0, review.UpstreamBudget!.Blockers.Count,
+            "Purchase failures must not become upstream budget findings.");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+            review.UpstreamBudget, review.Lifestyles!.Gear.Resources.UpstreamBudget));
+        Assert.AreNotSame(review.UpstreamBudget, review.Lifestyles.Gear.Resources.UpstreamBudget);
+        if (increments > 1)
+            CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InsufficientFunds);
+        Assert.AreEqual(review.ReviewDigest, Review(inputs, selections).Value!.ReviewDigest);
+        AssertWorkspaceUnchanged(context, before, files);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Whole_review_without_lifestyle_projection_keeps_independent_upstream_findings(bool unpricedPowerPoints)
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var inputs = LoadInputs(context);
+        var original = InitialSelections(inputs);
+        var selections = original with
+        {
+            TotalKarmaInvestment = int.MaxValue,
+            MagicSelections = unpricedPowerPoints
+                ? original.MagicSelections with { MysticAdeptPowerPoints = int.MaxValue } : original.MagicSelections
+        };
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var files = CaptureFiles(context);
+        var expectedBalances = new CharacterCreationCompletionPoolBalances(25, 15, 0,
+            unpricedPowerPoints ? null : 5, null, 0, null, null, null, null, null, null, null);
+
+        var result = AssertMatchesIndependentReview(inputs, selections, expectedBalances,
+            CharacterCreationCompletionReviewSchemas.KarmaBudgetUnavailable);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+        Assert.IsNull(result.Value!.Lifestyles);
+        Assert.IsNotNull(result.Value.UpstreamBudget);
+        if (unpricedPowerPoints)
+        {
+            Assert.IsNull(result.Value.UpstreamBudget!.AvailableKarmaBeforeResources);
+            CollectionAssert.Contains(result.Value.UpstreamBudget.Blockers.ToArray(),
+                CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+        }
+        else
+        {
+            Assert.AreEqual((int?)10, result.Value.UpstreamBudget!.AvailableKarmaBeforeResources);
+            Assert.AreEqual(0, result.Value.UpstreamBudget.Blockers.Count);
+            CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationResourcesBlockers.InvalidOption);
+        }
+        bool canceled = false;
+        try { Review(inputs, selections, new CancellationToken(true)); }
+        catch (OperationCanceledException) { canceled = true; }
+        Assert.IsTrue(canceled);
+        // The failed proposal cannot supply the next invocation's budget.
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, Review(inputs, original).Outcome);
+        AssertWorkspaceUnchanged(context, before, files);
+    }
+
+    [TestMethod]
+    public void Whole_review_revalidates_resealed_lifestyle_authority_before_budget_reuse()
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var inputs = LoadInputs(context);
+        var selections = InitialSelections(inputs);
+        var original = Review(inputs, selections);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, original.Outcome);
+        var authority = inputs.Lifestyles.Authority with
+        {
+            SourceDigest = CharacterCreationLifestylesRules.ComputeIdempotencyKeyDigest("foreign-review-lifestyle-source")
+        };
+        authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+        var lifestyles = inputs.Lifestyles with { Authority = authority };
+        lifestyles = lifestyles with { SnapshotDigest = CharacterCreationLifestylesCompletionRules.ComputeInputsDigest(lifestyles) };
+        var changed = inputs with { Lifestyles = lifestyles };
+        changed = changed with { SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(changed) };
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var files = CaptureFiles(context);
+        var expectedBalances = new CharacterCreationCompletionPoolBalances(25, 15, 0, 5, null, 0,
+            null, null, null, null, null, null, null);
+
+        var rejected = AssertMatchesIndependentReview(changed, selections, expectedBalances,
+            CharacterCreationCompletionReviewSchemas.KarmaBudgetUnavailable);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, rejected.Outcome);
+        Assert.IsNull(rejected.Value!.Lifestyles);
+        Assert.IsNotNull(rejected.Value.UpstreamBudget);
+        CollectionAssert.Contains(rejected.Blockers.ToArray(), CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+        Assert.AreEqual(original.Value!.ReviewDigest, Review(inputs, selections).Value!.ReviewDigest);
+        AssertWorkspaceUnchanged(context, before, files);
+    }
+
+    [TestMethod]
     public void Whole_review_combines_individually_affordable_gear_and_lifestyle_purchases_once()
     {
         using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
@@ -221,6 +335,59 @@ public sealed class CharacterCreationCompletionReviewServiceTests
         Assert.IsNull(denied.Value);
         CollectionAssert.Contains(denied.Blockers.ToArray(), CharacterCreationCompletionReviewSchemas.SnapshotConflict);
         AssertWorkspaceUnchanged(context, before, files);
+    }
+
+    private static CharacterCreationFoundationResult<CharacterCreationCompletionReview> AssertMatchesIndependentReview(
+        CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionSelections selections,
+        CharacterCreationCompletionPoolBalances expectedBalances, params string[] additionalBlockers)
+    {
+        // Independently evaluate each component as the original full review did.
+        // Balances are fixture expectations, not copied from the review under test.
+        Assert.IsNull(inputs.Loadout);
+        var skills = CharacterCreationSkillsService.PreviewWithProposedAttributes(inputs.Skills,
+            selections.AttributeAllocations, selections.SkillAllocations, selections.GroupAllocations);
+        var upstream = CharacterCreationCompletionBudgetService.Preview(inputs.Magic, inputs.Lifestyles.Qualities,
+            selections.AttributeAllocations, selections.MagicSelections, selections.QualityOptionIds);
+        var lifestyles = CharacterCreationLifestylesService.PreviewCompletion(inputs.Lifestyles, inputs.Magic,
+            selections.AttributeAllocations, selections.MagicSelections, selections.QualityOptionIds,
+            selections.TotalKarmaInvestment, selections.Gear, selections.Lifestyles, selections.StartingLifestyleId);
+        var contacts = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
+            selections.AttributeAllocations, selections.QualityOptionIds, selections.Contacts);
+        string[] blockers = skills.Blockers.Concat(upstream.Blockers).Concat(lifestyles.Blockers)
+            .Concat(contacts.Blockers).Concat(CharacterCreationCompletionPreservationRules.Check(inputs, selections))
+            .Concat(additionalBlockers)
+            .Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        var expected = new CharacterCreationCompletionReview(CharacterCreationCompletionReviewSchemas.ReviewV1,
+            inputs.SnapshotDigest, new(inputs.SnapshotDigest, selections), skills.Value, upstream.Value,
+            lifestyles.Value, contacts.Value, expectedBalances, blockers, string.Empty);
+        expected = expected with { ReviewDigest = CharacterCreationCompletionReviewRules.ComputeReviewDigest(expected) };
+
+        var actual = Review(inputs, selections);
+        Assert.AreEqual(blockers.Length == 0 ? CharacterCreationFoundationOutcomes.Success
+            : CharacterCreationFoundationOutcomes.Blocked, actual.Outcome, string.Join(",", actual.Blockers));
+        CollectionAssert.AreEqual(blockers, actual.Blockers.ToArray());
+        Assert.IsNotNull(actual.Value);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(upstream.Value,
+            actual.Value!.UpstreamBudget), "The reused upstream projection must match an independent budget calculation.");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(skills.Value,
+            actual.Value.Skills), "The skill projection must remain unchanged.");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(lifestyles.Value,
+            actual.Value.Lifestyles), "The lifestyle projection must remain unchanged.");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(contacts.Value,
+            actual.Value.Contacts), "The contacts projection must remain unchanged.");
+        Assert.AreEqual(expectedBalances, actual.Value.Balances,
+            "Whole-review balances must match the independently priced fixture.");
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(expectedBalances),
+            System.Text.Json.JsonSerializer.Serialize(actual.Value.Balances),
+            "Expected currency values must retain their source-pricing decimal representation.");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected.Request,
+            actual.Value.Request), "The admitted request must remain unchanged.");
+        Assert.AreEqual(expected.Schema, actual.Value.Schema);
+        Assert.AreEqual(expected.InputsSnapshotDigest, actual.Value.InputsSnapshotDigest);
+        Assert.AreEqual(expected.ReviewDigest, actual.Value.ReviewDigest,
+            "The whole-review digest must retain the independent representation.");
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected, actual.Value));
+        return actual;
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationCompletionReview> Review(
