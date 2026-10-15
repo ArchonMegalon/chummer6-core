@@ -58,7 +58,10 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
         }
 
         PreviewEvaluation evaluation = EvaluatePreview(
-            new CharacterCreationAttributesPreviewRequest(request.Binding, request.Allocations));
+            new CharacterCreationAttributesPreviewRequest(request.Binding, request.Allocations)
+            {
+                PlayerChosenAttributeIds = request.PlayerChosenAttributeIds
+            });
         if (evaluation.Result.Value is not CharacterCreationAttributesPreview preview
             || evaluation.Workspace is not WorkspaceStoredDocument workspace
             || evaluation.Draft is not CharacterCreationAttributesDraft draft)
@@ -185,13 +188,16 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 null);
         }
 
-        var prepared = EvaluatePreparedState(state, request.Allocations);
+        var prepared = EvaluatePreparedState(state, request.Allocations, request.PlayerChosenAttributeIds);
         return new(prepared.Result, workspace, prepared.Draft);
     }
 
     private static (CharacterCreationFoundationResult<CharacterCreationAttributesPreview> Result,
         CharacterCreationAttributesDraft? Draft) EvaluatePreparedState(
-        CharacterCreationAttributesState state, IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
+        CharacterCreationAttributesState state,
+        IReadOnlyList<CharacterCreationAttributeAllocation> allocations,
+        IReadOnlyList<string>? playerChosenAttributeIds,
+        bool validatePlayerChoiceChanges = true)
     {
         var blockers = new List<string>(state.Blockers);
         AttributeEvaluation projected = EvaluateAllocations(
@@ -200,10 +206,12 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             state.KarmaAttribute,
             allocations,
             blockers);
+        string[]? chosenIds = NormalizePlayerChoiceIntent(
+            state, projected.Attributes, playerChosenAttributeIds, validatePlayerChoiceChanges, blockers);
         CharacterCreationAttributesDraft? draft = null;
         if (blockers.Count == 0)
         {
-            draft = BuildDraft(state, projected);
+            draft = BuildDraft(state, projected, chosenIds);
             if (state.PendingDraft is CharacterCreationAttributesDraft current)
             {
                 if (current.DraftRevision == long.MaxValue)
@@ -226,7 +234,10 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             normalized,
             RequiresExplicitConfirmation: true,
             CanConfirm: normalized.Length == 0 && draft is not null,
-            PreviewDigest: string.Empty);
+            PreviewDigest: string.Empty)
+        {
+            PlayerChosenAttributeIds = chosenIds
+        };
         preview = preview with
         {
             PreviewDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -240,6 +251,51 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 preview,
                 normalized),
             draft);
+    }
+
+    private static string[]? NormalizePlayerChoiceIntent(
+        CharacterCreationAttributesState state,
+        IReadOnlyList<CharacterCreationAttributeProjection> projected,
+        IReadOnlyList<string>? requested,
+        bool validateChanges,
+        List<string> blockers)
+    {
+        // Missing metadata from an older caller is unknown, not permission to
+        // infer untouched defaults. This can only make automatic completion more
+        // conservative; it cannot release a previously chosen attribute.
+        if (requested is null)
+            return null;
+
+        var known = state.Attributes.Select(item => item.AttributeId).ToHashSet(StringComparer.Ordinal);
+        var chosen = new HashSet<string>(StringComparer.Ordinal);
+        if (requested.Count > known.Count
+            || requested.Any(id => string.IsNullOrWhiteSpace(id) || !known.Contains(id) || !chosen.Add(id)))
+        {
+            blockers.Add(CharacterCreationAttributesBlockers.PlayerChoiceIntentInvalid);
+            return null;
+        }
+
+        // Dense legacy allocations cannot distinguish omitted and deliberately
+        // retained zeros. Do not turn that uncertainty into fresh permission.
+        if (state.PendingDraft is { PlayerChosenAttributeIds: null }
+            || state.PendingDraft?.PlayerChosenAttributeIds?.Any(id => !chosen.Contains(id)) == true)
+            blockers.Add(CharacterCreationAttributesBlockers.PlayerChoiceIntentInvalid);
+
+        if (validateChanges)
+        {
+            foreach (CharacterCreationAttributeProjection attribute in projected)
+            {
+                CharacterCreationAttributeProjection? original = state.Attributes
+                    .FirstOrDefault(item => item.AttributeId == attribute.AttributeId);
+                if (original is not null
+                    && (attribute.PriorityPointsSpent != original.PriorityPointsSpent
+                        || attribute.KarmaLevels != original.KarmaLevels)
+                    && !chosen.Contains(attribute.AttributeId))
+                    blockers.Add(CharacterCreationAttributesBlockers.PlayerChoiceIntentInvalid);
+            }
+        }
+
+        return chosen.OrderBy(id => id, StringComparer.Ordinal).ToArray();
     }
 
     private CharacterCreationFoundationResult<CharacterCreationAttributesState> BuildState(
@@ -604,7 +660,8 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
 
     private static CharacterCreationAttributesDraft BuildDraft(
         CharacterCreationAttributesState state,
-        AttributeEvaluation evaluation)
+        AttributeEvaluation evaluation,
+        string[]? playerChosenAttributeIds)
     {
         CharacterCreationPrerequisiteDraft prerequisite = state.PrerequisiteDraft!;
         CharacterCreationAttributesDraft? current = state.PendingDraft;
@@ -644,7 +701,10 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 .Distinct(StringComparer.Ordinal)
                 .ToArray(),
             CharacterEffectsApplied: false,
-            DraftDigest: string.Empty);
+            DraftDigest: string.Empty)
+        {
+            PlayerChosenAttributeIds = playerChosenAttributeIds
+        };
         return draft with { DraftDigest = CharacterCreationAttributesDraftIntegrity.ComputeDigest(draft) };
     }
 

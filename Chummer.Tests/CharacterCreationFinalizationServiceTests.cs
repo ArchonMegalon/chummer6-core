@@ -3007,7 +3007,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             bool legacyQualityCatalog = false,
             string traditionName = "Hermetic",
             string metatypeName = "Human",
-            Func<ICharacterSourceDataResolver, ICharacterSourceDataResolver>? wrapResolver = null)
+            Func<ICharacterSourceDataResolver, ICharacterSourceDataResolver>? wrapResolver = null,
+            IReadOnlyList<string>? playerChosenAttributeIds = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -3051,7 +3052,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     includeGearReview,
                     includeNonEmptyPurchases,
                     replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName,
-                    rankAssignments, includeSkillPurchase, traditionName, metatypeName);
+                    rankAssignments, includeSkillPurchase, traditionName, metatypeName, playerChosenAttributeIds);
                 return new ReadyContext(
                     directory,
                     store,
@@ -3186,7 +3187,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             IReadOnlyDictionary<string, string>? rankAssignments = null,
             bool includeSkillPurchase = false,
             string traditionName = "Hermetic",
-            string metatypeName = "Human")
+            string metatypeName = "Human",
+            IReadOnlyList<string>? playerChosenAttributeIds = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -3252,13 +3254,13 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterCreationAttributesState attributeState = attributes.Load(new(workspaceId)).Value!;
             CharacterCreationAttributesPreview attributePreview = attributes.Preview(new(
                 attributeState.Binding,
-                [])).Value!;
+                []) { PlayerChosenAttributeIds = playerChosenAttributeIds }).Value!;
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
                 attributes.Confirm(new(
                     attributePreview.Binding,
                     [],
                     attributePreview.PreviewDigest,
-                    ExplicitlyConfirmed: true)).Outcome);
+                    ExplicitlyConfirmed: true) { PlayerChosenAttributeIds = playerChosenAttributeIds }).Outcome);
 
             var skills = new CharacterCreationSkillsService(store, resolver);
             CharacterCreationSkillsState skillsState = skills.Load(new(workspaceId)).Value!;

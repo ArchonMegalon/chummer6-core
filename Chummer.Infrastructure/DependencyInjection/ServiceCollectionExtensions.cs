@@ -223,14 +223,23 @@ public static class ServiceCollectionExtensions
             CharacterCreationSkillsService>();
         services.AddSingleton<IOwnerBoundCharacterCreationSkillsService,
             OwnerBoundCharacterCreationSkillsService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationSkillsCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationSkillsCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationSkillsService>());
         services.AddSingleton<ICharacterCreationQualitiesService,
             CharacterCreationQualitiesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationQualitiesService,
             OwnerBoundCharacterCreationQualitiesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationQualitiesCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationQualitiesCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationQualitiesService>());
         services.AddSingleton<ICharacterCreationMagicResonanceService,
             CharacterCreationMagicResonanceService>();
         services.AddSingleton<IOwnerBoundCharacterCreationMagicResonanceService,
             OwnerBoundCharacterCreationMagicResonanceService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationMagicResonanceCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationMagicResonanceCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationMagicResonanceService>());
         services.AddSingleton<ICharacterCreationMagicResonanceReReviewService>(provider =>
             (ICharacterCreationMagicResonanceReReviewService)provider
                 .GetRequiredService<ICharacterCreationMagicResonanceService>());
@@ -242,20 +251,37 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<CharacterCreationContactsService>());
         services.AddSingleton<IOwnerBoundCharacterCreationContactsService,
             OwnerBoundCharacterCreationContactsService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationContactsCompletionReader,
+            OwnerBoundCharacterCreationContactsCompletionReader>();
+        services.AddSingleton<IOwnerBoundCharacterCreationCompletionReader,
+            OwnerBoundCharacterCreationCompletionReader>();
+        services.AddSingleton<IOwnerBoundCharacterCreationCompletionService,
+            OwnerBoundCharacterCreationCompletionService>();
         services.AddSingleton<ICharacterCreationLifestylesService,
             CharacterCreationLifestylesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationLifestylesService,
             OwnerBoundCharacterCreationLifestylesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationLifestylesCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationLifestylesCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationLifestylesService>());
         services.AddSingleton<IOwnerBoundCharacterCreationLifestylesReader,
             OwnerBoundCharacterCreationLifestylesReader>();
         services.AddSingleton<ICharacterCreationResourcesService,
             CharacterCreationResourcesService>();
         services.AddSingleton<IOwnerBoundCharacterCreationResourcesService,
             OwnerBoundCharacterCreationResourcesService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationResourcesCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationResourcesCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationResourcesService>());
         services.AddSingleton<ICharacterCreationGearService,
             CharacterCreationGearService>();
+        services.AddSingleton<ICharacterCreationLoadoutService, CharacterCreationLoadoutService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationLoadoutService, OwnerBoundCharacterCreationLoadoutService>();
         services.AddSingleton<IOwnerBoundCharacterCreationGearService,
             OwnerBoundCharacterCreationGearService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationGearCompletionReader>(provider =>
+            (IOwnerBoundCharacterCreationGearCompletionReader)provider
+                .GetRequiredService<IOwnerBoundCharacterCreationGearService>());
         services.AddSingleton<ICharacterCreationFinalizationService,
             CharacterCreationFinalizationService>();
         services.AddSingleton<IOwnerBoundCharacterCreationFinalizationService,

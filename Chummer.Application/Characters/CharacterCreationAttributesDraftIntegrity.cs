@@ -55,12 +55,29 @@ internal static class CharacterCreationAttributesDraftIntegrity
                && draft.CreationKarmaUsed <= draft.CreationKarmaTotal
                && draft.Allocations is not null
                && draft.Attributes is not null
+               && HasCanonicalPlayerChoiceIntent(draft)
                && draft.SourceAnchorIds is { Count: > 0 }
                && !draft.CharacterEffectsApplied
                && CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(draft.DraftDigest)
                && CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
                    draft.DraftDigest,
                    ComputeDigest(draft));
+    }
+
+    private static bool HasCanonicalPlayerChoiceIntent(CharacterCreationAttributesDraft draft)
+    {
+        if (draft.PlayerChosenAttributeIds is not { } ids)
+            return true;
+        if (draft.Attributes.Any(item => item is null) || draft.Allocations.Any(item => item is null))
+            return false;
+
+        var known = draft.Attributes.Select(item => item.AttributeId).ToHashSet(StringComparer.Ordinal);
+        var chosen = new HashSet<string>(StringComparer.Ordinal);
+        return ids.Count <= known.Count
+               && ids.All(id => !string.IsNullOrWhiteSpace(id) && known.Contains(id) && chosen.Add(id))
+               && ids.SequenceEqual(ids.OrderBy(id => id, StringComparer.Ordinal), StringComparer.Ordinal)
+               && draft.Allocations.All(item => item.PriorityPoints == 0 && item.KarmaLevels == 0
+                   || chosen.Contains(item.AttributeId));
     }
 
     public static bool HasSameLogicalPayload(

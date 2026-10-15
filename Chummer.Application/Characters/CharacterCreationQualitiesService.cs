@@ -414,11 +414,18 @@ public sealed partial class CharacterCreationQualitiesService : ICharacterCreati
         WorkspaceStoredDocument workspace,
         CharacterCreationQualitiesBinding binding,
         CharacterCreationQualitiesPreview preview)
+        => workspace.Id == binding.WorkspaceId && workspace.ContentRevision == binding.ContentRevision
+           && IsValidPending(draft, binding, preview);
+
+    private static bool IsValidPending(
+        CharacterCreationQualitiesDraft draft,
+        CharacterCreationQualitiesBinding binding,
+        CharacterCreationQualitiesPreview preview)
         => string.Equals(draft.Schema, CharacterCreationQualitiesSchemas.DraftV1, StringComparison.Ordinal)
-           && draft.WorkspaceId == workspace.Id
+           && draft.WorkspaceId == binding.WorkspaceId
            && draft.DraftRevision > 0
            && draft.BaseContentRevision > 0
-           && draft.BaseContentRevision < workspace.ContentRevision
+           && draft.BaseContentRevision < binding.ContentRevision
            && CharacterCreationQualitiesRules.DigestsEqual(
                draft.BaseRawCharacterXmlDigest,
                binding.RawCharacterXmlDigest)

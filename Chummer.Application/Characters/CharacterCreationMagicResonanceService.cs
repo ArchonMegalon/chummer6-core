@@ -334,43 +334,15 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
     private CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> BuildState(
         WorkspaceStoredDocument workspace, bool forContinuation = false)
     {
-        var blockers = new List<string>();
+        MagicSourceInputs source = ReadSourceInputs(workspace);
+        var blockers = new List<string>(source.Blockers);
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
             { SupportsWorkspaceAuxiliaryStateAtomicCommit: true })
             blockers.Add(CharacterCreationMagicResonanceBlockers.PersistenceAuthorityRequired);
 
-        string rawDigest = CharacterCreationFoundationDraftLedgerIntegrity
-            .ComputeRawCharacterXmlDigest(workspace.Document.Content);
-        ICharacterSourceDataContext? context = _resolver.TryCreateContext(workspace.Document.Content);
-        CharacterCreationPrerequisiteAuthority prerequisiteAuthority = CharacterCreationPrerequisiteAuthority.Unavailable;
-        CharacterCreationMagicResonanceAuthority authority = CharacterCreationMagicResonanceAuthority.Unavailable;
-        bool authorityReady = context is not null
-            && context.TryResolveCreationPrerequisiteAuthority(out prerequisiteAuthority)
-            && context.TryResolveCreationMagicResonanceAuthority(out authority)
-            && CharacterCreationMagicResonanceDraftIntegrity.IsValidAuthority(authority);
-        if (!authorityReady)
-            blockers.Add(CharacterCreationMagicResonanceBlockers.AuthorityUnavailable);
-        else if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                     authority.PrerequisiteAuthorityDigest,
-                     prerequisiteAuthority.AuthorityDigest))
-            blockers.Add(CharacterCreationMagicResonanceBlockers.PrerequisiteSourceDrift);
-
-        CharacterCreationPrerequisiteDraft? prerequisite = workspace.Document.AuxiliaryState
-            .CharacterCreationPrerequisiteDraft;
-        if (prerequisite is null)
-        {
-            blockers.Add(CharacterCreationMagicResonanceBlockers.PrerequisiteDraftRequired);
-        }
-        else if (!CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
-                     prerequisite,
-                     workspace.Id,
-                     workspace.ContentRevision,
-                     rawDigest,
-                     prerequisiteAuthority))
-        {
-            blockers.Add(CharacterCreationMagicResonanceBlockers.PrerequisiteDraftInvalid);
-            prerequisite = null;
-        }
+        string rawDigest = source.RawDigest;
+        CharacterCreationMagicResonanceAuthority authority = source.Authority;
+        CharacterCreationPrerequisiteDraft? prerequisite = source.Prerequisite;
 
         CharacterCreationAttributesState? attributeState =
             new CharacterCreationAttributesService(_store, _resolver)
@@ -419,29 +391,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
                 && pendingBlockers.Contains(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid))
                 blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
             if (pending is not null
-                && (pendingBlockers.Count != 0
-                    || pending.TalentIdentity != talent.Identity
-                    || !string.Equals(pending.TalentKind, talent.Kind, StringComparison.Ordinal)
-                    || pending.AssignedMagic != talent.Magic
-                    || pending.AssignedResonance != talent.Resonance
-                    || pending.AssignedDepth != talent.Depth
-                    || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                        CharacterCreationMagicResonanceDigest.Compute(pending.Selections),
-                        CharacterCreationMagicResonanceDigest.Compute(projected.Selections))
-                    || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                        CharacterCreationMagicResonanceDigest.Compute(new[]
-                        {
-                            pending.TraditionBudget, pending.StreamBudget, pending.AdeptPowerPointBudget,
-                            pending.SpellBudget, pending.ComplexFormBudget
-                        }),
-                        CharacterCreationMagicResonanceDigest.Compute(new[]
-                        {
-                            projected.TraditionBudget, projected.StreamBudget, projected.PowerBudget,
-                            projected.SpellBudget, projected.FormBudget
-                        }))
-                    || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                        CharacterCreationMagicResonanceDigest.Compute(pending.SourceAnchorIds),
-                        CharacterCreationMagicResonanceDigest.Compute(projected.SourceAnchorIds))))
+                && (pendingBlockers.Count != 0 || !MatchesPendingProjection(pending, talent, projected)))
                 blockers.Add(CharacterCreationMagicResonanceBlockers.DraftInvalid);
         }
 
@@ -496,13 +446,20 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         CharacterCreationPrerequisiteDraft prerequisite,
         CharacterCreationMagicResonanceAuthority authority,
         ICollection<string> blockers)
+        => ResolveSelectedTalent(prerequisite, authority.Talents, authority.Metatypes, blockers);
+
+    private static CharacterCreationMagicResonanceTalentOption? ResolveSelectedTalent(
+        CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationMagicResonanceTalentOption> talents,
+        IReadOnlyList<CharacterCreationMagicResonanceMetatypeCapability> metatypeSources,
+        ICollection<string> blockers)
     {
         CharacterCreationPriorityAssignment? assignment = prerequisite.Assignments.SingleOrDefault(item =>
             string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Talent, StringComparison.Ordinal));
         CharacterCreationPriorityTalentSelection? selected = prerequisite.TalentSelection;
         CharacterCreationMagicResonanceTalentOption[] matches = assignment is null || selected is null
             ? []
-            : authority.Talents.Where(item =>
+            : talents.Where(item =>
                     string.Equals(item.Identity.PrioritySourceId, assignment.SourceId, StringComparison.Ordinal)
                     && string.Equals(item.Identity.TalentSelectionId, selected.SelectionId, StringComparison.Ordinal)
                     && string.Equals(item.Identity.TalentValue, selected.Value, StringComparison.Ordinal)
@@ -522,7 +479,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
             blockers.Add(CharacterCreationMagicResonanceBlockers.TalentUnsupported);
             AddAll(blockers, talent.Blockers);
         }
-        CharacterCreationMagicResonanceMetatypeCapability[] metatypes = authority.Metatypes
+        CharacterCreationMagicResonanceMetatypeCapability[] metatypes = metatypeSources
             .Where(item => string.Equals(
                 item.MetatypeSourceId,
                 prerequisite.HeritageSelection?.MetatypeSourceId,
@@ -552,19 +509,45 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         CharacterCreationMagicResonanceSelections? requested,
         ICollection<string> blockers)
     {
-        requested ??= new(null, null, [], [], []);
-        CharacterCreationMagicResonanceSelections selections = NormalizeSelections(requested);
-        decimal powerPointTotal = 0m;
-        int effectiveMagic = 0;
+        CharacterCreationMagicResonanceEffectiveAttributes effective = new(0, 0, 0, 0m);
         if (attributes is null
             || !CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
-                talent, attributes, out CharacterCreationMagicResonanceEffectiveAttributes effective))
-            blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
-        else
+                talent, attributes, out effective))
         {
-            powerPointTotal = effective.AdeptPowerPointBudget;
-            effectiveMagic = effective.Magic;
+            blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
+            effective = new(0, 0, 0, 0m);
         }
+        return EvaluateSelections(authority, talent, effective, requested, blockers);
+    }
+
+    private static SelectionEvaluation EvaluateSelections(
+        CharacterCreationMagicResonanceAuthority authority,
+        CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationMagicResonanceEffectiveAttributes effective,
+        CharacterCreationMagicResonanceSelections? requested,
+        ICollection<string> blockers)
+        => EvaluateSelections(new MagicSelectionSources(authority.Traditions, authority.Streams,
+            authority.AdeptPowers, authority.Spells, authority.ComplexForms,
+            authority.MysticAdeptPowerPointPolicy), talent, effective, requested, blockers);
+
+    private sealed record MagicSelectionSources(
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> Traditions,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> Streams,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> AdeptPowers,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> Spells,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> ComplexForms,
+        CharacterCreationMysticAdeptPowerPointPolicy? MysticAdeptPowerPointPolicy);
+
+    private static SelectionEvaluation EvaluateSelections(
+        MagicSelectionSources authority,
+        CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationMagicResonanceEffectiveAttributes effective,
+        CharacterCreationMagicResonanceSelections? requested,
+        ICollection<string> blockers)
+    {
+        CharacterCreationMagicResonanceSelections selections = NormalizeSelections(requested);
+        decimal powerPointTotal = effective.AdeptPowerPointBudget;
+        int effectiveMagic = effective.Magic;
         if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
                 talent.Kind, effectiveMagic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
                 out var mysticPowerPoints))

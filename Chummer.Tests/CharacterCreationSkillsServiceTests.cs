@@ -1403,7 +1403,8 @@ public sealed partial class CharacterCreationSkillsServiceTests
             CharacterCreationAttributesServiceTests.StubSourceResolver> action,
         IFileWorkspaceStoreFaultInjector? faultInjector = null,
         Func<CharacterCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority>?
-            prerequisiteTransform = null)
+            prerequisiteTransform = null,
+        bool saveAttributes = true)
     {
         string directory = Path.Combine(Path.GetTempPath(), $"chummer-skills-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -1433,14 +1434,17 @@ public sealed partial class CharacterCreationSkillsServiceTests
                 prerequisitePreview.Binding, ranks, prerequisitePreview.PreviewDigest, true)
                 { HeritageSelectionId = "human", TalentSelectionId = "mundane" }).Outcome);
 
-            var attributes = new CharacterCreationAttributesService(store, resolver);
-            CharacterCreationAttributesState attributeState = attributes.Load(new(id)).Value!;
-            CharacterCreationAttributeAllocation[] allocations =
-            [new("INT", 2, 0), new("LOG", 1, 0)];
-            CharacterCreationAttributesPreview attributePreview = attributes.Preview(new(
-                attributeState.Binding, allocations)).Value!;
-            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, attributes.Confirm(new(
-                attributePreview.Binding, allocations, attributePreview.PreviewDigest, true)).Outcome);
+            if (saveAttributes)
+            {
+                var attributes = new CharacterCreationAttributesService(store, resolver);
+                CharacterCreationAttributesState attributeState = attributes.Load(new(id)).Value!;
+                CharacterCreationAttributeAllocation[] allocations =
+                [new("INT", 2, 0), new("LOG", 1, 0)];
+                CharacterCreationAttributesPreview attributePreview = attributes.Preview(new(
+                    attributeState.Binding, allocations)).Value!;
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, attributes.Confirm(new(
+                    attributePreview.Binding, allocations, attributePreview.PreviewDigest, true)).Outcome);
+            }
 
             action(
                 store,

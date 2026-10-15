@@ -306,12 +306,29 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 CharacterCreationMagicResonanceDigest.Compute(attributes with { DraftDigest = string.Empty })))
             return false;
 
+        return TryResolveEffectiveAttributes(talent, attributes.Attributes, attributes.Allocations, out effective);
+    }
+
+    /// <summary>
+    /// Projects effective special attributes from an already source-admitted
+    /// attribute evaluation. This does not manufacture a saved draft or confer
+    /// mutation authority; callers must validate the original source snapshot.
+    /// </summary>
+    public static bool TryResolveEffectiveAttributes(
+        CharacterCreationMagicResonanceTalentOption talent,
+        IReadOnlyList<CharacterCreationAttributeProjection> attributeProjections,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        out CharacterCreationMagicResonanceEffectiveAttributes effective)
+    {
+        effective = new(talent.Magic, talent.Resonance, talent.Depth, talent.AdeptPowerPointBudget);
+        if (attributeProjections is null || attributeAllocations is null)
+            return false;
         var values = new List<int>();
         foreach ((string id, int grant) in new[] { ("MAG", talent.Magic), ("RES", talent.Resonance), ("DEP", talent.Depth) })
         {
-            CharacterCreationAttributeProjection[] projections = attributes.Attributes
+            CharacterCreationAttributeProjection[] projections = attributeProjections
                 .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
-            CharacterCreationAttributeAllocation[] allocations = attributes.Allocations
+            CharacterCreationAttributeAllocation[] allocations = attributeAllocations
                 .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
             if (projections.Length != 1 || allocations.Length != 1)
                 return false;
@@ -415,6 +432,21 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         return CharacterCreationMagicResonanceDigest.IsCanonical(option.SourceNodeDigest);
     }
 
+    /// <summary>
+    /// Projects an already admitted talent payload without manufacturing a saved
+    /// draft or a finalization contribution. The caller still owns source and
+    /// character admission, just as for <see cref="TryProjectOption"/>.
+    /// </summary>
+    public static bool TryProjectTalent(CharacterCreationMagicResonanceTalentOption? talent,
+        out CharacterCreationMagicResonanceTalentFinalizationSource? source)
+    {
+        source = null;
+        if (talent is not { IsEnabled: true, Blockers.Count: 0, Identity: not null }
+            || !HasSupportedTalentPayload(talent)) return false;
+        source = ProjectTalent(talent);
+        return true;
+    }
+
     private static CharacterCreationMagicResonanceTalentFinalizationSource ProjectTalent(
         CharacterCreationMagicResonanceTalentOption talent)
     {
@@ -461,6 +493,23 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             return null;
         }
         return ProjectOption(matches[0], levels);
+    }
+
+    /// <summary>
+    /// Uses the same unique-catalog selection and payload rules as the Priority
+    /// draft finalizer, without creating a saved-draft contribution. Callers must
+    /// first admit the catalog and evaluate the character's combined budgets.
+    /// </summary>
+    public static bool TryProjectOption(
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> catalog,
+        CharacterCreationMagicResonanceOptionIdentity identity, int levels,
+        out CharacterCreationMagicResonanceOptionFinalizationSource? source)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(identity);
+        var failures = new List<string>();
+        source = Resolve(identity, catalog, identity.Kind, levels, failures);
+        return source is not null && failures.Count == 0;
     }
 
     /// <summary>

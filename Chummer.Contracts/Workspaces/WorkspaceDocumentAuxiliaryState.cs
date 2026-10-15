@@ -67,11 +67,17 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CharacterCareerQualityTransactionEntry>? CharacterCareerQualityTransactions = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterCareerQualityCorrectionEntry>? CharacterCareerQualityCorrections = null)
+    IReadOnlyList<CharacterCareerQualityCorrectionEntry>? CharacterCareerQualityCorrections = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationLoadoutDraft? CharacterCreationLoadoutDraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCreationLoadoutReceipt>? CharacterCreationLoadoutReceipts = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
     public bool IsEmpty => Sr6CreationFoundationDecisions is null
+                           && CharacterCreationLoadoutDraft is null
+                           && CharacterCreationLoadoutReceipts is null
                            && CharacterCareerQualityTransactions is null
                            && CharacterCareerQualityCorrections is null
                            && Sr6CreationFinalizationArchive is null
@@ -116,6 +122,9 @@ public sealed record CharacterCreationFinalizationArchive(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifeModuleFinalizationAuthority? LifeModuleAuthority { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompletionAuthority? CompletionAuthority { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationFinalizationStartingCash? StartingCash { get; init; }

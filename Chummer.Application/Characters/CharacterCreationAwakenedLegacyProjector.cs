@@ -71,83 +71,11 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     CharacterCreationMagicResonanceDigest.ComputeUtf8(contribution.Talent.CanonicalSourceXml))
                 && CharacterCreationTalentQualitySourceRules.MatchesTalent(
                     contribution.Talent.CanonicalSourceXml, contribution.Talent.GrantedQualitySources));
-            var source = contribution!;
             Require(TryResolvePowerPointPurchase(magic, attributes, out var purchasedPowerPoints));
-            if (purchasedPowerPoints is not null)
-            {
-                Set(root, "magsplitadept", purchasedPowerPoints.PowerPoints.ToString(CultureInfo.InvariantCulture));
-                Set(root, "magsplitmagician", "0");
-                CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "mystic-adept:power-points",
-                    CharacterCreationFinalizationDeltaKinds.MagicResonance, "magsplitadept", "0",
-                    purchasedPowerPoints.PowerPoints.ToString(CultureInfo.InvariantCulture),
-                    purchasedPowerPoints.KarmaCost, 0, purchasedPowerPoints.Policy.SourceAnchorIds);
-            }
-            Require(source.Talent.Identity.TalentSelectionId == prerequisite.TalentSelection!.SelectionId
-                && source.Talent.Identity.TalentValue == prerequisite.TalentSelection.Value
-                && Equal(source.Talent.SourceNodeDigest, prerequisite.TalentSelection.PriorityChildNodeDigest)
-                && source.Talent.GrantedQualitySources!.Select(item => item.Reference)
-                    .SequenceEqual(prerequisite.TalentSelection.GrantedQualities, StringComparer.Ordinal));
-            var flags = new HashSet<string>(StringComparer.Ordinal);
-            var projectedQualities = new List<XElement>();
-            var improvements = new List<XElement>();
-            var projectedGear = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
-            foreach (var quality in source.Talent.GrantedQualitySources!)
-            {
-                XElement definition = Parse(quality.CanonicalSourceXml, "quality");
-                string id = CharacterCreationFinalizationProjector.StableGuid(
-                    $"heritage-quality:{quality.SourceId}:{quality.ForcedSelection}:{quality.SourceNodeDigest}:{magic.DraftDigest}").ToString("D");
-                string extra = CompileBonus(definition.Element("bonus"), quality.ForcedSelection,
-                    prerequisite.TalentSelection!.GrantPlan?.SkillGroups.Select(item => item.CanonicalName).ToArray() ?? [],
-                    quality, id, flags, improvements, projectedGear);
-                Require(CharacterCreationLegacySourceProjector.TryBuildHeritageQualityInstance(quality, id, extra, out var saved));
-                projectedQualities.Add(saved);
-                CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-quality:" + id,
-                    CharacterCreationFinalizationDeltaKinds.Quality, quality.SourceId, null, quality.Name,
-                    0, 0, quality.SourceAnchorIds, quality.Name);
-            }
-            foreach (var quality in source.Talent.GrantedQualitySources!)
-                CheckRestrictions(Parse(quality.CanonicalSourceXml, "quality"), root,
-                    projectedQualities, flags);
-            foreach (var (attribute, flag) in new[] { ("MAG", "magenabled"), ("RES", "resenabled"), ("DEP", "depenabled") })
-            {
-                var actual = attributes.Attributes.Where(item => item.AttributeId == attribute).ToArray();
-                Require(actual.Length == 1 && actual[0].IsEnabled == flags.Contains(flag));
-            }
-            root.Element("qualities")!.Add(projectedQualities);
-            Container(root, "improvements").Add(improvements);
-            XElement gears = Container(root, "gears");
-            foreach (var (saved, gearSource) in projectedGear)
-            {
-                bool hasActiveCommlink = gears.Elements("gear").Any(item => Boolean(item, "active", false));
-                if (!hasActiveCommlink && Scalar(saved, "canformpersona").Contains("Self", StringComparison.Ordinal))
-                    saved.Element("active")!.Value = "True";
-                gears.Add(saved);
-                CharacterCreationFinalizationProjector.AddDelta(deltas, ref order,
-                    "talent-gear:" + saved.Element("guid")!.Value,
-                    CharacterCreationFinalizationDeltaKinds.Gear, gearSource.SourceId, null, gearSource.Name,
-                    0, 0, gearSource.SourceAnchorIds, gearSource.Name);
-            }
-            foreach (string flag in flags)
-            {
-                Set(root, flag, "True");
-                CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-flag:" + flag,
-                    CharacterCreationFinalizationDeltaKinds.MagicResonance, flag, "False", "True", 0, 0, source.Talent.SourceAnchorIds);
-            }
-            Require(source.Tradition?.Identity == magic.Selections.Tradition
-                && source.Stream?.Identity == magic.Selections.Stream
-                && !(source.Tradition is not null && source.Stream is not null));
-            foreach (var tradition in new[] { source.Tradition, source.Stream }.OfType<CharacterCreationMagicResonanceOptionFinalizationSource>())
-            {
-                ApplyTradition(root, tradition, magic.DraftDigest, deltas, ref order);
-            }
-            ApplyOptions(root, "spells", "spell", source.Spells, magic.Selections.Spells, magic.DraftDigest, deltas, ref order);
-            ApplyOptions(root, "complexforms", "complexform", source.ComplexForms, magic.Selections.ComplexForms, magic.DraftDigest, deltas, ref order);
-            Require(source.AdeptPowers.Count == magic.Selections.AdeptPowers.Count
-                && source.AdeptPowers.All(item => magic.Selections.AdeptPowers.Count(choice => choice.Identity == item.Identity
-                    && choice.Levels == item.Levels) == 1));
-            ApplyOptions(root, "powers", "power", source.AdeptPowers,
-                magic.Selections.AdeptPowers.Select(item => item.Identity).ToArray(), magic.DraftDigest, deltas, ref order);
-            return true;
+            return TryApplyEvaluatedGraph(root, prerequisite, attributes.Attributes,
+                contribution!.Talent, contribution.Tradition, contribution.Stream,
+                contribution.AdeptPowers, contribution.Spells, contribution.ComplexForms,
+                magic.Selections, purchasedPowerPoints, magic.DraftDigest, deltas, ref order);
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
             or XmlException or OverflowException or FormatException or ArgumentException)
@@ -156,20 +84,219 @@ internal static class CharacterCreationAwakenedLegacyProjector
         }
     }
 
+    /// <summary>
+    /// Projects an evaluated, source-bound proposal without pretending that its
+    /// choices have already been saved. This only builds a caller-owned XML tree;
+    /// it does not supply a receipt or permission to persist it.
+    /// </summary>
+    internal static bool TryApply(XElement root, CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationAttributeProjection> attributes,
+        IReadOnlyList<CharacterCreationSkillProjection> skills,
+        IReadOnlyList<CharacterCreationSkillGroupProjection> skillGroups,
+        CharacterCreationMagicResonanceCompletionInputs inputs,
+        CharacterCreationMagicResonanceCompletionProjection evaluated,
+        string instanceSeed, ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
+    {
+        try
+        {
+            Require(CharacterCreationMagicResonanceDigest.IsCanonical(instanceSeed)
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(prerequisite, inputs.PrerequisiteDraft)
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(attributes, evaluated.Attributes.Attributes));
+            var allocations = attributes.Select(item => new CharacterCreationAttributeAllocation(
+                item.AttributeId, item.PriorityPointsSpent, item.KarmaLevels)).ToArray();
+            var replay = CharacterCreationMagicResonanceService.PreviewCompletion(inputs, allocations, evaluated.Selections);
+            Require(replay.Outcome == CharacterCreationFoundationOutcomes.Success && replay.Value is not null
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(replay.Value, evaluated));
+            ApplySkillGrants(root, prerequisite, skills, skillGroups);
+            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite)) return true;
+            Require(CharacterCreationMagicResonanceFinalizationRules.TryProjectTalent(evaluated.Talent, out var talent));
+            var selections = evaluated.Selections;
+            var authority = inputs.Authority;
+            var tradition = ProjectOption(selections.Tradition, authority.Traditions, 1);
+            var stream = ProjectOption(selections.Stream, authority.Streams, 1);
+            var powers = selections.AdeptPowers.Select(item => ProjectOption(item.Identity, authority.AdeptPowers, item.Levels)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            var spells = selections.Spells.Select(item => ProjectOption(item, authority.Spells, 1)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            var forms = selections.ComplexForms.Select(item => ProjectOption(item, authority.ComplexForms, 1)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            return TryApplyEvaluatedGraph(root, prerequisite, attributes, talent!, tradition, stream,
+                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
+            or XmlException or OverflowException or FormatException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Replays selected historical Magic against the distinct original/proposed
+    /// attribute rows, then uses the ordinary source-effect compiler. The caller
+    /// must admit the actual history, attribute/skill projections, current sources
+    /// and owner separately. This mutates only its disposable projection tree;
+    /// it does not authorize a save. instanceSeed is the admitted original review
+    /// identity, not the selected witness digest, preserving existing instance IDs.
+    /// </summary>
+    internal static bool TryApplySelected(XElement root, CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationAttributeProjection> originalAttributes,
+        IReadOnlyList<CharacterCreationAttributeProjection> proposedAttributes,
+        IReadOnlyList<CharacterCreationSkillProjection> skills,
+        IReadOnlyList<CharacterCreationSkillGroupProjection> skillGroups,
+        CharacterCreationSelectedMagicAuthority witness,
+        string instanceSeed, ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
+    {
+        try
+        {
+            Require(CharacterCreationMagicResonanceDigest.IsCanonical(instanceSeed)
+                && skills is not null && skillGroups is not null
+                && skills.All(item => item is not null) && skillGroups.All(item => item is not null));
+            var replay = CharacterCreationMagicResonanceService.EvaluateSelectedMagic(
+                witness, prerequisite, originalAttributes, proposedAttributes);
+            Require(replay.Outcome == CharacterCreationFoundationOutcomes.Success
+                && replay.Value is { Proposed.Blockers.Count: 0 });
+            var evaluated = replay.Value!.Proposed;
+            ApplySkillGrants(root, prerequisite, skills, skillGroups);
+            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite)) return true;
+            Require(CharacterCreationMagicResonanceFinalizationRules.TryProjectTalent(witness.Talent, out var talent));
+            var selections = evaluated.Selections;
+            var tradition = ProjectOption(selections.Tradition, witness.Traditions, 1);
+            var stream = ProjectOption(selections.Stream, witness.Streams, 1);
+            var powers = selections.AdeptPowers.Select(item => ProjectOption(item.Identity, witness.AdeptPowers, item.Levels)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            var spells = selections.Spells.Select(item => ProjectOption(item, witness.Spells, 1)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            var forms = selections.ComplexForms.Select(item => ProjectOption(item, witness.ComplexForms, 1)!)
+                .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
+            return TryApplyEvaluatedGraph(root, prerequisite, proposedAttributes, talent!, tradition, stream,
+                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
+            or XmlException or OverflowException or FormatException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static CharacterCreationMagicResonanceOptionFinalizationSource? ProjectOption(
+        CharacterCreationMagicResonanceOptionIdentity? identity,
+        IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> catalog, int levels)
+    {
+        if (identity is null) return null;
+        Require(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(catalog, identity, levels, out var projected));
+        return projected;
+    }
+
+    private static bool TryApplyEvaluatedGraph(XElement root, CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationAttributeProjection> attributes,
+        CharacterCreationMagicResonanceTalentFinalizationSource talent,
+        CharacterCreationMagicResonanceOptionFinalizationSource? traditionSource,
+        CharacterCreationMagicResonanceOptionFinalizationSource? streamSource,
+        IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> powers,
+        IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> spells,
+        IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> forms,
+        CharacterCreationMagicResonanceSelections selections,
+        CharacterCreationMysticAdeptPowerPointAllocation? purchasedPowerPoints,
+        string instanceSeed, ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
+    {
+        if (purchasedPowerPoints is not null)
+        {
+            Set(root, "magsplitadept", purchasedPowerPoints.PowerPoints.ToString(CultureInfo.InvariantCulture));
+            Set(root, "magsplitmagician", "0");
+            CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "mystic-adept:power-points",
+                CharacterCreationFinalizationDeltaKinds.MagicResonance, "magsplitadept", "0",
+                purchasedPowerPoints.PowerPoints.ToString(CultureInfo.InvariantCulture),
+                purchasedPowerPoints.KarmaCost, 0, purchasedPowerPoints.Policy.SourceAnchorIds);
+        }
+        Require(talent.Identity.TalentSelectionId == prerequisite.TalentSelection!.SelectionId
+            && talent.Identity.TalentValue == prerequisite.TalentSelection.Value
+            && Equal(talent.SourceNodeDigest, prerequisite.TalentSelection.PriorityChildNodeDigest)
+            && talent.GrantedQualitySources!.Select(item => item.Reference)
+                .SequenceEqual(prerequisite.TalentSelection.GrantedQualities, StringComparer.Ordinal));
+        var flags = new HashSet<string>(StringComparer.Ordinal);
+        var projectedQualities = new List<XElement>();
+        var improvements = new List<XElement>();
+        var projectedGear = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
+        foreach (var quality in talent.GrantedQualitySources!)
+        {
+            XElement definition = Parse(quality.CanonicalSourceXml, "quality");
+            string id = CharacterCreationFinalizationProjector.StableGuid(
+                $"heritage-quality:{quality.SourceId}:{quality.ForcedSelection}:{quality.SourceNodeDigest}:{instanceSeed}").ToString("D");
+            string extra = CompileBonus(definition.Element("bonus"), quality.ForcedSelection,
+                prerequisite.TalentSelection!.GrantPlan?.SkillGroups.Select(item => item.CanonicalName).ToArray() ?? [],
+                quality, id, flags, improvements, projectedGear);
+            Require(CharacterCreationLegacySourceProjector.TryBuildHeritageQualityInstance(quality, id, extra, out var saved));
+            projectedQualities.Add(saved);
+            CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-quality:" + id,
+                CharacterCreationFinalizationDeltaKinds.Quality, quality.SourceId, null, quality.Name,
+                0, 0, quality.SourceAnchorIds, quality.Name);
+        }
+        foreach (var quality in talent.GrantedQualitySources!)
+            CheckRestrictions(Parse(quality.CanonicalSourceXml, "quality"), root,
+                projectedQualities, flags);
+        foreach (var (attribute, flag) in new[] { ("MAG", "magenabled"), ("RES", "resenabled"), ("DEP", "depenabled") })
+        {
+            var actual = attributes.Where(item => item.AttributeId == attribute).ToArray();
+            Require(actual.Length == 1 && actual[0].IsEnabled == flags.Contains(flag));
+        }
+        root.Element("qualities")!.Add(projectedQualities);
+        Container(root, "improvements").Add(improvements);
+        XElement gears = Container(root, "gears");
+        foreach (var (saved, gearSource) in projectedGear)
+        {
+            bool hasActiveCommlink = gears.Elements("gear").Any(item => Boolean(item, "active", false));
+            if (!hasActiveCommlink && Scalar(saved, "canformpersona").Contains("Self", StringComparison.Ordinal))
+                saved.Element("active")!.Value = "True";
+            gears.Add(saved);
+            CharacterCreationFinalizationProjector.AddDelta(deltas, ref order,
+                "talent-gear:" + saved.Element("guid")!.Value,
+                CharacterCreationFinalizationDeltaKinds.Gear, gearSource.SourceId, null, gearSource.Name,
+                0, 0, gearSource.SourceAnchorIds, gearSource.Name);
+        }
+        foreach (string flag in flags)
+        {
+            Set(root, flag, "True");
+            CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-flag:" + flag,
+                CharacterCreationFinalizationDeltaKinds.MagicResonance, flag, "False", "True", 0, 0, talent.SourceAnchorIds);
+        }
+        Require(traditionSource?.Identity == selections.Tradition
+            && streamSource?.Identity == selections.Stream
+            && !(traditionSource is not null && streamSource is not null));
+        foreach (var tradition in new[] { traditionSource, streamSource }.OfType<CharacterCreationMagicResonanceOptionFinalizationSource>())
+        {
+            ApplyTradition(root, tradition, instanceSeed, deltas, ref order);
+        }
+        ApplyOptions(root, "spells", "spell", spells, selections.Spells, instanceSeed, deltas, ref order);
+        ApplyOptions(root, "complexforms", "complexform", forms, selections.ComplexForms, instanceSeed, deltas, ref order);
+        Require(powers.Count == selections.AdeptPowers.Count
+            && powers.All(item => selections.AdeptPowers.Count(choice => choice.Identity == item.Identity
+                && choice.Levels == item.Levels) == 1));
+        ApplyOptions(root, "powers", "power", powers,
+            selections.AdeptPowers.Select(item => item.Identity).ToArray(), instanceSeed, deltas, ref order);
+        return true;
+    }
+
     private static void ApplySkillGrants(XElement root, CharacterCreationPrerequisiteDraft prerequisite, CharacterCreationSkillsDraft skills)
+    {
+        Require(Equal(skills.PrerequisiteDraftDigest, prerequisite.DraftDigest)
+            && skills.PrerequisiteDraftRevision == prerequisite.DraftRevision);
+        ApplySkillGrants(root, prerequisite, skills.Skills, skills.SkillGroups);
+    }
+
+    private static void ApplySkillGrants(XElement root, CharacterCreationPrerequisiteDraft prerequisite,
+        IReadOnlyList<CharacterCreationSkillProjection> skills,
+        IReadOnlyList<CharacterCreationSkillGroupProjection> skillGroups)
     {
         var plan = prerequisite.TalentSelection!.GrantPlan;
         var active = plan?.ActiveSkills ?? [];
         Require(plan?.SkillGroups.All(item => item.BaseRating >= 0) ?? true);
         IReadOnlyList<CharacterCreationTalentSkillGroupGrantPlanEntry> groups =
             plan?.SkillGroups.Where(item => item.BaseRating > 0).ToArray() ?? [];
-        Require(Equal(skills.PrerequisiteDraftDigest, prerequisite.DraftDigest)
-            && skills.PrerequisiteDraftRevision == prerequisite.DraftRevision
-            && (plan is null || Equal(plan.PlanDigest,
+        Require((plan is null || Equal(plan.PlanDigest,
                 CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(plan with { PlanDigest = string.Empty })))
-            && active.Count == skills.Skills.Count(item => item.GrantedRating > 0)
-            && groups.Count == skills.SkillGroups.Count(item => item.GrantedRating > 0));
-        foreach (var skill in skills.Skills)
+            && active.Count == skills.Count(item => item.GrantedRating > 0)
+            && groups.Count == skillGroups.Count(item => item.GrantedRating > 0));
+        foreach (var skill in skills)
         {
             var grants = active.Where(item => item.SourceId == skill.SourceSkillId).ToArray();
             Require(grants.Length <= 1 && skill.GrantedRating == (grants.SingleOrDefault()?.BaseRating ?? 0));
@@ -182,7 +309,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && skill.PointCost == skill.Rating - grant.BaseRating + (skill.SpecializationName is null ? 0 : 1));
             Container(root, "improvements").Add(Improvement("SkillBase", skill.Name, "", "Heritage", grant.BaseRating));
         }
-        foreach (var group in skills.SkillGroups)
+        foreach (var group in skillGroups)
         {
             var grants = groups.Where(item => item.CanonicalName == group.Name).ToArray();
             Require(grants.Length <= 1 && group.GrantedRating == (grants.SingleOrDefault()?.BaseRating ?? 0));

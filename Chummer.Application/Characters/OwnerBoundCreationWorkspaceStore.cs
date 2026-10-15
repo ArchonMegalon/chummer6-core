@@ -13,6 +13,8 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
     CharacterWorkspaceId workspaceId, bool reuseReadObservation = false) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
+    ICharacterCreationCompletionAtomicCommitCapability, ICharacterCreationLoadoutAtomicCommitCapability,
+    ICharacterCreationFinalizationAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability
 {
     // Opt-in for a single synchronous Load only. Retain the complete validated
@@ -37,6 +39,48 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
             catch (ObjectDisposedException) { return false; }
         }
     }
+
+    public CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> CommitFinalization(
+        OwnerScope requestedOwner, CharacterCreationFinalizationConfirmRequest request,
+        ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return IsActive && requestedOwner.IsLocalSingleUser && request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationFinalizationAtomicCommitCapability capability
+            ? capability.CommitFinalization(owner.Owner, request, resolver, queries)
+            : CharacterCreationFinalizationTransaction.Rejected(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(
+        OwnerScope requestedOwner, CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver,
+        CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        cancellationToken.ThrowIfCancellationRequested();
+        // Local-shaped evaluator methods are confined to this exact admitted partition.
+        return IsActive && requestedOwner.IsLocalSingleUser && request.Request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationLoadoutAtomicCommitCapability capability
+            ? capability.CommitLoadout(owner.Owner, request, resolver, cancellationToken)
+            : CharacterCreationLoadoutService.Reject<CharacterCreationLoadoutReceipt>(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
+        CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsActive && request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationCompletionAtomicCommitCapability capability
+            ? capability.CommitCompletion(owner.Owner, request, resolver, queries, cancellationToken)
+            : CharacterCreationCompletionTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
+        OwnerScope requestedOwner, CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+        => requestedOwner == owner.Owner ? CommitCompletion(request, resolver, queries, cancellationToken)
+            : CharacterCreationCompletionTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
 
     public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt> CommitLifeModuleFinalization(
         CharacterCreationFoundationFinalizationConfirmRequest request, ICharacterSourceDataResolver resolver,

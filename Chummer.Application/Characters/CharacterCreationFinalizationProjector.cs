@@ -60,6 +60,7 @@ public static class CharacterCreationFinalizationProjector
         nuyenRemaining = 0;
         var failures = new List<string>();
         WorkspaceDocumentAuxiliaryState auxiliary = workspace.Document.AuxiliaryState;
+        CharacterCreationLoadoutDraft? loadout = contactsInputOnly ? null : auxiliary.CharacterCreationLoadoutDraft;
         CharacterCreationPrerequisiteDraft? prerequisite = auxiliary.CharacterCreationPrerequisiteDraft;
         CharacterCreationAttributesDraft? attributes = auxiliary.CharacterCreationAttributesDraft;
         CharacterCreationSkillsDraft? skills = auxiliary.CharacterCreationSkillsDraft;
@@ -101,6 +102,12 @@ public static class CharacterCreationFinalizationProjector
             return false;
         }
 
+        if (!contactsInputOnly && !HasValidSavedLoadout(workspace))
+        {
+            blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
+            return false;
+        }
+
         if (prerequisite!.BuildMethod is not (CharacterCreationBuildMethods.Priority
                 or CharacterCreationBuildMethods.SumToTen))
             failures.Add(CharacterCreationFinalizationBlockers.BuildMethodNotReady);
@@ -109,11 +116,14 @@ public static class CharacterCreationFinalizationProjector
 
         if (!CharacterCreationAwakenedLegacyProjector.TryResolvePowerPointPurchase(magic, attributes!, out var powerPointPurchase))
             failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-        karmaRemaining = checked(qualities!.KarmaRemaining - resources!.KarmaInvestment - (powerPointPurchase?.KarmaCost ?? 0));
-        if (karmaRemaining < 0)
+        if (!CharacterCreationPriorityKarmaBudget.TryEvaluate(
+                qualities!.KarmaRemaining, resources!.KarmaInvestment, powerPointPurchase, out int remaining))
             failures.Add(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
+        karmaRemaining = remaining;
         startingNuyen = resources.FinalizationContribution.StartingNuyen;
-        nuyenRemaining = gear!.Budget.RemainingNuyen;
+        nuyenRemaining = gear!.Budget.RemainingNuyen - (loadout?.PurchaseCost ?? 0m);
+        if (nuyenRemaining < 0)
+            failures.Add(CharacterCreationResourcesBlockers.InsufficientNuyen);
         CharacterCreationBootstrapBinding? bootstrap = auxiliary.CharacterCreationBootstrapBinding;
         if (!CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(carryoverPolicy)
             || bootstrap is null || carryoverPolicy!.SettingsProfileId != bootstrap.SettingsProfileId
@@ -145,6 +155,21 @@ public static class CharacterCreationFinalizationProjector
             }
             EnsureEmptyOwnedContainer(root, "qualities");
             EnsureEmptyOwnedContainer(root, "gears");
+            if (!contactsInputOnly)
+            {
+                // Imported or unpriced XML is never a substitute for a saved
+                // purchase, even when there is no manual draft to project.
+                foreach (string name in new[] { "weapons", "armors" })
+                {
+                    XElement[] containers = root.Elements(name).ToArray();
+                    if (containers.Length > 1 || containers.Any(node => node.HasElements
+                            || node.HasAttributes || !string.IsNullOrWhiteSpace(node.Value)))
+                    {
+                        blockers = [CharacterCreationLoadoutCompletionSchemas.ExistingGraphUnsupported];
+                        return false;
+                    }
+                }
+            }
 
             CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
             var projected = new List<CharacterCreationFinalizationDelta>();
@@ -210,6 +235,21 @@ public static class CharacterCreationFinalizationProjector
                 return false;
             }
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
+            if (loadout is not null)
+            {
+                if (!CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines, loadout.DraftDigest,
+                        out var weapons, out var armor, loadout.Instances))
+                {
+                    blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
+                    return false;
+                }
+                ReplaceDirect(root, new XElement("weapons", weapons));
+                ReplaceDirect(root, new XElement("armors", armor));
+                foreach (var line in loadout.Lines.OrderBy(row => row.OptionId, StringComparer.Ordinal))
+                    AddDelta(projected, ref order, $"loadout:{line.OptionId}", line.Kind, line.OptionId,
+                        null, line.Quantity.ToString(CultureInfo.InvariantCulture), 0, line.TotalCost,
+                        line.SourceAnchorIds, line.Name);
+            }
             if (!CharacterCreationAwakenedLegacyProjector.TryApply(root, prerequisite, attributes!, skills!, magic,
                     projected, ref order))
             {
@@ -259,6 +299,8 @@ public static class CharacterCreationFinalizationProjector
                     return false;
                 }
                 purchasedLifestyles = new XElement(XDocument.Parse(lifestyleProjection.Content).Root!.Element("lifestyles")!);
+                // The lifestyle budget already includes Gear and the saved
+                // manual loadout. Do not subtract either purchase again.
                 nuyenBeforeCarryover = lifestyleBudget.Remaining;
                 nuyenRemaining = Math.Min(nuyenBeforeCarryover, carryoverPolicy.MaximumNuyen);
                 foreach (var row in lifestyleRows)
@@ -352,6 +394,7 @@ public static class CharacterCreationFinalizationProjector
                 .Concat(qualities.SourceAnchorIds)
                 .Concat(resources.SourceAnchorIds)
                 .Concat(gear.FinalizationContribution.SourceAnchorIds)
+                .Concat(loadout?.Lines.SelectMany(line => line.SourceAnchorIds) ?? [])
                 .Concat(lifestyleDraft is null ? [] : CharacterCreationLifestyleSourceAnchors.All)
                 .Concat(carryoverPolicy.SourceAnchorIds)
                 .Concat(startingCash.Source.SourceAnchorIds)
@@ -374,6 +417,36 @@ public static class CharacterCreationFinalizationProjector
         }
     }
 
+    // This same proof is used by normal projection and durable transition
+    // replay. Live source admission belongs to the finalization service; the
+    // archive retains this exact graph and its selected source closure.
+    private static bool HasValidSavedLoadout(WorkspaceStoredDocument workspace)
+    {
+        var state = workspace.Document.AuxiliaryState;
+        var draft = state.CharacterCreationLoadoutDraft;
+        if (!CharacterCreationLoadoutReceiptLedgerIntegrity.IsValidLedger(workspace.Id, workspace.ContentRevision,
+                draft, state.CharacterCreationLoadoutReceipts)) return false;
+        if (draft is null) return true;
+        string rawDigest = ComputeRawCharacterXmlDigest(workspace.Document.Content);
+        return state.CharacterCreationResourcesDraft is { } funding
+            && state.CharacterCreationGearDraft is { } gear
+            && state.CharacterCreationBootstrapBinding is { } bootstrap
+            && draft.RawCharacterXmlDigest == rawDigest
+            && draft.Authority.RulesetId == workspace.Document.RulesetId
+            && draft.Authority.SettingsProfileId == bootstrap.SettingsProfileId
+            && draft.Authority.ProfileDigest == bootstrap.RawProfileInputsDigest
+            && CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(workspace.Id, workspace.ContentRevision,
+                funding, state.CharacterCreationResourcesReceipts)
+            && funding.BaseRawCharacterXmlDigest == rawDigest
+            && CharacterCreationLoadoutReceiptLedgerIntegrity.HasFunding(draft, funding, state.CharacterCreationResourcesReceipts)
+            && CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(workspace.Id, workspace.ContentRevision,
+                gear, state.CharacterCreationGearReceipts)
+            && gear.BaseRawCharacterXmlDigest == rawDigest
+            && gear.ResourcesDraftRevision == funding.DraftRevision
+            && gear.ResourcesDraftDigest == funding.DraftDigest
+            && gear.Budget.TotalStartingNuyen == funding.Budget.TotalStartingNuyen;
+    }
+
     public static string ComputeRawCharacterXmlDigest(string characterXml) =>
         "sha256:" + Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(characterXml ?? string.Empty)));
@@ -386,13 +459,21 @@ public static class CharacterCreationFinalizationProjector
         && talent.Resonance is null
         && talent.Depth is null;
 
-    private static XElement BuildAttributes(
+    internal static XElement BuildAttributes(
         CharacterCreationAttributesDraft draft,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+        => BuildAttributes(draft.Attributes, deltas, ref order);
+
+    // These internal graph builders consume already evaluated Core rows. They
+    // do not admit sources, invent saved drafts, or grant mutation authority.
+    internal static XElement BuildAttributes(
+        IReadOnlyList<CharacterCreationAttributeProjection> attributes,
         ICollection<CharacterCreationFinalizationDelta> deltas,
         ref int order)
     {
         var container = new XElement("attributes");
-        foreach (CharacterCreationAttributeProjection attribute in draft.Attributes
+        foreach (CharacterCreationAttributeProjection attribute in attributes
                      .OrderBy(static item => AttributeOrder(item.AttributeId))
                      .ThenBy(static item => item.AttributeId, StringComparer.Ordinal))
         {
@@ -415,18 +496,29 @@ public static class CharacterCreationFinalizationProjector
         return container;
     }
 
-    private static XElement BuildSkills(
+    internal static XElement BuildSkills(
         CharacterCreationSkillsDraft draft,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+        => BuildSkills(draft.Skills, draft.SkillGroups, draft.ActivePointTotal,
+            draft.SkillGroupPointTotal, draft.DraftDigest, deltas, ref order);
+
+    internal static XElement BuildSkills(
+        IReadOnlyList<CharacterCreationSkillProjection> skills,
+        IReadOnlyList<CharacterCreationSkillGroupProjection> skillGroups,
+        int activePointTotal,
+        int skillGroupPointTotal,
+        string instanceSeed,
         ICollection<CharacterCreationFinalizationDelta> deltas,
         ref int order)
     {
         var active = new XElement("skills");
         var knowledge = new XElement("knoskills");
-        foreach (CharacterCreationSkillProjection skill in draft.Skills
+        foreach (CharacterCreationSkillProjection skill in skills
                      .OrderBy(static item => item.Kind, StringComparer.Ordinal)
                      .ThenBy(static item => item.SourceSkillId, StringComparer.Ordinal))
         {
-            XElement node = BuildSkill(skill, draft.DraftDigest);
+            XElement node = BuildSkill(skill, instanceSeed);
             (skill.Kind == CharacterCreationSkillKinds.Knowledge ? knowledge : active).Add(node);
             AddDelta(deltas, ref order, $"skill:{skill.Kind}:{skill.SourceSkillId}",
                 CharacterCreationFinalizationDeltaKinds.Skill, skill.SourceSkillId,
@@ -437,13 +529,13 @@ public static class CharacterCreationFinalizationProjector
         }
 
         var groups = new XElement("groups");
-        foreach (CharacterCreationSkillGroupProjection group in draft.SkillGroups
+        foreach (CharacterCreationSkillGroupProjection group in skillGroups
                      .OrderBy(static item => item.GroupId, StringComparer.Ordinal))
         {
             groups.Add(new XElement("group",
                 new XElement("karma", 0),
                 new XElement("base", checked(group.Rating - group.GrantedRating)),
-                new XElement("id", StableGuid($"group:{group.GroupId}:{draft.DraftDigest}")),
+                new XElement("id", StableGuid($"group:{group.GroupId}:{instanceSeed}")),
                 new XElement("name", group.Name)));
             AddDelta(deltas, ref order, $"skill-group:{group.GroupId}",
                 CharacterCreationFinalizationDeltaKinds.SkillGroup, group.GroupId,
@@ -451,30 +543,44 @@ public static class CharacterCreationFinalizationProjector
                 0, 0, group.SourceAnchorIds, group.Name);
         }
         return new XElement("newskills",
-            new XElement("skillptsmax", draft.ActivePointTotal),
-            new XElement("skillgrpsmax", draft.SkillGroupPointTotal),
+            new XElement("skillptsmax", activePointTotal),
+            new XElement("skillgrpsmax", skillGroupPointTotal),
             active,
             knowledge,
             new XElement("skilljackknowledgeskills"),
             groups);
     }
 
-    private static void BuildQualityAndEffectGraph(
+    internal static void BuildQualityAndEffectGraph(
         XElement root,
         CharacterCreationQualitiesDraft draft,
         CharacterCreationAttributesDraft attributes,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+        => BuildQualityAndEffectGraph(root, draft.Selections, attributes.CreationKarmaTotal,
+            attributes.CreationKarmaUsed, draft.KarmaRemaining, draft.SourceAnchorIds,
+            draft.DraftDigest, deltas, ref order);
+
+    internal static void BuildQualityAndEffectGraph(
+        XElement root,
+        IReadOnlyList<CharacterCreationQualitySelection> selections,
+        int creationKarmaTotal,
+        int creationKarmaUsed,
+        int karmaRemaining,
+        IReadOnlyList<string> sourceAnchorIds,
+        string instanceSeed,
         ICollection<CharacterCreationFinalizationDelta> deltas,
         ref int order)
     {
         var qualityContainer = new XElement("qualities");
         var improvements = new List<XElement>();
         decimal sourceKarmaTotal = 0;
-        foreach (CharacterCreationQualitySelection selection in draft.Selections
+        foreach (CharacterCreationQualitySelection selection in selections
                      .OrderBy(static item => item.OptionId, StringComparer.Ordinal))
         {
             if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(
                     selection,
-                    draft.DraftDigest,
+                    instanceSeed,
                     out XElement[] projectedQualities,
                     out XElement[] projectedImprovements))
                 throw new InvalidDataException("Selected Quality source cannot be projected exactly.");
@@ -497,15 +603,15 @@ public static class CharacterCreationFinalizationProjector
         // A cap/rebate is a basket rule, not an arbitrary allocation to one quality.
         // Retain the original BP on each legacy row and show the exact profile/basket
         // adjustment separately so the review deltas reconcile with the confirmed pool.
-        decimal confirmedKarma = (decimal)attributes.CreationKarmaTotal
-            - attributes.CreationKarmaUsed - draft.KarmaRemaining;
+        decimal confirmedKarma = (decimal)creationKarmaTotal
+            - creationKarmaUsed - karmaRemaining;
         decimal adjustment = confirmedKarma - sourceKarmaTotal;
         if (adjustment != 0)
             AddDelta(deltas, ref order, "qualities:karma-adjustment",
                 CharacterCreationFinalizationDeltaKinds.Build, "qualities-karma-adjustment",
                 sourceKarmaTotal.ToString(CultureInfo.InvariantCulture),
                 confirmedKarma.ToString(CultureInfo.InvariantCulture), adjustment, 0,
-                draft.SourceAnchorIds);
+                sourceAnchorIds);
         ReplaceDirect(root, qualityContainer);
         if (improvements.Count != 0)
         {
@@ -514,18 +620,25 @@ public static class CharacterCreationFinalizationProjector
         }
     }
 
-    private static XElement BuildGearGraph(
+    internal static XElement BuildGearGraph(
         CharacterCreationGearDraft draft,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+        => BuildGearGraph(draft.Lines, draft.DraftDigest, deltas, ref order);
+
+    internal static XElement BuildGearGraph(
+        IReadOnlyList<CharacterCreationGearLine> lines,
+        string instanceSeed,
         ICollection<CharacterCreationFinalizationDelta> deltas,
         ref int order)
     {
         var container = new XElement("gears");
-        foreach (CharacterCreationGearLine line in draft.Lines
+        foreach (CharacterCreationGearLine line in lines
                      .OrderBy(static item => item.OptionId, StringComparer.Ordinal))
         {
             if (!CharacterCreationLegacySourceProjector.TryBuildGear(
                     line,
-                    draft.DraftDigest,
+                    instanceSeed,
                     out XElement projected))
                 throw new InvalidDataException("Selected Gear source cannot be projected exactly.");
             container.Add(projected);

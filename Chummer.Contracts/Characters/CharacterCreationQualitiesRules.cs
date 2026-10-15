@@ -399,17 +399,245 @@ public static class CharacterCreationQualitiesRules
         IReadOnlyList<string> envelope,
         Dictionary<string, CharacterCreationQualityCatalogOption> catalog)
     {
+        var evaluation = EvaluateSelectionCore(input, envelope, catalog, input.Binding.CreationKarmaUsedBeforeQualities);
+        var preview = new CharacterCreationQualitiesPreview(
+            CharacterCreationQualitiesSchemas.PreviewV1,
+            input.Binding,
+            evaluation.AuthorityDigest,
+            evaluation.Selections,
+            evaluation.GrantedQualities,
+            evaluation.PositiveQualityBudget,
+            evaluation.NegativeQualityBudget,
+            evaluation.MetagenicPositiveKarma,
+            evaluation.MetagenicNegativeKarma,
+            evaluation.KarmaRemaining,
+            evaluation.SourceAnchorIds,
+            evaluation.Blockers,
+            RequiresExplicitConfirmation: true,
+            CanConfirm: evaluation.Blockers.Count == 0,
+            PreviewDigest: string.Empty);
+        return preview with { PreviewDigest = CharacterCreationQualitiesDigest.Compute(preview) };
+    }
+
+    /// <summary>
+    /// Read-only quality math with an explicitly proposed Attributes cost. The
+    /// original binding is not rewritten to invent a saved Attributes draft.
+    /// Source admission and attribute evaluation belong to the completion reader;
+    /// this result cannot be passed to TryPlan or Confirm.
+    /// </summary>
+    public static CharacterCreationQualitiesCompletionEvaluation EvaluateCompletion(
+        CharacterCreationQualitiesInput input, int proposedAttributeKarmaUsed)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var envelope = ValidateEnvelope(input.Binding, input.Authority);
+        // Only this distinct, non-confirmable path accepts the exact absence of
+        // saved Attributes. Ordinary ValidateEnvelope and Evaluate are unchanged.
+        if (input.Binding.AttributesDraftRevision == 0 && input.Binding.AttributesDraftDigest == string.Empty)
+            envelope.Remove(CharacterCreationQualitiesBlockers.AttributesDraftRequired);
+        if (proposedAttributeKarmaUsed < 0 || proposedAttributeKarmaUsed > input.Binding.CreationKarmaTotal)
+            envelope.Add(CharacterCreationQualitiesBlockers.KarmaExceeded);
+        return EvaluateSelectionCore(input, envelope, Catalog(input.Authority), proposedAttributeKarmaUsed);
+    }
+
+    public static string ComputeCompletionInputsDigest(CharacterCreationQualitiesCompletionInputs inputs)
+        => CharacterCreationQualitiesDigest.Compute(inputs with { SnapshotDigest = string.Empty });
+
+    public static string ComputeCompletionPreviewDigest(CharacterCreationAttributeQualitiesPreview preview)
+        => CharacterCreationQualitiesDigest.Compute(preview with { ProposalDigest = string.Empty });
+
+    /// <summary>
+    /// Capture historical pricing evidence only after validating the unchanged,
+    /// complete authority, including unused rows. This does not admit a workspace
+    /// or authorize a write. The caller must admit the source and bind both ID sets
+    /// to the actual original history and reviewed proposal before retaining it.
+    /// </summary>
+    public static bool TryCaptureSelectedAuthority(
+        CharacterCreationQualitiesAuthority authority,
+        IReadOnlyList<string> originalOptionIds,
+        IReadOnlyList<string> proposedOptionIds,
+        out CharacterCreationSelectedQualitiesAuthority? witness)
+    {
+        witness = null;
+        if (authority is null || !HasBoundedSelectedRows(authority.Options, authority.GrantedQualities,
+                authority.SourceAnchorIds)
+            || authority.Blockers is null || authority.Blockers.Count > 65_536
+            || !HasBoundedIds(originalOptionIds) || !HasBoundedIds(proposedOptionIds))
+            return false;
+
+        // Validate detached full bytes before pruning; a duplicate or corrupt
+        // unselected row must not disappear into an apparently valid witness.
+        var full = authority with
+        {
+            Options = CopySelectedOptions(authority.Options),
+            GrantedQualities = CopySelectedGrants(authority.GrantedQualities),
+            SourceAnchorIds = Array.AsReadOnly(authority.SourceAnchorIds.ToArray()),
+            Blockers = Array.AsReadOnly(authority.Blockers.ToArray())
+        };
+        string[] original = originalOptionIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        string[] proposed = proposedOptionIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        if (!IsCanonicalSelectedIds(original) || !IsCanonicalSelectedIds(proposed)
+            || !IsValidAuthority(full))
+            return false;
+        var retainedIds = original.Concat(proposed).ToHashSet(StringComparer.Ordinal);
+        CharacterCreationQualityCatalogOption[] options = full.Options
+            .Where(option => retainedIds.Contains(option.OptionId))
+            .OrderBy(static option => option.OptionId, StringComparer.Ordinal).ToArray();
+        if (options.Length != retainedIds.Count)
+            return false;
+        var candidate = new CharacterCreationSelectedQualitiesAuthority(
+            CharacterCreationSelectedQualitiesAuthority.SchemaV1, full.AuthorityDigest,
+            full.RulesetId, full.SettingsProfileId, full.SourceDigest, full.ProfileDigest,
+            full.GmPolicyDigest, full.RuntimeDigest, full.QualityKarmaLimit,
+            full.MayExceedPositiveQualityLimit, full.MayExceedNegativeQualityLimit,
+            full.MetagenicLimit, full.CostPolicy, Array.AsReadOnly(original), Array.AsReadOnly(proposed),
+            Array.AsReadOnly(options), full.GrantedQualities, full.SourceAnchorIds, string.Empty);
+        witness = candidate with { WitnessDigest = ComputeSelectedAuthorityDigest(candidate) };
+        return true;
+    }
+
+    public static string ComputeSelectedAuthorityDigest(CharacterCreationSelectedQualitiesAuthority witness)
+        => CharacterCreationQualitiesDigest.Compute(witness with { WitnessDigest = string.Empty });
+
+    /// <summary>
+    /// Validate selected historical evidence, not membership in a current full
+    /// catalogue. ProvenanceAuthorityDigest is an identity, never a digest claim
+    /// about this reduced Options collection or an independent authorization.
+    /// </summary>
+    public static bool IsValidSelectedAuthority(CharacterCreationSelectedQualitiesAuthority? witness)
+    {
+        if (witness is null
+            || witness.Schema != CharacterCreationSelectedQualitiesAuthority.SchemaV1
+            || !string.Equals(witness.RulesetId, "sr5", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(witness.SettingsProfileId)
+            || witness.QualityKarmaLimit < 0 || witness.MetagenicLimit < 0
+            || witness.CostPolicy is { KarmaMultiplier: < 0 }
+            || !IsCanonicalDigest(witness.ProvenanceAuthorityDigest)
+            || !IsCanonicalDigest(witness.SourceDigest) || !IsCanonicalDigest(witness.ProfileDigest)
+            || !IsCanonicalDigest(witness.GmPolicyDigest) || !IsCanonicalDigest(witness.RuntimeDigest)
+            || !HasBoundedSelectedRows(witness.Options, witness.GrantedQualities, witness.SourceAnchorIds)
+            || !IsCanonicalSelectedIds(witness.OriginalOptionIds)
+            || !IsCanonicalSelectedIds(witness.ProposedOptionIds)
+            || witness.SourceAnchorIds.Count == 0
+            || witness.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
+            || witness.SourceAnchorIds.Distinct(StringComparer.Ordinal).Count() != witness.SourceAnchorIds.Count
+            || !witness.Options.All(IsValidOption) || !witness.GrantedQualities.All(IsValidGrant)
+            || witness.GrantedQualities.Select(static grant => grant.GrantId)
+                .Distinct(StringComparer.Ordinal).Count() != witness.GrantedQualities.Count)
+            return false;
+
+        // Exactly the union, including different levels sharing one SourceId.
+        // No absent choice, duplicate row or unrelated catalogue row is admitted.
+        string[] expectedIds = witness.OriginalOptionIds.Concat(witness.ProposedOptionIds)
+            .Distinct(StringComparer.Ordinal).OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        return witness.Options.Select(static option => option.OptionId).SequenceEqual(expectedIds, StringComparer.Ordinal)
+            && IsCanonicalDigest(witness.WitnessDigest)
+            && DigestsEqual(witness.WitnessDigest, ComputeSelectedAuthorityDigest(witness));
+    }
+
+    /// <summary>
+    /// Reprice a subset of the retained choices with the ordinary quality math.
+    /// True means an evaluation was produced, not that it is unblocked or can be
+    /// applied. Result.AuthorityDigest identifies WitnessDigest, not the original
+    /// full catalogue. No saved binding/draft is manufactured for this entry point.
+    /// </summary>
+    public static bool TryEvaluateSelectedAuthority(
+        CharacterCreationSelectedQualitiesAuthority witness,
+        IReadOnlyList<string> selectedOptionIds,
+        int creationKarmaTotal,
+        int attributeKarmaUsed,
+        out CharacterCreationQualitiesCompletionEvaluation? evaluation)
+    {
+        evaluation = null;
+        if (witness is null || !HasBoundedSelectedRows(witness.Options, witness.GrantedQualities, witness.SourceAnchorIds)
+            || !HasBoundedIds(witness.OriginalOptionIds) || !HasBoundedIds(witness.ProposedOptionIds)
+            || !HasBoundedIds(selectedOptionIds))
+            return false;
+        var detached = witness with
+        {
+            OriginalOptionIds = Array.AsReadOnly(witness.OriginalOptionIds.ToArray()),
+            ProposedOptionIds = Array.AsReadOnly(witness.ProposedOptionIds.ToArray()),
+            Options = CopySelectedOptions(witness.Options),
+            GrantedQualities = CopySelectedGrants(witness.GrantedQualities),
+            SourceAnchorIds = Array.AsReadOnly(witness.SourceAnchorIds.ToArray())
+        };
+        string[] selected = selectedOptionIds.ToArray();
+        if (!IsValidSelectedAuthority(detached)) return false;
+        List<string> blockers = [];
+        if (creationKarmaTotal < 0 || attributeKarmaUsed < 0 || attributeKarmaUsed > creationKarmaTotal)
+            blockers.Add(CharacterCreationQualitiesBlockers.KarmaExceeded);
+        evaluation = EvaluateSelectionCore(selected, creationKarmaTotal, attributeKarmaUsed,
+            new SelectionPolicy(detached.QualityKarmaLimit, detached.MayExceedPositiveQualityLimit,
+                detached.MayExceedNegativeQualityLimit, detached.MetagenicLimit, detached.CostPolicy),
+            detached.GrantedQualities, detached.SourceAnchorIds, detached.WitnessDigest, blockers,
+            detached.Options.ToDictionary(static option => option.OptionId, StringComparer.Ordinal));
+        return true;
+    }
+
+    private static bool HasBoundedIds(IReadOnlyList<string>? ids)
+        => ids is { Count: <= 65_536 } && ids.All(static id => !string.IsNullOrWhiteSpace(id));
+
+    private static bool IsCanonicalSelectedIds(IReadOnlyList<string>? ids)
+    {
+        if (!HasBoundedIds(ids)) return false;
+        var values = ids!;
+        for (int index = 1; index < values.Count; index++)
+            if (StringComparer.Ordinal.Compare(values[index - 1], values[index]) >= 0) return false;
+        return true;
+    }
+
+    private static bool HasBoundedSelectedRows(IReadOnlyList<CharacterCreationQualityCatalogOption>? options,
+        IReadOnlyList<CharacterCreationGrantedQuality>? grants, IReadOnlyList<string>? anchors)
+        => options is { Count: <= 65_536 } && grants is { Count: <= 65_536 }
+            && anchors is { Count: <= 65_536 }
+            && options.All(static option => option is not null && option.SourceAnchorIds is { Count: <= 65_536 })
+            && grants.All(static grant => grant is not null && grant.SourceAnchorIds is { Count: <= 65_536 });
+
+    private static System.Collections.ObjectModel.ReadOnlyCollection<CharacterCreationQualityCatalogOption> CopySelectedOptions(
+        IReadOnlyList<CharacterCreationQualityCatalogOption> options)
+        => Array.AsReadOnly(options.Select(static option => option with
+            { SourceAnchorIds = Array.AsReadOnly(option.SourceAnchorIds.ToArray()) }).ToArray());
+
+    private static System.Collections.ObjectModel.ReadOnlyCollection<CharacterCreationGrantedQuality> CopySelectedGrants(
+        IReadOnlyList<CharacterCreationGrantedQuality> grants)
+        => Array.AsReadOnly(grants.Select(static grant => grant with
+            { SourceAnchorIds = Array.AsReadOnly(grant.SourceAnchorIds.ToArray()) }).ToArray());
+
+    private static CharacterCreationQualitiesCompletionEvaluation EvaluateSelectionCore(
+        CharacterCreationQualitiesInput input,
+        IReadOnlyList<string> envelope,
+        Dictionary<string, CharacterCreationQualityCatalogOption> catalog,
+        int attributeKarmaUsed)
+        => EvaluateSelectionCore(input.SelectedOptionIds, input.Binding.CreationKarmaTotal,
+            attributeKarmaUsed, new SelectionPolicy(input.Authority.QualityKarmaLimit,
+                input.Authority.MayExceedPositiveQualityLimit, input.Authority.MayExceedNegativeQualityLimit,
+                input.Authority.MetagenicLimit, input.Authority.CostPolicy), input.Authority.GrantedQualities,
+            input.Authority.SourceAnchorIds, input.Authority.AuthorityDigest, envelope, catalog);
+
+    // Shared arithmetic only. The ordinary and selected historical entry points
+    // validate their own distinct envelopes before arriving here. No saved binding
+    // or full-catalogue identity is manufactured for selected-source replay.
+    private static CharacterCreationQualitiesCompletionEvaluation EvaluateSelectionCore(
+        IReadOnlyList<string>? requestedOptionIds,
+        int creationKarmaTotal,
+        int attributeKarmaUsed,
+        SelectionPolicy policy,
+        IReadOnlyList<CharacterCreationGrantedQuality> grants,
+        IReadOnlyList<string> authorityAnchors,
+        string evaluationAuthorityDigest,
+        IReadOnlyList<string> envelope,
+        Dictionary<string, CharacterCreationQualityCatalogOption> catalog)
+    {
         List<string> blockers = new(envelope);
         var selected = new List<CharacterCreationQualitySelection>();
         string[] optionIds;
-        if (input.SelectedOptionIds is { Count: > 65_536 })
+        if (requestedOptionIds is { Count: > 65_536 })
         {
             blockers.Add(CharacterCreationQualitiesBlockers.InvalidSelection);
             optionIds = [];
         }
         else
         {
-            optionIds = input.SelectedOptionIds?.ToArray() ?? [];
+            optionIds = requestedOptionIds?.ToArray() ?? [];
         }
         if (optionIds.Any(string.IsNullOrWhiteSpace)
             || optionIds.Distinct(StringComparer.Ordinal).Count() != optionIds.Length)
@@ -444,16 +672,16 @@ public static class CharacterCreationQualitiesRules
                      StringComparer.Ordinal))
         {
             int maximum = catalog[group.First().OptionId].MaximumSelections;
-            if (group.Count() + input.Authority.GrantedQualities.Count(grant => grant.SelectionKey == group.Key) > maximum)
+            if (group.Count() + grants.Count(grant => grant.SelectionKey == group.Key) > maximum)
                 blockers.Add(CharacterCreationQualitiesBlockers.DuplicateSelection);
         }
 
         CharacterCreationQualityCostItem[] all = selected.Select(ToCost)
-            .Concat(input.Authority.GrantedQualities.Where(IsValidGrant).Select(ToCost))
+            .Concat(grants.Where(IsValidGrant).Select(ToCost))
             .ToArray();
         if (!CharacterCreationQualityCostRules.TryCalculate(
-                input.Authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
-                input.Authority.QualityKarmaLimit, all, out var costs))
+                policy.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+                policy.QualityKarmaLimit, all, out var costs))
             blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
         int positiveUsed = costs.PositiveLimitKarma;
         int negativeUsed = costs.NegativeLimitKarma;
@@ -464,8 +692,8 @@ public static class CharacterCreationQualitiesRules
         try
         {
             karmaRemaining = checked(
-                input.Binding.CreationKarmaTotal
-                - input.Binding.CreationKarmaUsedBeforeQualities
+                creationKarmaTotal
+                - attributeKarmaUsed
                 - karmaUsed);
         }
         catch (OverflowException)
@@ -474,16 +702,16 @@ public static class CharacterCreationQualitiesRules
             blockers.Add(CharacterCreationQualitiesBlockers.KarmaExceeded);
         }
 
-        if (positiveUsed > input.Authority.QualityKarmaLimit
-            && !input.Authority.MayExceedPositiveQualityLimit)
+        if (positiveUsed > policy.QualityKarmaLimit
+            && !policy.MayExceedPositiveQualityLimit)
             blockers.Add(CharacterCreationQualitiesBlockers.PositiveLimitExceeded);
-        if (negativeUsed > input.Authority.QualityKarmaLimit
-            && !input.Authority.MayExceedNegativeQualityLimit)
+        if (negativeUsed > policy.QualityKarmaLimit
+            && !policy.MayExceedNegativeQualityLimit)
             blockers.Add(CharacterCreationQualitiesBlockers.NegativeLimitExceeded);
         if (karmaRemaining < 0)
             blockers.Add(CharacterCreationQualitiesBlockers.KarmaExceeded);
-        if (metagenicPositive > input.Authority.MetagenicLimit
-            || metagenicNegative > input.Authority.MetagenicLimit)
+        if (metagenicPositive > policy.MetagenicLimit
+            || metagenicNegative > policy.MetagenicLimit)
             blockers.Add(CharacterCreationQualitiesBlockers.MetagenicLimitExceeded);
         if ((metagenicPositive != 0 || metagenicNegative != 0)
             && metagenicNegative != metagenicPositive
@@ -497,41 +725,36 @@ public static class CharacterCreationQualitiesRules
         CharacterCreationQualitySelection[] normalizedSelections = selected
             .OrderBy(static item => item.OptionId, StringComparer.Ordinal)
             .ToArray();
-        CharacterCreationGrantedQuality[] normalizedGrants = input.Authority.GrantedQualities
+        CharacterCreationGrantedQuality[] normalizedGrants = grants
             .OrderBy(static item => item.GrantId, StringComparer.Ordinal)
             .ToArray();
         string[] anchors = normalizedSelections.SelectMany(static item => item.SourceAnchorIds)
             .Concat(normalizedGrants.SelectMany(static item => item.SourceAnchorIds))
-            .Concat(input.Authority.CostPolicy is null ? [] : input.Authority.SourceAnchorIds)
+            .Concat(policy.CostPolicy is null ? [] : authorityAnchors)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(static item => item, StringComparer.Ordinal)
             .ToArray();
-        var preview = new CharacterCreationQualitiesPreview(
-            CharacterCreationQualitiesSchemas.PreviewV1,
-            input.Binding,
-            input.Authority.AuthorityDigest,
+        return new CharacterCreationQualitiesCompletionEvaluation(
+            evaluationAuthorityDigest,
+            attributeKarmaUsed,
             normalizedSelections,
             normalizedGrants,
-            Budget(input.Authority.QualityKarmaLimit, positiveUsed,
-                input.Authority.MayExceedPositiveQualityLimit,
+            Budget(policy.QualityKarmaLimit, positiveUsed,
+                policy.MayExceedPositiveQualityLimit,
                 CharacterCreationQualitiesBlockers.PositiveLimitExceeded),
-            Budget(input.Authority.QualityKarmaLimit, negativeUsed,
-                input.Authority.MayExceedNegativeQualityLimit,
+            Budget(policy.QualityKarmaLimit, negativeUsed,
+                policy.MayExceedNegativeQualityLimit,
                 CharacterCreationQualitiesBlockers.NegativeLimitExceeded),
             metagenicPositive,
             metagenicNegative,
             karmaRemaining,
             anchors,
-            normalizedBlockers,
-            RequiresExplicitConfirmation: true,
-            CanConfirm: normalizedBlockers.Length == 0,
-            PreviewDigest: string.Empty);
-        return preview with
-        {
-            PreviewDigest = CharacterCreationQualitiesDigest.Compute(
-                preview with { PreviewDigest = string.Empty })
-        };
+            normalizedBlockers);
     }
+
+    private sealed record SelectionPolicy(int QualityKarmaLimit,
+        bool MayExceedPositiveQualityLimit, bool MayExceedNegativeQualityLimit,
+        int MetagenicLimit, CharacterCreationQualityCostPolicy? CostPolicy);
 
     public static bool TryPlan(
         CharacterCreationQualitiesPreview preview,

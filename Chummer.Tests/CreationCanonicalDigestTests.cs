@@ -13,6 +13,31 @@ namespace Chummer.Tests;
 public sealed class CreationCanonicalDigestTests
 {
     [TestMethod]
+    public void Completion_archive_and_receipt_extensions_preserve_historical_null_bytes()
+    {
+        const string legacyReceiptJson = """
+            {"Schema":"fixture","ReceiptId":"receipt","WorkspaceId":{"Value":"runner"},
+             "IdempotencyKeyDigest":"key","CommandDigest":"command","PreviousContentRevision":1,
+             "ContentRevision":2,"PreviousSavedRevision":1,"SavedRevision":2,
+             "PreviousRawCharacterXmlDigest":"before","RawCharacterXmlDigest":"after",
+             "PreviousAuxiliaryStateDigest":"auxiliary","AuthorityDigest":"authority",
+             "PreviewDigest":"review","PlanDigest":"plan","BuildMethod":"Priority",
+             "CharacterCreated":true,"RequiresFreshCareerReopen":true,
+             "PreviousReceiptDigest":"root","ReceiptDigest":"receipt-digest"}
+            """;
+        using var legacy = JsonDocument.Parse(legacyReceiptJson);
+        var receipt = JsonSerializer.Deserialize<CharacterCreationFinalizationReceipt>(legacyReceiptJson)!;
+        using var current = JsonSerializer.SerializeToDocument(receipt);
+        Assert.IsFalse(current.RootElement.TryGetProperty("CompletionAuthorityDigest", out _));
+        Assert.AreEqual("sha256:" + LegacyDigest(legacy.RootElement), CharacterCreationFinalizationDigest.Compute(receipt));
+        var archive = new CharacterCreationFinalizationArchive(WorkspaceDocumentAuxiliaryState.Empty);
+        using var archiveJson = JsonSerializer.SerializeToDocument(archive);
+        Assert.IsFalse(archiveJson.RootElement.TryGetProperty("CompletionAuthority", out _));
+        Assert.AreEqual("sha256:" + LegacyDigest(new { State = WorkspaceDocumentAuxiliaryState.Empty }),
+            CharacterCreationFinalizationDigest.Compute(archive));
+    }
+
+    [TestMethod]
     public void Finalization_preview_generated_snapshot_preserves_default_bytes_and_observes_mutation()
     {
         var sources = new List<string> { "z", "a", "Zoë 東京 😀 <>&\"\\\r\n\t" };

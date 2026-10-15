@@ -87,44 +87,9 @@ public static partial class CharacterCreationLegacySourceProjector
     {
         qualities = [];
         improvements = [];
-        if (selection is null
-            || selection.SourceNodeXml is not
-                { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength }
-            || !CharacterCreationQualitiesRules.DigestsEqual(
-                selection.SourceNodeDigest,
-                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(selection.SourceNodeXml))
-            || !CharacterCreationQualitiesRules.IsCanonicalDigest(draftDigest))
-            return false;
-
-        XElement? source = ParseBoundedSource(
-            selection.SourceNodeXml,
-            "quality",
-            s_QualitySourceChildren);
-        if (source is null
-            || !TryReadQualityDefinition(source, out QualityDefinition definition, armCount)
-            || definition.SourceId != selection.SourceId
-            || !string.Equals(definition.Name, selection.Name, StringComparison.Ordinal)
-            || definition.Type != selection.Type
-            || definition.Metagenic != selection.IsMetagenic
-            || definition.ContributeToLimit != selection.CountsAgainstQualityLimit
-            || definition.ContributeToBuildPoints != selection.CountsAgainstKarma
-            || selection.IsFreeOrGranted
-            || selection.FollowUpChoiceId is not null
-            || selection.FollowUpChoiceLabel is not null
-            || selection.Rating is < 1
-            || selection.Rating > definition.MaximumRating)
-            return false;
-
-        int expectedCost;
-        try
-        {
-            expectedCost = checked(definition.Karma * selection.Rating);
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
-        if (expectedCost != selection.KarmaCost)
+        if (!CharacterCreationQualitiesRules.IsCanonicalDigest(draftDigest)
+            || !TryReadSelectedQualityDefinition(selection, armCount,
+                out XElement source, out QualityDefinition definition))
             return false;
 
         var savedQualities = new List<XElement>(selection.Rating);

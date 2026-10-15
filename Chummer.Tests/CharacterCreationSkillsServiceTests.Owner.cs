@@ -40,6 +40,38 @@ public sealed partial class CharacterCreationSkillsServiceTests
                 { HeritageSelectionId = "human", TalentSelectionId = "mundane" }).Value!;
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, prerequisites.Confirm(original,
                 new(p.Binding, ranks, p.PreviewDigest, true) { HeritageSelectionId = "human", TalentSelectionId = "mundane" }).Outcome);
+
+            // Completion source admission is useful before a saved Attributes
+            // draft, but must read only the current owner partition and stamp.
+            var initialA = store.Get(ownerA, id).Value!;
+            var initialB = store.Get(ownerB, id).Value!;
+            IOwnerBoundCharacterCreationSkillsCompletionReader completionReader =
+                new OwnerBoundCharacterCreationSkillsService(store, owners, resolver);
+            var initialInputs = completionReader.LoadCompletionInputs(original, new(id));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, initialInputs.Outcome,
+                string.Join(",", initialInputs.Blockers));
+            Assert.IsNull(initialInputs.Value!.Attributes.PendingDraft);
+            Assert.AreEqual(0L, initialInputs.Value.Binding.AttributesDraftRevision);
+            Assert.AreEqual(string.Empty, initialInputs.Value.Binding.AttributesDraftDigest);
+            Assert.AreEqual(initialA.Document.AuxiliaryStateDigest, initialInputs.Value.Binding.AuxiliaryStateDigest);
+            Assert.IsFalse(store.Get(id).Success);
+            Assert.IsNull(new CharacterCreationSkillsService(store, resolver).LoadCompletionInputs(new(id)).Value);
+            foreach (var denied in new[] { default(OwnerContextStamp), original with { Owner = ownerB },
+                         original with { AuthorityInstanceId = "foreign" } })
+                Assert.IsNull(completionReader.LoadCompletionInputs(denied, new(id)).Value);
+            owners.Set(ownerB);
+            Assert.IsNull(completionReader.LoadCompletionInputs(owners.Capture(), new(id)).Value,
+                "Owner B has no prerequisite; owner A's same-named runner cannot supply it.");
+            owners.Set(ownerA);
+            Assert.IsNull(completionReader.LoadCompletionInputs(original, new(id)).Value,
+                "A→B→A cannot revive a source-admission owner stamp.");
+            original = owners.Capture();
+            Assert.AreEqual(initialInputs.Value.SnapshotDigest,
+                completionReader.LoadCompletionInputs(original, new(id)).Value!.SnapshotDigest);
+            AssertCompletionWorkspaceUnchanged(initialA, store.Get(ownerA, id).Value!);
+            AssertCompletionWorkspaceUnchanged(initialB, store.Get(ownerB, id).Value!);
+            Assert.AreEqual(0, owners.ActiveLeases);
+
             var attributes = new OwnerBoundCharacterCreationAttributesService(store, owners, resolver);
             CharacterCreationAttributeAllocation[] points = [new("INT", 2, 0), new("LOG", 1, 0)];
             var a = attributes.Preview(original, new(attributes.Load(original, new(id)).Value!.Binding, points)).Value!;

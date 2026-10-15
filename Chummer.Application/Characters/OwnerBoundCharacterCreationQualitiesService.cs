@@ -14,8 +14,16 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
     IOwnerContextAccessor ownerContext,
     ICharacterFileQueries characterQueries,
     ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationQualitiesService,
-    IOwnerBoundCharacterCreationQualitiesReReviewService
+    IOwnerBoundCharacterCreationQualitiesReReviewService,
+    IOwnerBoundCharacterCreationQualitiesCompletionReader
 {
+    public CharacterCreationFoundationResult<CharacterCreationQualitiesCompletionInputs> LoadCompletionInputs(
+        OwnerContextStamp expectedOwner, CharacterCreationQualitiesLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Invoke(expectedOwner, request.WorkspaceId, service => service.LoadCompletionInputs(request), reuseReadObservation: true);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationQualitiesState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationQualitiesLoadRequest request)
     {

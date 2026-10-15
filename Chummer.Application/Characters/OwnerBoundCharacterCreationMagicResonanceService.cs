@@ -13,8 +13,31 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
     ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationMagicResonanceService,
-    IOwnerBoundCharacterCreationMagicResonanceReReviewService
+    IOwnerBoundCharacterCreationMagicResonanceReReviewService,
+    IOwnerBoundCharacterCreationMagicResonanceCompletionReader
 {
+    public CharacterCreationFoundationResult<CharacterCreationMagicResonanceCompletionInputs> LoadCompletionInputs(
+        OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if ((expectedOwner.Owner.UsesLocalSingleUserValue && !expectedOwner.Owner.IsLocalSingleUser)
+            || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                [CharacterCreationMagicResonanceBlockers.StaleWorkspaceRevision]);
+
+        using (lease)
+        {
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            ICharacterSourceDataResolver operationResolver = sourceScope ?? sourceResolver;
+            // This read shares one owner-bound workspace observation across its
+            // Attributes and Magic inputs. Nothing survives the synchronous call.
+            var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner,
+                request.WorkspaceId, reuseReadObservation: true);
+            return new CharacterCreationMagicResonanceService(view, operationResolver).LoadCompletionInputs(request);
+        }
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationMagicResonanceReReviewState> LoadReReview(
         OwnerContextStamp expectedOwner, CharacterCreationMagicResonanceLoadRequest request)
     {

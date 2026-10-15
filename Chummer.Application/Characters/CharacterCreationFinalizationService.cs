@@ -179,6 +179,82 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return ReplayOrConflict(existing, commandDigest,
                 initialRead.Success && initialRead.Value!.CanReplayReceipt(existing.Receipt.ContentRevision));
 
+        if (initialRead.Value?.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null)
+            return _store is ICharacterCreationFinalizationAtomicCommitCapability typed
+                ? typed.CommitFinalization(Chummer.Contracts.Owners.OwnerScope.LocalSingleUser,
+                    request, _sourceData, _characterFileQueries)
+                : Blocked<CharacterCreationFinalizationReceipt>(
+                    CharacterCreationFinalizationOutcomes.Unavailable,
+                    CharacterCreationFinalizationBlockers.AtomicPersistenceRequired);
+
+        var prepared = PrepareCommit(request, out var replacement);
+        if (prepared.Value is not { } receipt || replacement is null)
+            return prepared;
+        if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
+            { SupportsWorkspaceAuxiliaryStateAtomicCommit: true } atomic)
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Unavailable,
+                CharacterCreationFinalizationBlockers.AtomicPersistenceRequired);
+
+        WorkspaceStoreMutationResult committed = atomic
+            .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                request.Binding.WorkspaceId,
+                request.Binding.ContentRevision,
+                request.Binding.AuxiliaryStateDigest,
+                replacement);
+        if (!committed.Success)
+        {
+            ObservedReceipt? observed = FindPersisted(
+                request.Binding.WorkspaceId,
+                idempotencyDigest);
+            if (observed is not null)
+                return ReplayOrConflict(observed.Entry, commandDigest,
+                    observed.Workspace.CanReplayReceipt(observed.Entry.Receipt.ContentRevision));
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                committed.Outcome == WorkspaceOperationOutcome.Conflict
+                    ? CharacterCreationFinalizationOutcomes.Conflict
+                    : CharacterCreationFinalizationOutcomes.Unavailable,
+                committed.Outcome == WorkspaceOperationOutcome.Conflict
+                    ? CharacterCreationFinalizationBlockers.StaleWorkspaceRevision
+                    : CharacterCreationFinalizationBlockers.AtomicPersistenceRejected);
+        }
+
+        WorkspaceStoreReadResult reopened = _store.Get(request.Binding.WorkspaceId);
+        CharacterCreationFinalizationReceiptLedgerEntry? persisted = reopened.Value is { } reopenedWorkspace
+            ? CharacterCreationFinalizationReceiptLedgerIntegrity.Find(
+                reopenedWorkspace.Document.AuxiliaryState.CharacterCreationFinalizationReceipts,
+                idempotencyDigest)
+            : null;
+        if (reopened.Value is not { } fresh
+            || persisted is null
+            || !fresh.CanReplayReceipt(persisted.Receipt.ContentRevision)
+            || fresh.ContentRevision != receipt.ContentRevision
+            || fresh.SavedRevision != receipt.SavedRevision
+            || !CharacterCreationFinalizationDigest.EqualsFixedTime(
+                CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(
+                    fresh.Document.Content),
+                receipt.RawCharacterXmlDigest)
+            || !_characterFileQueries.ParseSummary(new CharacterDocument(fresh.Document.Content)).Created)
+        {
+            return new CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Applied,
+                receipt,
+                [CharacterCreationFinalizationBlockers.PostCommitReopenRequired]);
+        }
+        return new CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>(
+            CharacterCreationFinalizationOutcomes.Applied,
+            persisted.Receipt,
+            []);
+    }
+
+    // Build canonical ordinary finalization from a read-only store observation.
+    // Only a storage-owned typed transaction may turn this preparation into a write.
+    internal CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> PrepareCommit(
+        CharacterCreationFinalizationConfirmRequest request, out WorkspaceDocument? replacement)
+    {
+        replacement = null;
+        string idempotencyDigest = CharacterCreationFinalizationDigest.ComputeIdempotencyKeyDigest(request.IdempotencyKey);
+        string commandDigest = ComputeCommandDigest(request);
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> reviewed = Review(
             new CharacterCreationFinalizationReviewRequest(request.Binding) { StartingCash = request.StartingCash });
         if (reviewed.Value is not { Plan: { } plan } review
@@ -234,6 +310,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             || currentCash!.AuthorityDigest != plan.StartingCashAuthorityDigest)
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Conflict, CharacterCreationFinalizationBlockers.StartingCashUnavailable);
+        if (!TryValidateCurrentLoadout(workspace, out var loadoutBlockers))
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Conflict, loadoutBlockers);
         if (!CharacterCreationFinalizationProjector.TryProject(
                 workspace,
                 out string resultXml,
@@ -250,12 +329,6 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Conflict,
                 CharacterCreationFinalizationBlockers.PlanDigestMismatch);
-        if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
-            { SupportsWorkspaceAuxiliaryStateAtomicCommit: true } atomic)
-            return Blocked<CharacterCreationFinalizationReceipt>(
-                CharacterCreationFinalizationOutcomes.Unavailable,
-                CharacterCreationFinalizationBlockers.AtomicPersistenceRequired);
-
         long nextRevision = checked(workspace.ContentRevision + 1);
         var receipt = new CharacterCreationFinalizationReceipt(
             CharacterCreationFinalizationSchemas.ReceiptV1,
@@ -297,7 +370,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             idempotencyDigest,
             commandDigest,
             receipt);
-        WorkspaceDocument replacement = workspace.Document with
+        replacement = workspace.Document with
         {
             State = workspace.Document.State with
             {
@@ -316,55 +389,10 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 request.StartingCash, out var finalCash) || finalCash!.AuthorityDigest != currentCash.AuthorityDigest)
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Conflict, CharacterCreationFinalizationBlockers.StartingCashUnavailable);
-        WorkspaceStoreMutationResult committed = atomic
-            .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
-                workspace.Id,
-                workspace.ContentRevision,
-                workspace.Document.AuxiliaryStateDigest,
-                replacement);
-        if (!committed.Success)
-        {
-            ObservedReceipt? observed = FindPersisted(
-                workspace.Id,
-                idempotencyDigest);
-            if (observed is not null)
-                return ReplayOrConflict(observed.Entry, commandDigest,
-                    observed.Workspace.CanReplayReceipt(observed.Entry.Receipt.ContentRevision));
+        if (!TryValidateCurrentLoadout(workspace, out loadoutBlockers))
             return Blocked<CharacterCreationFinalizationReceipt>(
-                committed.Outcome == WorkspaceOperationOutcome.Conflict
-                    ? CharacterCreationFinalizationOutcomes.Conflict
-                    : CharacterCreationFinalizationOutcomes.Unavailable,
-                committed.Outcome == WorkspaceOperationOutcome.Conflict
-                    ? CharacterCreationFinalizationBlockers.StaleWorkspaceRevision
-                    : CharacterCreationFinalizationBlockers.AtomicPersistenceRejected);
-        }
-
-        WorkspaceStoreReadResult reopened = _store.Get(workspace.Id);
-        CharacterCreationFinalizationReceiptLedgerEntry? persisted = reopened.Value is { } reopenedWorkspace
-            ? CharacterCreationFinalizationReceiptLedgerIntegrity.Find(
-                reopenedWorkspace.Document.AuxiliaryState.CharacterCreationFinalizationReceipts,
-                idempotencyDigest)
-            : null;
-        if (reopened.Value is not { } fresh
-            || persisted is null
-            || !fresh.CanReplayReceipt(persisted.Receipt.ContentRevision)
-            || fresh.ContentRevision != receipt.ContentRevision
-            || fresh.SavedRevision != receipt.SavedRevision
-            || !CharacterCreationFinalizationDigest.EqualsFixedTime(
-                CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(
-                    fresh.Document.Content),
-                receipt.RawCharacterXmlDigest)
-            || !_characterFileQueries.ParseSummary(new CharacterDocument(fresh.Document.Content)).Created)
-        {
-            return new CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>(
-                CharacterCreationFinalizationOutcomes.Applied,
-                receipt,
-                [CharacterCreationFinalizationBlockers.PostCommitReopenRequired]);
-        }
-        return new CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>(
-            CharacterCreationFinalizationOutcomes.Applied,
-            persisted.Receipt,
-            []);
+                CharacterCreationFinalizationOutcomes.Conflict, loadoutBlockers);
+        return new(CharacterCreationFinalizationOutcomes.Available, receipt, []);
     }
 
     public CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> LookupReceipt(
@@ -560,6 +588,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             blockers.AddRange(magic.Blockers);
         blockers.AddRange(resources.Blockers);
         blockers.AddRange(gear.Blockers);
+        if (!TryValidateCurrentLoadout(workspace, out var loadoutBlockers))
+            blockers.AddRange(loadoutBlockers);
         var steps = new[]
         {
             Step(CharacterCreationWizardStepIds.Method, prerequisites.Value?.PendingDraft,
@@ -671,6 +701,41 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             QualitiesRead = auxiliary.CharacterCreationQualitiesDraft is null ? null : qualities,
             MagicRead = auxiliary.CharacterCreationMagicResonanceDraft is null ? null : magic
         };
+    }
+
+    // Historical projection uses the receipted selected source closure. New
+    // decisions additionally require the current catalogue and funding source,
+    // including one last observation immediately before the atomic transition.
+    private bool TryValidateCurrentLoadout(WorkspaceStoredDocument workspace, out string[] blockers)
+    {
+        var state = workspace.Document.AuxiliaryState;
+        blockers = [];
+        if (state.CharacterCreationLoadoutDraft is null && state.CharacterCreationLoadoutReceipts is null)
+            return true;
+        var loaded = CharacterCreationLoadoutCompletionService.LoadFromObservation(workspace, _sourceData, true);
+        if (loaded.Value is not { } inputs)
+        {
+            blockers = loaded.Blockers.ToArray();
+            return false;
+        }
+        var context = _sourceData.TryCreateContext(workspace.Document.Content);
+        if (state.CharacterCreationBootstrapBinding is not { } bootstrap
+            || state.CharacterCreationResourcesDraft is not { } funding
+            || inputs.Authority.RulesetId != workspace.Document.RulesetId
+            || inputs.Authority.SettingsProfileId != bootstrap.SettingsProfileId
+            || inputs.Authority.ProfileDigest != bootstrap.RawProfileInputsDigest
+            || context is null || !context.TryResolveCreationResourcesAuthority(out var resources)
+            || !CharacterCreationResourcesRules.IsValidAuthority(resources)
+            || resources.AuthorityDigest != funding.AuthorityDigest
+            || resources.SettingsProfileId != inputs.Authority.SettingsProfileId
+            || resources.ProfileDigest != inputs.Authority.ProfileDigest
+            || !context.TryResolveCreationLoadoutAuthority(out var observed)
+            || observed.AuthorityDigest != inputs.Authority.AuthorityDigest)
+        {
+            blockers = [CharacterCreationLoadoutCompletionSchemas.SnapshotConflict];
+            return false;
+        }
+        return true;
     }
 
     private bool TryLoadStartingCash(WorkspaceStoredDocument workspace,

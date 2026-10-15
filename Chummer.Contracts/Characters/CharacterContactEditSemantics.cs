@@ -20,6 +20,29 @@ public sealed record CharacterContactEditSemantics(
     bool BlackmailEditable,
     bool CanDelete);
 
+/// <summary>Original effect facts, not caller-granted editing authority.</summary>
+public sealed record CharacterContactRuleEffect(
+    string ImprovementType,
+    string ImprovedName,
+    string Value,
+    string Unique,
+    bool Custom,
+    int Enabled,
+    string Condition);
+
+public sealed record CharacterContactEditInput(
+    string ContactId,
+    bool CareerMode,
+    bool ReadOnly,
+    bool Linked,
+    bool IsGroup,
+    bool SavedFree,
+    bool Family,
+    bool Blackmail,
+    int SavedConnection,
+    int SavedLoyalty,
+    bool IsEnemy);
+
 public static class CharacterContactEditSemanticsResolver
 {
     public static bool TryResolve(
@@ -29,36 +52,61 @@ public static class CharacterContactEditSemanticsResolver
     {
         ArgumentNullException.ThrowIfNull(character);
         ArgumentNullException.ThrowIfNull(contact);
+        return TryResolve(ReadInput(character, contact), ReadEffects(character), out semantics);
+    }
 
-        string contactId = ReadValue(contact, "guid");
-        bool careerMode = ParseBool(ReadValue(character, "created"));
-        bool readOnly = contact.Element("readonly") is not null;
-        bool linked = !string.IsNullOrWhiteSpace(ReadValue(contact, "file"))
-            || !string.IsNullOrWhiteSpace(ReadValue(contact, "relative"));
-        bool isGroup = ParseBool(ReadValue(contact, "group"));
-        bool savedFree = ParseBool(ReadValue(contact, "free"));
-        bool family = ParseBool(ReadValue(contact, "family"));
-        bool blackmail = ParseBool(ReadValue(contact, "blackmail"));
-        int savedConnection = ParseInt(ReadValue(contact, "connection"), fallback: 1);
-        int savedLoyalty = ParseInt(ReadValue(contact, "loyalty"), fallback: 1);
+    public static CharacterContactEditInput ReadInput(XElement character, XElement contact) => new(
+        ReadValue(contact, "guid"), ParseBool(ReadValue(character, "created")),
+        contact.Element("readonly") is not null,
+        !string.IsNullOrWhiteSpace(ReadValue(contact, "file"))
+            || !string.IsNullOrWhiteSpace(ReadValue(contact, "relative")),
+        ParseBool(ReadValue(contact, "group")), ParseBool(ReadValue(contact, "free")),
+        ParseBool(ReadValue(contact, "family")), ParseBool(ReadValue(contact, "blackmail")),
+        ParseInt(ReadValue(contact, "connection"), fallback: 1),
+        ParseInt(ReadValue(contact, "loyalty"), fallback: 1),
+        string.Equals(ReadValue(contact, "type"), "Enemy", StringComparison.OrdinalIgnoreCase));
+
+    public static IReadOnlyList<CharacterContactRuleEffect> ReadEffects(XElement character) =>
+        (character.Element("improvements")?.Elements("improvement") ?? []).Select(improvement =>
+            new CharacterContactRuleEffect(ReadValue(improvement, "improvementttype"),
+                ReadValue(improvement, "improvedname"), ReadValue(improvement, "val"),
+                ReadValue(improvement, "unique"), ParseBool(ReadValue(improvement, "custom")),
+                ParseInt(ReadValue(improvement, "enabled"), fallback: 1),
+                ReadValue(improvement, "condition"))).ToArray();
+
+    public static bool TryResolve(CharacterContactEditInput input,
+        IReadOnlyList<CharacterContactRuleEffect> effects, out CharacterContactEditSemantics semantics)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(effects);
+        string contactId = input.ContactId;
+        bool careerMode = input.CareerMode;
+        bool readOnly = input.ReadOnly;
+        bool linked = input.Linked;
+        bool isGroup = input.IsGroup;
+        bool savedFree = input.SavedFree;
+        bool family = input.Family;
+        bool blackmail = input.Blackmail;
+        int savedConnection = input.SavedConnection;
+        int savedLoyalty = input.SavedLoyalty;
 
         bool friendsInHighPlaces = HasApplicableImprovement(
-            character,
+            effects,
             "FriendsInHighPlaces",
             improvedName: null,
             careerMode);
         bool forceGroup = HasApplicableImprovement(
-            character,
+            effects,
             "ContactForceGroup",
             contactId,
             careerMode);
         bool freeFromImprovement = HasApplicableImprovement(
-            character,
+            effects,
             "ContactMakeFree",
             contactId,
             careerMode);
         if (!TryReadForcedLoyalty(
-                character,
+                effects,
                 contactId,
                 careerMode,
                 out int forcedLoyalty))
@@ -72,7 +120,7 @@ public static class CharacterContactEditSemanticsResolver
         int loyalty = forcedLoyalty > 0
             ? forcedLoyalty
             : isGroup ? 1 : Math.Clamp(savedLoyalty, 1, 6);
-        bool isEnemy = string.Equals(ReadValue(contact, "type"), "Enemy", StringComparison.OrdinalIgnoreCase);
+        bool isEnemy = input.IsEnemy;
 
         semantics = new CharacterContactEditSemantics(
             Connection: connection,
@@ -94,32 +142,32 @@ public static class CharacterContactEditSemanticsResolver
     }
 
     private static bool HasApplicableImprovement(
-        XElement character,
+        IReadOnlyList<CharacterContactRuleEffect> effects,
         string improvementType,
         string? improvedName,
         bool careerMode)
-        => (character.Element("improvements")?.Elements("improvement") ?? [])
+        => effects
             .Any(improvement =>
-                string.Equals(ReadValue(improvement, "improvementttype"), improvementType, StringComparison.Ordinal)
+                string.Equals(improvement.ImprovementType, improvementType, StringComparison.Ordinal)
                 && (improvedName is null
-                    || string.Equals(ReadValue(improvement, "improvedname"), improvedName, StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(improvement.ImprovedName, improvedName, StringComparison.OrdinalIgnoreCase))
                 && IsApplicable(improvement, careerMode));
 
     private static bool TryReadForcedLoyalty(
-        XElement character,
+        IReadOnlyList<CharacterContactRuleEffect> effects,
         string contactId,
         bool careerMode,
         out int forcedLoyalty)
     {
         forcedLoyalty = 0;
-        foreach (XElement improvement in character.Element("improvements")?.Elements("improvement") ?? [])
+        foreach (CharacterContactRuleEffect improvement in effects)
         {
             if (!string.Equals(
-                    ReadValue(improvement, "improvementttype"),
+                    improvement.ImprovementType,
                     "ContactForcedLoyalty",
                     StringComparison.Ordinal)
                 || !string.Equals(
-                    ReadValue(improvement, "improvedname"),
+                    improvement.ImprovedName,
                     contactId,
                     StringComparison.OrdinalIgnoreCase)
                 || !IsApplicable(improvement, careerMode))
@@ -127,10 +175,10 @@ public static class CharacterContactEditSemanticsResolver
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(ReadValue(improvement, "unique"))
-                || ParseBool(ReadValue(improvement, "custom"))
+            if (!string.IsNullOrEmpty(improvement.Unique)
+                || improvement.Custom
                 || !decimal.TryParse(
-                    ReadValue(improvement, "val"),
+                    improvement.Value,
                     NumberStyles.Number,
                     CultureInfo.InvariantCulture,
                     out decimal value)
@@ -151,14 +199,14 @@ public static class CharacterContactEditSemanticsResolver
         return true;
     }
 
-    private static bool IsApplicable(XElement improvement, bool careerMode)
+    public static bool IsApplicable(CharacterContactRuleEffect improvement, bool careerMode)
     {
-        if (ParseInt(ReadValue(improvement, "enabled"), fallback: 1) <= 0)
+        if (improvement.Enabled <= 0)
         {
             return false;
         }
 
-        string condition = ReadValue(improvement, "condition");
+        string condition = improvement.Condition;
         return string.IsNullOrEmpty(condition)
             || string.Equals(condition, careerMode ? "career" : "create", StringComparison.Ordinal);
     }
