@@ -299,11 +299,65 @@ public sealed class CharacterCreationCompletionApplyTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void Completion_apply_native_atomic_faults_preserve_or_recover_one_exact_commit(bool afterRename)
+    public void Completion_apply_known_untouched_attributes_keeps_planner_choices_out_of_player_intent_on_cold_replay()
     {
-        using var context = CharacterCreationCompletionReviewServiceTests.CreateSavedContext();
+        using var context = CharacterCreationCompletionReviewServiceTests.CreateSavedContext([]);
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var store = new FileWorkspaceStore(context.Directory);
+        var inputs = Inputs(context, store, owners);
+        var originalAttributes = inputs.Skills.Attributes;
+        Assert.IsNotNull(originalAttributes.PendingDraft!.PlayerChosenAttributeIds);
+        Assert.AreEqual(0, originalAttributes.PendingDraft.PlayerChosenAttributeIds.Count);
+        var body = originalAttributes.Attributes.Single(item => item.AttributeId == "BOD");
+        var planned = CharacterCreationAttributeCompletionPlanner.Plan(originalAttributes,
+            new(originalAttributes.Binding, originalAttributes.SnapshotDigest, ["BOD"])
+            {
+                Targets = [new("BOD", body.UnaugmentedCurrent + 1)]
+            });
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, planned.Outcome, string.Join(",", planned.Blockers));
+        Assert.IsTrue(planned.Value!.HasChanges);
+        Assert.AreEqual(0, planned.Value.Preview.PlayerChosenAttributeIds!.Count);
+        var choices = CharacterCreationCompletionReviewServiceTests.BaselineSelections(inputs) with
+        {
+            AttributeAllocations = planned.Value.Allocations,
+            ChangeableAttributeIds = ["BOD"]
+        };
+        var service = Service(context, store, owners);
+        var before = store.Get(context.WorkspaceId).Value!;
+        var review = service.Review(owners.Capture(), context.WorkspaceId,
+            new(inputs.SnapshotDigest, choices), CashChoice(context, inputs, choices));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, review.Outcome, string.Join(",", review.Blockers));
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+        var command = Command(review.Value!, "completion-untouched-attributes");
+        var applied = service.Apply(owners.Capture(), command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, applied.Outcome, string.Join(",", applied.Blockers));
+
+        var cold = new FileWorkspaceStore(context.Directory);
+        var reopened = cold.Get(context.WorkspaceId);
+        Assert.IsTrue(reopened.Success, reopened.Error);
+        var after = reopened.Value!;
+        AssertCommitted(before, after, applied.Value!, review.Value!.Projection);
+        Assert.AreEqual(0, after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!
+            .State.CharacterCreationAttributesDraft!.PlayerChosenAttributeIds!.Count);
+        var replay = Service(context, cold, owners).Apply(owners.Capture(), command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, replay.Outcome, string.Join(",", replay.Blockers));
+        Assert.AreEqual(applied.Value!.ReceiptDigest, replay.Value!.ReceiptDigest);
+        Assert.AreEqual(after.ContentRevision, cold.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Completion_apply_native_atomic_faults_preserve_or_recover_one_exact_commit(
+        bool afterRename, bool knownPlayerChoices)
+    {
+        // Exercise the maximum admitted choice-set width in the same real saved
+        // history that is already close to the continuation transport bound.
+        string[]? chosenIds = knownPlayerChoices
+            ? ["AGI", "BOD", "CHA", "DEP", "EDG", "ESS", "INT", "LOG", "MAG", "REA", "RES", "STR", "WIL"]
+            : null;
+        using var context = CharacterCreationCompletionReviewServiceTests.CreateSavedContext(chosenIds);
         var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
         var probe = new AtomicWriteProbe
         {
@@ -312,6 +366,8 @@ public sealed class CharacterCreationCompletionApplyTests
         var store = new FileWorkspaceStore(context.Directory, probe);
         var service = Service(context, store, owners);
         var inputs = Inputs(context, store, owners);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(chosenIds,
+            inputs.Skills.Attributes.PendingDraft!.PlayerChosenAttributeIds));
         var choices = CharacterCreationCompletionReviewServiceTests.BaselineSelections(inputs);
         var review = service.Review(owners.Capture(), context.WorkspaceId,
             new(inputs.SnapshotDigest, choices), CashChoice(context, inputs, choices));
@@ -361,11 +417,14 @@ public sealed class CharacterCreationCompletionApplyTests
             Assert.IsTrue(exported.Success, exported.Error);
             Assert.IsNotNull(exported.Value);
             byte[] wire = WorkspaceContinuationCodec.Encode(exported.Value, maximumBytes);
-            Console.WriteLine($"Completion saved-history actual wire: bytes={wire.Length}, limit={maximumBytes}.");
+            Console.WriteLine($"Completion saved-history actual wire: bytes={wire.Length}, limit={maximumBytes}, knownPlayerChoices={knownPlayerChoices}.");
             Assert.IsTrue(WorkspaceContinuationCodec.TryDecodeCandidate(wire, maximumBytes, out var decoded));
             CollectionAssert.AreEqual(wire, WorkspaceContinuationCodec.Encode(decoded!, maximumBytes));
             Assert.AreEqual(after.Document.AuxiliaryStateDigest,
                 decoded!.Snapshot.Workspace.Document.AuxiliaryStateDigest);
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(chosenIds,
+                decoded.Snapshot.Workspace.Document.AuxiliaryState.CharacterCreationFinalizationArchive!
+                    .State.CharacterCreationAttributesDraft!.PlayerChosenAttributeIds));
             CollectionAssert.AreEqual(held, File.ReadAllBytes(probe.TargetPath!));
         }
     }

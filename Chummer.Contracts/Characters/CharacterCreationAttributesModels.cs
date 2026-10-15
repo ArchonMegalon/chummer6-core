@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -34,6 +35,7 @@ public static class CharacterCreationAttributesBlockers
     public const string MetatypeAuthorityIncomplete = "creation-attributes-metatype-authority-incomplete";
     public const string NormalPointsExceeded = "creation-attributes-normal-points-exceeded";
     public const string PersistenceAuthorityRequired = "creation-attributes-persistence-authority-required";
+    public const string PlayerChoiceIntentInvalid = "creation-attributes-player-choice-intent-invalid";
     public const string PrerequisiteDraftRequired = "creation-attributes-prerequisite-draft-required";
     public const string PrerequisiteSourceDrift = "creation-attributes-prerequisite-source-drift";
     public const string PreviewDigestMismatch = "creation-attributes-preview-digest-mismatch";
@@ -89,13 +91,25 @@ public sealed record CharacterCreationAttributesLoadRequest(CharacterWorkspaceId
 
 public sealed record CharacterCreationAttributesPreviewRequest(
     CharacterCreationAttributesBinding Binding,
-    IReadOnlyList<CharacterCreationAttributeAllocation> Allocations);
+    IReadOnlyList<CharacterCreationAttributeAllocation> Allocations)
+{
+    /// <summary>
+    /// Cumulative explicit player choices, including a deliberately retained zero
+    /// allocation. Null is legacy/unknown intent (never an empty choice set).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? PlayerChosenAttributeIds { get; init; }
+}
 
 public sealed record CharacterCreationAttributesConfirmRequest(
     CharacterCreationAttributesBinding Binding,
     IReadOnlyList<CharacterCreationAttributeAllocation> Allocations,
     string PreviewDigest,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? PlayerChosenAttributeIds { get; init; }
+}
 
 public sealed record CharacterCreationAttributesDraft(
     string Schema,
@@ -119,7 +133,16 @@ public sealed record CharacterCreationAttributesDraft(
     IReadOnlyList<CharacterCreationAttributeProjection> Attributes,
     IReadOnlyList<string> SourceAnchorIds,
     bool CharacterEffectsApplied,
-    string DraftDigest);
+    string DraftDigest)
+{
+    /// <summary>
+    /// Null retains unknown legacy intent; an empty list proves no player choice
+    /// has been recorded. Known choices are canonical ordinal-sorted identifiers
+    /// and remain chosen even when their allocation is zero.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? PlayerChosenAttributeIds { get; init; }
+}
 
 public sealed record CharacterCreationAttributesState(
     string Schema,
@@ -148,7 +171,11 @@ public sealed record CharacterCreationAttributesPreview(
     IReadOnlyList<string> Blockers,
     bool RequiresExplicitConfirmation,
     bool CanConfirm,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? PlayerChosenAttributeIds { get; init; }
+}
 
 public sealed record CharacterCreationAttributesReceipt(
     CharacterWorkspaceId WorkspaceId,

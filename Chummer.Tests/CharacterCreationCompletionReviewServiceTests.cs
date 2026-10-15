@@ -293,10 +293,11 @@ public sealed class CharacterCreationCompletionReviewServiceTests
             inputs.Contacts.Contacts.ToArray(), inputs.Lifestyles.Lifestyles.ToArray(),
             inputs.Lifestyles.Lifestyles.FirstOrDefault()?.LifestyleId);
 
-    internal static ReadyContext CreateSavedContext()
+    internal static ReadyContext CreateSavedContext(IReadOnlyList<string>? playerChosenAttributeIds = null)
     {
         var context = ReadyContext.Create(includeGearReview: false, includeNonEmptyPurchases: true,
-            talentValue: "Mystic Adept", mysticPowerPoints: 1, qualityName: "Guts", includeSkillPurchase: true);
+            talentValue: "Mystic Adept", mysticPowerPoints: 1, qualityName: "Guts", includeSkillPurchase: true,
+            playerChosenAttributeIds: playerChosenAttributeIds);
         try
         {
             // A real three-Karma investment gives the preservation tests a
