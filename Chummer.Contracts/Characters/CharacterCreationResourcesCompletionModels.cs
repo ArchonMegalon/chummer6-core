@@ -27,6 +27,10 @@ public sealed record CharacterCreationResourcesCompletionInputs(
 {
     public CharacterCreationLifestylesDraft? LifestylesDraft { get; init; }
     public IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry> LifestyleReceipts { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutDraft? LoadoutDraft { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLoadoutReceipt>? LoadoutReceipts { get; init; }
 }
 
 /// <summary>

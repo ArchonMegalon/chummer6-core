@@ -25,7 +25,13 @@ public sealed record CharacterCreationLoadoutCompletionInputs(
     CharacterCreationLoadoutBinding Binding,
     CharacterCreationLoadoutAuthority Authority,
     CharacterCreationLoadoutSelections OriginalSelections,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutDraft? PendingDraft { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLoadoutReceipt>? Receipts { get; init; }
+}
 
 /// <summary>Source-priced typed weapon and armor purchases, separate from Gear.
 /// Funding is checked by the whole proposal, not by spending starting cash.</summary>
@@ -34,7 +40,11 @@ public sealed record CharacterCreationLoadoutCompletionProjection(
     IReadOnlyList<CharacterCreationLoadoutLine> Lines,
     decimal PurchaseCost,
     IReadOnlyList<string> Blockers,
-    string ProjectionDigest);
+    string ProjectionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLoadoutInstance>? RetainedInstances { get; init; }
+}
 
 public static class CharacterCreationLoadoutCompletionRules
 {

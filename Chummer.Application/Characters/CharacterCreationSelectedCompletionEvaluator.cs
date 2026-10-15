@@ -152,7 +152,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                         out var loadoutLines, out decimal loadoutCost, out var loadoutBlockers))
                     return new(CharacterCreationFoundationOutcomes.Blocked, null, loadoutBlockers);
                 loadout = CharacterCreationLoadoutCompletionService.BuildProjection(
-                    choices.Loadout!, loadoutLines, loadoutCost);
+                    choices.Loadout!, loadoutLines, loadoutCost, original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances);
             }
             decimal afterLoadout = checked(gearBudget.RemainingNuyen - (loadout?.PurchaseCost ?? 0m));
             if (afterLoadout < 0m)
@@ -312,6 +312,8 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             || !Same(auxiliary.CharacterCreationSkillsDraft, witness.Skills.SavedSkillsState?.PendingDraft)
             || !Same(auxiliary.CharacterCreationResourcesDraft, witness.Resources.PendingDraft)
             || !Same(auxiliary.CharacterCreationResourcesReceipts ?? [], witness.Resources.Receipts)
+            || !Same(auxiliary.CharacterCreationLoadoutDraft, witness.Resources.LoadoutDraft)
+            || !Same(auxiliary.CharacterCreationLoadoutReceipts, witness.Resources.LoadoutReceipts)
             || !Same(auxiliary.CharacterCreationLifestylesDraft, witness.Resources.LifestylesDraft)
             || !Same(auxiliary.CharacterCreationLifestyleReceipts ?? [], witness.Resources.LifestyleReceipts)) return false;
         var resourceBinding = witness.Resources.Binding;
@@ -322,16 +324,23 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         var root = XDocument.Parse(original.Document.Content).Root;
         if (root?.Name != "character" || root.Elements("contacts").Count() > 1
             || root.Element("contacts")?.Elements().Any() == true) return false;
+        var savedLoadout = auxiliary.CharacterCreationLoadoutDraft;
+        if (savedLoadout is not null && witness.Loadout is null) return false;
         if (witness.Loadout is not null && (!IsEmptyOwnedContainer(root, "weapons")
             || !IsEmptyOwnedContainer(root, "armors")
-            || !Same(witness.Loadout.OriginalSelections, CharacterCreationLoadoutSelections.Empty))) return false;
+            || !Same(witness.Loadout.OriginalSelections, savedLoadout?.Selections ?? CharacterCreationLoadoutSelections.Empty)
+            || savedLoadout is not null && (savedLoadout.RawCharacterXmlDigest != rawDigest
+                || savedLoadout.Authority.AuthorityDigest != witness.Loadout.AuthorityDigest
+                || !CharacterCreationLoadoutRules.TryProjectSelectedBasket(savedLoadout.Selections, witness.Loadout,
+                    out var originalLines, out decimal originalCost, out _)
+                || originalCost != savedLoadout.PurchaseCost || !Same(originalLines, savedLoadout.Lines)))) return false;
         effects = CharacterContactEditSemanticsResolver.ReadEffects(root);
         var magic = auxiliary.CharacterCreationMagicResonanceDraft?.Selections ?? new(null, null, [], [], []);
         baseline = new(magic, auxiliary.CharacterCreationQualitiesDraft?.SelectedOptionIds ?? [],
             auxiliary.CharacterCreationGearDraft?.Lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity)).ToArray() ?? [],
             auxiliary.CharacterCreationResourcesDraft?.KarmaInvestment ?? 0,
             auxiliary.CharacterCreationContactsDraft?.Contacts ?? [], auxiliary.CharacterCreationLifestylesDraft?.Lifestyles ?? [])
-            { Loadout = witness.Loadout is null ? null : CharacterCreationLoadoutSelections.Empty };
+            { Loadout = witness.Loadout is null ? null : savedLoadout?.Selections ?? CharacterCreationLoadoutSelections.Empty };
         return witness.Magic.OriginalHadSavedMagic == (auxiliary.CharacterCreationMagicResonanceDraft is not null)
             && Same(witness.Magic.OriginalSelections, NormalizeMagic(magic))
             && witness.Qualities.OriginalOptionIds.SequenceEqual(baseline.QualityOptionIds.Order(StringComparer.Ordinal))
@@ -432,7 +441,8 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             || resources.Binding.RuntimeDigest != resourceAuthority.RuntimeDigest
             || resourceAuthority.BuildMethod != witness.Skills.PrerequisiteDraft.BuildMethod
             || !CharacterCreationResourcesService.TryGetRetainedCompletionLifestyleCost(resources, out decimal lifestyleCost)
-            || resources.KnownPurchaseCost != checked(lifestyleCost + (state.CharacterCreationGearDraft?.Budget.BasketCost ?? 0m)))
+            || !CharacterCreationResourcesService.TryGetRetainedCompletionLoadoutCost(resources, out decimal loadoutCost)
+            || resources.KnownPurchaseCost != checked(lifestyleCost + loadoutCost + (state.CharacterCreationGearDraft?.Budget.BasketCost ?? 0m)))
             return false;
         if (state.CharacterCreationResourcesDraft is { } savedResources)
         {

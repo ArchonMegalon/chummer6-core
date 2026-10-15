@@ -573,6 +573,17 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
         {
             knownPurchaseCost = gearDraft.Budget.BasketCost;
         }
+        if (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null
+            || workspace.Document.AuxiliaryState.CharacterCreationLoadoutReceipts is not null)
+        {
+            var retained = CharacterCreationLoadoutCompletionService.LoadFromObservation(workspace, _sourceData, true);
+            if (retained.Value is null) purchaseAuthorityExact = false;
+            else
+            {
+                try { knownPurchaseCost = checked(knownPurchaseCost + (retained.Value.PendingDraft?.PurchaseCost ?? 0m)); }
+                catch (OverflowException) { purchaseAuthorityExact = false; }
+            }
+        }
         if (!purchaseAuthorityExact)
             blockers.Add(CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
         int availableKarma = ResolveAvailableCreationKarma(

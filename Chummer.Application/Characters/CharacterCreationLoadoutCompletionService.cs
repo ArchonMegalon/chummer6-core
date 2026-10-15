@@ -17,6 +17,8 @@ public static class CharacterCreationLoadoutCompletionService
         {
             XElement? root = XDocument.Parse(workspace.Document.Content, LoadOptions.None).Root;
             if (root?.Name != "character") return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.RequestInvalid);
+            if (workspace.Document.RulesetId != "sr5" || bool.TryParse(root.Element("created")?.Value, out bool created) && created)
+                return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.RequestInvalid);
             // Existing imported/purchased graphs are not safely representable by
             // this acquisition tranche. Never replace or silently omit their cost.
             foreach (string name in new[] { "weapons", "armors" })
@@ -34,8 +36,14 @@ public static class CharacterCreationLoadoutCompletionService
             var binding = new CharacterCreationLoadoutBinding(workspace.Id, workspace.ContentRevision,
                 workspace.SavedRevision, CharacterCreationFinalizationDigest.ComputeUtf8(workspace.Document.Content),
                 workspace.Document.AuxiliaryStateDigest);
+            var state = workspace.Document.AuxiliaryState;
+            var draft = state.CharacterCreationLoadoutDraft;
+            if (!CharacterCreationLoadoutReceiptLedgerIntegrity.HasFunding(draft, state.CharacterCreationResourcesDraft,
+                    state.CharacterCreationResourcesReceipts))
+                return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
             var inputs = new CharacterCreationLoadoutCompletionInputs(CharacterCreationLoadoutCompletionSchemas.InputsV1,
-                binding, authority, CharacterCreationLoadoutSelections.Empty, string.Empty);
+                binding, authority, draft?.Selections ?? CharacterCreationLoadoutSelections.Empty, string.Empty)
+            { PendingDraft = draft, Receipts = state.CharacterCreationLoadoutReceipts };
             inputs = inputs with { SnapshotDigest = CharacterCreationLoadoutCompletionRules.ComputeInputsDigest(inputs) };
             if (!IsValidInputs(inputs) || !context.TryResolveCreationLoadoutAuthority(out var after)
                 || after.AuthorityDigest != authority.AuthorityDigest)
@@ -54,27 +62,37 @@ public static class CharacterCreationLoadoutCompletionService
                 [CharacterCreationLoadoutCompletionSchemas.RequestInvalid]);
         inputs = Detach(inputs);
         selections = Detach(selections);
+        if (!CharacterCreationLoadoutReceiptLedgerIntegrity.Preserves(inputs.OriginalSelections, selections))
+            return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                [CharacterCreationPurchaseCompletionBlockers.ExistingSelectionLocked]);
         if (!CharacterCreationLoadoutRules.TryProjectBasket(selections, inputs.Authority,
                 out var lines, out decimal cost, out var blockers))
             return new(CharacterCreationFoundationOutcomes.Blocked, null, blockers);
-        return new(CharacterCreationFoundationOutcomes.Success, BuildProjection(selections, lines, cost), []);
+        return new(CharacterCreationFoundationOutcomes.Success, BuildProjection(selections, lines, cost, inputs.PendingDraft?.Instances), []);
     }
 
     internal static CharacterCreationLoadoutCompletionProjection BuildProjection(
-        CharacterCreationLoadoutSelections selections, IReadOnlyList<CharacterCreationLoadoutLine> lines, decimal cost)
+        CharacterCreationLoadoutSelections selections, IReadOnlyList<CharacterCreationLoadoutLine> lines, decimal cost,
+        IReadOnlyList<CharacterCreationLoadoutInstance>? retainedInstances = null)
     {
-        var projection = new CharacterCreationLoadoutCompletionProjection(selections, lines, cost, [], string.Empty);
+        var projection = new CharacterCreationLoadoutCompletionProjection(selections, lines, cost, [], string.Empty)
+        { RetainedInstances = retainedInstances };
         return projection with { ProjectionDigest = CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(projection) };
     }
 
     internal static bool IsValidInputs(CharacterCreationLoadoutCompletionInputs? inputs)
         => inputs is { Schema: CharacterCreationLoadoutCompletionSchemas.InputsV1, Binding: { } binding,
-                Authority: { } authority, OriginalSelections: { Weapons.Count: 0, Armor.Count: 0 } }
+                Authority: { } authority, OriginalSelections: { } original }
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision > 0 && binding.SavedRevision == binding.ContentRevision
             && CharacterCreationFinalizationDigest.IsCanonical(binding.RawCharacterXmlDigest)
             && CharacterCareerReputationTransaction.IsDigest(binding.AuxiliaryStateDigest)
             && CharacterCreationLoadoutRules.IsValidAuthority(authority)
+            && CharacterCreationLoadoutReceiptLedgerIntegrity.IsValidLedger(binding.WorkspaceId, binding.ContentRevision,
+                inputs.PendingDraft, inputs.Receipts)
+            && CharacterCreationLoadoutReceiptLedgerIntegrity.Same(original,
+                inputs.PendingDraft?.Selections ?? CharacterCreationLoadoutSelections.Empty)
+            && CharacterCreationLoadoutReceiptLedgerIntegrity.MatchesLive(inputs.PendingDraft, authority, binding.RawCharacterXmlDigest)
             && inputs.SnapshotDigest == CharacterCreationLoadoutCompletionRules.ComputeInputsDigest(inputs);
 
     internal static bool IsValidSelections(CharacterCreationLoadoutSelections? selections)

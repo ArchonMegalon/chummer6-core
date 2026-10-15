@@ -155,7 +155,8 @@ public sealed partial class CharacterCreationGearService
             || binding.ResourcesDraftDigest != (resources.PendingDraft?.DraftDigest ?? string.Empty)
             || !resources.PurchaseAuthorityExact
             || !CharacterCreationResourcesService.TryGetRetainedCompletionLifestyleCost(resources, out decimal lifestyleCost)
-            || resources.KnownPurchaseCost - lifestyleCost != (state.PendingDraft?.Budget?.BasketCost ?? 0m))
+            || !CharacterCreationResourcesService.TryGetRetainedCompletionLoadoutCost(resources, out decimal loadoutCost)
+            || resources.KnownPurchaseCost - lifestyleCost - loadoutCost != (state.PendingDraft?.Budget?.BasketCost ?? 0m))
             return false;
 
         if (state.ResourcesDraft is { } savedResources && (savedResources.Budget?.Blockers is null

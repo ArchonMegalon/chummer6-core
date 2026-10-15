@@ -110,7 +110,7 @@ public static class CharacterCreationLifestylesDraftRules
                         out var row, out _)) return false;
                 result.Add(row);
             }
-            decimal total = gear.Budget.RemainingNuyen;
+            decimal total = gear.Budget.RemainingNuyen - (state.CharacterCreationLoadoutDraft?.PurchaseCost ?? 0m);
             decimal used = result.Sum(row => row.Economics.TotalCost);
             if (total < 0 || used < 0) return false;
             budget = new(total, used, Math.Max(0, total - used), Math.Max(0, used - total), true, [],

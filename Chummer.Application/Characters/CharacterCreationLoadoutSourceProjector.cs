@@ -45,7 +45,8 @@ public static class CharacterCreationLoadoutSourceProjector
     }
 
     public static bool TryBuildGraph(IReadOnlyList<CharacterCreationLoadoutLine>? lines,
-        string reviewDigest, out XElement[] weapons, out XElement[] armor)
+        string reviewDigest, out XElement[] weapons, out XElement[] armor,
+        IReadOnlyList<CharacterCreationLoadoutInstance>? retainedInstances = null)
     {
         weapons = []; armor = [];
         if (!CharacterCreationFinalizationDigest.IsCanonical(reviewDigest)
@@ -53,6 +54,13 @@ public static class CharacterCreationLoadoutSourceProjector
             || lines.Any(line => !CharacterCreationLoadoutRules.IsValidLine(line))
             || lines.Select(line => line.OptionId).Distinct(StringComparer.Ordinal).Count() != lines.Count
             || lines.Count(line => line.Kind == CharacterCreationLoadoutKinds.Armor) > 1) return false;
+        if (retainedInstances is not null && (retainedInstances.Count > lines.Count
+            || retainedInstances.Any(row => row is null || row.InstanceIds is null
+                || row.InstanceIds.Any(id => id == Guid.Empty)
+                || !lines.Any(line => line.OptionId == row.OptionId && line.Quantity == row.InstanceIds.Count))
+            || retainedInstances.Select(row => row.OptionId).Distinct(StringComparer.Ordinal).Count() != retainedInstances.Count
+            || retainedInstances.SelectMany(row => row.InstanceIds).Distinct().Count() != retainedInstances.Sum(row => row.InstanceIds.Count)))
+            return false;
         var weaponNodes = new List<XElement>();
         var armorNodes = new List<XElement>();
         foreach (CharacterCreationLoadoutLine line in lines.OrderBy(item => item.OptionId, StringComparer.Ordinal))
@@ -62,7 +70,8 @@ public static class CharacterCreationLoadoutSourceProjector
             XElement category = XElement.Parse(line.SourceCategoryXml);
             for (int index = 0; index < line.Quantity; index++)
             {
-                string instanceId = StableGuid($"creation-loadout:{line.Kind}:{line.OptionId}:{line.SourceNodeDigest}:{line.SourceCategoryDigest}:{reviewDigest}:{index}");
+                string instanceId = retainedInstances?.SingleOrDefault(row => row.OptionId == line.OptionId)?.InstanceIds[index].ToString("D")
+                    ?? StableGuid($"creation-loadout:{line.Kind}:{line.OptionId}:{line.SourceNodeDigest}:{line.SourceCategoryDigest}:{reviewDigest}:{index}");
                 XElement saved = Common(source, line, instanceId);
                 if (line.Kind == CharacterCreationLoadoutKinds.Weapon)
                 {

@@ -304,6 +304,15 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             out CharacterCreationGearBudget budgetAfter,
             out string[] projectionBlockers);
         blockers.AddRange(projectionBlockers);
+        if (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null)
+        {
+            var shared = new CharacterCreationResourcesService(_workspaceStore, _sourceData)
+                .LoadCompletionInputsFromObservation(workspace);
+            if (shared.Value is not { } purchases) blockers.AddRange(shared.Blockers);
+            else if (purchases.KnownPurchaseCost - (context.PendingDraft?.Budget.BasketCost ?? 0m)
+                    + budgetAfter.BasketCost > (context.ResourcesDraft?.Budget.TotalStartingNuyen ?? 0m))
+                blockers.Add(CharacterCreationGearBlockers.InsufficientFunds);
+        }
         if (context.PendingDraft is not null
                && context.ResourcesDraft is not null
                && HasCurrentResourcesBinding(context.PendingDraft, context.ResourcesDraft)

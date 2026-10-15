@@ -275,6 +275,8 @@ public static class ServiceCollectionExtensions
                 .GetRequiredService<IOwnerBoundCharacterCreationResourcesService>());
         services.AddSingleton<ICharacterCreationGearService,
             CharacterCreationGearService>();
+        services.AddSingleton<ICharacterCreationLoadoutService, CharacterCreationLoadoutService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationLoadoutService, OwnerBoundCharacterCreationLoadoutService>();
         services.AddSingleton<IOwnerBoundCharacterCreationGearService,
             OwnerBoundCharacterCreationGearService>();
         services.AddSingleton<IOwnerBoundCharacterCreationGearCompletionReader>(provider =>

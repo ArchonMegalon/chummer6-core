@@ -284,6 +284,10 @@ public static class WorkspaceAuxiliaryStateIntegrity
                && lifestyleReceiptsValid
                && resourcesValid
                && gearValid
+               && CharacterCreationLoadoutReceiptLedgerIntegrity.IsValidLedger(workspaceId, currentContentRevision,
+                   state.CharacterCreationLoadoutDraft, state.CharacterCreationLoadoutReceipts)
+               && CharacterCreationLoadoutReceiptLedgerIntegrity.HasFunding(state.CharacterCreationLoadoutDraft,
+                   resourcesDraft, resourcesReceipts)
                && qualitiesValid
                && afterRunReceiptsValid
                && afterRunRewardReceiptsValid

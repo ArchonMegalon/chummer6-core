@@ -70,6 +70,9 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
         cancellationToken.ThrowIfCancellationRequested();
 
         CharacterCreationLoadoutCompletionInputs? loadout = null;
+        // A saved typed purchase cannot disappear through the older entry point.
+        if (!includeLoadout)
+            includeLoadout = lifestyles.Value.Gear.Resources.LoadoutDraft is not null;
         if (includeLoadout)
         {
             var original = view.Get(request.WorkspaceId);

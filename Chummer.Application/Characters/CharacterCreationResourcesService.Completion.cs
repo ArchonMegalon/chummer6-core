@@ -38,7 +38,9 @@ public sealed partial class CharacterCreationResourcesService
             context.PurchaseAuthorityExact, context.KnownPurchaseCost, string.Empty)
         {
             LifestylesDraft = workspace.Document.AuxiliaryState.CharacterCreationLifestylesDraft,
-            LifestyleReceipts = workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts ?? []
+            LifestyleReceipts = workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts ?? [],
+            LoadoutDraft = workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft,
+            LoadoutReceipts = workspace.Document.AuxiliaryState.CharacterCreationLoadoutReceipts
         };
         // Validate retained purchases against the actual saved graph and current
         // source before carrying their original draft/ledger into a proposal.
@@ -172,7 +174,8 @@ public sealed partial class CharacterCreationResourcesService
     {
         if (!TryGetRetainedCompletionLifestyleCost(inputs, out decimal retainedCost))
             throw new ArgumentException("The retained Lifestyle purchase history is invalid.", nameof(inputs));
-        return RepriceCompletionPurchases(inputs, projection, sourcePricedGearCost, retainedCost);
+        return RepriceCompletionPurchases(inputs, projection, sourcePricedGearCost, retainedCost,
+            inputs.LoadoutDraft?.PurchaseCost ?? 0m);
     }
 
     // Lifestyle completion supplies a full source-priced replacement list. Gear
@@ -207,6 +210,21 @@ public sealed partial class CharacterCreationResourcesService
         };
     }
 
+    /// <summary>
+    /// Read the one saved funding choice against all admitted current purchases.
+    /// This does not change its historical receipt or invent a new Karma choice.
+    /// </summary>
+    internal static CharacterCreationResourcesBudget? ReadSavedPurchaseBudget(
+        CharacterCreationResourcesCompletionInputs inputs)
+    {
+        if (!IsValidCompletionInputs(inputs) || inputs.PendingDraft is not { } saved)
+            return null;
+        var option = BuildOptions(inputs.Authority, inputs.PriorityOption, int.MaxValue)
+            .SingleOrDefault(item => item.OptionId == saved.SelectedOptionId);
+        return option is null ? null : BuildBudget(inputs.Authority, inputs.PriorityOption,
+            option, inputs.PurchaseAuthorityExact, inputs.KnownPurchaseCost, null);
+    }
+
     private static bool IsValidCompletionInputs(CharacterCreationResourcesCompletionInputs inputs)
     {
         if (inputs.Schema != CharacterCreationResourcesCompletionSchemas.InputsV1
@@ -216,8 +234,9 @@ public sealed partial class CharacterCreationResourcesService
             || authority.Blockers is null || !CharacterCreationResourcesRules.IsValidAuthority(authority)
             || !CharacterCreationResourcesRules.IsValidPriorityOption(priority)
             || !inputs.PurchaseAuthorityExact || inputs.KnownPurchaseCost < 0m
+            || !TryGetRetainedCompletionLoadoutCost(inputs, out decimal loadoutCost)
             || !TryGetRetainedCompletionLifestyleCost(inputs, out decimal lifestyleCost)
-            || inputs.KnownPurchaseCost < lifestyleCost
+            || inputs.KnownPurchaseCost < lifestyleCost + loadoutCost
             || string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             || binding.WorkspaceRevision != binding.ContentRevision
             || binding.ContentRevision <= 0 || binding.ContentRevision != binding.SavedRevision
@@ -325,6 +344,17 @@ public sealed partial class CharacterCreationResourcesService
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
         { cost = 0m; return false; }
+    }
+
+    internal static bool TryGetRetainedCompletionLoadoutCost(CharacterCreationResourcesCompletionInputs inputs, out decimal cost)
+    {
+        cost = inputs.LoadoutDraft?.PurchaseCost ?? 0m;
+        return CharacterCreationLoadoutReceiptLedgerIntegrity.IsValidLedger(inputs.Binding.WorkspaceId,
+            inputs.Binding.ContentRevision, inputs.LoadoutDraft, inputs.LoadoutReceipts)
+            && CharacterCreationLoadoutReceiptLedgerIntegrity.HasFunding(inputs.LoadoutDraft, inputs.PendingDraft, inputs.Receipts)
+            && (inputs.LoadoutDraft is null || inputs.LoadoutDraft.RawCharacterXmlDigest == inputs.Binding.RawCharacterXmlDigest
+                && inputs.LoadoutDraft.Authority.SettingsProfileId == inputs.Authority.SettingsProfileId
+                && inputs.LoadoutDraft.Authority.ProfileDigest == inputs.Authority.ProfileDigest);
     }
 
     private static bool SameCompletionDigest(string? left, string? right)

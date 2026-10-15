@@ -526,6 +526,9 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
     private AuthorityContext BuildContext(WorkspaceStoredDocument workspace)
     {
         var blockers = new List<string>();
+        if (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null
+            && CharacterCreationLoadoutCompletionService.LoadFromObservation(workspace, _sourceData, true).Value is null)
+            blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
         CharacterCreationLifestylesDraft? pending = null;
         WorkspaceDocument? projected = null;
         CharacterCreationLifestylesAuthority pendingAuthority = CharacterCreationLifestylesAuthority.Unavailable;

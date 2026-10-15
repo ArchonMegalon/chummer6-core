@@ -1646,6 +1646,14 @@ public sealed partial class FileWorkspaceStore :
         if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFinalizationArchive),
                 JsonSerializer.Serialize(replacementState.Sr6CreationFinalizationArchive), StringComparison.Ordinal))
             return false;
+
+        // Manual typed purchases are issued only by CommitLoadout. Hashing a
+        // caller-built draft/receipt is not authority, including sibling writes.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationLoadoutDraft),
+                JsonSerializer.Serialize(replacementState.CharacterCreationLoadoutDraft), StringComparison.Ordinal)
+            || !string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationLoadoutReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCreationLoadoutReceipts), StringComparison.Ordinal))
+            return false;
         if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFoundationDecisions),
                 JsonSerializer.Serialize(replacementState.Sr6CreationFoundationDecisions), StringComparison.Ordinal))
             return false;

@@ -96,6 +96,13 @@ public static class CharacterCreationPurchaseCompletionPlanner
                     same ? [] : [CharacterCreationPurchaseCompletionBlockers.ExistingSelectionLocked]));
                 continue;
             }
+            if (target.Weapon is not null && loadoutInputs?.OriginalSelections.Weapons.Count > 0
+                || target.Armor is not null && loadoutInputs?.OriginalSelections.Armor.Count > 0)
+            {
+                results.Add(new(index, CharacterCreationPurchaseCompletionTargetOutcomes.ExistingSelectionLocked,
+                    [CharacterCreationPurchaseCompletionBlockers.ExistingSelectionLocked]));
+                continue;
+            }
             if (evaluations >= request.MaximumEvaluations)
             {
                 results.Add(new(index, CharacterCreationPurchaseCompletionTargetOutcomes.WorkLimit,

@@ -18,6 +18,8 @@
     <Compile Include="CharacterCreationCompletionReplayCodecTests.cs" />
     <Compile Include="CharacterCreationCompletionLoadoutReplayTests.cs" />
     <Compile Include="CharacterCreationLoadoutSourceTests.cs" />
+    <Compile Include="CharacterCreationManualLoadoutServiceTests.cs" />
+    <Compile Include="CharacterCreationManualLoadoutFinalizationTests.cs" />
     <Compile Include="CharacterCreationPurchaseLoadoutCompletionPlannerTests.cs" />
     <Compile Include="CharacterCreationCompletionApplyTests.cs" />
     <Compile Include="CharacterCreationCompletionApplyTests.AttributeKarma.cs" />

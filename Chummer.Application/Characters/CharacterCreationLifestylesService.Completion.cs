@@ -137,7 +137,7 @@ public sealed partial class CharacterCreationLifestylesService
                 || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)))
             return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
                 CharacterCreationLoadoutCompletionSchemas.AuthorityUnavailable);
-        decimal loadoutCost = loadout?.PurchaseCost ?? 0m;
+        decimal loadoutCost = loadout?.PurchaseCost ?? inputs.Gear.Resources.LoadoutDraft?.PurchaseCost ?? 0m;
         if (loadoutCost > gear.Budget.RemainingNuyen)
             return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
                 CharacterCreationResourcesBlockers.InsufficientNuyen);

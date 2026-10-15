@@ -165,6 +165,8 @@ public static class CharacterCreationCompletionReviewService
                 contacts.Binding.ContentDigest, contacts.Binding.AuxiliaryStateDigest)) return false;
 
         string profile = contacts.BootstrapBinding.SettingsProfileId;
+        if (!Same(inputs.Loadout?.PendingDraft, resources.LoadoutDraft)
+            || !Same(inputs.Loadout?.Receipts, resources.LoadoutReceipts)) return false;
         if (inputs.Loadout is { } loadout && (loadout.Authority.SettingsProfileId != profile
                 || loadout.Authority.ProfileDigest != contacts.BootstrapBinding.RawProfileInputsDigest
                 || !SameObservation(basis, loadout.Binding.WorkspaceId, loadout.Binding.ContentRevision,

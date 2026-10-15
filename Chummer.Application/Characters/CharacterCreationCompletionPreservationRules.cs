@@ -115,6 +115,10 @@ public static class CharacterCreationCompletionPreservationRules
         preserved &= Retains(originalSelections.Gear, proposed.Gear, value => value.OptionId, (before, after) => before == after);
         preserved &= originalSelections.Loadout is null ? proposed.Loadout is null
             : proposed.Loadout is not null
+                && (originalSelections.Loadout.Weapons.Count == 0
+                    || originalSelections.Loadout.Weapons.Count == proposed.Loadout.Weapons.Count)
+                && (originalSelections.Loadout.Armor.Count == 0
+                    || originalSelections.Loadout.Armor.Count == proposed.Loadout.Armor.Count)
                 && Retains(originalSelections.Loadout.Weapons, proposed.Loadout.Weapons, value => value.OptionId,
                     (before, after) => before == after)
                 && Retains(originalSelections.Loadout.Armor, proposed.Loadout.Armor, value => value.OptionId,

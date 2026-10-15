@@ -329,7 +329,8 @@ public static class CharacterCreationCompletionFinalizationProjector
                 if (loadout.Blockers.Count != 0
                     || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)
                     || !CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines,
-                        graph.OriginalReviewDigest, out var weapons, out var armor))
+                        graph.OriginalReviewDigest, out var weapons, out var armor, loadout.RetainedInstances)
+                    || !Same(loadout.RetainedInstances, original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances))
                     return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
                 ReplaceDirect(root, new XElement("weapons", weapons));
                 ReplaceDirect(root, new XElement("armors", armor));
@@ -498,6 +499,10 @@ public static class CharacterCreationCompletionFinalizationProjector
             && Same(auxiliary.CharacterCreationMagicResonanceDraft, inputs.Magic.SavedMagicState?.PendingDraft)
             && Same(auxiliary.CharacterCreationQualitiesDraft, inputs.Lifestyles.Qualities.SavedQualitiesState?.PendingDraft)
             && Same(auxiliary.CharacterCreationResourcesDraft, resources.PendingDraft)
+            && Same(auxiliary.CharacterCreationLoadoutDraft, inputs.Loadout?.PendingDraft)
+            && Same(auxiliary.CharacterCreationLoadoutReceipts, inputs.Loadout?.Receipts)
+            && Same(auxiliary.CharacterCreationLoadoutDraft, resources.LoadoutDraft)
+            && Same(auxiliary.CharacterCreationLoadoutReceipts, resources.LoadoutReceipts)
             && Same(auxiliary.CharacterCreationGearDraft, gear.State.PendingDraft)
             && Same(auxiliary.CharacterCreationContactsDraft, inputs.Contacts.PendingDraft)
             && Same(auxiliary.CharacterCreationLifestylesDraft, resources.LifestylesDraft)

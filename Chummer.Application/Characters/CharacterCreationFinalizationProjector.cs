@@ -60,6 +60,7 @@ public static class CharacterCreationFinalizationProjector
         nuyenRemaining = 0;
         var failures = new List<string>();
         WorkspaceDocumentAuxiliaryState auxiliary = workspace.Document.AuxiliaryState;
+        CharacterCreationLoadoutDraft? loadout = contactsInputOnly ? null : auxiliary.CharacterCreationLoadoutDraft;
         CharacterCreationPrerequisiteDraft? prerequisite = auxiliary.CharacterCreationPrerequisiteDraft;
         CharacterCreationAttributesDraft? attributes = auxiliary.CharacterCreationAttributesDraft;
         CharacterCreationSkillsDraft? skills = auxiliary.CharacterCreationSkillsDraft;
@@ -101,6 +102,12 @@ public static class CharacterCreationFinalizationProjector
             return false;
         }
 
+        if (!contactsInputOnly && !HasValidSavedLoadout(workspace))
+        {
+            blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
+            return false;
+        }
+
         if (prerequisite!.BuildMethod is not (CharacterCreationBuildMethods.Priority
                 or CharacterCreationBuildMethods.SumToTen))
             failures.Add(CharacterCreationFinalizationBlockers.BuildMethodNotReady);
@@ -114,7 +121,9 @@ public static class CharacterCreationFinalizationProjector
             failures.Add(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
         karmaRemaining = remaining;
         startingNuyen = resources.FinalizationContribution.StartingNuyen;
-        nuyenRemaining = gear!.Budget.RemainingNuyen;
+        nuyenRemaining = gear!.Budget.RemainingNuyen - (loadout?.PurchaseCost ?? 0m);
+        if (nuyenRemaining < 0)
+            failures.Add(CharacterCreationResourcesBlockers.InsufficientNuyen);
         CharacterCreationBootstrapBinding? bootstrap = auxiliary.CharacterCreationBootstrapBinding;
         if (!CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(carryoverPolicy)
             || bootstrap is null || carryoverPolicy!.SettingsProfileId != bootstrap.SettingsProfileId
@@ -146,6 +155,21 @@ public static class CharacterCreationFinalizationProjector
             }
             EnsureEmptyOwnedContainer(root, "qualities");
             EnsureEmptyOwnedContainer(root, "gears");
+            if (!contactsInputOnly)
+            {
+                // Imported or unpriced XML is never a substitute for a saved
+                // purchase, even when there is no manual draft to project.
+                foreach (string name in new[] { "weapons", "armors" })
+                {
+                    XElement[] containers = root.Elements(name).ToArray();
+                    if (containers.Length > 1 || containers.Any(node => node.HasElements
+                            || node.HasAttributes || !string.IsNullOrWhiteSpace(node.Value)))
+                    {
+                        blockers = [CharacterCreationLoadoutCompletionSchemas.ExistingGraphUnsupported];
+                        return false;
+                    }
+                }
+            }
 
             CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
             var projected = new List<CharacterCreationFinalizationDelta>();
@@ -211,6 +235,21 @@ public static class CharacterCreationFinalizationProjector
                 return false;
             }
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
+            if (loadout is not null)
+            {
+                if (!CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines, loadout.DraftDigest,
+                        out var weapons, out var armor, loadout.Instances))
+                {
+                    blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
+                    return false;
+                }
+                ReplaceDirect(root, new XElement("weapons", weapons));
+                ReplaceDirect(root, new XElement("armors", armor));
+                foreach (var line in loadout.Lines.OrderBy(row => row.OptionId, StringComparer.Ordinal))
+                    AddDelta(projected, ref order, $"loadout:{line.OptionId}", line.Kind, line.OptionId,
+                        null, line.Quantity.ToString(CultureInfo.InvariantCulture), 0, line.TotalCost,
+                        line.SourceAnchorIds, line.Name);
+            }
             if (!CharacterCreationAwakenedLegacyProjector.TryApply(root, prerequisite, attributes!, skills!, magic,
                     projected, ref order))
             {
@@ -260,6 +299,8 @@ public static class CharacterCreationFinalizationProjector
                     return false;
                 }
                 purchasedLifestyles = new XElement(XDocument.Parse(lifestyleProjection.Content).Root!.Element("lifestyles")!);
+                // The lifestyle budget already includes Gear and the saved
+                // manual loadout. Do not subtract either purchase again.
                 nuyenBeforeCarryover = lifestyleBudget.Remaining;
                 nuyenRemaining = Math.Min(nuyenBeforeCarryover, carryoverPolicy.MaximumNuyen);
                 foreach (var row in lifestyleRows)
@@ -353,6 +394,7 @@ public static class CharacterCreationFinalizationProjector
                 .Concat(qualities.SourceAnchorIds)
                 .Concat(resources.SourceAnchorIds)
                 .Concat(gear.FinalizationContribution.SourceAnchorIds)
+                .Concat(loadout?.Lines.SelectMany(line => line.SourceAnchorIds) ?? [])
                 .Concat(lifestyleDraft is null ? [] : CharacterCreationLifestyleSourceAnchors.All)
                 .Concat(carryoverPolicy.SourceAnchorIds)
                 .Concat(startingCash.Source.SourceAnchorIds)
@@ -373,6 +415,36 @@ public static class CharacterCreationFinalizationProjector
             sourceAnchorIds = [];
             return false;
         }
+    }
+
+    // This same proof is used by normal projection and durable transition
+    // replay. Live source admission belongs to the finalization service; the
+    // archive retains this exact graph and its selected source closure.
+    private static bool HasValidSavedLoadout(WorkspaceStoredDocument workspace)
+    {
+        var state = workspace.Document.AuxiliaryState;
+        var draft = state.CharacterCreationLoadoutDraft;
+        if (!CharacterCreationLoadoutReceiptLedgerIntegrity.IsValidLedger(workspace.Id, workspace.ContentRevision,
+                draft, state.CharacterCreationLoadoutReceipts)) return false;
+        if (draft is null) return true;
+        string rawDigest = ComputeRawCharacterXmlDigest(workspace.Document.Content);
+        return state.CharacterCreationResourcesDraft is { } funding
+            && state.CharacterCreationGearDraft is { } gear
+            && state.CharacterCreationBootstrapBinding is { } bootstrap
+            && draft.RawCharacterXmlDigest == rawDigest
+            && draft.Authority.RulesetId == workspace.Document.RulesetId
+            && draft.Authority.SettingsProfileId == bootstrap.SettingsProfileId
+            && draft.Authority.ProfileDigest == bootstrap.RawProfileInputsDigest
+            && CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(workspace.Id, workspace.ContentRevision,
+                funding, state.CharacterCreationResourcesReceipts)
+            && funding.BaseRawCharacterXmlDigest == rawDigest
+            && CharacterCreationLoadoutReceiptLedgerIntegrity.HasFunding(draft, funding, state.CharacterCreationResourcesReceipts)
+            && CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(workspace.Id, workspace.ContentRevision,
+                gear, state.CharacterCreationGearReceipts)
+            && gear.BaseRawCharacterXmlDigest == rawDigest
+            && gear.ResourcesDraftRevision == funding.DraftRevision
+            && gear.ResourcesDraftDigest == funding.DraftDigest
+            && gear.Budget.TotalStartingNuyen == funding.Budget.TotalStartingNuyen;
     }
 
     public static string ComputeRawCharacterXmlDigest(string characterXml) =>
