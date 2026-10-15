@@ -88,7 +88,8 @@ public static class CharacterCreationAttributeCompletionPlanner
         var goals = request.Targets?.ToDictionary(target => target.AttributeId,
             target => target.TargetUnaugmentedRating, StringComparer.Ordinal);
         IEnumerable<string> allocationOrder = request.Targets is null
-            ? request.PermittedAttributeOrder : request.Targets.Select(target => target.AttributeId);
+            ? request.FillRemainingPoints ? [] : request.PermittedAttributeOrder
+            : request.Targets.Select(target => target.AttributeId);
         foreach (string id in allocationOrder)
         {
             int index = Array.FindIndex(allocations, item => item.AttributeId == id);
@@ -97,46 +98,43 @@ public static class CharacterCreationAttributeCompletionPlanner
             while ((normal ? preview.NormalPointBudget : preview.SpecialPointBudget).Remaining > reserve
                 && (goals is null || preview.Attributes.Single(item => item.AttributeId == id).UnaugmentedCurrent < goals[id]))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (goals is null ? evaluations > MaximumCandidateEvaluations : evaluations >= MaximumCandidateEvaluations)
-                {
-                    workLimitReached = true;
+                if (!TryIncrement(index))
                     break;
-                }
-                if (allocations[index].PriorityPoints == int.MaxValue)
-                    break;
-
-                var candidate = allocations.ToArray();
-                candidate[index] = candidate[index] with { PriorityPoints = candidate[index].PriorityPoints + 1 };
-                var result = session.Preview(candidate);
-                evaluations++;
-                if (result.Outcome != CharacterCreationFoundationOutcomes.Success
-                    || result.Value is not { CanConfirm: true, Blockers.Count: 0 } proposed
-                    || proposed.NormalPointBudget.Remaining < request.NormalPointsToReserve
-                    || proposed.SpecialPointBudget.Remaining < request.SpecialPointsToReserve
-                    // Priority points can reprice existing Karma levels. Keeping
-                    // KarmaLevels alone would not preserve the player's spending.
-                    || proposed.CreationKarmaBudget.Used > originalKarmaUsed)
-                    break;
-
-                allocations = candidate;
-                preview = proposed;
-                changed = true;
             }
             if (workLimitReached)
                 break;
         }
 
+        if (request.FillRemainingPoints)
+        {
+            bool progress;
+            do
+            {
+                progress = false;
+                foreach (string id in request.PermittedAttributeOrder)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (workLimitReached) break;
+                    int index = Array.FindIndex(allocations, item => item.AttributeId == id);
+                    bool normal = attributes[index].Category == CharacterCreationAttributeCategories.Normal;
+                    int reserve = normal ? request.NormalPointsToReserve : request.SpecialPointsToReserve;
+                    if ((normal ? preview.NormalPointBudget : preview.SpecialPointBudget).Remaining > reserve
+                        && TryIncrement(index))
+                        progress = true;
+                }
+            } while (progress && !workLimitReached);
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         var blockers = new List<string>();
-        if (request.Targets is null)
+        if (request.Targets is null || request.FillRemainingPoints)
         {
             if (preview.NormalPointBudget.Remaining > request.NormalPointsToReserve)
                 blockers.Add(CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
             if (preview.SpecialPointBudget.Remaining > request.SpecialPointsToReserve)
                 blockers.Add(CharacterCreationAttributeCompletionBlockers.SpecialPointsUnallocated);
         }
-        else if (request.Targets.Any(target => preview.Attributes.Single(item =>
+        if (request.Targets is not null && request.Targets.Any(target => preview.Attributes.Single(item =>
                      item.AttributeId == target.AttributeId).UnaugmentedCurrent < target.TargetUnaugmentedRating))
             blockers.Add(CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled);
         if (workLimitReached)
@@ -145,6 +143,34 @@ public static class CharacterCreationAttributeCompletionPlanner
             request, allocations, preview, changed, evaluations, blockers.ToArray());
         return new(blockers.Count == 0 ? CharacterCreationFoundationOutcomes.Success
             : CharacterCreationFoundationOutcomes.Blocked, plan, plan.Blockers);
+
+        bool TryIncrement(int index)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.FillRemainingPoints || goals is not null
+                    ? evaluations >= MaximumCandidateEvaluations
+                    : evaluations > MaximumCandidateEvaluations)
+            {
+                workLimitReached = true;
+                return false;
+            }
+            if (allocations[index].PriorityPoints == int.MaxValue) return false;
+            var candidate = allocations.ToArray();
+            candidate[index] = candidate[index] with { PriorityPoints = candidate[index].PriorityPoints + 1 };
+            var result = session.Preview(candidate);
+            evaluations++;
+            if (result.Outcome != CharacterCreationFoundationOutcomes.Success
+                || result.Value is not { CanConfirm: true, Blockers.Count: 0 } proposed
+                || proposed.NormalPointBudget.Remaining < request.NormalPointsToReserve
+                || proposed.SpecialPointBudget.Remaining < request.SpecialPointsToReserve
+                // Adding priority points must not reprice the retained Karma levels.
+                || proposed.CreationKarmaBudget.Used > originalKarmaUsed)
+                return false;
+            allocations = candidate;
+            preview = proposed;
+            changed = true;
+            return true;
+        }
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationAttributeCompletionPlan> Reject(

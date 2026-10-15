@@ -163,7 +163,8 @@ public static class CharacterCreationSkillCompletionPlanner
         }
         int baselineOverflow = preview.KnowledgePointOverflowToActive;
         IEnumerable<(string Kind, string SourceId, int? Rating)> allocationOrder = request.Targets is null
-            ? request.PermittedTargetOrder.Select(target => (target.Kind, target.SourceId, (int?)null))
+            ? request.FillRemainingPoints ? []
+                : request.PermittedTargetOrder.Select(target => (target.Kind, target.SourceId, (int?)null))
             : request.Targets.Select(target => (target.Kind, target.SourceId, (int?)target.TargetRating));
         foreach (var target in allocationOrder)
         {
@@ -183,56 +184,39 @@ public static class CharacterCreationSkillCompletionPlanner
                 && (target.Rating is null || !MeetsTarget(preview, authority, movementCapability,
                     target.Kind, target.SourceId, target.Rating.Value)))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (request.Targets is null ? evaluations > MaximumCandidateEvaluations : evaluations >= MaximumCandidateEvaluations)
-                {
-                    workLimitReached = true;
+                if (!TryIncrement(target.Kind, target.SourceId))
                     break;
-                }
-                var candidateSkills = allocations.ToArray();
-                var candidateGroups = groups.ToArray();
-                if (isGroup)
-                {
-                    int index = Array.FindIndex(candidateGroups, group => group.GroupId == target.SourceId);
-                    int rating = index < 0 ? 0 : candidateGroups[index].Rating;
-                    if (rating == int.MaxValue) break;
-                    var next = new CharacterCreationSkillGroupAllocation(target.SourceId, rating + 1);
-                    if (index < 0) candidateGroups = [.. candidateGroups, next];
-                    else candidateGroups[index] = next;
-                }
-                else
-                {
-                    int index = Array.FindIndex(candidateSkills, skill =>
-                        skill.Kind == target.Kind && skill.SourceSkillId == target.SourceId);
-                    var current = index < 0
-                        ? new CharacterCreationSkillAllocation(target.SourceId, target.Kind, 0, null, false)
-                        : candidateSkills[index];
-                    // Native language has no numeric rating and is a story/
-                    // identity choice. Permission to spend points does not change it.
-                    if (current.IsNativeLanguage || current.Rating is not int rating || rating == int.MaxValue)
-                        break;
-                    var next = current with { Rating = rating + 1 };
-                    if (index < 0) candidateSkills = [.. candidateSkills, next];
-                    else candidateSkills[index] = next;
-                }
-
-                var candidate = session.Preview(candidateSkills, candidateGroups, cancellationToken);
-                evaluations++;
-                if (candidate.Value is not { } proposed || !AllowsPlanning(proposed.Blockers)
-                    || !PreservesReserves(proposed, request)
-                    || proposed.KnowledgePointOverflowToActive > baselineOverflow)
-                    break;
-                allocations = candidateSkills;
-                groups = candidateGroups;
-                preview = proposed;
-                changed = true;
             }
             if (workLimitReached) break;
         }
 
+        if (request.FillRemainingPoints)
+        {
+            // Group permissions include their canonical members, but that is
+            // not a request to buy/break those members independently. Attempt
+            // group increments before other entries and keep positive groups.
+            var fillOrder = request.PermittedTargetOrder.OrderBy(target =>
+                target.Kind == CharacterCreationSkillCompletionKinds.Group ? 0 : 1).ToArray();
+            bool progress;
+            do
+            {
+                progress = false;
+                foreach (var target in fillOrder)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (workLimitReached) break;
+                    if (Remaining(preview, target.Kind) <= Reserve(request, target.Kind)) continue;
+                    if (target.Kind == CharacterCreationSkillKinds.Active && preview.SkillGroups.Any(group =>
+                            group.Rating > 0 && group.MemberSkillSourceIds.Contains(target.SourceId, StringComparer.Ordinal)))
+                        continue;
+                    if (TryIncrement(target.Kind, target.SourceId)) progress = true;
+                }
+            } while (progress && !workLimitReached);
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         var blockers = preview.Blockers.ToList();
-        if (request.Targets is null)
+        if (request.Targets is null || request.FillRemainingPoints)
         {
             if (preview.ActiveSkillPointBudget.Remaining > request.ActivePointsToReserve)
                 blockers.Add(CharacterCreationSkillCompletionBlockers.ActivePointsUnallocated);
@@ -244,12 +228,17 @@ public static class CharacterCreationSkillCompletionPlanner
             if (preview.KnowledgeSkillPointBudget.Remaining > request.KnowledgePointsToReserve)
                 blockers.Add(CharacterCreationSkillCompletionBlockers.KnowledgePointsUnallocated);
         }
-        else
+        if (request.Targets is not null)
         {
             if (request.Targets.Any(target => !MeetsTarget(preview, authority, movementCapability,
                     target.Kind, target.SourceId, target.TargetRating)))
                 blockers.Add(CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled);
-            if (groupMemberLocked) blockers.Add(CharacterCreationSkillCompletionBlockers.GroupMemberLocked);
+            if (groupMemberLocked && (!request.FillRemainingPoints || request.Targets.Any(target =>
+                    target.Kind == CharacterCreationSkillCompletionKinds.Group
+                    && !MeetsTarget(preview, authority, movementCapability, target.Kind, target.SourceId, target.TargetRating)
+                    && authority.SkillGroups.Single(group => group.GroupId == target.SourceId)
+                        .MemberSkillSourceIds.Any(id => !permitted.Contains((CharacterCreationSkillKinds.Active, id))))))
+                blockers.Add(CharacterCreationSkillCompletionBlockers.GroupMemberLocked);
         }
         if (workLimitReached) blockers.Add(CharacterCreationSkillCompletionBlockers.WorkLimitReached);
         var plan = new CharacterCreationSkillCompletionPlan(request, attributeAllocations, allocations, groups,
@@ -258,6 +247,60 @@ public static class CharacterCreationSkillCompletionPlanner
         plan = plan with { PlanDigest = CharacterCreationSkillsDigest.Compute(plan) };
         return new(plan.Blockers.Count == 0 ? CharacterCreationFoundationOutcomes.Success
             : CharacterCreationFoundationOutcomes.Blocked, plan, plan.Blockers);
+
+        bool TryIncrement(string kind, string sourceId)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool isGroup = kind == CharacterCreationSkillCompletionKinds.Group;
+            if (isGroup && authority.SkillGroups.Single(group => group.GroupId == sourceId)
+                    .MemberSkillSourceIds.Any(id => !permitted.Contains((CharacterCreationSkillKinds.Active, id))))
+            {
+                groupMemberLocked = true;
+                return false;
+            }
+            if (request.FillRemainingPoints || request.Targets is not null
+                    ? evaluations >= MaximumCandidateEvaluations
+                    : evaluations > MaximumCandidateEvaluations)
+            {
+                workLimitReached = true;
+                return false;
+            }
+            var candidateSkills = allocations.ToArray();
+            var candidateGroups = groups.ToArray();
+            if (isGroup)
+            {
+                int index = Array.FindIndex(candidateGroups, group => group.GroupId == sourceId);
+                int rating = index < 0 ? 0 : candidateGroups[index].Rating;
+                if (rating == int.MaxValue) return false;
+                var next = new CharacterCreationSkillGroupAllocation(sourceId, rating + 1);
+                if (index < 0) candidateGroups = [.. candidateGroups, next];
+                else candidateGroups[index] = next;
+            }
+            else
+            {
+                int index = Array.FindIndex(candidateSkills, skill => skill.Kind == kind && skill.SourceSkillId == sourceId);
+                var current = index < 0
+                    ? new CharacterCreationSkillAllocation(sourceId, kind, 0, null, false)
+                    : candidateSkills[index];
+                // A native language remains an identity choice, never a rating.
+                if (current.IsNativeLanguage || current.Rating is not int rating || rating == int.MaxValue)
+                    return false;
+                var next = current with { Rating = rating + 1 };
+                if (index < 0) candidateSkills = [.. candidateSkills, next];
+                else candidateSkills[index] = next;
+            }
+            var candidate = session.Preview(candidateSkills, candidateGroups, cancellationToken);
+            evaluations++;
+            if (candidate.Value is not { } proposed || !AllowsPlanning(proposed.Blockers)
+                || !PreservesReserves(proposed, request)
+                || proposed.KnowledgePointOverflowToActive > baselineOverflow)
+                return false;
+            allocations = candidateSkills;
+            groups = candidateGroups;
+            preview = proposed;
+            changed = true;
+            return true;
+        }
     }
 
     private static bool IsValidRequest(CharacterCreationSkillCompletionRequest request) =>

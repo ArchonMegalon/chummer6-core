@@ -64,6 +64,15 @@ public sealed record CharacterCreationSkillCompletionRequest(
     /// unused points are retained when the requested goals have been met.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationSkillCompletionRatingTarget>? Targets { get; init; }
+
+    /// <summary>Opt-in completion after attempting the numeric target floors.
+    /// Adds at most one rating per permitted choice per round, groups first,
+    /// while retaining each point reserve. Members of a positive group are not
+    /// independently raised by the fill pass. Null/empty targets start rounds
+    /// from the baseline; permissions, native identity and source rules are
+    /// unchanged. False preserves existing behavior and serialized identity.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool FillRemainingPoints { get; init; }
 }
 
 /// <summary>

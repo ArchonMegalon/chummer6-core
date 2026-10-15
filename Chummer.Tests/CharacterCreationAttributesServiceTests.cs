@@ -17,6 +17,100 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationAttributesServiceTests
 {
     [TestMethod]
+    public void Completion_plan_balanced_fill_meets_floors_then_spreads_all_remaining_points()
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var before = store.Get(id).Value!;
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest,
+                ["BOD", "AGI", "REA", "STR", "CHA", "INT", "LOG", "WIL", "EDG"])
+            { Targets = [new("BOD", 3), new("AGI", 3)], FillRemainingPoints = true };
+            var result = CharacterCreationAttributeCompletionPlanner.Plan(state, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var plan = result.Value!;
+            Assert.AreEqual(0m, plan.Preview.NormalPointBudget.Remaining);
+            Assert.AreEqual(0m, plan.Preview.SpecialPointBudget.Remaining);
+            foreach (var attribute in plan.Preview.Attributes.Where(row =>
+                         row.Category == CharacterCreationAttributeCategories.Normal))
+                Assert.AreEqual(attribute.AttributeId is "BOD" or "AGI" ? 5 : 3, attribute.UnaugmentedCurrent,
+                    "The floor pass precedes two balanced rounds; no first-choice maxing.");
+            Assert.AreEqual(1, plan.Allocations.Single(row => row.AttributeId == "EDG").PriorityPoints);
+            Assert.AreEqual(state.CreationKarmaBudget.Used, plan.Preview.CreationKarmaBudget.Used);
+            Assert.IsTrue(plan.Evaluations <= CharacterCreationAttributeCompletionPlanner.MaximumCandidateEvaluations);
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                service.Preview(new(state.Binding, plan.Allocations)).Value, plan.Preview));
+            Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                plan, CharacterCreationAttributeCompletionPlanner.Plan(state, request).Value));
+            Assert.AreEqual(before.Document.Content, store.Get(id).Value!.Document.Content);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
+    public void Completion_plan_balanced_fill_preserves_manual_zero_Karma_and_choice_intent()
+    {
+        WithConfirmedPrerequisite((store, service, id, _) =>
+        {
+            var initial = Load(service, id);
+            CharacterCreationAttributeAllocation[] baseline = [new("BOD", 2, 0), new("AGI", 0, 1), new("STR", 0, 0)];
+            string[] chosen = ["AGI", "BOD", "STR"];
+            var preview = service.Preview(new(initial.Binding, baseline) { PlayerChosenAttributeIds = chosen }).Value!;
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(new(initial.Binding, baseline, preview.PreviewDigest, true)
+                { PlayerChosenAttributeIds = chosen }).Outcome);
+            var state = Load(service, id);
+            var before = store.Get(id).Value!;
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest,
+                ["AGI", "REA", "CHA", "INT", "LOG", "WIL"], SpecialPointsToReserve: 1)
+            { Targets = [new("AGI", 2)], FillRemainingPoints = true };
+            var result = CharacterCreationAttributeCompletionPlanner.Plan(state, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var plan = result.Value!;
+            Assert.AreEqual(2, plan.Allocations.Single(row => row.AttributeId == "BOD").PriorityPoints);
+            Assert.AreEqual(0, plan.Allocations.Single(row => row.AttributeId == "STR").PriorityPoints);
+            Assert.AreEqual(0, plan.Allocations.Single(row => row.AttributeId == "AGI").PriorityPoints);
+            Assert.AreEqual(1, plan.Allocations.Single(row => row.AttributeId == "AGI").KarmaLevels);
+            Assert.AreEqual(10m, plan.Preview.CreationKarmaBudget.Used);
+            Assert.AreEqual(0m, plan.Preview.NormalPointBudget.Remaining);
+            Assert.AreEqual(1m, plan.Preview.SpecialPointBudget.Remaining);
+            CollectionAssert.AreEqual(chosen, plan.Preview.PlayerChosenAttributeIds!.ToArray(),
+                "Speculative fill is not new player-chosen attribute provenance.");
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
+    public void Completion_plan_balanced_fill_empty_or_null_floors_obeys_reserves_and_reports_locked_remainder()
+    {
+        WithConfirmedPrerequisite((_, service, id, _) =>
+        {
+            var state = Load(service, id);
+            var request = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest,
+                ["AGI", "BOD", "EDG"], NormalPointsToReserve: 17, SpecialPointsToReserve: 1)
+            { FillRemainingPoints = true };
+            foreach (var targets in new IReadOnlyList<CharacterCreationAttributeCompletionTarget>?[] { null, [] })
+            {
+                var result = CharacterCreationAttributeCompletionPlanner.Plan(state, request with { Targets = targets });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+                Assert.AreEqual(2, result.Value!.Allocations.Single(row => row.AttributeId == "AGI").PriorityPoints);
+                Assert.AreEqual(1, result.Value.Allocations.Single(row => row.AttributeId == "BOD").PriorityPoints);
+                Assert.AreEqual(0, result.Value.Allocations.Single(row => row.AttributeId == "EDG").PriorityPoints);
+            }
+            var blocked = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                request with { PermittedAttributeOrder = ["BOD"], NormalPointsToReserve = 0, Targets = [new("BOD", int.MaxValue)] });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, blocked.Outcome);
+            Assert.AreEqual(5, blocked.Value!.Allocations.Single(row => row.AttributeId == "BOD").PriorityPoints);
+            CollectionAssert.Contains(blocked.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
+            CollectionAssert.Contains(blocked.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled);
+            Assert.IsTrue(blocked.Value.Allocations.Where(row => row.AttributeId != "BOD")
+                .All(row => row.PriorityPoints == 0 && row.KarmaLevels == 0));
+            Assert.Throws<OperationCanceledException>(() => CharacterCreationAttributeCompletionPlanner.Plan(
+                state, request, new CancellationToken(true)));
+        });
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     public void Completion_plan_spends_only_explicitly_unlocked_points_and_matches_Core(string method)
@@ -317,6 +411,17 @@ public sealed class CharacterCreationAttributesServiceTests
             CollectionAssert.Contains(targeted.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.WorkLimitReached);
             CollectionAssert.DoesNotContain(targeted.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
             Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+
+            var balanced = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                new(state.Binding, state.SnapshotDigest, ["BOD"], SpecialPointsToReserve: 1)
+                { Targets = [new("BOD", 2)], FillRemainingPoints = true });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, balanced.Outcome);
+            Assert.AreEqual(CharacterCreationAttributeCompletionPlanner.MaximumCandidateEvaluations, balanced.Value!.Evaluations);
+            Assert.AreEqual(CharacterCreationAttributeCompletionPlanner.MaximumCandidateEvaluations - 1,
+                balanced.Value.Allocations.Single(row => row.AttributeId == "BOD").PriorityPoints);
+            CollectionAssert.Contains(balanced.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.WorkLimitReached);
+            CollectionAssert.Contains(balanced.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.NormalPointsUnallocated);
+            CollectionAssert.DoesNotContain(balanced.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.TargetsUnfulfilled);
         }, authority);
     }
 
@@ -461,6 +566,10 @@ public sealed class CharacterCreationAttributesServiceTests
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, result.Outcome);
                 Assert.IsNull(result.Value);
                 CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationAttributeCompletionBlockers.RequestInvalid);
+                var balanced = CharacterCreationAttributeCompletionPlanner.Plan(state,
+                    request with { Targets = targets, FillRemainingPoints = true });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, balanced.Outcome);
+                Assert.IsNull(balanced.Value);
             }
 
             var capped = CharacterCreationAttributeCompletionPlanner.Plan(state,
@@ -483,6 +592,10 @@ public sealed class CharacterCreationAttributesServiceTests
             var state = Load(service, id);
             var legacy = new CharacterCreationAttributeCompletionRequest(state.Binding, state.SnapshotDigest, ["BOD"]);
             Assert.IsFalse(JsonSerializer.SerializeToElement(legacy).TryGetProperty("Targets", out _));
+            Assert.IsFalse(JsonSerializer.SerializeToElement(legacy).TryGetProperty("FillRemainingPoints", out _));
+            Assert.AreEqual(JsonSerializer.Serialize(legacy), JsonSerializer.Serialize(legacy with { FillRemainingPoints = false }));
+            Assert.IsTrue(JsonSerializer.SerializeToElement(legacy with { FillRemainingPoints = true })
+                .GetProperty("FillRemainingPoints").GetBoolean());
             Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(new
             {
                 legacy.Binding, legacy.SnapshotDigest, legacy.PermittedAttributeOrder,

@@ -33,6 +33,15 @@ public sealed record CharacterCreationAttributeCompletionRequest(
     /// unused points are retained when all goals have been met.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationAttributeCompletionTarget>? Targets { get; init; }
+
+    /// <summary>Opt-in completion of the remaining permitted point pools. Targets
+    /// are minimum goals, attempted first; remaining points are then added one
+    /// per permitted attribute per round, retaining independent reserves. With
+    /// no targets (null or empty), rounds start from the unchanged baseline.
+    /// This never expands permissions or spends Karma. False preserves the
+    /// existing target-only/legacy behavior and serialized request identity.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool FillRemainingPoints { get; init; }
 }
 
 /// <summary>
