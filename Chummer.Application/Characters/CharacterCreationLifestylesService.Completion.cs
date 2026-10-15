@@ -144,10 +144,10 @@ public sealed partial class CharacterCreationLifestylesService
         IReadOnlyList<string> purchaseAnchors = loadout is null ? gear.SourceAnchorIds : gear.SourceAnchorIds
             .Concat(loadout.Lines.SelectMany(row => row.SourceAnchorIds))
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        var qualityResult = CharacterCreationQualitiesService.PreviewWithProposedAttributes(inputs.Qualities,
-            attributeAllocations, qualityOptionIds, cancellationToken);
-        if (qualityResult.Value is not { } qualities)
-            return new(CharacterCreationLifestyleOutcomes.Blocked, null, qualityResult.Blockers);
+        // Gear evaluated these same detached inputs through Resources and the
+        // completion budget. Its admitted graph already owns the quality preview.
+        cancellationToken.ThrowIfCancellationRequested();
+        var qualities = gear.Resources.UpstreamBudget.Qualities;
         var pricing = PriceSelectedCompletion(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
             magicInputs.SelectedTalent.GrantedQualitySources ?? [], qualities.Qualities.Selections,
             qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen - loadoutCost,

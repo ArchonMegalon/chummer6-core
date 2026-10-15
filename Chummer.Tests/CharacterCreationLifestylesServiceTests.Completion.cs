@@ -32,6 +32,10 @@ public sealed class LifestylesCompletionTests
         var result = Preview(inputs, [low]);
         Assert.AreEqual(CharacterCreationLifestyleOutcomes.Available, result.Outcome, string.Join(",", result.Blockers));
         var projected = result.Value!;
+        var qualities = CharacterCreationQualitiesService.PreviewWithProposedAttributes(
+            inputs.Lifestyles.Qualities, Attributes(inputs), inputs.Lifestyles.Qualities.SelectedOptionIds);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, qualities.Outcome);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(qualities.Value, projected.Qualities));
         Assert.AreEqual(inputs.Lifestyles.Binding, projected.Binding);
         Assert.AreEqual(inputs.Lifestyles.SnapshotDigest, projected.LifestylesSnapshotDigest);
         Assert.AreEqual(low.LifestyleId, projected.StartingLifestyleId);
@@ -51,6 +55,119 @@ public sealed class LifestylesCompletionTests
         Assert.AreEqual(projected.ProposalDigest,
             CharacterCreationLifestylesCompletionRules.ComputeProjectionDigest(projected));
         Assert.AreEqual(projected.ProposalDigest, Preview(inputs, [low]).Value!.ProposalDigest);
+        AssertWorkspaceUnchanged(context, before, files);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, 1)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, 1)]
+    [DataRow(CharacterCreationBuildMethods.Priority, 10_000)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, 10_000)]
+    public void Lifestyle_completion_matches_independent_quality_evaluation_and_keeps_results_detached(string method, int increments)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var inputs = LoadInputs(context);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var files = CaptureFiles(context);
+        // Ambidextrous's anatomy-dependent limit is not admitted for this
+        // Mystic Adept. Use the same fixed-cost source quality as the combined
+        // magic/quality budget fixture, without relaxing selection admission.
+        var paid = inputs.Lifestyles.Qualities.Authority.Options.Single(option =>
+            option.SourceId == Guid.Parse("0d0cb0fc-c79d-418e-9216-8a197369e52d") && option.Rating == 1);
+        Assert.AreEqual("Guts", paid.Name);
+        Assert.IsTrue(paid.IsSelectable, paid.DisableReasonKey);
+        Assert.IsTrue(paid.CountsAgainstKarma);
+        Assert.AreEqual(10, paid.KarmaCost);
+        var qualityIds = new List<string> { paid.OptionId };
+        CharacterCreationAttributeAllocation[] attributes = [.. Attributes(inputs), new("BOD", 0, 1)];
+        var home = Configuration(inputs.Lifestyles.Authority, "Low") with { Increments = increments };
+        var independent = CharacterCreationQualitiesService.PreviewWithProposedAttributes(
+            inputs.Lifestyles.Qualities, attributes, qualityIds);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, independent.Outcome, string.Join(",", independent.Blockers));
+        Assert.IsTrue(independent.Value!.Qualities.ProposedAttributeKarmaUsed > 0);
+        Assert.AreEqual(inputs.Lifestyles.Qualities.Binding.CreationKarmaTotal
+            - independent.Value.Qualities.ProposedAttributeKarmaUsed - paid.KarmaCost, independent.Value.Qualities.KarmaRemaining);
+
+        var result = CharacterCreationLifestylesService.PreviewCompletion(inputs.Lifestyles, inputs.Magic,
+            attributes, Selections(inputs), qualityIds, 0, [], [home], home.LifestyleId);
+        Assert.AreEqual(increments == 1 ? CharacterCreationLifestyleOutcomes.Available : CharacterCreationLifestyleOutcomes.Blocked,
+            result.Outcome, string.Join(",", result.Blockers));
+        Assert.IsNotNull(result.Value);
+        var projected = result.Value!;
+        var upstreamQualities = projected.Gear.Resources.UpstreamBudget.Qualities;
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(independent.Value, projected.Qualities));
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(independent.Value, upstreamQualities));
+        Assert.AreEqual(inputs.Lifestyles.Binding, projected.Binding);
+        Assert.AreEqual(inputs.Lifestyles.Authority.SourceDigest, projected.Authority.SourceDigest);
+        Assert.AreEqual(inputs.Lifestyles.Qualities.SnapshotDigest, projected.Qualities.QualitiesSnapshotDigest);
+        Assert.AreEqual(2000m * increments, projected.Budget.Used);
+        Assert.AreEqual(projected.Budget.Used, projected.Gear.Resources.Budget.KnownPurchaseCost);
+        Assert.AreEqual(projected.Budget.Remaining, projected.Gear.Resources.Budget.RemainingNuyen);
+        if (increments > 1)
+            CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InsufficientFunds);
+        Assert.AreEqual(projected.ProposalDigest, CharacterCreationLifestylesCompletionRules.ComputeProjectionDigest(projected));
+        var repeated = CharacterCreationLifestylesService.PreviewCompletion(inputs.Lifestyles, inputs.Magic,
+            attributes, Selections(inputs), qualityIds, 0, [], [home], home.LifestyleId);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(result, repeated));
+
+        string digest = projected.ProposalDigest;
+        qualityIds.Clear();
+        attributes[0] = new("MAG", 0, 0);
+        Assert.AreEqual(digest, CharacterCreationLifestylesCompletionRules.ComputeProjectionDigest(projected));
+        Assert.AreNotSame(projected.Qualities, upstreamQualities);
+        Assert.AreNotSame(projected.Qualities.Qualities.Selections, upstreamQualities.Qualities.Selections);
+        var selections = (IList<CharacterCreationQualitySelection>)upstreamQualities.Qualities.Selections;
+        selections[0] = selections[0] with { Name = "Changed after preview" };
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(independent.Value, projected.Qualities));
+        AssertWorkspaceUnchanged(context, before, files);
+    }
+
+    [TestMethod]
+    [DataRow("source", CharacterCreationLifestyleOutcomes.Blocked, CharacterCreationQualitiesBlockers.AuthorityUnavailable)]
+    [DataRow("catalog", CharacterCreationLifestyleOutcomes.Blocked, CharacterCreationQualitiesBlockers.AuthorityUnavailable)]
+    [DataRow("profile", CharacterCreationLifestyleOutcomes.Conflict, CharacterCreationResourcesCompletionSchemas.SnapshotConflict)]
+    [DataRow("selection", CharacterCreationLifestyleOutcomes.Blocked, CharacterCreationQualitiesBlockers.InvalidSelection)]
+    public void Lifestyle_completion_rejects_quality_mismatches_before_lifestyle_pricing(string mismatch, string outcome, string blocker)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var inputs = LoadInputs(context);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var files = CaptureFiles(context);
+        var authority = inputs.Lifestyles.Qualities.Authority;
+        string foreignDigest = CharacterCreationLifestylesRules.ComputeIdempotencyKeyDigest("foreign-quality-source");
+        if (mismatch == "source")
+            authority = authority with { SourceDigest = foreignDigest };
+        else if (mismatch == "profile")
+            authority = authority with { ProfileDigest = foreignDigest };
+        else if (mismatch == "catalog")
+        {
+            var options = authority.Options.ToArray();
+            options[0] = options[0] with { SourceNodeDigest = foreignDigest };
+            authority = authority with { Options = options };
+        }
+        authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        var qualities = inputs.Lifestyles.Qualities with { Authority = authority };
+        if (mismatch != "source")
+            qualities = qualities with { Binding = qualities.Binding with { AuthorityDigest = authority.AuthorityDigest } };
+        qualities = qualities with { SnapshotDigest = CharacterCreationQualitiesRules.ComputeCompletionInputsDigest(qualities) };
+        var lifestyles = inputs.Lifestyles with { Qualities = qualities };
+        lifestyles = lifestyles with { SnapshotDigest = CharacterCreationLifestylesCompletionRules.ComputeInputsDigest(lifestyles) };
+        var changed = inputs with { Lifestyles = lifestyles };
+        string[] qualityIds = mismatch == "selection" ? ["not-a-source-quality"] : [];
+        var invalidHome = Configuration(inputs.Lifestyles.Authority, "Low") with { BaseLifestyleOptionId = "not-a-source-lifestyle" };
+
+        var gear = CharacterCreationGearService.PreviewCompletion(lifestyles.Gear, inputs.Magic, qualities,
+            Attributes(changed), Selections(changed), qualityIds, 0, []);
+        Assert.IsNull(gear.Value);
+        var rejected = Preview(changed, [invalidHome], qualityIds: qualityIds);
+        Assert.AreEqual(outcome, rejected.Outcome);
+        Assert.IsNull(rejected.Value);
+        CollectionAssert.Contains(rejected.Blockers.ToArray(), blocker);
+        CollectionAssert.AreEqual(gear.Blockers.Append(CharacterCreationLifestylesCompletionSchemas.UpstreamBudgetUnavailable)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), rejected.Blockers.ToArray());
+        CollectionAssert.DoesNotContain(rejected.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InvalidOption);
         AssertWorkspaceUnchanged(context, before, files);
     }
 
