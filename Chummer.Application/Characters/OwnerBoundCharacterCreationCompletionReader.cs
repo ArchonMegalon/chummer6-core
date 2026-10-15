@@ -32,28 +32,38 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
             ICharacterSourceDataResolver resolver = scope ?? sourceResolver;
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner,
                 request.WorkspaceId, reuseReadObservation: true);
-            var skills = new CharacterCreationSkillsService(view, resolver).LoadCompletionInputs(request);
-            if (skills.Value is null) return Reject(skills.Blockers);
-            cancellationToken.ThrowIfCancellationRequested();
-            var magic = new CharacterCreationMagicResonanceService(view, resolver)
-                .LoadCompletionInputs(new(request.WorkspaceId));
-            if (magic.Value is null) return Reject(magic.Blockers);
-            cancellationToken.ThrowIfCancellationRequested();
-            var lifestyles = new CharacterCreationLifestylesService(view, resolver, characterQueries)
-                .LoadCompletionInputs(new(request.WorkspaceId));
-            if (lifestyles.Value is null) return Reject(lifestyles.Blockers);
-            cancellationToken.ThrowIfCancellationRequested();
-            var contacts = new CharacterCreationContactsService(view, resolver, characterQueries)
-                .LoadCompletionInputs(new(request.WorkspaceId));
-            if (contacts.Value is null) return Reject(contacts.Blockers);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var inputs = new CharacterCreationCompletionReviewInputs(
-                CharacterCreationCompletionReviewSchemas.InputsV1,
-                skills.Value, magic.Value, lifestyles.Value, contacts.Value, string.Empty);
-            inputs = inputs with { SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs) };
-            return new(CharacterCreationFoundationOutcomes.Success, inputs, []);
+            return LoadFromObservation(view, resolver, characterQueries, request, cancellationToken);
         }
+    }
+
+    // The caller owns the exact owner lease, source operation scope and real
+    // workspace observation. Reused by the read-only proposed-cash route; it
+    // never accepts a constructed intermediate draft or portable save authority.
+    internal static CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> LoadFromObservation(
+        IWorkspaceStore view, ICharacterSourceDataResolver resolver, ICharacterFileQueries characterQueries,
+        CharacterCreationSkillsLoadRequest request, CancellationToken cancellationToken)
+    {
+        var skills = new CharacterCreationSkillsService(view, resolver).LoadCompletionInputs(request);
+        if (skills.Value is null) return Reject(skills.Blockers);
+        cancellationToken.ThrowIfCancellationRequested();
+        var magic = new CharacterCreationMagicResonanceService(view, resolver)
+            .LoadCompletionInputs(new(request.WorkspaceId));
+        if (magic.Value is null) return Reject(magic.Blockers);
+        cancellationToken.ThrowIfCancellationRequested();
+        var lifestyles = new CharacterCreationLifestylesService(view, resolver, characterQueries)
+            .LoadCompletionInputs(new(request.WorkspaceId));
+        if (lifestyles.Value is null) return Reject(lifestyles.Blockers);
+        cancellationToken.ThrowIfCancellationRequested();
+        var contacts = new CharacterCreationContactsService(view, resolver, characterQueries)
+            .LoadCompletionInputs(new(request.WorkspaceId));
+        if (contacts.Value is null) return Reject(contacts.Blockers);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var inputs = new CharacterCreationCompletionReviewInputs(
+            CharacterCreationCompletionReviewSchemas.InputsV1,
+            skills.Value, magic.Value, lifestyles.Value, contacts.Value, string.Empty);
+        inputs = inputs with { SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs) };
+        return new(CharacterCreationFoundationOutcomes.Success, inputs, []);
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> Reject(
