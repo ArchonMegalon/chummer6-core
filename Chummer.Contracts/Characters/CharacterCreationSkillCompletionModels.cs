@@ -25,6 +25,15 @@ public sealed record CharacterCreationSkillCompletionTarget(string Kind, string 
 /// rating is retained; native languages remain non-numeric identity choices.</summary>
 public sealed record CharacterCreationSkillCompletionRatingTarget(string Kind, string SourceId, int TargetRating);
 
+/// <summary>Read-only observation of one goal against an already evaluated Core
+/// preview. A native language remains nonnumeric; unknown source identities have
+/// no effective rating. This is not source admission or permission to save.</summary>
+public sealed record CharacterCreationSkillCompletionTargetEvaluation(
+    CharacterCreationSkillCompletionRatingTarget Target,
+    bool IsKnown,
+    int? EffectiveRating,
+    bool IsSatisfied);
+
 /// <summary>
 /// Explicit permission and deterministic preference order, not an archetype or
 /// optimization claim. Omitted choices, including zero/default choices, stay

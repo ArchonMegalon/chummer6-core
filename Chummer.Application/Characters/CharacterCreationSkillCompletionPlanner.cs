@@ -276,24 +276,47 @@ public static class CharacterCreationSkillCompletionPlanner
     private static bool MeetsTarget(CharacterCreationAttributeSkillsPreview preview,
         CharacterCreationSkillsAuthority authority, CharacterCreationMovementCapability movement,
         string kind, string sourceId, int desired)
+        => EvaluateTarget(preview, authority, movement, new(kind, sourceId, desired)).IsSatisfied;
+
+    /// <summary>Observes one numeric goal using the same source/grant/group and
+    /// movement rules as planning. The caller supplies an already evaluated Core
+    /// preview and its actual authority; this does not admit that input as current
+    /// source, ownership or mutation authority, and never spends any points.</summary>
+    public static CharacterCreationSkillCompletionTargetEvaluation EvaluateTarget(
+        CharacterCreationAttributeSkillsPreview preview, CharacterCreationSkillsAuthority authority,
+        CharacterCreationMovementCapability movement, CharacterCreationSkillCompletionRatingTarget target)
     {
-        if (kind == CharacterCreationSkillCompletionKinds.Group)
-            return (preview.SkillGroups.SingleOrDefault(group => group.GroupId == sourceId)?.Rating ?? 0) >= desired;
-        var skill = preview.Skills.SingleOrDefault(row => row.Kind == kind && row.SourceSkillId == sourceId);
-        // Native is never a numeric rating, even when a caller asks for zero.
-        if (skill is not null) return skill.EffectiveRating is int rating && rating >= desired;
-        if (desired == 0) return true;
-        if (kind != CharacterCreationSkillKinds.Active) return false;
-        var source = authority.ActiveSkills.Single(item => item.SourceSkillId == sourceId);
-        // Group projections retain disabled canonical members for authority
-        // matching. They must not imply an effective skill the runner cannot use.
-        if (!CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, sourceId)
-            || source.RequiresGroundMovement && !movement.Ground
-            || source.RequiresSwimMovement && !movement.Swim
-            || source.RequiresFlyMovement && !movement.Fly)
-            return false;
-        return preview.SkillGroups.Any(group => group.IsEnabled && group.Rating >= desired
-            && group.MemberSkillSourceIds.Contains(sourceId, StringComparer.Ordinal));
+        ArgumentNullException.ThrowIfNull(preview);
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(movement);
+        ArgumentNullException.ThrowIfNull(target);
+        if (target.TargetRating < 0 || string.IsNullOrWhiteSpace(target.SourceId))
+            throw new ArgumentException("A target requires a source identity and nonnegative numeric goal.", nameof(target));
+        if (!IsKnownTarget(authority, new(target.Kind, target.SourceId)))
+            return new(target, false, null, false);
+        int? effective = EffectiveRating();
+        return new(target, true, effective, effective is int rating && rating >= target.TargetRating);
+
+        int? EffectiveRating()
+        {
+            if (target.Kind == CharacterCreationSkillCompletionKinds.Group)
+                return preview.SkillGroups.SingleOrDefault(group => group.GroupId == target.SourceId)?.Rating ?? 0;
+            var skill = preview.Skills.SingleOrDefault(row => row.Kind == target.Kind && row.SourceSkillId == target.SourceId);
+            // Native is never a numeric rating, even when a caller asks for zero.
+            if (skill is not null) return skill.EffectiveRating;
+            if (target.Kind != CharacterCreationSkillKinds.Active) return 0;
+            var source = authority.ActiveSkills.Single(item => item.SourceSkillId == target.SourceId);
+            // Group projections retain disabled canonical members for authority
+            // matching. They must not imply an effective skill the runner cannot use.
+            if (!CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, target.SourceId)
+                || source.RequiresGroundMovement && !movement.Ground
+                || source.RequiresSwimMovement && !movement.Swim
+                || source.RequiresFlyMovement && !movement.Fly)
+                return 0;
+            return preview.SkillGroups.Where(group => group.IsEnabled
+                    && group.MemberSkillSourceIds.Contains(target.SourceId, StringComparer.Ordinal))
+                .Select(group => group.Rating).DefaultIfEmpty(0).Max();
+        }
     }
 
     private static bool IsKnownTarget(CharacterCreationSkillsAuthority authority, CharacterCreationSkillCompletionTarget target) =>

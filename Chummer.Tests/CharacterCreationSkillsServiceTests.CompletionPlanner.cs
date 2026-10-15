@@ -672,6 +672,20 @@ public sealed partial class CharacterCreationSkillsServiceTests
             Assert.AreEqual(2, disabled.Value!.GroupAllocations.Single().Rating);
             Assert.IsFalse(disabled.Value.Allocations.Any(row => group.MemberSkillSourceIds.Contains(row.SourceSkillId)));
             Assert.AreEqual(0, disabled.Value.Preview.Blockers.Count);
+            var enabledTarget = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                disabled.Value.Preview, skills.Authority, skills.MovementCapability,
+                new(CharacterCreationSkillKinds.Active, ActiveIds[0], 2));
+            Assert.IsTrue(enabledTarget.IsKnown);
+            Assert.AreEqual(2, enabledTarget.EffectiveRating);
+            Assert.IsTrue(enabledTarget.IsSatisfied,
+                "An unrelated unmet target does not undo this enabled member's group rating.");
+            var disabledTarget = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                disabled.Value.Preview, skills.Authority, skills.MovementCapability,
+                new(CharacterCreationSkillKinds.Active, ActiveIds[1], 2));
+            Assert.IsTrue(disabledTarget.IsKnown);
+            Assert.AreEqual(0, disabledTarget.EffectiveRating);
+            Assert.IsFalse(disabledTarget.IsSatisfied,
+                "Canonical group membership must not bypass the member's movement requirement.");
             AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
         });
     }
@@ -829,6 +843,146 @@ public sealed partial class CharacterCreationSkillsServiceTests
             Assert.AreEqual(0, explicitEmpty.RootElement.GetProperty("Targets").GetArrayLength());
             Assert.AreNotEqual(CharacterCreationSkillsDigest.Compute(request),
                 CharacterCreationSkillsDigest.Compute(request with { Targets = [] }));
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    [DataRow("Magician")]
+    [DataRow("Aspected Magician")]
+    public void Skill_completion_target_evaluation_observes_saved_real_grants_independently_of_other_unmet_goals(string talent)
+    {
+        WithRealTalentSkills(talent, (_, store, resolver, service, id) =>
+        {
+            var initial = Load(service, id);
+            var native = initial.Authority.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
+            SaveCompletionSkills(service, id,
+                [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var grants = skills.PrerequisiteDraft!.TalentSelection!.GrantPlan!;
+            CharacterCreationSkillCompletionRatingTarget target;
+            if (grants.ActiveSkills.Count > 0)
+            {
+                var grant = grants.ActiveSkills[0];
+                target = new(CharacterCreationSkillKinds.Active, grant.SourceId, grant.BaseRating);
+            }
+            else
+            {
+                var grant = grants.SkillGroups[0];
+                var group = skills.Authority.SkillGroups.Single(row => row.Name == grant.CanonicalName);
+                string memberId = group.MemberSkillSourceIds.First(sourceId =>
+                    CharacterCreationSkillsAccessRules.IsSkillAvailable(skills.Authority, sourceId));
+                Assert.IsFalse(skills.Skills.Any(row => row.SourceSkillId == memberId));
+                target = new(CharacterCreationSkillKinds.Active, memberId, grant.BaseRating);
+            }
+            var unallocated = skills.Authority.ActiveSkills.First(row =>
+                CharacterCreationSkillsAccessRules.IsSkillAvailable(skills.Authority, row.SourceSkillId)
+                && !row.IsExotic && !row.RequiresGroundMovement && !row.RequiresSwimMovement && !row.RequiresFlyMovement
+                && skills.Skills.All(saved => saved.SourceSkillId != row.SourceSkillId)
+                && skills.SkillGroups.All(group => !group.MemberSkillSourceIds.Contains(row.SourceSkillId)));
+            var request = SkillCompletionRequest(attributes, skills,
+                [new(target.Kind, target.SourceId), new(CharacterCreationSkillKinds.Active, unallocated.SourceSkillId)]) with
+            {
+                ActivePointsToReserve = (int)skills.ActiveSkillPointBudget.Remaining,
+                GroupPointsToReserve = (int)skills.SkillGroupPointBudget.Remaining,
+                KnowledgePointsToReserve = (int)skills.KnowledgeSkillPointBudget.Remaining,
+                Targets = [target, new(CharacterCreationSkillKinds.Active, unallocated.SourceSkillId, 1)]
+            };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+            var plan = result.Value!;
+            CollectionAssert.Contains(plan.Blockers.ToArray(), CharacterCreationSkillCompletionBlockers.TargetsUnfulfilled);
+            Assert.IsFalse(plan.HasChanges);
+            var evaluated = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                plan.Preview, skills.Authority, skills.MovementCapability, target);
+            Assert.AreEqual(target, evaluated.Target);
+            Assert.IsTrue(evaluated.IsKnown);
+            Assert.AreEqual(target.TargetRating, evaluated.EffectiveRating,
+                "The reported rating includes the source grant without charging or adding it again.");
+            Assert.IsTrue(evaluated.IsSatisfied);
+            var unmet = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                plan.Preview, skills.Authority, skills.MovementCapability, request.Targets![1]);
+            Assert.IsTrue(unmet.IsKnown);
+            Assert.AreEqual(0, unmet.EffectiveRating);
+            Assert.IsFalse(unmet.IsSatisfied);
+            if (grants.SkillGroups.Count > 0)
+            {
+                Assert.IsFalse(plan.Preview.Skills.Any(row => row.SourceSkillId == target.SourceId));
+                var locked = skills.Authority.ActiveSkills.First(row =>
+                    !CharacterCreationSkillsAccessRules.IsSkillAvailable(skills.Authority, row.SourceSkillId));
+                var unavailable = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                    plan.Preview, skills.Authority, skills.MovementCapability,
+                    new(CharacterCreationSkillKinds.Active, locked.SourceSkillId, 1));
+                Assert.IsTrue(unavailable.IsKnown);
+                Assert.AreEqual(0, unavailable.EffectiveRating);
+                Assert.IsFalse(unavailable.IsSatisfied);
+            }
+            AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
+        });
+    }
+
+    [TestMethod]
+    public void Skill_completion_target_evaluation_distinguishes_absent_zero_native_and_unknown_source()
+    {
+        WithReadySkillsContext((store, service, id, _, _, resolver) =>
+        {
+            SaveCompletionSkills(service, id,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+            var skills = Load(service, id);
+            var attributes = new CharacterCreationAttributesService(store, resolver).Load(new(id)).Value!;
+            var before = store.Get(id).Value!;
+            var request = SkillCompletionRequest(attributes, skills, []) with { Targets = [] };
+            var result = CharacterCreationSkillCompletionPlanner.Plan(attributes, skills,
+                attributes.PendingDraft!.Allocations, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+            var preview = result.Value!.Preview;
+            CharacterCreationSkillCompletionRatingTarget[] absent =
+            [new(CharacterCreationSkillKinds.Active, ActiveIds[2], 0),
+                new(CharacterCreationSkillKinds.Knowledge, KnowledgeIds[0], 0),
+                new(CharacterCreationSkillCompletionKinds.Group, skills.Authority.SkillGroups.Single().GroupId, 0)];
+            foreach (var zeroTarget in absent)
+            {
+                var zero = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                    preview, skills.Authority, skills.MovementCapability, zeroTarget);
+                Assert.IsTrue(zero.IsKnown);
+                Assert.AreEqual(0, zero.EffectiveRating);
+                Assert.IsTrue(zero.IsSatisfied);
+                var positive = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                    preview, skills.Authority, skills.MovementCapability, zeroTarget with { TargetRating = 1 });
+                Assert.IsTrue(positive.IsKnown);
+                Assert.AreEqual(0, positive.EffectiveRating);
+                Assert.IsFalse(positive.IsSatisfied);
+            }
+            foreach (int desired in new[] { 0, 1 })
+            {
+                var native = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                    preview, skills.Authority, skills.MovementCapability,
+                    new(CharacterCreationSkillKinds.Knowledge, LanguageId, desired));
+                Assert.IsTrue(native.IsKnown);
+                Assert.IsNull(native.EffectiveRating);
+                Assert.IsFalse(native.IsSatisfied, "A native language is not a numeric zero-rating choice.");
+                var unknown = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                    preview, skills.Authority, skills.MovementCapability,
+                    new(CharacterCreationSkillKinds.Active, "not-in-authority", desired));
+                Assert.IsFalse(unknown.IsKnown);
+                Assert.IsNull(unknown.EffectiveRating);
+                Assert.IsFalse(unknown.IsSatisfied, "An unknown source cannot satisfy even a zero goal.");
+            }
+            var unknownKind = CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                preview, skills.Authority, skills.MovementCapability,
+                new("not-a-kind", ActiveIds[2], 0));
+            Assert.IsFalse(unknownKind.IsKnown);
+            Assert.IsNull(unknownKind.EffectiveRating);
+            Assert.IsFalse(unknownKind.IsSatisfied);
+            Assert.Throws<ArgumentException>(() => CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                preview, skills.Authority, skills.MovementCapability,
+                new(CharacterCreationSkillKinds.Active, ActiveIds[2], -1)));
+            Assert.Throws<ArgumentException>(() => CharacterCreationSkillCompletionPlanner.EvaluateTarget(
+                preview, skills.Authority, skills.MovementCapability,
+                new(CharacterCreationSkillKinds.Active, " ", 0)));
             AssertCompletionWorkspaceUnchanged(before, store.Get(id).Value!);
         });
     }
