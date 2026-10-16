@@ -89,16 +89,14 @@ public static class CharacterCreationCompletionTransaction
                 inputs = inputs with { Schema = CharacterCreationCompletionReviewSchemas.InputsV2, Loadout = loadout.Value };
             }
             inputs = inputs with { SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs) };
-            var evaluated = CharacterCreationCompletionFinalizationProjector.ReviewAndProject(workspace, bootstrap, inputs,
+            var evaluated = CharacterCreationCompletionFinalizationProjector.ReviewProjectAndCapture(workspace, bootstrap, inputs,
                 proposal, sourceId => TryResolveStartingCash(context, sourceId, out var source) ? source : null,
                 startingCash, cancellationToken);
             if (evaluated.Outcome != CharacterCreationFoundationOutcomes.Success || evaluated.Value is not { } prepared)
             { blockers = evaluated.Blockers; return false; }
             var cashSource = prepared.Projection.StartingCash.Source;
-            var captured = CharacterCreationSelectedCompletionEvaluator.Capture(workspace, prepared.Bootstrap,
-                prepared.Inputs, prepared.Proposal, cancellationToken);
-            if (captured.Outcome != CharacterCreationFoundationOutcomes.Success || captured.Value is not { } witness)
-            { blockers = captured.Blockers; return false; }
+            if (prepared.Witness is not { } witness)
+            { blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid]; return false; }
             var selected = ProjectSelected(workspace, prepared.Bootstrap, witness, prepared.Proposal,
                 cashSource, startingCash, cancellationToken);
             // A compact history must reproduce the entire full-source result,

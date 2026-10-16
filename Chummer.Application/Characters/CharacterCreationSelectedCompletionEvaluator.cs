@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
@@ -37,12 +38,71 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
+            var reviewed = ReviewedCompletion.Evaluate(inputs, request, cancellationToken);
+            if (reviewed.Outcome != CharacterCreationFoundationOutcomes.Success || reviewed.Value is null)
+                return new(CharacterCreationFoundationOutcomes.Blocked, null, reviewed.Blockers);
+            return reviewed.Value.Capture(original, bootstrap, cancellationToken);
+        }
+        catch (Exception error) when (IsMalformed(error))
+        { return Refuse<CharacterCreationSelectedCompletionWitness>(Invalid); }
+    }
+
+    /// <summary>
+    /// Owns one detached full evaluation. Only Evaluate can create it; callers
+    /// receive a copy of the review, never mutable access to capture's authority.
+    /// The projector consumes it locally and returns only the resulting witness.
+    /// </summary>
+    internal sealed class ReviewedCompletion
+    {
+        internal const string ActivitySourceName = "Chummer.Application.CharacterCreation.Completion";
+        private static readonly ActivitySource Activities = new(ActivitySourceName);
+        private readonly CharacterCreationCompletionReviewInputs inputs;
+        private readonly CharacterCreationCompletionReviewRequest request;
+        private readonly CharacterCreationCompletionReview review;
+
+        private ReviewedCompletion(CharacterCreationCompletionReviewInputs inputs,
+            CharacterCreationCompletionReviewRequest request, CharacterCreationCompletionReview review)
+        {
+            this.inputs = inputs;
+            this.request = request;
+            this.review = review;
+        }
+
+        internal static CharacterCreationFoundationResult<ReviewedCompletion> Evaluate(
+            CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             inputs = Detach(inputs);
             request = Detach(request);
-            var reviewed = CharacterCreationCompletionReviewService.Review(inputs, request, cancellationToken);
-            if (reviewed.Outcome != CharacterCreationFoundationOutcomes.Success || reviewed.Value is not { } review
-                || review.UpstreamBudget is null || review.Lifestyles is null)
-                return new(CharacterCreationFoundationOutcomes.Blocked, null, reviewed.Blockers);
+            // A content-free span counts actual full reviews on admission/capture,
+            // without a global counter, character identifiers or authority cache.
+            using var activity = Activities.StartActivity("Review");
+            var result = CharacterCreationCompletionReviewService.Review(inputs, request, cancellationToken);
+            return new(result.Outcome,
+                result.Outcome == CharacterCreationFoundationOutcomes.Success && result.Value is { } value
+                    ? new ReviewedCompletion(inputs, request, value) : null,
+                result.Blockers);
+        }
+
+        internal CharacterCreationCompletionReview ReviewSnapshot => Detach(review);
+
+        internal CharacterCreationFoundationResult<CharacterCreationSelectedCompletionWitness> Capture(
+            WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
+            CancellationToken cancellationToken)
+            => CaptureReviewed(original, bootstrap, inputs, request, review, cancellationToken);
+    }
+
+    private static CharacterCreationFoundationResult<CharacterCreationSelectedCompletionWitness> CaptureReviewed(
+        WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
+        CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
+        CharacterCreationCompletionReview review, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            if (review.UpstreamBudget is null || review.Lifestyles is null)
+                return new(CharacterCreationFoundationOutcomes.Blocked, null, review.Blockers);
             var choices = request.Selections;
             var originalGear = inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(row => row.OptionId).ToArray() ?? [];
             if (!CharacterCreationQualitiesRules.TryCaptureSelectedAuthority(inputs.Lifestyles.Qualities.Authority,

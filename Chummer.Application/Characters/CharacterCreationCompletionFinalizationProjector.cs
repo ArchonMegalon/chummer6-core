@@ -33,14 +33,14 @@ public static class CharacterCreationCompletionFinalizationProjector
         ArgumentNullException.ThrowIfNull(review);
         ArgumentNullException.ThrowIfNull(startingCashSource);
         var evaluated = EvaluateAndProject(original, bootstrap, inputs, review.Request,
-            _ => startingCashSource, cashChoice, review, cancellationToken);
+            _ => startingCashSource, cashChoice, review, captureWitness: false, cancellationToken);
         return new(evaluated.Outcome, evaluated.Value?.Projection, evaluated.Blockers);
     }
 
     /// <summary>
-    /// Evaluates an owned observation once, then projects those exact rows. The
-    /// source callback receives only the admitted lifestyle source ID, never a
-    /// mutable review. This does not establish current mutation authority.
+    /// Evaluates and projects a full envelope without imposing selected-witness
+    /// semantics on historical V2 archives. This does not establish current
+    /// mutation authority.
     /// </summary>
     internal static CharacterCreationFoundationResult<EvaluatedProjection> ReviewAndProject(
         WorkspaceStoredDocument original,
@@ -51,16 +51,30 @@ public static class CharacterCreationCompletionFinalizationProjector
         CharacterCreationStartingCashChoice? cashChoice,
         CancellationToken cancellationToken = default)
         => EvaluateAndProject(original, bootstrap, inputs, proposal, resolveStartingCash,
-            cashChoice, null, cancellationToken);
+            cashChoice, null, captureWitness: false, cancellationToken);
 
-    // The full-review entry point retains the detached authority for the transaction,
-    // not an evaluator token which could bypass later replay or source admission.
+    // Live admission alone captures the selected witness from this call's full
+    // evaluation. Older full-envelope archives retain their original replay path.
+    internal static CharacterCreationFoundationResult<EvaluatedProjection> ReviewProjectAndCapture(
+        WorkspaceStoredDocument original,
+        CharacterCreationCompletionBootstrapSnapshot bootstrap,
+        CharacterCreationCompletionReviewInputs inputs,
+        CharacterCreationCompletionReviewRequest proposal,
+        Func<Guid?, CharacterCreationStartingNuyenSource?> resolveStartingCash,
+        CharacterCreationStartingCashChoice? cashChoice,
+        CancellationToken cancellationToken = default)
+        => EvaluateAndProject(original, bootstrap, inputs, proposal, resolveStartingCash,
+            cashChoice, null, captureWitness: true, cancellationToken);
+
+    // Only detached snapshots and the independently replayed witness leave this
+    // call. The full evaluation is never an input to another operation.
     internal sealed record EvaluatedProjection(
         CharacterCreationCompletionReviewInputs Inputs,
         CharacterCreationCompletionBootstrapSnapshot Bootstrap,
         CharacterCreationCompletionReviewRequest Proposal,
         Guid? StartingLifestyleSourceId,
-        CharacterCreationCompletionFinalizationProjection Projection);
+        CharacterCreationCompletionFinalizationProjection Projection,
+        CharacterCreationSelectedCompletionWitness? Witness);
 
     // Internal graph inputs are evaluated rows, not a saved draft, a full review,
     // or save authority. A selected-history caller must first authenticate the
@@ -135,6 +149,7 @@ public static class CharacterCreationCompletionFinalizationProjector
         Func<Guid?, CharacterCreationStartingNuyenSource?> resolveStartingCash,
         CharacterCreationStartingCashChoice? cashChoice,
         CharacterCreationCompletionReview? suppliedReview,
+        bool captureWitness,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(original);
@@ -156,10 +171,11 @@ public static class CharacterCreationCompletionFinalizationProjector
             {
                 State = original.Document.State with { AuxiliaryState = Detach(original.Document.AuxiliaryState) }
             } };
-            var replay = CharacterCreationCompletionReviewService.Review(inputs, proposal, cancellationToken);
+            var replay = CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.Evaluate(
+                inputs, proposal, cancellationToken);
             if (replay.Outcome != CharacterCreationFoundationOutcomes.Success || replay.Value is null)
                 return new(replay.Outcome, null, replay.Blockers);
-            var review = replay.Value;
+            var review = replay.Value.ReviewSnapshot;
             if (!MatchesOriginal(original, bootstrap, inputs))
                 return Refused(CharacterCreationCompletionFinalizationSchemas.ObservationConflict,
                     CharacterCreationFoundationOutcomes.Conflict);
@@ -195,8 +211,17 @@ public static class CharacterCreationCompletionFinalizationProjector
                 new FullAwakenedGraphInputs(inputs.Magic, review.UpstreamBudget.Magic))
                 { Loadout = review.Loadout };
             var projected = ProjectEvaluated(graph, startingCashSource, cashChoice, cancellationToken);
+            CharacterCreationSelectedCompletionWitness? witness = null;
+            if (captureWitness && projected.Outcome == CharacterCreationFoundationOutcomes.Success
+                && projected.Value is not null)
+            {
+                var captured = replay.Value.Capture(original, bootstrap, cancellationToken);
+                if (captured.Outcome != CharacterCreationFoundationOutcomes.Success || captured.Value is null)
+                    return new(captured.Outcome, null, captured.Blockers);
+                witness = captured.Value;
+            }
             return new(projected.Outcome, projected.Value is null ? null :
-                new(inputs, bootstrap, review.Request, startingLifestyleSourceId, projected.Value), projected.Blockers);
+                new(inputs, bootstrap, review.Request, startingLifestyleSourceId, projected.Value, witness), projected.Blockers);
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
             or OverflowException or XmlException or ArgumentException or FormatException or JsonException)
