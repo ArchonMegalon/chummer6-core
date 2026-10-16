@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -34,7 +35,7 @@ public sealed class CharacterCreationPurchaseCompletionPlannerTests
         request = request with { Targets = targets, StartingLifestyleId = home.LifestyleId,
             MaximumAdditionalSpend = cheap.PackageCost + 2000m, NuyenToReserve = funding - cheap.PackageCost - 2000m };
         var files = Snapshot(context);
-        var result = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, request);
+        var result = AssertMatchesFresh(inputs, magic, request);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
         var plan = result.Value!;
         Assert.IsNotNull(plan);
@@ -79,18 +80,18 @@ public sealed class CharacterCreationPurchaseCompletionPlannerTests
         request = request with { Targets = [new(new(larger.OptionId, 1)), new(new(cheap.OptionId, 1))],
             NuyenToReserve = funding - cheap.PackageCost, MaximumAdditionalSpend = cheap.PackageCost };
         var files = Snapshot(context);
-        var reserve = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, request).Value!;
+        var reserve = AssertMatchesFresh(inputs, magic, request).Value!;
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.ReserveRequired, reserve.Targets[0].Outcome);
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.Added, reserve.Targets[1].Outcome);
         Assert.AreEqual(cheap.PackageCost, reserve.AdditionalSpend);
-        var spend = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, request with { NuyenToReserve = 0 }).Value!;
+        var spend = AssertMatchesFresh(inputs, magic, request with { NuyenToReserve = 0 }).Value!;
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.SpendLimit, spend.Targets[0].Outcome);
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.Added, spend.Targets[1].Outcome);
-        var zero = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic,
+        var zero = AssertMatchesFresh(inputs, magic,
             request with { NuyenToReserve = 0, MaximumAdditionalSpend = 0 }).Value!;
         Assert.AreEqual(0, zero.Gear.Count);
         Assert.AreEqual(0m, zero.AdditionalSpend);
-        var capped = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic,
+        var capped = AssertMatchesFresh(inputs, magic,
             request with { MaximumEvaluations = 1 }).Value!;
         Assert.AreEqual(1, capped.Evaluations);
         Assert.IsTrue(capped.Targets.All(row => row.Outcome == CharacterCreationPurchaseCompletionTargetOutcomes.WorkLimit));
@@ -116,6 +117,8 @@ public sealed class CharacterCreationPurchaseCompletionPlannerTests
     public void Purchase_plan_preserves_exact_saved_gear_and_lifestyle_configuration_and_history()
     {
         using var context = ReadyContext.Create(true, buildMethod: CharacterCreationBuildMethods.Priority);
+        var (beforeInputs, beforeMagic) = Load(context);
+        var beforePlan = AssertMatchesFresh(beforeInputs, beforeMagic, Request(beforeInputs, beforeMagic)).Value!;
         var gearService = new CharacterCreationGearService(context.Store, context.Resolver);
         var gearState = gearService.Load(new(context.WorkspaceId)).Value!;
         var item = gearState.Authority.Options.First(row => row.IsSelectable && row.PackageCost > 0
@@ -146,9 +149,11 @@ public sealed class CharacterCreationPurchaseCompletionPlannerTests
             Targets = [new(new(item.OptionId, 1)), new(new(item.OptionId, 2)),
                 new(Lifestyle: storedHome), new(Lifestyle: storedHome with { Increments = 2 })] };
         var files = Snapshot(cold);
-        var result = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, request);
+        var result = AssertMatchesFresh(inputs, magic, request);
         var plan = result.Value!;
         Assert.IsNotNull(plan, string.Join(",", result.Blockers));
+        Assert.AreEqual(beforePlan.Preview.Gear.Resources.Budget.KnownPurchaseCost + item.PackageCost + 2000m,
+            plan.Preview.Gear.Resources.Budget.KnownPurchaseCost);
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.AlreadyPresent, plan.Targets[0].Outcome);
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.ExistingSelectionLocked, plan.Targets[1].Outcome);
         Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.AlreadyPresent, plan.Targets[2].Outcome);
@@ -263,6 +268,133 @@ public sealed class CharacterCreationPurchaseCompletionPlannerTests
         return new(Guid.Parse("1b2516ca-404b-429a-9f67-bd1ecf6fdcb5"), low.OptionId, "Planner apartment",
             CharacterCreationLifestyleStyleIds.Standard, low.DefaultIncrementId, 1, 100m, 0,
             false, false, 0, 0, 0, 0, "Seattle", "", "", []);
+    }
+
+    [TestMethod]
+    public void Purchase_preparation_rejects_changed_authority_source_owner_revision_and_manual_baseline()
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var (inputs, magic) = Load(context);
+        var request = Request(inputs, magic);
+        var files = Snapshot(context);
+        var original = AssertMatchesFresh(inputs, magic, request);
+        Assert.IsNotNull(original.Value);
+        var source = inputs.Authority with
+        {
+            SourceDigest = CharacterCreationLifestylesRules.ComputeIdempotencyKeyDigest("changed-purchase-source")
+        };
+        source = source with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(source) };
+        foreach (var changed in new[]
+        {
+            inputs with { Authority = source },
+            inputs with { Authority = inputs.Authority with { TrustFundLevel = 1 } },
+            inputs with { Binding = inputs.Binding with { WorkspaceId = new("another-purchase-owner") } },
+            inputs with { Binding = inputs.Binding with { ContentRevision = inputs.Binding.ContentRevision + 1 } },
+            inputs with { Binding = inputs.Binding with { SavedRevision = inputs.Binding.SavedRevision + 1 } },
+            inputs with { Lifestyles = [Home(inputs.Authority)] }
+        })
+        {
+            // Even a freshly sealed outer envelope cannot reuse the last Plan's
+            // admitted source, owner/revision or retained purchase observation.
+            var resealed = changed with { SnapshotDigest = CharacterCreationLifestylesCompletionRules.ComputeInputsDigest(changed) };
+            var denied = AssertMatchesFresh(resealed, magic,
+                request with { LifestylesSnapshotDigest = resealed.SnapshotDigest });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, denied.Outcome);
+            Assert.IsNull(denied.Value);
+            CollectionAssert.Contains(denied.Blockers.ToArray(), CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+        }
+        var invested = AssertMatchesFresh(inputs, magic, request with { TotalKarmaInvestment = 1 }).Value!;
+        Assert.IsNotNull(invested);
+        Assert.AreEqual(1, invested.Preview.Gear.Resources.SelectedOption.KarmaInvestment);
+        Assert.IsTrue(invested.Preview.Gear.Resources.Budget.TotalStartingNuyen
+            > original.Value!.Preview.Gear.Resources.Budget.TotalStartingNuyen);
+        Assert.AreEqual(original.Value.PlanDigest, AssertMatchesFresh(inputs, magic, request).Value!.PlanDigest);
+        AssertUnchanged(context, files);
+    }
+
+    [TestMethod]
+    public void Purchase_preparation_is_detached_and_cancellation_does_not_escape_into_the_next_call()
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var (inputs, magic) = Load(context);
+        var options = inputs.Gear.State.Authority.Options.ToArray();
+        var originalOption = options[0];
+        inputs = inputs with { Gear = inputs.Gear with { State = inputs.Gear.State with
+        {
+            Authority = inputs.Gear.State.Authority with { Options = options }
+        } } };
+        var cheap = inputs.Gear.State.Authority.Options.First(row => row.IsSelectable
+            && row.PackageCost is > 0m and < 100m && row.PackageQuantity == 1);
+        CharacterCreationPurchaseCompletionTarget[] targets = [new(new(cheap.OptionId, 1))];
+        var request = Request(inputs, magic) with { Targets = targets, MaximumAdditionalSpend = cheap.PackageCost };
+        var files = Snapshot(context);
+        var expected = AssertMatchesFresh(inputs, magic, request);
+        int calls = 0;
+        var detached = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, null, request, true, () =>
+        {
+            calls++;
+            targets[0] = new(new("not-a-source-option", 1));
+            options[0] = originalOption with { PackageCost = originalOption.PackageCost + 1m };
+        });
+        Assert.AreEqual(1, calls);
+        Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(detached));
+        Assert.IsNull(AssertMatchesFresh(inputs, magic, request).Value,
+            "A later Plan must reject the mutated source snapshot instead of retaining the previous funding.");
+        options[0] = originalOption;
+        // The next Plan must see the changed request, not the previous session.
+        var changed = AssertMatchesFresh(inputs, magic, request);
+        Assert.AreEqual(CharacterCreationPurchaseCompletionTargetOutcomes.Unavailable, changed.Value!.Targets.Single().Outcome);
+        targets[0] = new(new(cheap.OptionId, 1));
+
+        foreach (bool reuse in new[] { true, false })
+        {
+            using var cancellation = new CancellationTokenSource();
+            calls = 0;
+            bool canceled = false;
+            try
+            {
+                CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, null, request, reuse, () =>
+                {
+                    calls++;
+                    cancellation.Cancel();
+                }, cancellation.Token);
+            }
+            catch (OperationCanceledException) { canceled = true; }
+            Assert.IsTrue(canceled, "Cancellation after the real upstream evaluation must stop before returning a plan.");
+            Assert.AreEqual(1, calls);
+            Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(AssertMatchesFresh(inputs, magic, request)));
+        }
+        AssertUnchanged(context, files);
+    }
+
+    internal static CharacterCreationFoundationResult<CharacterCreationPurchaseCompletionPlan> AssertMatchesFresh(
+        CharacterCreationLifestylesCompletionInputs inputs, CharacterCreationMagicResonanceCompletionInputs magic,
+        CharacterCreationPurchaseCompletionRequest request, CharacterCreationLoadoutCompletionInputs? loadout = null)
+    {
+        int reusedCalls = 0, freshCalls = 0;
+        var actual = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, loadout, request, true, () => reusedCalls++);
+        var fresh = CharacterCreationPurchaseCompletionPlanner.Plan(inputs, magic, loadout, request, false, () => freshCalls++);
+        Assert.AreEqual(JsonSerializer.Serialize(fresh), JsonSerializer.Serialize(actual),
+            "Complete outcomes, blockers, selections, nested budgets and all digests must match fresh evaluation.");
+        if (actual.Value is { } plan)
+        {
+            Assert.AreEqual(1, reusedCalls, "Exactly one real upstream budget evaluation per admitted Plan.");
+            Assert.IsTrue(freshCalls >= reusedCalls && freshCalls <= plan.Evaluations);
+            if (loadout is null)
+                Assert.AreEqual(plan.Evaluations, freshCalls, "Fresh gear/lifestyle probes each evaluate their own upstream budget.");
+            var equipment = loadout is null ? null
+                : CharacterCreationLoadoutCompletionService.Preview(loadout, plan.Loadout!).Value;
+            var independent = CharacterCreationLifestylesService.PreviewCompletion(inputs, magic,
+                request.AttributeAllocations, request.MagicSelections, request.QualityOptionIds,
+                request.TotalKarmaInvestment, plan.Gear, plan.Lifestyles, plan.StartingLifestyleId, equipment);
+            Assert.AreEqual(JsonSerializer.Serialize(independent.Value), JsonSerializer.Serialize(plan.Preview));
+            Assert.AreEqual(plan.PlanDigest, CharacterCreationPurchaseCompletionRules.ComputePlanDigest(plan));
+        }
+        else
+            Assert.AreEqual(freshCalls, reusedCalls);
+        return actual;
     }
 
     private static Dictionary<string, byte[]> Snapshot(ReadyContext context)

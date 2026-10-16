@@ -76,14 +76,39 @@ public sealed partial class CharacterCreationGearService
         ArgumentNullException.ThrowIfNull(basket);
         cancellationToken.ThrowIfCancellationRequested();
         inputs = DetachCompletion(inputs);
+        magicInputs = DetachCompletion(magicInputs);
+        qualitiesInputs = DetachCompletion(qualitiesInputs);
+        attributeAllocations = attributeAllocations.ToArray();
+        magicSelections = DetachCompletion(magicSelections);
+        qualityOptionIds = qualityOptionIds.ToArray();
         basket = basket.ToArray();
+        var prepared = PrepareDetachedCompletionPreview(inputs, magicInputs, qualitiesInputs, attributeAllocations,
+            magicSelections, qualityOptionIds, totalKarmaInvestment, cancellationToken);
+        return prepared.Value is { } session ? session.Preview(basket, cancellationToken)
+            : new(prepared.Outcome, null, prepared.Blockers);
+    }
+
+    // Same preparation/session boundary as Skills completion. Callers own these
+    // detached inputs; neither the session nor its funding can be rebound.
+    internal static CharacterCreationGearResult<CompletionPreviewSession> PrepareDetachedCompletionPreview(
+        CharacterCreationGearCompletionInputs inputs,
+        CharacterCreationMagicResonanceCompletionInputs magicInputs,
+        CharacterCreationQualitiesCompletionInputs qualitiesInputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CharacterCreationMagicResonanceSelections magicSelections,
+        IReadOnlyList<string> qualityOptionIds,
+        int totalKarmaInvestment,
+        CancellationToken cancellationToken,
+        Action? upstreamBudgetEvaluated = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsValidCompletionInputs(inputs))
-            return Blocked<CharacterCreationGearCompletionProjection>(CharacterCreationGearOutcomes.Blocked,
+            return Blocked<CompletionPreviewSession>(CharacterCreationGearOutcomes.Blocked,
                 CharacterCreationGearBlockers.AuthorityUnavailable);
 
-        var resources = CharacterCreationResourcesService.PreviewCompletion(inputs.Resources,
+        var resources = CharacterCreationResourcesService.PreviewDetachedCompletion(inputs.Resources,
             magicInputs, qualitiesInputs, attributeAllocations, magicSelections, qualityOptionIds,
-            totalKarmaInvestment, cancellationToken);
+            totalKarmaInvestment, cancellationToken, upstreamBudgetEvaluated);
         if (resources.Value is not { } funding)
             return new(resources.Outcome == CharacterCreationResourcesOutcomes.Conflict
                     ? CharacterCreationGearOutcomes.Conflict
@@ -91,29 +116,43 @@ public sealed partial class CharacterCreationGearService
                         ? CharacterCreationGearOutcomes.Invalid : CharacterCreationGearOutcomes.Blocked,
                 null, Normalize(resources.Blockers.Append(CharacterCreationGearCompletionSchemas.UpstreamBudgetUnavailable)));
 
-        cancellationToken.ThrowIfCancellationRequested();
-        CharacterCreationGearRules.TryProjectBasket(basket, inputs.State.Authority,
-            funding.Budget.TotalStartingNuyen, out var lines, out var budget, out var basketBlockers);
-        // Only a complete source-priced basket may supersede the original
-        // purchase observation. Invalid/partial baskets remain blocked without
-        // manufacturing an exact replacement cost for Resources.
-        if (basketBlockers.All(blocker => blocker == CharacterCreationGearBlockers.InsufficientFunds))
-            funding = CharacterCreationResourcesService.RepriceCompletionPurchases(
-                inputs.Resources, funding, budget.BasketCost);
-        string[] blockers = Normalize(funding.Blockers.Concat(basketBlockers));
-        string[] anchors = lines.SelectMany(line => line.SourceAnchorIds)
-            .Concat(CharacterCreationGearSourceAnchors.All).Distinct(StringComparer.Ordinal)
-            .OrderBy(anchor => anchor, StringComparer.Ordinal).ToArray();
-        var projection = new CharacterCreationGearCompletionProjection(
-            CharacterCreationGearCompletionSchemas.ProjectionV1, inputs.State.Binding,
-            inputs.SnapshotDigest, funding, lines, budget, anchors, blockers, string.Empty);
-        projection = projection with
+        return new(CharacterCreationGearOutcomes.Available, new CompletionPreviewSession(inputs, funding), []);
+    }
+
+    internal sealed class CompletionPreviewSession(
+        CharacterCreationGearCompletionInputs inputs,
+        CharacterCreationResourcesCompletionProjection originalFunding)
+    {
+        internal CharacterCreationGearResult<CharacterCreationGearCompletionProjection> Preview(
+            IReadOnlyList<CharacterCreationGearSelection> basket, CancellationToken cancellationToken)
         {
-            ProposalDigest = CharacterCreationGearCompletionRules.ComputeProjectionDigest(projection)
-        };
-        cancellationToken.ThrowIfCancellationRequested();
-        return new(blockers.Length == 0 ? CharacterCreationGearOutcomes.Available : CharacterCreationGearOutcomes.Blocked,
-            DetachCompletion(projection), blockers);
+            ArgumentNullException.ThrowIfNull(basket);
+            basket = basket.ToArray();
+            var funding = originalFunding;
+            cancellationToken.ThrowIfCancellationRequested();
+            CharacterCreationGearRules.TryProjectBasket(basket, inputs.State.Authority,
+                funding.Budget.TotalStartingNuyen, out var lines, out var budget, out var basketBlockers);
+            // Only a complete source-priced basket may supersede the original
+            // purchase observation. Invalid/partial baskets remain blocked without
+            // manufacturing an exact replacement cost for Resources.
+            if (basketBlockers.All(blocker => blocker == CharacterCreationGearBlockers.InsufficientFunds))
+                funding = CharacterCreationResourcesService.RepriceCompletionPurchases(
+                    inputs.Resources, funding, budget.BasketCost);
+            string[] blockers = Normalize(funding.Blockers.Concat(basketBlockers));
+            string[] anchors = lines.SelectMany(line => line.SourceAnchorIds)
+                .Concat(CharacterCreationGearSourceAnchors.All).Distinct(StringComparer.Ordinal)
+                .OrderBy(anchor => anchor, StringComparer.Ordinal).ToArray();
+            var projection = new CharacterCreationGearCompletionProjection(
+                CharacterCreationGearCompletionSchemas.ProjectionV1, inputs.State.Binding,
+                inputs.SnapshotDigest, funding, lines, budget, anchors, blockers, string.Empty);
+            projection = projection with
+            {
+                ProposalDigest = CharacterCreationGearCompletionRules.ComputeProjectionDigest(projection)
+            };
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(blockers.Length == 0 ? CharacterCreationGearOutcomes.Available : CharacterCreationGearOutcomes.Blocked,
+                DetachCompletion(projection), blockers);
+        }
     }
 
     private static bool IsValidCompletionInputs(CharacterCreationGearCompletionInputs inputs)

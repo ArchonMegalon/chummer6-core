@@ -263,8 +263,8 @@ public sealed class CharacterCreationPurchaseLoadoutCompletionPlannerTests
 
     private static CharacterCreationFoundationResult<CharacterCreationPurchaseCompletionPlan> Plan(
         Fixture fixture, CharacterCreationPurchaseCompletionRequest request)
-        => CharacterCreationPurchaseCompletionPlanner.Plan(fixture.Lifestyles, fixture.Magic, fixture.Loadout,
-            request, CancellationToken.None);
+        => CharacterCreationPurchaseCompletionPlannerTests.AssertMatchesFresh(fixture.Lifestyles, fixture.Magic,
+            request, fixture.Loadout);
 
     private static Dictionary<string, byte[]> Snapshot(ReadyContext context)
         => Directory.EnumerateFiles(context.Directory, "*", SearchOption.AllDirectories).ToDictionary(

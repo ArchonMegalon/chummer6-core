@@ -23,6 +23,18 @@ public static class CharacterCreationPurchaseCompletionPlanner
         CharacterCreationLoadoutCompletionInputs? loadoutInputs,
         CharacterCreationPurchaseCompletionRequest request,
         CancellationToken cancellationToken = default)
+        => Plan(inputs, magicInputs, loadoutInputs, request, true, null, cancellationToken);
+
+    // The fresh path and per-call observation let Core equivalence tests count
+    // actual upstream evaluations without global instrumentation or fake budgets.
+    internal static CharacterCreationFoundationResult<CharacterCreationPurchaseCompletionPlan> Plan(
+        CharacterCreationLifestylesCompletionInputs inputs,
+        CharacterCreationMagicResonanceCompletionInputs magicInputs,
+        CharacterCreationLoadoutCompletionInputs? loadoutInputs,
+        CharacterCreationPurchaseCompletionRequest request,
+        bool reusePreparation,
+        Action? upstreamBudgetEvaluated,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(magicInputs);
@@ -62,6 +74,7 @@ public static class CharacterCreationPurchaseCompletionPlanner
             new CharacterCreationGearSelection(line.OptionId, line.Quantity)).ToList() ?? [];
         var lifestyles = inputs.Lifestyles.ToList();
         var loadout = loadoutInputs?.OriginalSelections;
+        CharacterCreationLifestylesService.CompletionPreviewSession? session = null;
         var original = Evaluate(gear, lifestyles, loadout);
         int evaluations = 1;
         if (original.Value is not { } current || !Admissible(current))
@@ -179,8 +192,21 @@ public static class CharacterCreationPurchaseCompletionPlanner
                 if (priced.Value is null) return new(CharacterCreationLifestyleOutcomes.Blocked, null, priced.Blockers);
                 projection = priced.Value;
             }
-            return CharacterCreationLifestylesService.PreviewCompletion(inputs, magicInputs, request.AttributeAllocations,
-                request.MagicSelections, request.QualityOptionIds, request.TotalKarmaInvestment, basket, homes,
+            // Preserve the ordinary admission order, including malformed homes
+            // and unavailable typed loadouts, before preparing invariant budgets.
+            if (!CharacterCreationKarmaLifestylesRules.TryFreeze(homes, out var frozen))
+                return new(CharacterCreationLifestyleOutcomes.Invalid, null,
+                    [CharacterCreationLifestylesBlockers.InvalidMutation]);
+            if (session is null || !reusePreparation)
+            {
+                var prepared = CharacterCreationLifestylesService.PrepareDetachedCompletionPreview(
+                    inputs, magicInputs, request.AttributeAllocations, request.MagicSelections,
+                    request.QualityOptionIds, request.TotalKarmaInvestment, cancellationToken, upstreamBudgetEvaluated);
+                if (prepared.Value is not { } admitted)
+                    return new(prepared.Outcome, null, prepared.Blockers);
+                session = admitted;
+            }
+            return session.Preview(basket, frozen,
                 homes.Any(row => row.LifestyleId == request.StartingLifestyleId) ? request.StartingLifestyleId : null,
                 projection, cancellationToken);
         }
