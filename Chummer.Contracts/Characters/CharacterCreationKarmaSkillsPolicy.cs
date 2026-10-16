@@ -31,6 +31,7 @@ public sealed record CharacterCreationKarmaSkillsPolicy(
     string AuthorityDigest)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_skills_policy.v1";
+    public const string PriorityPurchaseSchemaV1 = "chummer.character_creation_priority_skill_karma_policy.v1";
     public const string LifeModulesSchemaV1 = "chummer.character_creation_life_module_skills_policy.v1";
 
     // SR5 groups use the active-skill creation cap, not a separate fixed six.

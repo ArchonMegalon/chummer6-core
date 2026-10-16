@@ -365,6 +365,15 @@ public sealed record CharacterCreationSkillProjection(
     /// never spendable points. Zero is omitted to preserve existing draft bytes.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public int GrantedRating { get; init; }
+
+    /// <summary>Personal levels paid with Karma, already included in Rating.
+    /// PointCost still describes only point-funded levels and specializations.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int KarmaLevels { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int KarmaCost { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool KarmaSpecialization { get; init; }
 }
 
 public sealed record CharacterCreationSkillGroupProjection(
@@ -396,7 +405,11 @@ public sealed record CharacterCreationSkillsBinding(
     string RuntimeDigest,
     string ContributionInputsDigest);
 
-public sealed record CharacterCreationSkillsLoadRequest(CharacterWorkspaceId WorkspaceId);
+public sealed record CharacterCreationSkillsLoadRequest(CharacterWorkspaceId WorkspaceId)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IncludeKarmaPurchasePolicy { get; init; }
+}
 
 public sealed record CharacterCreationSkillsPreviewRequest(
     CharacterCreationSkillsBinding Binding,

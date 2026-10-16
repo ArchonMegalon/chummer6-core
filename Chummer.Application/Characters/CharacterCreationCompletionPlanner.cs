@@ -39,7 +39,9 @@ public static partial class CharacterCreationCompletionPlanner
             TotalKarmaInvestment = request.TotalKarmaInvestment,
             StartingLifestyleId = request.StartingLifestyleId,
             ChangeableAttributeIds = request.Attributes.PermittedAttributeOrder,
-            ChangeableSkillTargets = request.Skills.PermittedTargetOrder
+            ChangeableSkillTargets = request.Skills.PermittedTargetOrder,
+            SkillKarmaPurchases = request.SkillKarmaPurchases ?? original.SkillKarmaPurchases,
+            KarmaToReserve = request.SkillKarmaPurchases is null && original.SkillKarmaPurchases is null ? 0 : request.KarmaToReserve
         };
         var preservation = CharacterCreationCompletionPreservationRules.Check(inputs, choices);
         if (preservation.Count != 0) return new(CharacterCreationFoundationOutcomes.Blocked, null, preservation);
@@ -77,19 +79,34 @@ public static partial class CharacterCreationCompletionPlanner
             if (skills is not null)
                 choices = choices with { SkillAllocations = skills.Allocations, GroupAllocations = skills.GroupAllocations };
 
-            // Contact costs depend on the proposed CHA and Qualities. Price them
-            // before PP, and reserve them plus the FULL explicit investment.
-            // The admitted Priority Skills path spends points, not Karma; the
-            // final whole review independently prices the supported domains.
+            // Price explicit skill purchases and contacts before Power Points;
+            // reserve them plus the full investment and the shared final reserve.
+            int? skillKarmaCost = 0;
+            if (choices.SkillKarmaPurchases is not null)
+            {
+                var quote = CharacterCreationSkillsService.PreviewCompletionPurchases(inputs.Skills,
+                    choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations,
+                    choices.SkillKarmaPurchases, cancellationToken);
+                if (Terminal(quote.Outcome)) return new(quote.Outcome, null, quote.Blockers);
+                findings.AddRange(quote.Blockers);
+                skillKarmaCost = quote.Value?.Skills.Sum(row => row.KarmaCost);
+                if (skills is not null && quote.Value is not null)
+                {
+                    skills = skills with { Preview = quote.Value, HasChanges = skills.HasChanges || choices.SkillKarmaPurchases.Count > 0,
+                        PlanDigest = string.Empty };
+                    skills = skills with { PlanDigest = CharacterCreationSkillsDigest.Compute(skills) };
+                }
+            }
             var contactResult = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
                 choices.AttributeAllocations, choices.QualityOptionIds, choices.Contacts, cancellationToken);
             if (contactResult.Outcome == CharacterCreationContactOutcomes.Conflict)
                 return new(CharacterCreationFoundationOutcomes.Conflict, null, contactResult.Blockers);
             findings.AddRange(contactResult.Blockers);
             int? reserve = null;
-            if (contactResult.Value is { Blockers.Count: 0, AdditionalKarmaCost: int contactCost } && contactCost >= 0)
+            if (contactResult.Value is { Blockers.Count: 0, AdditionalKarmaCost: int contactCost } && contactCost >= 0
+                && skillKarmaCost is >= 0)
             {
-                try { reserve = checked(request.KarmaToReserve + contactCost + request.TotalKarmaInvestment); }
+                try { reserve = checked(request.KarmaToReserve + contactCost + request.TotalKarmaInvestment + skillKarmaCost.Value); }
                 catch (OverflowException) { /* unavailable is not a zero reserve */ }
             }
             if (reserve is null) findings.Add(CharacterCreationCompletionPlanBlockers.KarmaReserveUnavailable);
@@ -183,13 +200,15 @@ public static partial class CharacterCreationCompletionPlanner
             inputs.Skills.Allocations, inputs.Skills.GroupAllocations, inputs.Magic.Selections,
             inputs.Lifestyles.Qualities.SelectedOptionIds, inputs.Lifestyles.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0,
             inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity)).ToArray() ?? [],
-            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles, null) { Loadout = inputs.Loadout?.OriginalSelections };
+            inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles, null) { Loadout = inputs.Loadout?.OriginalSelections,
+                SkillKarmaPurchases = inputs.Skills.KarmaPurchasePolicy is null ? null : [] };
         return true;
     }
 
     private static bool ValidRequest(CharacterCreationCompletionPlanRequest request)
         => request is { Attributes: { PermittedAttributeOrder: not null }, Skills: { PermittedTargetOrder: not null },
                 Magic: { ManualSelections: not null }, QualityOptionIds: not null, Contacts: not null, Purchases: not null }
+            && CharacterCreationSkillsService.IsCompletionPurchaseShapeValid(request.SkillKarmaPurchases)
             && request.Attributes.MaximumAdditionalKarmaSpend >= 0
             && (request.Attributes.KarmaTargets is null || request.Attributes.KarmaTargets.Count <= 13
                 && request.Attributes.KarmaTargets.All(target => target is not null && target.TargetUnaugmentedRating >= 0))

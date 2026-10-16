@@ -523,7 +523,7 @@ public static class CharacterCreationFinalizationProjector
             AddDelta(deltas, ref order, $"skill:{skill.Kind}:{skill.SourceSkillId}",
                 CharacterCreationFinalizationDeltaKinds.Skill, skill.SourceSkillId,
                 null, skill.IsNativeLanguage ? "native" : skill.EffectiveRating?.ToString(CultureInfo.InvariantCulture),
-                0, 0, skill.SourceAnchorIds,
+                skill.KarmaCost, 0, skill.SourceAnchorIds,
                 skill.SpecializationName is { Length: > 0 } specialization
                     ? $"{skill.Name} ({specialization})" : skill.Name);
         }
@@ -666,9 +666,10 @@ public static class CharacterCreationFinalizationProjector
                 : Guid.Empty),
             new XElement("isknowledge", skill.Kind == CharacterCreationSkillKinds.Knowledge),
             new XElement("skillcategory", skill.Category),
-            new XElement("karma", 0),
-            new XElement("base", skill.IsNativeLanguage ? 0 : checked(skill.EffectiveRating.GetValueOrDefault() - skill.GrantedRating)),
+            new XElement("karma", skill.KarmaLevels),
+            new XElement("base", skill.IsNativeLanguage ? 0 : checked(skill.EffectiveRating.GetValueOrDefault() - skill.GrantedRating - skill.KarmaLevels)),
             new XElement("notes"));
+        if (skill.KarmaSpecialization) node.Add(new XElement("buywithkarma", "True"));
         if (skill.SpecializationName is not null)
         {
             node.Add(new XElement("specs",

@@ -18,9 +18,10 @@ public static class CharacterCreationCompletionReviewService
         inputs = Detach(inputs);
         request = Detach(request);
         if (!HasSelectionsShape(request.Selections)
-            || (inputs.Loadout is null) != (request.Selections.Loadout is null))
+            || (inputs.Loadout is null) != (request.Selections.Loadout is null)
+            || (inputs.Skills?.KarmaPurchasePolicy is null) != (request.Selections.SkillKarmaPurchases is null))
             return Refused(CharacterCreationFoundationOutcomes.Invalid, CharacterCreationCompletionReviewSchemas.RequestInvalid);
-        if (!HasInputsShape(inputs)
+        if (inputs.Skills is null || !HasInputsShape(inputs)
             || inputs.Schema != (inputs.Loadout is null ? CharacterCreationCompletionReviewSchemas.InputsV1
                 : CharacterCreationCompletionReviewSchemas.InputsV2)
             || !SameDigest(inputs.SnapshotDigest, CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs)))
@@ -36,8 +37,8 @@ public static class CharacterCreationCompletionReviewService
             if (loadoutResult.Value is null) return new(loadoutResult.Outcome, null, loadoutResult.Blockers);
             loadout = loadoutResult.Value;
         }
-        var skillsResult = CharacterCreationSkillsService.PreviewWithProposedAttributes(inputs.Skills,
-            choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, cancellationToken);
+        var skillsResult = CharacterCreationSkillsService.PreviewCompletionPurchases(inputs.Skills,
+            choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, choices.SkillKarmaPurchases, cancellationToken);
         var lifestylesResult = CharacterCreationLifestylesService.PreviewCompletion(inputs.Lifestyles, inputs.Magic,
             choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, choices.TotalKarmaInvestment,
             choices.Gear, choices.Lifestyles, choices.StartingLifestyleId, loadout, cancellationToken);
@@ -51,6 +52,12 @@ public static class CharacterCreationCompletionReviewService
                     upstream, upstream.Blockers)
                 : CharacterCreationCompletionBudgetService.Preview(inputs.Magic, inputs.Lifestyles.Qualities,
                     choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, cancellationToken);
+        if (choices.SkillKarmaPurchases is { Count: > 0 } && upstreamResult.Value is { } priced
+            && CharacterCreationSkillsService.HasUnsupportedCompletionSkillModifiers(
+                priced.Qualities.Qualities.Selections.Select(row => row.SourceNodeXml)
+                    .Concat((inputs.Magic.SelectedTalent.GrantedQualitySources ?? []).Select(row => row.CanonicalSourceXml))))
+            skillsResult = new(CharacterCreationFoundationOutcomes.Blocked, null,
+                [CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported]);
         var contactsResult = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
             choices.AttributeAllocations, choices.QualityOptionIds, choices.Contacts, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -68,6 +75,8 @@ public static class CharacterCreationCompletionReviewService
         blockers.AddRange(CharacterCreationCompletionPreservationRules.Check(inputs, choices));
         var balances = BuildBalances(inputs, skillsResult.Value, upstreamResult.Value,
             lifestylesResult.Value, contactsResult.Value, blockers, loadout);
+        if (choices.KarmaToReserve > 0 && (balances.RemainingCreationKarma is not int remaining || remaining < choices.KarmaToReserve))
+            blockers.Add(CharacterCreationCompletionPlanBlockers.KarmaReserveRequired);
         string[] normalized = Normalize(blockers);
         var review = new CharacterCreationCompletionReview(loadout is null ? CharacterCreationCompletionReviewSchemas.ReviewV1
                 : CharacterCreationCompletionReviewSchemas.ReviewV2,
@@ -89,9 +98,8 @@ public static class CharacterCreationCompletionReviewService
         CharacterCreationLoadoutCompletionProjection? loadout)
     {
         var resources = lifestyles?.Gear.Resources;
-        // The supported Priority Skills allocation contract has point costs only.
-        // Knowledge overflow is additional active POINT use, not paid Karma.
-        int? skillsKarma = skills is null ? null : 0;
+        // Point-funded and granted levels are excluded by the exact skill quote.
+        int? skillsKarma = skills is null ? null : skills.Skills.Sum(row => row.KarmaCost);
         int? contactKarma = contacts?.AdditionalKarmaCost;
         int? remaining = null;
         int? overspend = null;
@@ -249,6 +257,7 @@ public static class CharacterCreationCompletionReviewService
         => choices is { AttributeAllocations: not null, SkillAllocations: not null, GroupAllocations: not null,
                 QualityOptionIds: not null, Gear: not null, Contacts: not null, Lifestyles: not null,
                 ChangeableAttributeIds: not null, ChangeableSkillTargets: not null }
+            && choices.KarmaToReserve >= 0
             && choices.AttributeAllocations.Count <= 32 && choices.SkillAllocations.Count <= 65_536
             && choices.GroupAllocations.Count <= 65_536 && choices.QualityOptionIds.Count <= 65_536
             && choices.Gear.Count <= 65_536
@@ -260,6 +269,7 @@ public static class CharacterCreationCompletionReviewService
             && choices.Gear.All(value => value is not null)
             && choices.Contacts.All(value => value is not null)
             && choices.Lifestyles.All(value => value is not null)
+            && CharacterCreationSkillsService.IsCompletionPurchaseShapeValid(choices.SkillKarmaPurchases)
             && HasMagicShape(choices.MagicSelections)
             && (choices.Loadout is null || CharacterCreationLoadoutCompletionService.IsValidSelections(choices.Loadout));
 

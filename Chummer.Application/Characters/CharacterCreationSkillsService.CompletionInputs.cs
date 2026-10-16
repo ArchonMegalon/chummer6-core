@@ -65,10 +65,19 @@ public sealed partial class CharacterCreationSkillsService
             groups = grants.InitialGroups(source.Authority).Select(group =>
                 new CharacterCreationSkillGroupAllocation(group.GroupId, group.Rating)).ToArray();
         }
+        CharacterCreationKarmaSkillsPolicy? karmaPolicy = null;
+        if (request.IncludeKarmaPurchasePolicy)
+        {
+            var context = _resolver.TryCreateContext(workspace.Document.Content);
+            if (context is null || !context.TryResolveCreationPrioritySkillKarmaPolicy(out karmaPolicy)
+                || !IsCompletionKarmaPolicyValid(karmaPolicy, source.Authority))
+                return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
+                    CharacterCreationSkillKarmaPurchaseBlockers.PolicyUnavailable);
+        }
         var inputs = new CharacterCreationSkillsCompletionInputs(CharacterCreationSkillsCompletionSchemas.InputsV1,
             binding, attributes, source.Authority, source.Prerequisite, allocations, groups, source.Contributions,
             source.ActiveTotal, source.GroupTotal, source.Movement, SnapshotDigest: string.Empty)
-            { SavedSkillsState = savedSkills };
+            { SavedSkillsState = savedSkills, KarmaPurchasePolicy = karmaPolicy };
         inputs = inputs with { SnapshotDigest = CharacterCreationSkillsDigest.Compute(inputs) };
         return new(CharacterCreationFoundationOutcomes.Success,
             JsonSerializer.Deserialize<CharacterCreationSkillsCompletionInputs>(JsonSerializer.SerializeToUtf8Bytes(inputs))!, []);

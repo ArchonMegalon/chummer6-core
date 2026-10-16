@@ -31,4 +31,7 @@ public sealed record CharacterCreationSkillsCompletionInputs(
     // silently treating an existing character as an empty initial allocation.
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationSkillsState? SavedSkillsState { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaSkillsPolicy? KarmaPurchasePolicy { get; init; }
 }

@@ -36,7 +36,8 @@ public sealed class OwnerBoundCharacterCreationCompletionService(
                 if (!read.Success || read.Value is not { } original)
                     return CashRejected(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
                 var loaded = OwnerBoundCharacterCreationCompletionReader.LoadFromObservation(
-                    view, resolver, characterQueries, new(workspaceId), cancellationToken,
+                    view, resolver, characterQueries, new(workspaceId)
+                        { IncludeKarmaPurchasePolicy = proposal.Selections.SkillKarmaPurchases is not null }, cancellationToken,
                     includeLoadout: proposal.Selections.Loadout is not null);
                 if (loaded.Outcome != CharacterCreationFoundationOutcomes.Success || loaded.Value is not { } inputs)
                     return new(loaded.Outcome, null, loaded.Blockers);

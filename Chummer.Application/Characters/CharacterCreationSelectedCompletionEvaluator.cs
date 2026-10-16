@@ -159,10 +159,13 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 || baseline is null || effects is null || !MatchesGrantedQualities(witness))
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(HistoryMismatch);
             var choices = request.Selections;
+            if (choices.KarmaToReserve < 0
+                || (witness.Skills.KarmaPurchasePolicy is null) != (choices.SkillKarmaPurchases is null))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(HistoryMismatch);
             var preservation = CharacterCreationCompletionPreservationRules.Check(witness.Skills, baseline, choices);
             if (preservation.Count != 0) return new(CharacterCreationFoundationOutcomes.Blocked, null, preservation);
-            var skillsResult = CharacterCreationSkillsService.PreviewWithProposedAttributes(witness.Skills,
-                choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, cancellationToken);
+            var skillsResult = CharacterCreationSkillsService.PreviewCompletionPurchases(witness.Skills,
+                choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, choices.SkillKarmaPurchases, cancellationToken);
             if (skillsResult.Value is not { } skills || skillsResult.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, skillsResult.Blockers);
             var session = CharacterCreationAttributesService.CreateDraftSession(witness.Skills.Attributes);
@@ -183,6 +186,11 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 || originalQualities is null || qualities is null
                 || originalQualities.Blockers.Count != 0 || qualities.Blockers.Count != 0)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid);
+            if (choices.SkillKarmaPurchases is { Count: > 0 }
+                && CharacterCreationSkillsService.HasUnsupportedCompletionSkillModifiers(
+                    qualities.Selections.Select(row => row.SourceNodeXml)
+                        .Concat((witness.Magic.Talent.GrantedQualitySources ?? []).Select(row => row.CanonicalSourceXml))))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
             var magicResult = CharacterCreationMagicResonanceService.EvaluateSelectedMagic(witness.Magic,
                 witness.Skills.PrerequisiteDraft, originalAttributes.Attributes, skills.Attributes.Attributes, cancellationToken);
             if (magicResult.Value is not { } magic || magicResult.Blockers.Count != 0)
@@ -237,11 +245,14 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 witness.ContactsSourceProvenanceSeed, []), cancellationToken);
             if (contactResult.Value is not { AdditionalKarmaCost: int contactCost } contacts || contactResult.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, contactResult.Blockers);
-            int remaining = checked(resources.RemainingCreationKarma - contactCost);
+            int skillCost = skills.Skills.Sum(row => row.KarmaCost);
+            int remaining = checked(resources.RemainingCreationKarma - contactCost - skillCost);
             if (contactCost < 0 || remaining < 0)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
+            if (remaining < choices.KarmaToReserve)
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationCompletionPlanBlockers.KarmaReserveRequired);
             var balances = new CharacterCreationCompletionPoolBalances(witness.Skills.PrerequisiteDraft.CreationKarmaTotal,
-                qualities.KarmaRemaining, 0, magic.Proposed.MysticAdeptPowerPoints?.KarmaCost ?? 0,
+                qualities.KarmaRemaining, skillCost, magic.Proposed.MysticAdeptPowerPoints?.KarmaCost ?? 0,
                 resources.SelectedOption.KarmaInvestment, contactCost, remaining, 0,
                 resources.Budget.TotalStartingNuyen, gearBudget.BasketCost, lifestylePrice.FullLifestyleCost,
                 resources.Budget.RemainingNuyen, resources.Budget.Overspend)
