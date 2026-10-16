@@ -119,70 +119,120 @@ public sealed partial class CharacterCreationLifestylesService
         magicSelections = DetachCompletion(magicSelections);
         qualityOptionIds = qualityOptionIds.ToArray();
         basket = basket.ToArray();
+        var prepared = PrepareDetachedCompletionPreview(inputs, magicInputs, attributeAllocations,
+            magicSelections, qualityOptionIds, totalKarmaInvestment, cancellationToken);
+        return prepared.Value is { } session
+            ? session.Preview(basket, frozen, startingLifestyleId, loadout, cancellationToken)
+            : new(prepared.Outcome, null, prepared.Blockers);
+    }
+
+    // Only private copies admitted for this call enter this preparation boundary.
+    // Attribute/magic/quality choices and investment are invariant here. Gear,
+    // Lifestyle effects/costs and loadout costs remain independently priced for
+    // every cumulative basket; this session grants no save/finalization authority.
+    internal static CharacterCreationLifestyleResult<CompletionPreviewSession> PrepareDetachedCompletionPreview(
+        CharacterCreationLifestylesCompletionInputs inputs,
+        CharacterCreationMagicResonanceCompletionInputs magicInputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CharacterCreationMagicResonanceSelections magicSelections,
+        IReadOnlyList<string> qualityOptionIds,
+        int totalKarmaInvestment,
+        CancellationToken cancellationToken,
+        Action? upstreamBudgetEvaluated = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsValidCompletionInputs(inputs))
-            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
+            return Blocked<CompletionPreviewSession>(CharacterCreationLifestyleOutcomes.Blocked,
                 CharacterCreationLifestylesBlockers.AuthorityUnavailable);
 
-        var gearResult = CharacterCreationGearService.PreviewCompletion(inputs.Gear, magicInputs, inputs.Qualities,
-            attributeAllocations, magicSelections, qualityOptionIds, totalKarmaInvestment, basket, cancellationToken);
+        var gearResult = CharacterCreationGearService.PrepareDetachedCompletionPreview(inputs.Gear, magicInputs, inputs.Qualities,
+            attributeAllocations, magicSelections, qualityOptionIds, totalKarmaInvestment, cancellationToken,
+            upstreamBudgetEvaluated);
         if (gearResult.Value is not { } gear)
             return new(gearResult.Outcome == CharacterCreationGearOutcomes.Conflict
                     ? CharacterCreationLifestyleOutcomes.Conflict : CharacterCreationLifestyleOutcomes.Blocked,
                 null, Normalize(gearResult.Blockers.Append(CharacterCreationLifestylesCompletionSchemas.UpstreamBudgetUnavailable)));
-        // Insufficient funds is still an exactly source-priced full basket.
-        // Any other basket failure must not be repriced as a valid partial list.
-        if (gear.Budget.Blockers.Any(blocker => blocker != CharacterCreationGearBlockers.InsufficientFunds))
-            return new(CharacterCreationLifestyleOutcomes.Blocked, null, gear.Blockers);
-        if (loadout is not null && (loadout.Blockers.Count != 0 || loadout.PurchaseCost < 0m
-                || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)))
-            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
-                CharacterCreationLoadoutCompletionSchemas.AuthorityUnavailable);
-        decimal loadoutCost = loadout?.PurchaseCost ?? inputs.Gear.Resources.LoadoutDraft?.PurchaseCost ?? 0m;
-        if (loadoutCost > gear.Budget.RemainingNuyen)
-            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
-                CharacterCreationResourcesBlockers.InsufficientNuyen);
-        IReadOnlyList<string> purchaseAnchors = loadout is null ? gear.SourceAnchorIds : gear.SourceAnchorIds
-            .Concat(loadout.Lines.SelectMany(row => row.SourceAnchorIds))
-            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        // Gear evaluated these same detached inputs through Resources and the
-        // completion budget. Its admitted graph already owns the quality preview.
-        cancellationToken.ThrowIfCancellationRequested();
-        var qualities = gear.Resources.UpstreamBudget.Qualities;
-        var pricing = PriceSelectedCompletion(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
-            magicInputs.SelectedTalent.GrantedQualitySources ?? [], qualities.Qualities.Selections,
-            qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen - loadoutCost,
-            purchaseAnchors, gear.Blockers), cancellationToken);
-        if (pricing.Value is not { } priced)
-            return new(pricing.Outcome, null, pricing.Blockers);
+        return new(CharacterCreationLifestyleOutcomes.Available, new CompletionPreviewSession(inputs, magicInputs, gear), []);
+    }
 
-        CharacterCreationResourcesCompletionProjection funding;
-        try
+    internal sealed class CompletionPreviewSession(
+        CharacterCreationLifestylesCompletionInputs inputs,
+        CharacterCreationMagicResonanceCompletionInputs magicInputs,
+        CharacterCreationGearService.CompletionPreviewSession gearSession)
+    {
+        internal CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionProjection> Preview(
+            IReadOnlyList<CharacterCreationGearSelection> basket,
+            IReadOnlyList<CharacterCreationLifestyleConfiguration> lifestyles,
+            Guid? startingLifestyleId,
+            CharacterCreationLoadoutCompletionProjection? loadout,
+            CancellationToken cancellationToken)
         {
-            funding = CharacterCreationResourcesService.RepriceCompletionPurchases(inputs.Gear.Resources,
-                gear.Resources, gear.Budget.BasketCost, priced.FullLifestyleCost, loadoutCost);
+            ArgumentNullException.ThrowIfNull(basket);
+            ArgumentNullException.ThrowIfNull(lifestyles);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!CharacterCreationKarmaLifestylesRules.TryFreeze(lifestyles, out var frozen))
+                return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Invalid,
+                    CharacterCreationLifestylesBlockers.InvalidMutation);
+            var gearResult = gearSession.Preview(basket, cancellationToken);
+            if (gearResult.Value is not { } gear)
+                return new(gearResult.Outcome == CharacterCreationGearOutcomes.Conflict
+                        ? CharacterCreationLifestyleOutcomes.Conflict : CharacterCreationLifestyleOutcomes.Blocked,
+                    null, Normalize(gearResult.Blockers.Append(CharacterCreationLifestylesCompletionSchemas.UpstreamBudgetUnavailable)));
+            // Insufficient funds is still an exactly source-priced full basket.
+            // Any other basket failure must not be repriced as a valid partial list.
+            if (gear.Budget.Blockers.Any(blocker => blocker != CharacterCreationGearBlockers.InsufficientFunds))
+                return new(CharacterCreationLifestyleOutcomes.Blocked, null, gear.Blockers);
+            if (loadout is not null && (loadout.Blockers.Count != 0 || loadout.PurchaseCost < 0m
+                    || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)))
+                return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
+                    CharacterCreationLoadoutCompletionSchemas.AuthorityUnavailable);
+            decimal loadoutCost = loadout?.PurchaseCost ?? inputs.Gear.Resources.LoadoutDraft?.PurchaseCost ?? 0m;
+            if (loadoutCost > gear.Budget.RemainingNuyen)
+                return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
+                    CharacterCreationResourcesBlockers.InsufficientNuyen);
+            IReadOnlyList<string> purchaseAnchors = loadout is null ? gear.SourceAnchorIds : gear.SourceAnchorIds
+                .Concat(loadout.Lines.SelectMany(row => row.SourceAnchorIds))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            // Gear evaluated these same detached inputs through Resources and the
+            // completion budget. Its admitted graph already owns the quality preview.
+            cancellationToken.ThrowIfCancellationRequested();
+            var qualities = gear.Resources.UpstreamBudget.Qualities;
+            var pricing = PriceSelectedCompletion(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
+                magicInputs.SelectedTalent.GrantedQualitySources ?? [], qualities.Qualities.Selections,
+                qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen - loadoutCost,
+                purchaseAnchors, gear.Blockers), cancellationToken);
+            if (pricing.Value is not { } priced)
+                return new(pricing.Outcome, null, pricing.Blockers);
+
+            CharacterCreationResourcesCompletionProjection funding;
+            try
+            {
+                funding = CharacterCreationResourcesService.RepriceCompletionPurchases(inputs.Gear.Resources,
+                    gear.Resources, gear.Budget.BasketCost, priced.FullLifestyleCost, loadoutCost);
+            }
+            catch (OverflowException)
+            {
+                return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
+                    CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            }
+            // Rebuild rather than keep the superseded old-Lifestyle funding shortage.
+            // All upstream rules and exact Gear basket failures are retained.
+            string[] gearBlockers = Normalize(funding.Blockers.Concat(gear.Budget.Blockers));
+            gear = gear with { Resources = funding, Blockers = gearBlockers, ProposalDigest = string.Empty };
+            gear = gear with { ProposalDigest = CharacterCreationGearCompletionRules.ComputeProjectionDigest(gear) };
+            string[] normalized = Normalize(priced.Blockers.Concat(gearBlockers));
+            var projection = new CharacterCreationLifestylesCompletionProjection(
+                CharacterCreationLifestylesCompletionSchemas.ProjectionV1, inputs.Binding, inputs.SnapshotDigest,
+                gear, qualities, priced.Authority, priced.Lifestyles, startingLifestyleId, priced.Budget,
+                priced.SourceAnchorIds, normalized, string.Empty);
+            projection = projection with
+            {
+                ProposalDigest = CharacterCreationLifestylesCompletionRules.ComputeProjectionDigest(projection)
+            };
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(normalized.Length == 0 ? CharacterCreationLifestyleOutcomes.Available : CharacterCreationLifestyleOutcomes.Blocked,
+                DetachCompletion(projection), normalized);
         }
-        catch (OverflowException)
-        {
-            return Blocked<CharacterCreationLifestylesCompletionProjection>(CharacterCreationLifestyleOutcomes.Blocked,
-                CharacterCreationLifestylesBlockers.AuthorityUnavailable);
-        }
-        // Rebuild rather than keep the superseded old-Lifestyle funding shortage.
-        // All upstream rules and exact Gear basket failures are retained.
-        string[] gearBlockers = Normalize(funding.Blockers.Concat(gear.Budget.Blockers));
-        gear = gear with { Resources = funding, Blockers = gearBlockers, ProposalDigest = string.Empty };
-        gear = gear with { ProposalDigest = CharacterCreationGearCompletionRules.ComputeProjectionDigest(gear) };
-        string[] normalized = Normalize(priced.Blockers.Concat(gearBlockers));
-        var projection = new CharacterCreationLifestylesCompletionProjection(
-            CharacterCreationLifestylesCompletionSchemas.ProjectionV1, inputs.Binding, inputs.SnapshotDigest,
-            gear, qualities, priced.Authority, priced.Lifestyles, startingLifestyleId, priced.Budget,
-            priced.SourceAnchorIds, normalized, string.Empty);
-        projection = projection with
-        {
-            ProposalDigest = CharacterCreationLifestylesCompletionRules.ComputeProjectionDigest(projection)
-        };
-        cancellationToken.ThrowIfCancellationRequested();
-        return new(normalized.Length == 0 ? CharacterCreationLifestyleOutcomes.Available : CharacterCreationLifestyleOutcomes.Blocked,
-            DetachCompletion(projection), normalized);
     }
 
     /// <summary>

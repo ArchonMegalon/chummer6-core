@@ -95,6 +95,25 @@ public sealed partial class CharacterCreationResourcesService
         attributeAllocations = attributeAllocations.ToArray();
         magicSelections = DetachCompletion(magicSelections);
         qualityOptionIds = qualityOptionIds.ToArray();
+        return PreviewDetachedCompletion(resourcesInputs, magicInputs, qualitiesInputs, attributeAllocations,
+            magicSelections, qualityOptionIds, totalKarmaInvestment, cancellationToken);
+    }
+
+    // Only the completion services' private, detached observations enter here.
+    // The purchase planner retains this invariant funding result for one Plan;
+    // every changed basket still passes through RepriceCompletionPurchases.
+    internal static CharacterCreationResourcesResult<CharacterCreationResourcesCompletionProjection> PreviewDetachedCompletion(
+        CharacterCreationResourcesCompletionInputs resourcesInputs,
+        CharacterCreationMagicResonanceCompletionInputs magicInputs,
+        CharacterCreationQualitiesCompletionInputs qualitiesInputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        CharacterCreationMagicResonanceSelections magicSelections,
+        IReadOnlyList<string> qualityOptionIds,
+        int totalKarmaInvestment,
+        CancellationToken cancellationToken,
+        Action? upstreamBudgetEvaluated = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsValidCompletionInputs(resourcesInputs))
             return Blocked<CharacterCreationResourcesCompletionProjection>(CharacterCreationResourcesOutcomes.Blocked,
                 CharacterCreationResourcesBlockers.AuthorityUnavailable);
@@ -104,6 +123,8 @@ public sealed partial class CharacterCreationResourcesService
 
         var upstreamResult = CharacterCreationCompletionBudgetService.Preview(magicInputs, qualitiesInputs,
             attributeAllocations, magicSelections, qualityOptionIds, cancellationToken);
+        upstreamBudgetEvaluated?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
         if (upstreamResult.Value is not { AvailableKarmaBeforeResources: int available } upstream)
             return new(upstreamResult.Outcome == CharacterCreationFoundationOutcomes.Conflict
                     ? CharacterCreationResourcesOutcomes.Conflict : CharacterCreationResourcesOutcomes.Blocked, null,
