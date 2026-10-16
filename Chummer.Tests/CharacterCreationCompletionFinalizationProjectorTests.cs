@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -12,6 +13,7 @@ using ReadyContext = Chummer.Tests.CharacterCreationFinalizationServiceTests.Rea
 namespace Chummer.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class CharacterCreationCompletionFinalizationProjectorTests
 {
     [TestMethod]
@@ -60,12 +62,15 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
         var repeated = Project(fixture);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, repeated.Outcome, string.Join(",", repeated.Blockers));
         Assert.AreEqual(JsonSerializer.Serialize(projection), JsonSerializer.Serialize(repeated.Value));
+        int fullReviews = 0;
+        using var listener = ListenForFullReviews(() => fullReviews++);
         // The internal prepared path must produce the identical projection, not
         // accept a caller's evaluated rows or manufacture a different authority.
         Assert.IsTrue(CharacterCreationCompletionTransaction.TryAdmit(context.Store, OwnerScope.LocalSingleUser,
             fixture.Original, context.Resolver, context.Queries, fixture.Review.Request,
             new(fixture.Cash.AuthorityDigest, fixture.Cash.Dice * 3), default,
             out var authority, out var prepared, out var blockers), string.Join(",", blockers));
+        Assert.AreEqual(1, fullReviews, "One admission must not repeat its full review during witness capture.");
         Assert.AreEqual(JsonSerializer.Serialize(projection), JsonSerializer.Serialize(prepared));
         Assert.IsNotNull(authority);
         Assert.AreEqual(CharacterCreationCompletionAuthority.SchemaV3, authority.Schema);
@@ -81,6 +86,18 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
         Assert.AreEqual(fixture.Review.ReviewDigest, witness.ProvenanceReviewDigest);
         Assert.AreEqual(JsonSerializer.Serialize(fixture.Inputs.Skills), JsonSerializer.Serialize(witness.Skills));
         Assert.AreEqual(JsonSerializer.Serialize(fixture.Review.Request), JsonSerializer.Serialize(authority.Proposal));
+        var independent = CharacterCreationSelectedCompletionEvaluator.Capture(fixture.Original, fixture.Bootstrap,
+            fixture.Inputs, fixture.Review.Request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, independent.Outcome, string.Join(",", independent.Blockers));
+        Assert.AreEqual(2, fullReviews, "Standalone Capture must still perform its own full review.");
+        Assert.AreEqual(JsonSerializer.Serialize(independent.Value), JsonSerializer.Serialize(witness));
+        Assert.IsTrue(CharacterCreationCompletionTransaction.TryAdmit(context.Store, OwnerScope.LocalSingleUser,
+            fixture.Original, context.Resolver, context.Queries, fixture.Review.Request,
+            new(fixture.Cash.AuthorityDigest, fixture.Cash.Dice * 3), default,
+            out var freshAuthority, out var freshProjection, out var freshBlockers), string.Join(",", freshBlockers));
+        Assert.AreEqual(3, fullReviews, "A later admission must review afresh even with identical inputs.");
+        Assert.AreEqual(JsonSerializer.Serialize(authority), JsonSerializer.Serialize(freshAuthority));
+        Assert.AreEqual(JsonSerializer.Serialize(prepared), JsonSerializer.Serialize(freshProjection));
         // Reprice decoded historical inputs independently. These are selected
         // witnesses, not a fabricated complete input/review envelope.
         var historical = CharacterCreationSelectedCompletionEvaluator.Replay(fixture.Original,
@@ -99,9 +116,101 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
             new(fixture.Cash.AuthorityDigest, fixture.Cash.Dice * 3), default,
             out _, out var staleProjection, out var staleBlockers));
         Assert.IsNull(staleProjection);
+        Assert.AreEqual(4, fullReviews);
         CollectionAssert.Contains(staleBlockers.ToArray(), CharacterCreationCompletionReviewSchemas.SnapshotConflict);
         Assert.AreEqual(original, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
         AssertFiles(context, files);
+    }
+
+    [TestMethod]
+    public void Standalone_capture_revalidates_malformed_stale_and_blocked_proposals_and_cancellation()
+    {
+        using var context = CharacterCreationCompletionReviewServiceTests.CreateSavedContext();
+        var fixture = Capture(context);
+        var files = Files(context);
+        int fullReviews = 0;
+        using var listener = ListenForFullReviews(() => fullReviews++);
+        var invalidDigest = "sha256:" + new string('0', 64);
+        foreach (var (inputs, request) in new[]
+        {
+            (fixture.Inputs, fixture.Review.Request with { Selections = null! }),
+            (fixture.Inputs, fixture.Review.Request with { InputsSnapshotDigest = invalidDigest }),
+            (fixture.Inputs with { SnapshotDigest = invalidDigest }, fixture.Review.Request),
+            (fixture.Inputs, fixture.Review.Request with
+            {
+                Selections = fixture.Review.Request.Selections with { TotalKarmaInvestment = int.MaxValue }
+            }),
+            (fixture.Inputs, fixture.Review.Request with
+            {
+                Selections = fixture.Review.Request.Selections with
+                {
+                    MagicSelections = fixture.Review.Request.Selections.MagicSelections with
+                    { MysticAdeptPowerPoints = int.MaxValue }
+                }
+            })
+        })
+        {
+            var expected = CharacterCreationCompletionReviewService.Review(inputs, request);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, expected.Outcome);
+            var captured = CharacterCreationSelectedCompletionEvaluator.Capture(fixture.Original, fixture.Bootstrap,
+                inputs, request);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, captured.Outcome);
+            Assert.IsNull(captured.Value);
+            CollectionAssert.AreEqual(expected.Blockers.ToArray(), captured.Blockers.ToArray());
+        }
+        Assert.AreEqual(5, fullReviews);
+        Assert.Throws<OperationCanceledException>(() => CharacterCreationSelectedCompletionEvaluator.Capture(
+            fixture.Original, fixture.Bootstrap, fixture.Inputs, fixture.Review.Request, new CancellationToken(true)));
+        Assert.AreEqual(5, fullReviews, "Pre-canceled capture must not start a review.");
+        var valid = CharacterCreationSelectedCompletionEvaluator.Capture(fixture.Original, fixture.Bootstrap,
+            fixture.Inputs, fixture.Review.Request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, valid.Outcome, string.Join(",", valid.Blockers));
+        Assert.AreEqual(6, fullReviews);
+        AssertFiles(context, files);
+    }
+
+    [TestMethod]
+    public void Reviewed_capture_owns_its_review_and_still_rejects_a_different_original()
+    {
+        using var context = ReadyContext.Create(true);
+        var fixture = Capture(context);
+        var files = Files(context);
+        var evaluated = CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.Evaluate(
+            fixture.Inputs, fixture.Review.Request, default);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, evaluated.Outcome, string.Join(",", evaluated.Blockers));
+        Assert.IsNotNull(evaluated.Value);
+        var exposed = evaluated.Value.ReviewSnapshot;
+        ((ICollection<string>)exposed.Blockers).Add("mutated-review-copy");
+        Assert.AreEqual(0, evaluated.Value.ReviewSnapshot.Blockers.Count);
+        var wrongOriginal = fixture.Original with { ContentRevision = fixture.Original.ContentRevision + 1 };
+        var rejected = evaluated.Value.Capture(wrongOriginal, fixture.Bootstrap, default);
+        Assert.IsNull(rejected.Value);
+        CollectionAssert.Contains(rejected.Blockers.ToArray(), CharacterCreationSelectedCompletionEvaluator.HistoryMismatch);
+        var captured = evaluated.Value.Capture(fixture.Original, fixture.Bootstrap, default);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, captured.Outcome, string.Join(",", captured.Blockers));
+        var independent = CharacterCreationSelectedCompletionEvaluator.Capture(fixture.Original, fixture.Bootstrap,
+            fixture.Inputs, fixture.Review.Request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, independent.Outcome);
+        Assert.AreEqual(JsonSerializer.Serialize(independent.Value), JsonSerializer.Serialize(captured.Value));
+        AssertFiles(context, files);
+    }
+
+    private static ActivityListener ListenForFullReviews(Action onReview)
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            SampleUsingParentId = (ref ActivityCreationOptions<string> _) => ActivitySamplingResult.AllData,
+            ActivityStarted = activity =>
+            {
+                Assert.AreEqual("Review", activity.OperationName);
+                Assert.IsFalse(activity.TagObjects.Any(), "Review diagnostics must not contain character or source data.");
+                onReview();
+            }
+        };
+        ActivitySource.AddActivityListener(listener);
+        return listener;
     }
 
     [TestMethod]
@@ -110,11 +219,20 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
         using var context = ReadyContext.Create(true);
         var fixture = Capture(context);
         var files = Files(context);
+        var fullEnvelope = CharacterCreationCompletionFinalizationProjector.ReviewAndProject(
+            fixture.Original, fixture.Bootstrap, fixture.Inputs, fixture.Review.Request,
+            _ => fixture.Cash, new(fixture.Cash.AuthorityDigest, fixture.Cash.Dice * 3));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, fullEnvelope.Outcome,
+            string.Join(",", fullEnvelope.Blockers));
+        Assert.IsNotNull(fullEnvelope.Value);
+        Assert.IsNull(fullEnvelope.Value.Witness,
+            "Historical V2 full envelopes must not acquire selected-witness validation requirements.");
         var projected = Project(fixture);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, projected.Outcome,
             string.Join(",", projected.Blockers));
         Assert.IsNotNull(projected.Value);
         var projection = projected.Value;
+        Assert.AreEqual(JsonSerializer.Serialize(projection), JsonSerializer.Serialize(fullEnvelope.Value.Projection));
         var authority = new CharacterCreationCompletionAuthority(CharacterCreationCompletionAuthority.SchemaV2,
             fixture.Original.Document.Content, JsonSerializer.SerializeToElement(fixture.Bootstrap), fixture.Inputs,
             fixture.Review.Request, fixture.Cash, projection.StartingCash.Choice, string.Empty);
