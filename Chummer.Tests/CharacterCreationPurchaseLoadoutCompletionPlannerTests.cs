@@ -237,6 +237,69 @@ public sealed class CharacterCreationPurchaseLoadoutCompletionPlannerTests
         AssertUnchanged(context, files);
     }
 
+    [TestMethod]
+    public void Prepared_loadout_catalog_preserves_fresh_basket_results_and_negative_admission()
+    {
+        using var context = CharacterCreationCompletionReviewServiceTests.CreateSavedContext();
+        var fixture = Load(context);
+        var files = Snapshot(context);
+        var session = CharacterCreationLoadoutRules.CreateProjectionSession(fixture.Loadout.Authority);
+        Assert.IsNotNull(session);
+        var unsupported = fixture.Loadout.Authority.Options.First(row => !row.IsSelectable
+            && row.Kind == CharacterCreationLoadoutKinds.Weapon);
+        CharacterCreationLoadoutSelections?[] baskets =
+        [
+            null, CharacterCreationLoadoutSelections.Empty,
+            new([new(fixture.Weapon.OptionId)], [new(fixture.Armor.OptionId)]),
+            new([new(fixture.Armor.OptionId)], []),
+            new([new(unsupported.OptionId)], []),
+            new([new("weapon:missing")], []),
+            new([new(fixture.Weapon.OptionId, 0)], []),
+            new([new(fixture.Weapon.OptionId, fixture.Loadout.Authority.MaximumQuantityPerLine + 1)], []),
+            new([new(fixture.Weapon.OptionId), new(fixture.Weapon.OptionId)], []),
+            new([], [new(fixture.Armor.OptionId, 2)])
+        ];
+        foreach (var basket in baskets)
+        {
+            bool expected = CharacterCreationLoadoutRules.TryProjectBasket(basket, fixture.Loadout.Authority,
+                out var expectedLines, out var expectedCost, out var expectedBlockers);
+            bool actual = session.TryProjectBasket(basket, out var lines, out var cost, out var blockers);
+            Assert.AreEqual(expected, actual);
+            Assert.AreEqual(expectedCost, cost);
+            CollectionAssert.AreEqual(expectedBlockers, blockers);
+            CollectionAssert.AreEqual(JsonSerializer.SerializeToUtf8Bytes(expectedLines),
+                JsonSerializer.SerializeToUtf8Bytes(lines));
+        }
+        Assert.IsNull(CharacterCreationLoadoutRules.CreateProjectionSession(null));
+        Assert.IsNull(CharacterCreationLoadoutRules.CreateProjectionSession(
+            fixture.Loadout.Authority with { AuthorityDigest = "stale" }));
+        AssertUnchanged(context, files);
+    }
+
+    [TestMethod]
+    public void Prepared_loadout_catalog_detaches_caller_inputs_and_returned_source_references()
+    {
+        using var context = CharacterCreationCompletionReviewServiceTests.CreateSavedContext();
+        var fixture = Load(context);
+        var files = Snapshot(context);
+        var options = fixture.Loadout.Authority.Options.ToArray();
+        var authority = fixture.Loadout.Authority with { Options = options };
+        var session = CharacterCreationLoadoutRules.CreateProjectionSession(authority);
+        Assert.IsNotNull(session);
+        var basket = new CharacterCreationLoadoutSelections([new(fixture.Weapon.OptionId)], []);
+        Assert.IsTrue(session.TryProjectBasket(basket, out var first, out decimal price, out _));
+        byte[] expected = JsonSerializer.SerializeToUtf8Bytes(first);
+        int index = Array.FindIndex(options, row => row.OptionId == fixture.Weapon.OptionId);
+        options[index] = options[index] with { UnitCost = options[index].UnitCost + 1m };
+        Assert.IsNull(CharacterCreationLoadoutRules.CreateProjectionSession(authority),
+            "A later operation must re-admit its own source bytes, never reuse this session by identity.");
+        ((IList<string>)first[0].SourceAnchorIds)[0] = "caller-mutated-reference";
+        Assert.IsTrue(session.TryProjectBasket(basket, out var second, out decimal secondPrice, out _));
+        Assert.AreEqual(price, secondPrice);
+        CollectionAssert.AreEqual(expected, JsonSerializer.SerializeToUtf8Bytes(second));
+        AssertUnchanged(context, files);
+    }
+
     private sealed record Fixture(CharacterCreationLifestylesCompletionInputs Lifestyles,
         CharacterCreationMagicResonanceCompletionInputs Magic, CharacterCreationLoadoutCompletionInputs Loadout,
         CharacterCreationPurchaseCompletionRequest Request, CharacterCreationLoadoutCatalogOption Weapon,

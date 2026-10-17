@@ -71,6 +71,43 @@ public static class CharacterCreationLoadoutCompletionService
         return new(CharacterCreationFoundationOutcomes.Success, BuildProjection(selections, lines, cost, inputs.PendingDraft?.Instances), []);
     }
 
+    internal static CompletionPreviewSession? PrepareCompletionPreview(CharacterCreationLoadoutCompletionInputs inputs)
+    {
+        var frozen = Detach(inputs);
+        if (!IsValidInputs(frozen)) return null;
+        var catalog = CharacterCreationLoadoutRules.CreateProjectionSession(frozen.Authority);
+        return catalog is null ? null : new(frozen, catalog);
+    }
+
+    internal sealed class CompletionPreviewSession
+    {
+        private readonly CharacterCreationLoadoutCompletionInputs _inputs;
+        private readonly CharacterCreationLoadoutRules.ProjectionSession _catalog;
+
+        internal CompletionPreviewSession(CharacterCreationLoadoutCompletionInputs inputs,
+            CharacterCreationLoadoutRules.ProjectionSession catalog)
+        {
+            _inputs = inputs;
+            _catalog = catalog;
+        }
+
+        internal CharacterCreationFoundationResult<CharacterCreationLoadoutCompletionProjection> Preview(
+            CharacterCreationLoadoutSelections selections)
+        {
+            selections = Detach(selections);
+            if (!IsValidSelections(selections))
+                return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationLoadoutCompletionSchemas.RequestInvalid]);
+            if (!CharacterCreationLoadoutReceiptLedgerIntegrity.Preserves(_inputs.OriginalSelections, selections))
+                return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationPurchaseCompletionBlockers.ExistingSelectionLocked]);
+            if (!_catalog.TryProjectBasket(selections, out var lines, out decimal cost, out var blockers))
+                return new(CharacterCreationFoundationOutcomes.Blocked, null, blockers);
+            return new(CharacterCreationFoundationOutcomes.Success,
+                Detach(BuildProjection(selections, lines, cost, _inputs.PendingDraft?.Instances)), []);
+        }
+    }
+
     internal static CharacterCreationLoadoutCompletionProjection BuildProjection(
         CharacterCreationLoadoutSelections selections, IReadOnlyList<CharacterCreationLoadoutLine> lines, decimal cost,
         IReadOnlyList<CharacterCreationLoadoutInstance>? retainedInstances = null)
