@@ -74,6 +74,7 @@ public static class CharacterCreationPurchaseCompletionPlanner
             new CharacterCreationGearSelection(line.OptionId, line.Quantity)).ToList() ?? [];
         var lifestyles = inputs.Lifestyles.ToList();
         var loadout = loadoutInputs?.OriginalSelections;
+        CharacterCreationLoadoutCompletionService.CompletionPreviewSession? loadoutSession = null;
         CharacterCreationLifestylesService.CompletionPreviewSession? session = null;
         var original = Evaluate(gear, lifestyles, loadout);
         int evaluations = 1;
@@ -188,7 +189,15 @@ public static class CharacterCreationPurchaseCompletionPlanner
             CharacterCreationLoadoutCompletionProjection? projection = null;
             if (loadoutInputs is not null)
             {
-                var priced = CharacterCreationLoadoutCompletionService.Preview(loadoutInputs, equipment!);
+                if (reusePreparation && loadoutSession is null)
+                {
+                    loadoutSession = CharacterCreationLoadoutCompletionService.PrepareCompletionPreview(loadoutInputs);
+                    if (loadoutSession is null)
+                        return new(CharacterCreationLifestyleOutcomes.Blocked, null,
+                            [CharacterCreationLoadoutCompletionSchemas.RequestInvalid]);
+                }
+                var priced = reusePreparation ? loadoutSession!.Preview(equipment!)
+                    : CharacterCreationLoadoutCompletionService.Preview(loadoutInputs, equipment!);
                 if (priced.Value is null) return new(CharacterCreationLifestyleOutcomes.Blocked, null, priced.Blockers);
                 projection = priced.Value;
             }

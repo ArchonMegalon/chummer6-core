@@ -13,6 +13,7 @@
     <Compile Include="CharacterCreationResourcesServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationCompletionReviewServiceTests.cs" />
     <Compile Include="CharacterCreationCompletionPlannerTests.cs" />
+    <Compile Include="CharacterCreationCompletionPlannerTests.Session.cs" />
     <Compile Include="CharacterCreationCompletionPlannerTests.AttributeKarma.cs" />
     <Compile Include="CharacterCreationCompletionPlannerTests.SkillKarma.cs" />
     <Compile Include="CharacterCreationCompletionFinalizationProjectorTests.cs" />

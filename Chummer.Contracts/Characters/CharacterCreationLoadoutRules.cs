@@ -8,7 +8,7 @@ using System.Xml.Linq;
 namespace Chummer.Contracts.Characters;
 
 /// <summary>Bounded, fixed-source purchase math shared by live and historical admission.</summary>
-public static class CharacterCreationLoadoutRules
+public static partial class CharacterCreationLoadoutRules
 {
     public const int MaximumSourceNodeLength = 65_536;
     public const int MaximumBasketLines = 128;

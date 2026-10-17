@@ -27,6 +27,15 @@ public static partial class CharacterCreationCompletionPlanner
         var admission = CharacterCreationCompletionReviewService.Review(inputs,
             new(request.InputsSnapshotDigest, original), cancellationToken);
         if (admission.Value is null) return new(admission.Outcome, null, admission.Blockers);
+        return PlanAdmitted(inputs, request, original, cancellationToken);
+    }
+
+    private static CharacterCreationFoundationResult<CharacterCreationCompletionPlan> PlanAdmitted(
+        CharacterCreationCompletionReviewInputs inputs,
+        CharacterCreationCompletionPlanRequest request,
+        CharacterCreationCompletionSelections original,
+        CancellationToken cancellationToken)
+    {
         if (!MatchesOriginalRequests(inputs, request))
             return Reject(CharacterCreationFoundationOutcomes.Conflict, CharacterCreationCompletionPlanBlockers.SnapshotConflict);
         if (!Same(inputs.Magic.Selections, request.Magic.ManualSelections))
