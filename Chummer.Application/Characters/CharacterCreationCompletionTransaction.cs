@@ -67,7 +67,8 @@ public static class CharacterCreationCompletionTransaction
             // Keep the real operation-scoped resolver, as the ordinary owner
             // completion reader does; an original-XML-only resolver would reject
             // that historical admission. No proposed draft is supplied here.
-            var skills = new CharacterCreationSkillsService(view, live).LoadCompletionInputs(new(workspace.Id));
+            var skills = new CharacterCreationSkillsService(view, live).LoadCompletionInputs(new(workspace.Id)
+                { IncludeKarmaPurchasePolicy = proposal.Selections.SkillKarmaPurchases is not null });
             if (skills.Value is null) { blockers = skills.Blockers; return false; }
             cancellationToken.ThrowIfCancellationRequested();
             var magic = new CharacterCreationMagicResonanceService(view, live).LoadCompletionInputs(new(workspace.Id));

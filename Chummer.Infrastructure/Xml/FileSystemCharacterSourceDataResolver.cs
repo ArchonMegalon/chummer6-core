@@ -2177,6 +2177,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             => TryResolveCreationSkillSpendingPolicy(CharacterCreationBuildMethods.Karma,
                 CharacterCreationKarmaSkillsPolicy.SchemaV1, out policy);
 
+        public bool TryResolveCreationPrioritySkillKarmaPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+        {
+            policy = null;
+            return _buildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
+                && TryResolveCreationSkillSpendingPolicy(_buildMethod,
+                    CharacterCreationKarmaSkillsPolicy.PriorityPurchaseSchemaV1, out policy);
+        }
+
         public bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
             => TryResolveCreationSkillSpendingPolicy(CharacterCreationBuildMethods.LifeModules,
                 CharacterCreationKarmaSkillsPolicy.LifeModulesSchemaV1, out policy);

@@ -227,6 +227,14 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Opt-in profile authority for Priority/Sum-to-Ten completion purchases.
+    /// Implementations without this capability must refuse Karma purchases.</summary>
+    bool TryResolveCreationPrioritySkillKarmaPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>Life Modules costs, caps and knowledge expression; not a Karma-foundation authority.</summary>
     bool TryResolveCreationLifeModuleSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
     {

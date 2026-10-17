@@ -42,6 +42,15 @@ public sealed record CharacterCreationCompletionSelections(
     IReadOnlyList<CharacterCreationLifestyleConfiguration> Lifestyles,
     Guid? StartingLifestyleId)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationSkillKarmaPurchase>? SkillKarmaPurchases { get; init; }
+
+    /// <summary>Unspent Creation Karma before the ordinary carryover cap.
+    /// Purchase plans bind their shared reserve into review and Apply.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int KarmaToReserve { get; init; }
+
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLoadoutSelections? Loadout { get; init; }
 

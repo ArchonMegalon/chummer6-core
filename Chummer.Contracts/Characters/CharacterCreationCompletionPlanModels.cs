@@ -36,6 +36,9 @@ public sealed record CharacterCreationCompletionPlanRequest(
     int MaximumPurchaseEvaluations = 32,
     bool PermitNegativeQualityAdditions = false)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationSkillKarmaPurchase>? SkillKarmaPurchases { get; init; }
+
     /// <summary>Opt-in bounded attribute Karma allocation after composing all
     /// other choices. Requires Attributes.KarmaTargets and an explicit spend
     /// cap. Each level must pass the complete dependent review and final shared
@@ -51,7 +54,7 @@ public sealed record CharacterCreationCompletionPlanRequest(
 /// One detached, source-reviewed proposal composed from bounded deterministic
 /// planners. Domain blockers describe unmet recommendations; Review describes the
 /// resulting selections. Success is not complete-character readiness or an Apply
-/// capability. Identity, new specializations, implants and dependent loadout
+/// capability. Identity, implants and dependent loadout
 /// completion are not implemented here; finalization must validate the actual
 /// document and every applicable requirement separately. No provider/AI claim.
 /// </summary>
