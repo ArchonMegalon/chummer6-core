@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20261021.2.sh6940fa791bad8"
-runtime_source_commit="6940fa791bad8955f46239fc8ce71a212fadf378"
+candidate_version="0.0.0-packageplane.candidate.v20261021.3.sh8558b3921b751"
+runtime_source_commit="8558b3921b7516d7effc4f8a5cac1658798f44d9"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -851,6 +851,7 @@ dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --nologo \
   -m:1 \
   --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$private_runtime_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --logger 'console;verbosity=normal' \
   "${common_properties[@]}"
 
 # Execute the actual owner/store regressions in the same isolated checkout.

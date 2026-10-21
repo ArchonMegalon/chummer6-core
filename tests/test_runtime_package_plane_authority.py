@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("6940fa791bad8955f46239fc8ce71a212fadf378", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261021.2.sh6940fa791bad8", runtime.PACKAGE_VERSION)
+        self.assertEqual("8558b3921b7516d7effc4f8a5cac1658798f44d9", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261021.3.sh8558b3921b751", runtime.PACKAGE_VERSION)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
@@ -521,6 +521,7 @@ class RuntimePackageLockTests(unittest.TestCase):
         isolated_test = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1]
         isolated_test = isolated_test.split("# Execute the actual owner/store regressions", 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|', isolated_test)
+        self.assertIn("--logger 'console;verbosity=normal'", isolated_test)
         self.assertNotIn("--no-build", isolated_test)
         project = runtime._run(("git", "show", f"{runtime.SOURCE_COMMIT}:Chummer.Tests/Chummer.CreationFinalization.Tests.csproj"), cwd=REPO_ROOT)
         self.assertIn('<Compile Include="OwnerBoundCharacterCreationFinalizationServiceTests.cs" />', project)
