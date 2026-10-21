@@ -407,7 +407,7 @@ class RuntimePackageLockTests(unittest.TestCase):
 
     def test_isolated_lane_executes_source_input_regressions(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
-        self.assertIn("\nsource_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'\n", script)
+        self.assertIn("\nsource_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CareerCatalog1158'\n", script)
         invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|', invocation)
 
