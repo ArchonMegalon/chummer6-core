@@ -5556,6 +5556,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 sourceText.GetStringBuilder().Clear();
                 bool effectsProjectable =
                     CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount, _sourceInputs.CreationSourceExecutionSchema);
+                // A legacy comparison can only affect non-null schema metadata.
+                // Resolve it once per source row, before expanding its ratings.
+                string? optionSourceExecutionSchema = effectsProjectable
+                    && _sourceInputs.CreationSourceExecutionSchema is { } executionSchema
+                    && !CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount)
+                        ? executionSchema : null;
                 bool selectable = sourceEnabled
                     && implemented
                     && !careerOnly
@@ -5631,9 +5637,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     {
                         ResolvedArmCount = limit == "{arm} - 1" && !hasVariableRatingLimit && !noLevels
                             ? armCount : null,
-                        SourceExecutionSchema = effectsProjectable
-                            && !CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount)
-                                ? _sourceInputs.CreationSourceExecutionSchema : null
+                        SourceExecutionSchema = optionSourceExecutionSchema
                     };
                     var projectedOption = option with
                     {

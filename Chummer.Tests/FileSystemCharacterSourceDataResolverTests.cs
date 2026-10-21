@@ -1314,7 +1314,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             File.WriteAllBytes(path, expected);
             const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic;
             var type = typeof(FileSystemCharacterSourceDataResolver).GetNestedType("SourceInputSnapshot", flags)!;
-            object snapshot = Activator.CreateInstance(type, [null, false])!;
+            // Reflection does not bind omitted optional constructor arguments.
+            object snapshot = Activator.CreateInstance(type, [null, false, false, null])!;
             var read = type.GetMethod("ReadValidationBytes", flags | System.Reflection.BindingFlags.Instance)!
                 .CreateDelegate<Func<string, byte[], bool>>(snapshot);
             for (int i = 0; i < 8; i++) Assert.IsTrue(read(path, expected));

@@ -157,14 +157,18 @@ public static class CharacterCreationLifestyleImprovementRules
             }
             string enabled = Read(improvement, "enabled");
             string condition = Read(improvement, "condition");
+            int flag = 1;
             if (!(enabled.Length == 0 || int.TryParse(enabled, NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out int flag) && flag > 0)
-                || condition is not ("" or "create" or "once"))
+                    CultureInfo.InvariantCulture, out flag) && flag >= 0)
+                || condition is not ("" or "create" or "once" or "career"))
             {
                 if (Read(improvement, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost")
                     findings.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
                 continue;
             }
+            // Valid disabled and career-only effects do not apply during creation.
+            // Validate shape and activation first so inactivity cannot hide malformed costs.
+            if (flag == 0 || condition == "career") continue;
             switch (Read(improvement, "improvementttype"))
             {
                 case "TrustFund":

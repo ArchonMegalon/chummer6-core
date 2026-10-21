@@ -45,6 +45,7 @@
     <Compile Include="CharacterCreationContactsServiceTests.cs" />
     <Compile Include="CharacterCreationContactsServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationLifestylesServiceTests.cs" />
+    <Compile Include="CharacterCreationLifestyleInactiveEffectsTests.cs" />
     <Compile Include="CharacterCreationLifestylesServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
     <Compile Include="CharacterCreationAttributesServiceTests.cs" />
