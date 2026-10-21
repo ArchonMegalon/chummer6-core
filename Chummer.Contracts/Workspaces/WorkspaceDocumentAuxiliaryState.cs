@@ -76,9 +76,17 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationCompletionDraftEntry>? CharacterCreationCompletionDrafts { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerInitiationEntry>? CharacterCareerInitiationTransactions { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerPowerEntry>? CharacterCareerPowerTransactions { get; init; }
+
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
-    public bool IsEmpty => CharacterCreationCompletionDrafts is null && Sr6CreationFoundationDecisions is null
+    public bool IsEmpty => CharacterCareerPowerTransactions is null
+                           && CharacterCareerInitiationTransactions is null
+                           && CharacterCreationCompletionDrafts is null && Sr6CreationFoundationDecisions is null
                            && CharacterCreationLoadoutDraft is null
                            && CharacterCreationLoadoutReceipts is null
                            && CharacterCareerQualityTransactions is null

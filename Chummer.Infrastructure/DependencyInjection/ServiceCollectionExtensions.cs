@@ -87,6 +87,8 @@ public static class ServiceCollectionExtensions
         services.AddRulesetInfrastructure();
         services.AddSr5Ruleset();
         services.AddSingleton<ICharacterSourceDataResolver, FileSystemCharacterSourceDataResolver>();
+        services.AddCharacterCareerMagic();
+        services.AddCharacterCareerInitiation();
         services.AddSingleton<ICharacterLinkedDocumentCodec, Chummer5LinkedDocumentCodec>();
         services.AddSingleton<ICharacterSectionService, CharacterSectionService>();
         services.AddSingleton<ICharacterFileQueries, XmlCharacterFileQueries>();
