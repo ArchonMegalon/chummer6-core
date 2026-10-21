@@ -9,7 +9,7 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationResourcesService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationResourcesService,
+    ICharacterSourceDataResolver sourceResolver, ICharacterFileQueries? completionQueries = null) : IOwnerBoundCharacterCreationResourcesService,
     IOwnerBoundCharacterCreationResourcesCompletionReader
 {
     public CharacterCreationResourcesResult<CharacterCreationResourcesCompletionInputs> LoadCompletionInputs(
@@ -77,7 +77,7 @@ public sealed class OwnerBoundCharacterCreationResourcesService(
             // No ambient fallback and no lease across await. Read, evaluation
             // and the existing atomic commit share this exact owner/workspace.
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
-            return action(new CharacterCreationResourcesService(view, sourceResolver));
+            return action(new CharacterCreationResourcesService(view, sourceResolver, completionQueries));
         }
     }
 }

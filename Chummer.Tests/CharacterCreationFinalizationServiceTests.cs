@@ -2990,6 +2990,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         public ICharacterSourceDataResolver Resolver => _resolver;
         public ICharacterCreationFinalizationService Finalizer { get; }
         public IReadOnlyList<Action<IWorkspaceStore>> ReplayChecks { get; init; } = [];
+        public OwnerScope? SourcebooksOwner800 { get; init; }
 
         public static ReadyContext Create(
             bool includeGearReview,
@@ -3008,7 +3009,10 @@ public sealed class CharacterCreationFinalizationServiceTests
             string traditionName = "Hermetic",
             string metatypeName = "Human",
             Func<ICharacterSourceDataResolver, ICharacterSourceDataResolver>? wrapResolver = null,
-            IReadOnlyList<string>? playerChosenAttributeIds = null)
+            IReadOnlyList<string>? playerChosenAttributeIds = null,
+            Action<string>? prepareSource = null,
+            IReadOnlyList<string>? spellSourceIds = null,
+            OwnerScope? sourcebooksOwner800 = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -3017,7 +3021,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             try
             {
                 string coreRoot = FindCoreRoot();
-                if (amendSettings is not null)
+                if (amendSettings is not null || prepareSource is not null)
                 {
                     string sourceData = Path.Combine(coreRoot, "Chummer", "data");
                     coreRoot = Path.Combine(directory, "source");
@@ -3031,8 +3035,9 @@ public sealed class CharacterCreationFinalizationServiceTests
                     XDocument settingsDocument = XDocument.Load(settingsPath);
                     XElement profile = settingsDocument.Root!.Element("settings")!.Elements("setting")
                         .Single(item => item.Element("id")!.Value == settingsProfileId);
-                    amendSettings(profile);
+                    amendSettings?.Invoke(profile);
                     settingsDocument.Save(settingsPath);
+                    prepareSource?.Invoke(coreRoot);
                 }
                 ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
                     new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
@@ -3040,26 +3045,40 @@ public sealed class CharacterCreationFinalizationServiceTests
                 if (wrapResolver is not null) resolver = wrapResolver(resolver);
                 ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
                 var store = new FileWorkspaceStore(directory);
+                var sourcebookOwners800 = new CharacterCreationAttributesServiceTests.AllocationOwners();
+                if (sourcebooksOwner800 is not null) sourcebookOwners800.Set(sourcebooksOwner800.Value);
+                if (sourcebooksOwner800 is not null && beforeDrafts is not null)
+                    throw new InvalidOperationException("Linked Sourcebooks800 fixtures require ordinary bootstrap.");
                 CharacterWorkspaceId workspaceId = beforeDrafts is null
-                    ? Bootstrap(store, queries, resolver, buildMethod)
+                    ? Bootstrap(store, queries, resolver, buildMethod, sourcebooksOwner800 is null ? null : sourcebookOwners800)
                     : BootstrapPersistedShapeFixture(store, resolver, beforeDrafts);
                 var replayChecks = new List<Action<IWorkspaceStore>>();
-                CompleteDrafts(
-                    store,
+                void FinishSourcebooks800(IWorkspaceStore admittedStore) => CompleteDrafts(
+                    admittedStore,
                     workspaceId,
                     queries,
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
                     replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName,
-                    rankAssignments, includeSkillPurchase, traditionName, metatypeName, playerChosenAttributeIds);
+                    rankAssignments, includeSkillPurchase, traditionName, metatypeName, playerChosenAttributeIds, spellSourceIds);
+                if (sourcebooksOwner800 is null) FinishSourcebooks800(store);
+                else
+                {
+                    var stamp = sourcebookOwners800.Capture();
+                    Assert.IsTrue(sourcebookOwners800.TryAcquire(stamp, out var lease));
+                    using (lease)
+                        FinishSourcebooks800(new OwnerBoundCreationWorkspaceStore(store, lease!, stamp, workspaceId));
+                    Assert.AreEqual(0, sourcebookOwners800.ActiveLeases);
+                }
+
                 return new ReadyContext(
                     directory,
                     store,
                     workspaceId,
                     queries,
                     resolver,
-                    ownsDirectory: true) { ReplayChecks = replayChecks };
+                    ownsDirectory: true) { ReplayChecks = replayChecks, SourcebooksOwner800 = sourcebooksOwner800 };
             }
             catch
             {
@@ -3107,7 +3126,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             IWorkspaceStore store,
             ICharacterFileQueries queries,
             ICharacterSourceDataResolver resolver,
-            string buildMethod = CharacterCreationBuildMethods.Priority)
+            string buildMethod = CharacterCreationBuildMethods.Priority,
+            CharacterCreationAttributesServiceTests.AllocationOwners? sourcebookOwners800 = null)
         {
             var codec = new Sr5WorkspaceCodec(
                 queries,
@@ -3121,14 +3141,18 @@ public sealed class CharacterCreationFinalizationServiceTests
             Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
                 buildMethod,
                 out string settingsProfileId));
-            CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> result = service.Create(new(
+            var bootstrapRequest800 = new CharacterCreationBootstrapRequest(
                 CharacterCreationBootstrapSchemas.RequestV1,
                 CharacterCreationBootstrapStages.AwaitingFoundationSelection,
                 RulesetDefaults.Sr5,
                 "Finalization Runner",
                 "Finalizer",
                 buildMethod,
-                settingsProfileId));
+                settingsProfileId);
+            CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> result = sourcebookOwners800 is null
+                ? service.Create(bootstrapRequest800)
+                : new OwnerBoundCharacterCreationBootstrapService(service, sourcebookOwners800)
+                    .Create(sourcebookOwners800.Capture(), bootstrapRequest800);
             Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome,
                 string.Join(",", result.Blockers));
             return result.Value!.WorkspaceId;
@@ -3188,7 +3212,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             bool includeSkillPurchase = false,
             string traditionName = "Hermetic",
             string metatypeName = "Human",
-            IReadOnlyList<string>? playerChosenAttributeIds = null)
+            IReadOnlyList<string>? playerChosenAttributeIds = null,
+            IReadOnlyList<string>? spellSourceIds = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -3309,11 +3334,16 @@ public sealed class CharacterCreationFinalizationServiceTests
                 var magicState = magicService.Load(new(workspaceId)).Value!;
                 Assert.IsTrue(magicState.CanEdit, string.Join(",", magicState.Blockers));
                 var selected = magicState.SelectedTalent!;
+                bool separateAdeptMagic = selected.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
+                    && magicState.Authority.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true;
+                int? currentMagicAdept = separateAdeptMagic
+                    ? magicState.AttributesDraft!.Attributes.Single(item => item.AttributeId == "MAGAdept").Current
+                    : null;
                 Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(magicState.Authority.MysticAdeptPowerPointPolicy,
                     selected.Kind, magicState.AttributesDraft!.Attributes.Single(item => item.AttributeId == "MAG").Current,
-                    selected.SpellBudget, mysticPowerPoints, out var mysticPurchase));
+                    selected.SpellBudget, mysticPowerPoints, out var mysticPurchase, currentMagicAdept));
                 var powers = new List<CharacterCreationAdeptPowerAllocation>();
-                decimal remaining = selected.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
+                decimal remaining = selected.Kind == CharacterCreationMagicResonanceKinds.MysticAdept && !separateAdeptMagic
                     ? mysticPowerPoints : magicState.AdeptPowerPointBudget.Total;
                 foreach (var power in magicState.Authority.AdeptPowers.Where(item => item.IsEnabled && item.PointCost > 0)
                     .OrderByDescending(item => item.PointCost))
@@ -3329,7 +3359,9 @@ public sealed class CharacterCreationFinalizationServiceTests
                     selected.RequiresTradition ? magicState.Authority.Traditions.Single(item => item.Name == traditionName).Identity : null,
                     selected.RequiresStream ? magicState.Authority.Streams.Single(item => item.Name == "Default").Identity : null,
                     powers,
-                    magicState.Authority.Spells.Where(item => item.IsEnabled).Take(mysticPurchase?.SpellBudget ?? selected.SpellBudget).Select(item => item.Identity).ToArray(),
+                    spellSourceIds is null
+                        ? magicState.Authority.Spells.Where(item => item.IsEnabled).Take(mysticPurchase?.SpellBudget ?? selected.SpellBudget).Select(item => item.Identity).ToArray()
+                        : spellSourceIds.Select(id => magicState.Authority.Spells.Single(item => item.IsEnabled && item.Identity.SourceId == id).Identity).ToArray(),
                     magicState.Authority.ComplexForms.Where(item => item.IsEnabled).Take(selected.ComplexFormBudget).Select(item => item.Identity).ToArray())
                 {
                     MysticAdeptPowerPoints = mysticPowerPoints
@@ -3348,7 +3380,10 @@ public sealed class CharacterCreationFinalizationServiceTests
                 ?
                 [qualityState.Authority.Options
                     .Where(static option => option.IsSelectable)
-                    .Where(static option => option.KarmaCost is >= 0 and <= 25)
+                    // Default fixtures choose a small positive purchase. An
+                    // explicitly named quality may instead be a disadvantage;
+                    // the real preview/confirmation still enforces its budget.
+                    .Where(option => qualityName is not null || option.KarmaCost is >= 0 and <= 25)
                     .Where(option => qualityName is null || option.Name == qualityName)
                     .OrderBy(static option => option.KarmaCost)
                     .ThenBy(static option => option.OptionId, StringComparer.Ordinal)

@@ -177,6 +177,8 @@ void Unsupported(bool explicitFalse)
     fixture.SeedContacts();
     OwnerContextStamp stamp = fixture.Authority.Capture();
     CharacterCreationContactConfirmRequest request = Preview(Contacts(fixture.Provider), stamp);
+    string[] before = CreationFixture.Partitions.Select(owner =>
+        fixture.Snapshot(owner, CreationFixture.ContactWorkspace)).ToArray();
     IWorkspaceStore masked;
     StoreProxy proxy;
     if (explicitFalse)
@@ -185,6 +187,14 @@ void Unsupported(bool explicitFalse)
         proxy.DisableScopedCapabilities = true;
     }
     else masked = StoreProxy.Wrap<ILegacyCreationStore>(fixture.Store, out proxy);
+    Check.That(explicitFalse
+            ? masked is IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
+                { SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit: false }
+            : masked is not IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability,
+        "Unsupported Contacts control did not remove or disable the scoped commit capability.");
+    Check.That(masked is IWorkspaceAuxiliaryStateAtomicCommitCapability
+        { SupportsWorkspaceAuxiliaryStateAtomicCommit: true },
+        "Unsupported scoped control must retain legacy support to detect an unsafe fallback.");
     int domainReads = 0;
     ServiceProvider provider = fixture.AddProvider(masked, fixture.Authority, _ => domainReads++);
     var bootstrap = Bootstrap(provider);
@@ -196,19 +206,62 @@ void Unsupported(bool explicitFalse)
         "Activation bypassed missing scoped bootstrap support.");
     Check.That(domainReads == 0 && proxy.Reads == 0 && proxy.Mutations == 0,
         "Missing creation capability reached source evaluation or storage before refusal.");
+    var invalidKey = contacts.Confirm(stamp, request with { IdempotencyKey = "invalid key" });
+    Check.That(invalidKey.Outcome == CharacterCreationContactOutcomes.Invalid && invalidKey.Value is null
+        && invalidKey.Blockers.SequenceEqual([CharacterCreationContactsBlockers.IdempotencyKeyInvalid])
+        && proxy.Reads == 0 && proxy.Mutations == 0 && domainReads == 0,
+        "Missing scoped capability bypassed request validation before storage or source access.");
     var state = contacts.Load(stamp, new(CreationFixture.ContactWorkspace));
     Check.That(state.Value is null || !state.Value.CanEdit,
         "Missing scoped auxiliary capability was advertised as editable owner state.");
+    Check.That(state.Value is not null && state.Value.Binding == request.Binding
+        && state.Blockers.SequenceEqual([CharacterCreationContactsBlockers.PersistenceAuthorityRequired]),
+        "The unsupported Contacts fixture changed binding or has a non-persistence blocker.");
     var preview = contacts.Preview(stamp, new(request.Binding, request.Edit));
     Check.That(preview.Value is null || !preview.Value.CanConfirm,
         "Missing scoped auxiliary capability produced a confirmable owner preview.");
-    Check.That(contacts.Confirm(stamp, request).Outcome == CharacterCreationContactOutcomes.Unavailable,
+    Check.That(preview.Outcome == CharacterCreationContactOutcomes.Blocked && preview.Value is not null
+        && preview.Blockers.SequenceEqual([CharacterCreationContactsBlockers.PersistenceAuthorityRequired]),
+        "Missing scoped capability was not the sole blocker of the valid Contacts preview.");
+    var staleSource = request with
+    {
+        Binding = request.Binding with { SourceDigest = "sha256:" + new string('0', 64) }
+    };
+    Check.That(staleSource.Binding.SourceDigest != request.Binding.SourceDigest,
+        "The stale-source control must change the original source binding.");
+    var stale = contacts.Confirm(stamp, staleSource);
+    Check.That(stale.Outcome == CharacterCreationContactOutcomes.Conflict && stale.Value is null
+        && stale.Blockers.SequenceEqual([CharacterCreationContactsBlockers.StaleSourceDigest]),
+        "Missing scoped capability replaced the earlier source-binding conflict.");
+    var invalidEdit = contacts.Confirm(stamp, request with { Edit = request.Edit with { ContactId = Guid.Empty } });
+    Check.That(invalidEdit.Outcome == CharacterCreationContactOutcomes.Blocked && invalidEdit.Value is null
+        && invalidEdit.Blockers.Count == 2
+        && invalidEdit.Blockers.Contains(CharacterCreationContactsBlockers.MutationInvalid)
+        && invalidEdit.Blockers.Contains(CharacterCreationContactsBlockers.PersistenceAuthorityRequired),
+        "A separate mutation blocker was reclassified as missing persistence alone.");
+    var confirmed = contacts.Confirm(stamp, request);
+    Check.That(confirmed.Outcome == CharacterCreationContactOutcomes.Unavailable,
         "Missing scoped auxiliary commit support was not explicitly unavailable.");
+    Check.That(confirmed.Value is null
+        && confirmed.Blockers.SequenceEqual([CharacterCreationContactsBlockers.PersistenceAuthorityRequired]),
+        "Missing scoped commit capability returned a receipt or an unrelated blocker.");
     Check.That(proxy.Mutations == 0, "Scoped capability absence fell back to a legacy or generic mutation.");
     foreach (OwnerScope owner in CreationFixture.Partitions)
         Check.That(fixture.Count(owner) == 1
             && fixture.Read(owner, CreationFixture.ContactWorkspace).Value!.ContentRevision == 1,
             "Capability rejection changed workspace inventory or revision.");
+    for (int index = 0; index < before.Length; index++)
+        Check.That(fixture.Snapshot(CreationFixture.Partitions[index], CreationFixture.ContactWorkspace) == before[index],
+            "Capability rejection changed document, checkpoint, or receipt bytes.");
+    var applied = Contacts(fixture.Provider).Confirm(stamp, request);
+    Check.That(applied.Outcome == CharacterCreationContactOutcomes.Applied && applied.Value is not null
+        && applied.Blockers.Count == 0
+        && fixture.Read(CreationFixture.AccountA, CreationFixture.ContactWorkspace).Value
+            is { ContentRevision: 2, SavedRevision: 2 },
+        "The exact rejected request did not atomically commit with the real scoped capability.");
+    Check.That(fixture.Snapshot(OwnerScope.LocalSingleUser, CreationFixture.ContactWorkspace) == before[0]
+        && fixture.Snapshot(CreationFixture.AccountB, CreationFixture.ContactWorkspace) == before[2],
+        "The supported Contacts control changed another owner partition.");
 }
 
 void ValueOnlyOwner()

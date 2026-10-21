@@ -67,7 +67,9 @@ public sealed class SelectedCompletionPricingTests
         var contactInput = new SelectedCompletionContactsPricingInput(inputs.Contacts.Policy,
             qualityInputs.PrerequisiteDraft, inputs.Contacts.TalentQualitySources, inputs.Contacts.OriginalEffects,
             inputs.Contacts.Contacts, attributes.Attributes, quality.Selections, choices.Contacts,
-            inputs.Contacts.Binding.SourceDigest, review.Contacts!.Upstream.Blockers);
+            inputs.Contacts.Binding.SourceDigest, review.Contacts!.Upstream.Blockers,
+            qualityInputs.Authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+            qualityInputs.Authority.QualityKarmaLimit, qualityInputs.Authority.MayExceedPositiveQualityLimit);
         var pricedContacts = CharacterCreationContactsService.PriceSelectedCompletion(contactInput);
         Assert.AreEqual(CharacterCreationContactOutcomes.Available, pricedContacts.Outcome,
             string.Join(",", pricedContacts.Blockers));
@@ -103,13 +105,16 @@ public sealed class SelectedCompletionPricingTests
 
         var group = choices.Contacts.Single() with { IsGroup = true };
         var groupPricing = CharacterCreationContactsService.PriceSelectedCompletion(contactInput with { Contacts = [group] });
-        CollectionAssert.Contains(groupPricing.Blockers.ToArray(), CharacterCreationContactsCompletionSchemas.KarmaContributionUnavailable);
-        Assert.IsNull(groupPricing.Value!.AdditionalKarmaCost);
+        Assert.IsFalse(groupPricing.Blockers.Contains(CharacterCreationContactsCompletionSchemas.KarmaContributionUnavailable));
+        Assert.IsNotNull(groupPricing.Value!.GroupKarma);
+        Assert.AreEqual((int?)groupPricing.Value.GroupKarma.AdditionalKarmaCost, groupPricing.Value.AdditionalKarmaCost);
         var groupPublic = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
             choices.AttributeAllocations, choices.QualityOptionIds, [group]);
         Equal(groupPublic.Blockers, groupPricing.Blockers);
         Equal(groupPublic.Value!.ContactBudget, groupPricing.Value.ContactBudget);
         Equal(groupPublic.Value.Contacts, groupPricing.Value.Contacts);
+        Equal(groupPublic.Value.GroupKarma, groupPricing.Value.GroupKarma);
+        Assert.AreEqual(groupPublic.Value.AdditionalKarmaCost, groupPricing.Value.AdditionalKarmaCost);
 
         // A semantic effect fixture exercises the shared price kernel only;
         // it is not asserted to be admitted saved history or write authority.

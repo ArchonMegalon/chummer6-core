@@ -57,7 +57,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         CharacterCreationMagicResonanceTalentOption[] talentOptions = ProjectTalents(
             context.PrerequisiteAuthority, qualities, gear, context, blockers);
         CharacterCreationMagicResonanceMetatypeCapability[] metatypeOptions = ProjectMetatypes(
-            metatypes, context.MetatypesInputsDigest, blockers);
+            metatypes, context.MetatypesInputsDigest, blockers,
+            context.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true);
         CharacterCreationMagicResonanceCatalogOption[] traditionOptions = ProjectCatalog(
             traditions, CharacterCreationMagicResonanceKinds.Tradition,
             context.TraditionsInputsDigest, context.EnabledSourcebooks, blockers);
@@ -113,7 +114,9 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             TalentQualitySources = "effective-qualities-source-order-reference-and-digest-bound",
             TalentGearSources = "independent-effective-gear-name-category-source-order-and-digest-bound",
             MysticAdeptPowerPointPurchase = "effective-profile-explicit-purchase-spell-exchange-global-karma",
-            MysticAdeptSeparateMagic = "requires-separate-attribute-allocation-fail-closed",
+            MysticAdeptSeparateMagic = context.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true
+                ? "metatype-magic-limits-separate-attribute-points-karma-no-pp-purchase-or-exchange"
+                : "requires-separate-attribute-allocation-fail-closed",
             Confirmation = "explicit-atomic-auxiliary-cas"
         });
         string[] normalizedBlockers = Normalize(blockers);
@@ -216,9 +219,6 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     local.Add(CharacterCreationMagicResonanceBlockers.TalentUnsupported);
                 CharacterCreationTalentQualitySource[] grantedQualities = ResolveTalentQualities(
                     raw, qualities, gear, context, local);
-                if (kind == CharacterCreationMagicResonanceKinds.MysticAdept
-                    && context.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true)
-                    local.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
                 string[] normalized = Normalize(local);
                 var option = new CharacterCreationMagicResonanceTalentOption(
                     new(priority.SourceId, talent.SelectionId, talent.Value),
@@ -370,7 +370,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
     private static CharacterCreationMagicResonanceMetatypeCapability[] ProjectMetatypes(
         IReadOnlyList<XElement> rows,
         string effectiveDigest,
-        ICollection<string> blockers)
+        ICollection<string> blockers,
+        bool separateMagic)
     {
         var result = new List<CharacterCreationMagicResonanceMetatypeCapability>();
         foreach (XElement row in rows)
@@ -383,13 +384,29 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 continue;
             }
             string anchor = $"metatypes.xml#metatype:{id}";
+            CharacterCreationMetatypeAttributeProjection? separateRange = null;
+            // AttributeSection.Create copies the metatype MAG limits to MAGAdept.
+            // Unresolved expressions cannot authorize a separate allocation.
+            if (separateMagic
+                && TryReadScalar(row, "magmin", out string minimumText)
+                && TryReadScalar(row, "magmax", out string maximumText)
+                && TryReadScalar(row, "magaug", out string augmentedText)
+                && int.TryParse(minimumText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int minimum)
+                && int.TryParse(maximumText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int maximum)
+                && int.TryParse(augmentedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int augmented)
+                && minimum >= 0 && maximum >= minimum && augmented >= maximum)
+                separateRange = new("MAGAdept", minimum, maximum, augmented);
+
             result.Add(new(
                 id,
                 name,
                 category,
                 [anchor],
                 CharacterCreationMagicResonanceDigest.ComputeSourceNodeDigest(
-                    "metatype", effectiveDigest, id, row.ToString(SaveOptions.DisableFormatting))));
+                    "metatype", effectiveDigest, id, row.ToString(SaveOptions.DisableFormatting)))
+            {
+                SeparateMagicAttribute = separateRange
+            });
         }
         if (result.Select(item => item.MetatypeSourceId)
             .Distinct(StringComparer.Ordinal).Count() != result.Count)

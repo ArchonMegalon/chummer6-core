@@ -11,7 +11,7 @@ namespace Chummer.Application.Characters;
 internal static class CharacterCreationLifeModuleCharacterProjector
 {
     internal static bool TryProject(string rawXml, CharacterCreationLifeModuleCharacterParts parts,
-        out CharacterCreationLifeModuleCharacterProjection? projection)
+        out CharacterCreationLifeModuleCharacterProjection? projection, string? sourceExecutionSchema = null)
     {
         projection = null;
         try
@@ -43,6 +43,8 @@ internal static class CharacterCreationLifeModuleCharacterProjector
                 Change("career-initialization:" + field, CharacterCreationFinalizationDeltaKinds.Lifecycle,
                     field, null, root.Element(field)!.Value, 0, 0, []);
             var metatype = p.Racial.Metatype;
+            if (metatype.Initiative.DirectDice886 is not null
+                && sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4) return false;
             if (!Guid.TryParseExact(metatype.OptionId, "D", out var metatypeId) || metatypeId == Guid.Empty
                 || metatype.Movement.IsSpecial) return false;
             Set("metatype", metatype.Label);
@@ -59,7 +61,7 @@ internal static class CharacterCreationLifeModuleCharacterProjector
                 Set(name, value);
                 Set(name + "alt", value);
             }
-            Set("initiativedice", Number(metatype.Initiative.MinimumDiceFallback));
+            Set("initiativedice", Number(metatype.Initiative.DirectDice886 ?? metatype.Initiative.MinimumDiceFallback));
             Change("metatype:selected", CharacterCreationFinalizationDeltaKinds.Metatype, metatype.OptionId,
                 null, metatype.Label, metatype.KarmaCost, 0, metatype.SourceAnchorIds, metatype.Label);
 

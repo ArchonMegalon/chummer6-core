@@ -23,18 +23,17 @@ public static class CharacterCreationSkillCompletionPlanner
         ArgumentNullException.ThrowIfNull(attributeAllocations);
         ArgumentNullException.ThrowIfNull(request);
         ct.ThrowIfCancellationRequested();
-        if (!IsValidRequest(request))
+        if (!CharacterCreationSkillCompletionPermissionRules.TrySnapshotAuthorityCatalogs(inputs.Authority,
+                out var authority, ct))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
-
-        request = request with
-        {
-            PermittedTargetOrder = request.PermittedTargetOrder.ToArray(),
-            Targets = request.Targets?.ToArray()
-        };
+        inputs = inputs with { Authority = authority };
         attributeAllocations = attributeAllocations.ToArray();
         inputs = JsonSerializer.Deserialize<CharacterCreationSkillsCompletionInputs>(
             JsonSerializer.SerializeToUtf8Bytes(inputs))!;
+        if (!TrySnapshotRequest(inputs.Authority, request, out request, ct))
+            return Reject(CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationSkillCompletionBlockers.RequestInvalid);
         if (request.Binding != inputs.Binding
             || inputs.Attributes is null
             || !CharacterCreationSkillsDigest.EqualsFixedTime(request.AttributesSnapshotDigest, inputs.Attributes.SnapshotDigest)
@@ -61,20 +60,19 @@ public static class CharacterCreationSkillCompletionPlanner
         ArgumentNullException.ThrowIfNull(attributeAllocations);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!IsValidRequest(request))
+        if (!CharacterCreationSkillCompletionPermissionRules.TrySnapshotAuthorityCatalogs(skillsState.Authority,
+                out var authority, cancellationToken))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillCompletionBlockers.RequestInvalid);
-
-        request = request with
-        {
-            PermittedTargetOrder = request.PermittedTargetOrder.ToArray(),
-            Targets = request.Targets?.ToArray()
-        };
+        skillsState = skillsState with { Authority = authority };
         attributeAllocations = attributeAllocations.ToArray();
         attributesState = JsonSerializer.Deserialize<CharacterCreationAttributesState>(
             JsonSerializer.SerializeToUtf8Bytes(attributesState))!;
         skillsState = JsonSerializer.Deserialize<CharacterCreationSkillsState>(
             JsonSerializer.SerializeToUtf8Bytes(skillsState))!;
+        if (!TrySnapshotRequest(skillsState.Authority, request, out request, cancellationToken))
+            return Reject(CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationSkillCompletionBlockers.RequestInvalid);
         if (request.Binding != skillsState.Binding
             || !CharacterCreationSkillsDigest.EqualsFixedTime(request.AttributesSnapshotDigest, attributesState.SnapshotDigest)
             || !CharacterCreationSkillsDigest.EqualsFixedTime(request.SkillsSnapshotDigest, skillsState.SnapshotDigest))
@@ -109,10 +107,7 @@ public static class CharacterCreationSkillCompletionPlanner
                 CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported);
 
         var permitted = request.PermittedTargetOrder.Select(target => (target.Kind, target.SourceId)).ToHashSet();
-        if (permitted.Count != request.PermittedTargetOrder.Count
-            || request.PermittedTargetOrder.Any(target => string.IsNullOrWhiteSpace(target.SourceId)
-                || !IsKnownTarget(authority, target))
-            || request.Targets is { } targets &&
+        if (request.Targets is { } targets &&
                 (targets.Select(target => (target.Kind, target.SourceId)).Distinct().Count() != targets.Count
                 || targets.Any(target => !permitted.Contains((target.Kind, target.SourceId)))))
             return Reject(CharacterCreationFoundationOutcomes.Invalid,
@@ -303,15 +298,28 @@ public static class CharacterCreationSkillCompletionPlanner
         }
     }
 
-    private static bool IsValidRequest(CharacterCreationSkillCompletionRequest request) =>
-        request.Binding is not null && request.PermittedTargetOrder is not null
-        && request.PermittedTargetOrder.Count <= MaximumTargets
-        && !request.PermittedTargetOrder.Any(target => target is null)
-        && (request.Targets is null || request.Targets.Count <= MaximumTargets
-            && request.Targets.All(target => target is not null && target.TargetRating >= 0
-                && !string.IsNullOrWhiteSpace(target.SourceId)))
-        && request.ActivePointsToReserve >= 0 && request.GroupPointsToReserve >= 0
-        && request.KnowledgePointsToReserve >= 0;
+    internal static bool TrySnapshotRequest(CharacterCreationSkillsAuthority authority,
+        CharacterCreationSkillCompletionRequest request, out CharacterCreationSkillCompletionRequest snapshot,
+        CancellationToken cancellationToken)
+    {
+        snapshot = request;
+        if (request.Binding is null || request.ActivePointsToReserve < 0 || request.GroupPointsToReserve < 0
+            || request.KnowledgePointsToReserve < 0
+            || !CharacterCreationSkillCompletionPermissionRules.TrySnapshot(authority,
+                request.PermittedTargetOrder, out var permissions, cancellationToken))
+            return false;
+        IReadOnlyList<CharacterCreationSkillCompletionRatingTarget>? targets = null;
+        if (request.Targets is not null)
+        {
+            if (!CharacterCreationSkillCompletionPermissionRules.TrySnapshotBounded(request.Targets,
+                    MaximumTargets, out var copiedTargets, cancellationToken)
+                || copiedTargets.Any(target => target.TargetRating < 0 || string.IsNullOrWhiteSpace(target.SourceId)))
+                return false;
+            targets = copiedTargets;
+        }
+        snapshot = request with { PermittedTargetOrder = permissions, Targets = targets };
+        return true;
+    }
 
     private static bool AllowsPlanning(IReadOnlyList<string> blockers) =>
         blockers.All(blocker => blocker == CharacterCreationSkillsBlockers.NativeLanguageRequired);

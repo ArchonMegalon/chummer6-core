@@ -22,6 +22,8 @@ internal sealed record WorkspaceContinuationCandidateEvaluation(
     IReadOnlyList<WorkspaceContinuationDomainCheck> DomainChecks,
     IReadOnlyList<string> BoundaryBlockers)
 {
+    public CharacterCreationCompletionReviewInputs? CompletionInputs { get; init; }
+    public IReadOnlyList<string> CompletionReadinessBlockers { get; init; } = [];
     public bool CurrentDraftChecksPassed => Candidate is not null && SourceDigest is not null
         && HistoryConsistent && BoundaryBlockers.Count == 0
         && DomainChecks.All(check => check.Evaluated && check.Blockers.Count == 0);
@@ -39,16 +41,59 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
     IOwnerContextAccessor ownerContext,
     ICharacterSourceDataResolver sourceResolver,
     ICharacterFileQueries characterQueries,
-    ILifeModulesCatalogService lifeModules)
+    ILifeModulesCatalogService lifeModules,
+    string? ruleSourceExecutionSchema = null,
+    bool sourcebookSelection = false)
 {
     public WorkspaceContinuationCandidateEvaluation Evaluate(
-        OwnerContextStamp expectedOwner, ReadOnlyMemory<byte> bytes, int maximumBytes)
+        OwnerContextStamp expectedOwner, ReadOnlyMemory<byte> bytes, int maximumBytes,
+        bool includeCompletionInputs = false, CancellationToken cancellationToken = default)
+        => EvaluateCore(expectedOwner, bytes, maximumBytes,
+            includeCompletionInputs ? CompletionObservation.EffectivePolicy : CompletionObservation.None, cancellationToken);
+
+    /// <summary>Observe actual canonical consumer, knowledge and setting inputs
+    /// under the same owner/source/selection checks. This grants no final coverage
+    /// or save authority. Caller memory is detached before any source query.</summary>
+    public WorkspaceContinuationCandidateEvaluation EvaluateCompletionInputsWithPolicyConsumption(
+        OwnerContextStamp expectedOwner, ReadOnlyMemory<byte> retainedContinuation, int maximumBytes,
+        CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
-        if (!OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+        cancellationToken.ThrowIfCancellationRequested();
+        if (retainedContinuation.Length > maximumBytes)
+            return Failure("continuation-wire-invalid");
+        return EvaluateCore(expectedOwner, retainedContinuation.ToArray(), maximumBytes,
+            CompletionObservation.PolicyConsumption, cancellationToken);
+    }
+
+    // Borrow only the actual lease held by the owner-bound private observation.
+    // Internal composition, never an authority object accepted from a wire DTO.
+    internal WorkspaceContinuationCandidateEvaluation EvaluateCompletionInputsUnderLease(
+        OwnerContextStamp expectedOwner, IOwnerContextLease lease, ReadOnlyMemory<byte> bytes,
+        int maximumBytes, bool policyConsumption, CancellationToken cancellationToken,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
+        => EvaluateCore(expectedOwner, bytes, maximumBytes,
+            policyConsumption ? CompletionObservation.PolicyConsumption : CompletionObservation.EffectivePolicy,
+            cancellationToken, lease, recovery);
+
+    private enum CompletionObservation { None, EffectivePolicy, PolicyConsumption }
+
+    private WorkspaceContinuationCandidateEvaluation EvaluateCore(
+        OwnerContextStamp expectedOwner, ReadOnlyMemory<byte> bytes, int maximumBytes,
+        CompletionObservation observation, CancellationToken cancellationToken, IOwnerContextLease? admittedOwner = null,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
+    {
+        bool includeCompletionInputs = observation != CompletionObservation.None;
+        bool policyConsumption = observation == CompletionObservation.PolicyConsumption;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
+        cancellationToken.ThrowIfCancellationRequested();
+        IOwnerContextLease? acquired = null;
+        if (admittedOwner is null && !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out acquired))
             return Failure("owner-authority-unavailable");
-        using (lease)
+        using (acquired)
         {
+            IOwnerContextLease lease = admittedOwner ?? acquired!;
+            if (lease.Stamp != expectedOwner) return Failure("owner-authority-unavailable");
             if (!WorkspaceContinuationCodec.TryDecodeCandidate(bytes, maximumBytes, out var candidate))
                 return Failure("continuation-wire-invalid");
             if (!string.Equals(candidate!.Snapshot.OwnerId,
@@ -59,7 +104,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
             var workspace = new WorkspaceStoredDocument(snapshot.Id, snapshot.Document,
                 snapshot.ContentRevision, snapshot.SavedRevision, snapshot.LastUpdatedUtc);
             bool historyConsistent = WorkspaceContinuationHistoryIntegrity.TryValidate(
-                expectedOwner.Owner, candidate.Snapshot);
+                expectedOwner.Owner, candidate.Snapshot, recovery);
             if (!historyConsistent)
                 return Failure("continuation-history-inconsistent", candidate);
 
@@ -73,8 +118,23 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
             var checks = new List<WorkspaceContinuationDomainCheck>();
             var boundary = new List<string>();
             string? sourceDigest = null;
+            CharacterCreationCompletionReviewInputs? completionInputs = null;
+            IReadOnlyList<string> completionReadiness = [];
             try
             {
+                // The requested current grammar must precede the first source capture,
+                // including the prerequisite/catalogue checks on a private continuation.
+                var admitted = sourceResolver.ForCreationSourceExecution(ruleSourceExecutionSchema);
+                if (admitted is null)
+                    return Failure("continuation-sources-unavailable", candidate, historyConsistent);
+                using ICharacterSourceDataResolverOperationScope? scope = includeCompletionInputs
+                    ? (admitted as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope() : null;
+                // Legacy frozen DTOs have no consumption-source interface. The
+                // explicit path uses the real resolver in one scope that freshly
+                // admits sources on every context request, never invented policy.
+                if (policyConsumption && scope is null)
+                    return Failure("continuation-consumption-source-scope-unavailable", candidate, historyConsistent);
+                ICharacterSourceDataResolver resolver = scope ?? admitted;
                 // Source files are not a route for parsing external XML entities.
                 using var reader = XmlReader.Create(new StringReader(document.Content), new XmlReaderSettings
                 {
@@ -95,10 +155,11 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                     if (root.Elements(element).Skip(1).Any())
                         return Failure("continuation-character-ambiguous", candidate, historyConsistent);
 
-                ICharacterSourceDataContext? context = sourceResolver.TryCreateContext(document.Content);
+                ICharacterSourceDataContext? context = resolver.TryCreateContext(document.Content);
                 if (context is null || !WorkspaceContinuationSourceCapture.TryCapture(
                         context, document.Content, lifeModules, out var sources,
-                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft, workspace, sourceResolver))
+                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft, workspace, resolver,
+                        includeCompletionInputs))
                     return Failure("continuation-sources-unavailable", candidate, historyConsistent);
                 sourceDigest = sources.Digest;
                 ICharacterSourceDataResolver frozen = sources.CreateResolver();
@@ -150,7 +211,41 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                         return Check("attributes", result.Value?.PendingDraft is not null, result.Blockers,
                             CharacterCreationAttributesBlockers.PersistenceAuthorityRequired);
                     });
-                if (auxiliary.CharacterCreationSkillsDraft is not null)
+                // Composite history owns the effective choices, including domains
+                // with no ordinary pending draft. Observe the canonical whole graph
+                // against this operation's live sources; the frozen legacy context
+                // does not implement consumer/source-execution capabilities.
+                bool composite = !summary.Created && auxiliary.CharacterCreationCompletionDrafts is not null;
+                if (composite)
+                    Run("composite", () =>
+                    {
+                        var result = OwnerBoundCharacterCreationCompletionReader.ObserveComposite(
+                            workspace, resolver, characterQueries, cancellationToken);
+                        if (result.Value is { } projection)
+                        {
+                            checks.Add(Check("skills", projection.Skills is not null,
+                                projection.Skills?.Blockers ?? []));
+                            checks.Add(Check("magic-resonance", projection.UpstreamBudget?.Magic is not null,
+                                projection.UpstreamBudget?.Magic.Blockers ?? []));
+                            checks.Add(Check("qualities", projection.UpstreamBudget?.Qualities is not null,
+                                projection.UpstreamBudget?.Qualities.Blockers ?? []));
+                            checks.Add(Check("resources", projection.Lifestyles?.Gear.Resources is not null,
+                                projection.Lifestyles?.Gear.Resources.Blockers ?? []));
+                            checks.Add(Check("gear", projection.Lifestyles?.Gear is not null,
+                                projection.Lifestyles?.Gear.Blockers ?? []));
+                            checks.Add(Check("contacts", projection.Contacts is not null,
+                                projection.Contacts?.Blockers ?? []));
+                            checks.Add(Check("lifestyles", projection.Lifestyles is not null,
+                                projection.Lifestyles?.Blockers ?? []));
+                            if (projection.Request.Selections.Loadout is not null)
+                                checks.Add(Check("loadout", projection.Loadout is not null,
+                                    projection.Loadout?.Blockers ?? []));
+                        }
+                        // Shared wallet, preservation, selected prerequisites and
+                        // cross-domain failures remain blocking as well.
+                        return Check("composite", result.Value is not null, result.Blockers);
+                    });
+                if (!composite && auxiliary.CharacterCreationSkillsDraft is not null)
                     Run("skills", () =>
                     {
                         var result = new CharacterCreationSkillsService(view, frozen)
@@ -158,7 +253,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                         return Check("skills", result.Value?.PendingDraft is not null, result.Blockers,
                             CharacterCreationSkillsBlockers.PersistenceAuthorityRequired);
                     });
-                if (auxiliary.CharacterCreationMagicResonanceDraft is not null)
+                if (!composite && auxiliary.CharacterCreationMagicResonanceDraft is not null)
                     Run("magic-resonance", () =>
                     {
                         var result = new CharacterCreationMagicResonanceService(view, frozen)
@@ -166,7 +261,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                         return Check("magic-resonance", result.Value?.PendingDraft is not null, result.Blockers,
                             CharacterCreationMagicResonanceBlockers.PersistenceAuthorityRequired);
                     });
-                if (auxiliary.CharacterCreationQualitiesDraft is not null)
+                if (!composite && auxiliary.CharacterCreationQualitiesDraft is not null)
                     Run("qualities", () =>
                     {
                         var result = new CharacterCreationQualitiesService(view, frozen, prerequisite, attributes)
@@ -179,10 +274,10 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                                CharacterCreationQualitiesBlockers.CreatedCharacter];
                         return Check("qualities", result.Value?.PendingDraft is not null, result.Blockers, readiness);
                     });
-                if (auxiliary.CharacterCreationResourcesDraft is not null)
+                if (!composite && auxiliary.CharacterCreationResourcesDraft is not null)
                     Run("resources", () => Check("resources", true,
                         new CharacterCreationResourcesService(view, frozen).ValidateContinuationDraft(workspace)));
-                if (auxiliary.CharacterCreationGearDraft is not null)
+                if (!composite && auxiliary.CharacterCreationGearDraft is not null)
                     Run("gear", () =>
                     {
                         var result = new CharacterCreationGearService(view, frozen).Load(new(workspace.Id));
@@ -193,7 +288,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
 
                 // Legacy decisions live in XML; bootstrap purchases stay in typed
                 // auxiliary drafts. Neither is an active draft after finalization.
-                if (!summary.Created && (auxiliary.CharacterCreationContactReceipts is not null
+                if (!composite && !summary.Created && (auxiliary.CharacterCreationContactReceipts is not null
                         || auxiliary.CharacterCreationContactsDraft is not null
                         || root.Elements("contacts").Any(container => container.HasElements)))
                     Run("contacts", () =>
@@ -204,7 +299,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                             CharacterCreationContactsBlockers.PersistenceAuthorityRequired,
                             CharacterCreationContactsBlockers.CareerModeRejected);
                     });
-                if (!summary.Created && (auxiliary.CharacterCreationLifestyleReceipts is not null
+                if (!composite && !summary.Created && (auxiliary.CharacterCreationLifestyleReceipts is not null
                         || auxiliary.CharacterCreationLifestylesDraft is not null
                         || root.Elements("lifestyles").Any(container => container.HasElements)))
                     Run("lifestyles", () =>
@@ -227,18 +322,83 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                             valid ? [] : [error]);
                     });
 
-                // Observe all sources again through a new resolver context. A cached
-                // candidate capture is not proof that the producer is still current.
-                ICharacterSourceDataContext? current = sourceResolver.TryCreateContext(document.Content);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (includeCompletionInputs && boundary.Count == 0
+                    && checks.All(check => check.Evaluated && check.Blockers.Count == 0))
+                {
+                    if (summary.Created)
+                        completionReadiness = ["continuation-completion-creation-required"];
+                    else if (auxiliary.CharacterCreationPrerequisiteDraft is null)
+                        completionReadiness = ["continuation-completion-prerequisite-required"];
+                    else if (workspace.ContentRevision != workspace.SavedRevision)
+                        completionReadiness = ["continuation-completion-checkpoint-required"];
+                    else
+                    {
+                        var loaded = OwnerBoundCharacterCreationCompletionReader.LoadFromObservation(
+                            view, policyConsumption ? resolver : frozen, characterQueries,
+                            new(workspace.Id) { IncludeKarmaPurchasePolicy = true }, cancellationToken,
+                            includeLoadout: true, includeEffectivePolicy: true,
+                            includeConsumerPolicy: policyConsumption, knowledgeModifiers: policyConsumption,
+                            policyConsumption: policyConsumption,
+                            includeOriginalCharacter: ruleSourceExecutionSchema is not null,
+                            includeRuleSourceExecution: ruleSourceExecutionSchema is not null,
+                            ruleSourceExecutionSchema: ruleSourceExecutionSchema ?? CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1,
+                            includeSourcebooks: sourcebookSelection);
+                        completionInputs = loaded.Value;
+                        completionReadiness = loaded.Blockers.Where(IsCompletionReadiness).ToArray();
+                        boundary.AddRange(loaded.Blockers.Where(code => !IsCompletionReadiness(code)));
+                        if (completionInputs?.EffectivePolicy is { } policy
+                            && !CharacterCreationEffectivePolicyValidation.Satisfies(policy, CharacterCreationPolicyRequirement.SkillLimits))
+                            completionReadiness = completionReadiness.Append(
+                                CharacterCreationEffectivePolicyContext.SkillLimitsUnsupported).ToArray();
+                    }
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Re-admit every source through this synchronous operation's resolver.
+                // Its optional scope validates current bytes and complete catalog/file
+                // membership before reusing projections; it is not a cached admission.
+                // Keep the full capture/digest comparison and the owner lease. The scope
+                // ends with this Evaluate call and never crosses a host await.
+                ICharacterSourceDataContext? current = resolver.TryCreateContext(document.Content);
                 if (current is null || !WorkspaceContinuationSourceCapture.TryCapture(
                         current, document.Content, lifeModules, out var finalSources,
-                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft, workspace, sourceResolver)
+                        document.AuxiliaryState.CharacterCreationPrerequisiteDraft, workspace, resolver,
+                        includeCompletionInputs)
                     || !string.Equals(sourceDigest, finalSources.Digest, StringComparison.Ordinal))
                     boundary.Add("continuation-sources-changed");
+
+                // Preserve the full source check above and also bind the additional
+                // consumer/knowledge/setting observation to exact canonical inputs.
+                if (policyConsumption && boundary.Count == 0 && completionInputs is not null)
+                {
+                    var recaptured = OwnerBoundCharacterCreationCompletionReader.LoadFromObservation(
+                        view, resolver, characterQueries,
+                        new(workspace.Id) { IncludeKarmaPurchasePolicy = true }, cancellationToken,
+                        includeLoadout: true, includeEffectivePolicy: true, includeConsumerPolicy: true,
+                        knowledgeModifiers: true, policyConsumption: true,
+                        includeOriginalCharacter: ruleSourceExecutionSchema is not null,
+                        includeRuleSourceExecution: ruleSourceExecutionSchema is not null,
+                        ruleSourceExecutionSchema: ruleSourceExecutionSchema ?? CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1,
+                        includeSourcebooks: sourcebookSelection);
+                    if (recaptured.Value is not { } currentInputs || recaptured.Blockers.Count != 0
+                        || !CharacterCreationSkillsDigest.EqualsFixedTime(
+                            completionInputs.SnapshotDigest, currentInputs.SnapshotDigest)
+                        || !CharacterCreationSkillsDigest.EqualsFixedTime(
+                            completionInputs.EffectivePolicy?.PolicyDigest, currentInputs.EffectivePolicy?.PolicyDigest))
+                        boundary.Add("continuation-sources-changed");
+                }
 
                 // Hash against bounded captured bytes again: an internal consumer must
                 // not have mutated the supposedly private candidate during evaluation.
                 _ = WorkspaceContinuationCodec.Encode(candidate, maximumBytes);
+                if (includeCompletionInputs && (lease.Stamp != expectedOwner
+                    || !string.Equals(candidate.Snapshot.OwnerId, expectedOwner.Owner.NormalizedValue, StringComparison.Ordinal)
+                    || !string.Equals(candidate.SnapshotDigest,
+                        WorkspaceContinuationSnapshotDigest.Compute(candidate.Snapshot), StringComparison.Ordinal)
+                    || !WorkspaceContinuationHistoryIntegrity.TryValidate(expectedOwner.Owner, candidate.Snapshot, recovery)))
+                    boundary.Add("continuation-observation-changed");
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (Exception exception) when (IsMalformedOrUnavailable(exception))
             {
@@ -246,10 +406,15 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
             }
             return new(candidate, sourceDigest, historyConsistent,
                 checks.OrderBy(check => check.Domain, StringComparer.Ordinal).ToArray(),
-                boundary.Distinct(StringComparer.Ordinal).OrderBy(code => code, StringComparer.Ordinal).ToArray());
+                boundary.Distinct(StringComparer.Ordinal).OrderBy(code => code, StringComparer.Ordinal).ToArray())
+            {
+                CompletionInputs = boundary.Count == 0 ? completionInputs : null,
+                CompletionReadinessBlockers = completionReadiness.ToArray()
+            };
 
             void Run(string domain, Func<WorkspaceContinuationDomainCheck> evaluate)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try { checks.Add(evaluate()); }
                 catch (Exception exception) when (IsMalformedOrUnavailable(exception))
                 {
@@ -272,6 +437,19 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
         || state.CharacterCreationGearDraft is not null
         || state.CharacterCreationContactsDraft is not null
         || state.CharacterCreationLifestylesDraft is not null;
+
+    private static bool IsCompletionReadiness(string code) => code is
+        CharacterCreationAttributesBlockers.PrerequisiteDraftRequired
+        or CharacterCreationAttributesBlockers.PersistenceAuthorityRequired
+        or CharacterCreationSkillsBlockers.AttributesDraftRequired
+        or CharacterCreationSkillsBlockers.PersistenceAuthorityRequired
+        or CharacterCreationMagicResonanceBlockers.AttributesDraftRequired
+        or CharacterCreationMagicResonanceBlockers.PersistenceAuthorityRequired
+        or CharacterCreationQualitiesBlockers.PrerequisiteDraftRequired
+        or CharacterCreationQualitiesBlockers.AttributesDraftRequired
+        or CharacterCreationQualitiesBlockers.PersistenceAuthorityRequired
+        or CharacterCreationGearBlockers.ResourcesDraftRequired
+        or CharacterCreationGearBlockers.PersistenceAuthorityRequired;
 
     private static bool QualitiesCheckpointIsOnlyReadiness(CharacterCreationQualitiesBinding? binding) =>
         binding is not null && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)

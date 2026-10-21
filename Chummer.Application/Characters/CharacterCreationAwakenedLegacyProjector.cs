@@ -306,7 +306,11 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && grant.CanonicalName == skill.Name && grant.TargetKind == "active-skill"
                 && !skill.IsNativeLanguage && skill.Kind == CharacterCreationSkillKinds.Active
                 && skill.Rating >= grant.BaseRating && skill.EffectiveRating == skill.Rating
-                && skill.PointCost == skill.Rating - grant.BaseRating + (skill.SpecializationName is null ? 0 : 1));
+                && skill.GroupRating >= 0 && skill.KarmaLevels >= 0
+                && skill.GroupRating == (skillGroups.SingleOrDefault(group =>
+                    group.MemberSkillSourceIds.Contains(skill.SourceSkillId, StringComparer.Ordinal))?.Rating ?? 0)
+                && skill.PointCost == skill.Rating - grant.BaseRating - skill.GroupRating - skill.KarmaLevels
+                    + (skill.SpecializationName is null || skill.KarmaSpecialization ? 0 : 1));
             Container(root, "improvements").Add(Improvement("SkillBase", skill.Name, "", "Heritage", grant.BaseRating));
         }
         foreach (var group in skillGroups)
@@ -322,6 +326,37 @@ internal static class CharacterCreationAwakenedLegacyProjector
             Container(root, "improvements").Add(Improvement("SkillGroupBase", group.Name, "", "Heritage", grant.BaseRating));
         }
     }
+
+    private sealed record SpecificSkillGrant(string Name, int Bonus, string Condition, bool AddsToRating);
+
+    // One parser for saved improvements and the bounded completion consumer.
+    // A dice-only modifier changes a roll, not purchased ranks or their price.
+    private static SpecificSkillGrant ReadSpecificSkillGrant(XElement effect)
+    {
+        Require(effect.Name == "specificskill" && !effect.HasAttributes
+            && effect.Elements().All(item => item.Name.LocalName is "name" or "bonus" or "condition" or "applytorating")
+            && !effect.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value)));
+        string skillName = Scalar(effect, "name");
+        string condition = Scalar(effect, "condition");
+        Require(!string.IsNullOrWhiteSpace(skillName)
+            && int.TryParse(Scalar(effect, "bonus"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _));
+        return new(skillName, int.Parse(Scalar(effect, "bonus"), CultureInfo.InvariantCulture),
+            condition, Boolean(effect, "applytorating", false));
+    }
+
+    internal static bool IsDiceOnlySkillGrant(XElement effect)
+    {
+        try { return !ReadSpecificSkillGrant(effect).AddsToRating; }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException
+            or XmlException or OverflowException or FormatException or ArgumentException) { return false; }
+    }
+
+    // Shared by the ordinary effect compiler and the Contacts/Lifestyles
+    // independence proof. This literal operation emits only a spell constraint;
+    // it supplies no prompt choice, attribute, contact or lifestyle cost effect.
+    internal static bool IsLiteralSpellDescriptorLimit(XElement effect)
+        => effect.Name == "limitspelldescriptor" && !effect.HasAttributes
+            && !effect.HasElements && !string.IsNullOrWhiteSpace(effect.Value);
 
     internal static string CompileBonus(XElement? bonus, string forced, IReadOnlyList<string> chosenGroups,
         CharacterCreationTalentQualitySource quality, string id, HashSet<string> flags, List<XElement> improvements,
@@ -357,17 +392,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     improvements.Add(Improvement("Gear", gearId, id, "Quality"));
                     break;
                 case "specificskill":
-                    Require(effect.Elements().All(item => item.Name.LocalName is "name" or "bonus" or "condition" or "applytorating")
-                        && !effect.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value)));
-                    string skillName = Scalar(effect, "name");
-                    string condition = Scalar(effect, "condition");
-                    Require(!string.IsNullOrWhiteSpace(skillName)
-                        && int.TryParse(Scalar(effect, "bonus"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _));
-                    int skillBonusValue = int.Parse(Scalar(effect, "bonus"), CultureInfo.InvariantCulture);
-                    bool addsToRating = Boolean(effect, "applytorating", false);
-                    XElement skillBonus = Improvement("Skill", skillName, id, "Quality", skillBonusValue);
-                    skillBonus.Element("condition")!.Value = condition;
-                    skillBonus.Element("addtorating")!.Value = addsToRating ? "1" : "0";
+                    var parsedSkill = ReadSpecificSkillGrant(effect);
+                    XElement skillBonus = Improvement("Skill", parsedSkill.Name, id, "Quality", parsedSkill.Bonus);
+                    skillBonus.Element("condition")!.Value = parsedSkill.Condition;
+                    skillBonus.Element("addtorating")!.Value = parsedSkill.AddsToRating ? "1" : "0";
                     improvements.Add(skillBonus);
                     break;
                 case "enableattribute":
@@ -393,6 +421,11 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     Require(CharacterCreationSkillsAccessRules.TryChooseUnlock(effect, chosenGroups, forced, out string chosen));
                     if (forced.Length > 0) { Require(forced == chosen); usedForced = true; }
                     improvements.Add(Improvement("SpecialSkills", chosen, id, "Quality"));
+                    break;
+                case "limitspelldescriptor":
+                    // Native literal operation: no prompt transport and no SelectedValue.
+                    Require(IsLiteralSpellDescriptorLimit(effect));
+                    improvements.Add(Improvement("LimitSpellDescriptor", effect.Value, id, "Quality"));
                     break;
                 case "blockspelldescriptor":
                     Require(!effect.HasElements && !string.IsNullOrWhiteSpace(effect.Value));
@@ -454,6 +487,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
     internal static void CheckRestrictions(XElement definition, XElement root, IReadOnlyList<XElement> granted,
         IReadOnlySet<string> flags, bool checkRequiredQualities = false)
     {
+        // A duplicate or namespace lookalike must not hide an unexecuted clause.
+        var restrictionNodes = definition.Elements().Where(item => item.Name.LocalName is "required" or "forbidden").ToArray();
+        Require(restrictionNodes.All(item => item.Name.Namespace == XNamespace.None)
+            && restrictionNodes.GroupBy(item => item.Name).All(group => group.Count() == 1));
         var requirements = definition.Elements("required").ToArray();
         if (requirements.Length != 0)
         {
@@ -480,13 +517,16 @@ internal static class CharacterCreationAwakenedLegacyProjector
         if (forbidden is null) return;
         Require(!forbidden.HasAttributes && forbidden.Elements().Count() == 1 && forbidden.Element("oneof") is not null);
         XElement oneOf = forbidden.Element("oneof")!;
-        Require(!oneOf.HasAttributes && oneOf.HasElements);
+        Require(!oneOf.HasAttributes && oneOf.HasElements
+            && forbidden.Nodes().Concat(oneOf.Nodes()).All(item => item is XElement or XComment
+                || item is XText text && string.IsNullOrWhiteSpace(text.Value))
+            && oneOf.Elements().Select(item => (item.Name, item.Value)).Distinct().Count() == oneOf.Elements().Count());
         foreach (XElement condition in oneOf.Elements())
         {
-            Require(!condition.HasAttributes && !condition.HasElements);
+            Require(condition.Name.Namespace == XNamespace.None && !condition.HasAttributes && !condition.HasElements);
             if (condition.Name == "quality")
             {
-                Require(!string.IsNullOrWhiteSpace(condition.Value));
+                Require(!string.IsNullOrWhiteSpace(condition.Value) && condition.Value == condition.Value.Trim());
                 Require(!root.Element("qualities")!.Elements("quality").Concat(granted).Any(item =>
                     item.Element("name")?.Value == condition.Value || item.Element("sourceid")?.Value == condition.Value));
             }
@@ -520,6 +560,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             .Distinct(StringComparer.Ordinal).Select(value => new XElement("spirit", value))), new XElement("bonus"));
         root.Add(saved);
         SelectionDelta(deltas, ref order, tradition);
+        CharacterCreationCompiledSourceTrace.Observe(tradition, node, saved, digest);
     }
 
     internal static void ApplyOptions(XElement root, string container, string itemName,
@@ -569,6 +610,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 new XElement("notes"), new XElement("notesColor", "#000000"));
             collection.Add(saved);
             SelectionDelta(deltas, ref order, source);
+            CharacterCreationCompiledSourceTrace.Observe(source, node, saved, digest);
         }
     }
 

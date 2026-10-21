@@ -5,8 +5,18 @@ public static class CharacterCreationContactsCompletionSchemas
     public const string InputsV1 = "chummer.character_creation_contacts.completion_inputs.v1";
     public const string ProjectionV1 = "chummer.character_creation_contacts.completion_projection.v1";
     public const string SnapshotConflict = "creation-contacts-completion-snapshot-conflict";
+    // Pricing failed closed. A known but illegal price retains its specific blockers.
     public const string KarmaContributionUnavailable = "creation-contacts-karma-contribution-unavailable";
 }
+
+/// <summary>Canonical arithmetic for selected paid groups. The enclosing projection
+/// binds these outputs to its admitted source inputs and proposed selections; this
+/// is not save authority or a replacement for final graph validation.</summary>
+public sealed record CharacterCreationContactGroupKarmaEvaluation(
+    int BaseGroupKarma,
+    CharacterCreationQualityCostTotals BeforeGroups,
+    CharacterCreationQualityCostTotals WithGroups,
+    int AdditionalKarmaCost);
 
 /// <summary>Detached original source/history observations; no proposed draft or save authority.</summary>
 public sealed record CharacterCreationContactsCompletionInputs(
@@ -37,7 +47,11 @@ public sealed record CharacterCreationContactsCompletionProjection(
     CharacterCreationContactBudget HighPlacesBudget,
     int? AdditionalKarmaCost,
     IReadOnlyList<string> Blockers,
-    string ProposalDigest);
+    string ProposalDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationContactGroupKarmaEvaluation? GroupKarma { get; init; }
+}
 
 public static class CharacterCreationContactsCompletionRules
 {

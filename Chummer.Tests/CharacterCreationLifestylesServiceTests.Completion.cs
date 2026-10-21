@@ -11,6 +11,190 @@ namespace Chummer.Tests;
 public sealed class LifestylesCompletionTests
 {
     [TestMethod]
+    [DataRow("-10", 1800, false)]
+    [DataRow("-20", 1600, false)]
+    [DataRow("-10", 1800, true)]
+    [DataRow("-20", 1600, true)]
+    [DataRow("10", 2200, true)]
+    public void Purchased_source_cost_matches_manual_completion_cold_read_and_removal(string literal, int expectedCost, bool basic)
+    {
+        const string sourceId = "f5dc84e6-4752-4829-b9bf-b23bc8074b84";
+        const string qualityName = "Purchased lifestyle discount fixture";
+        string effectName = basic ? "basiclifestylecost" : "lifestylecost";
+        string nativeType = basic ? "BasicLifestyleCost" : "LifestyleCost";
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, includeNonEmptyPurchases: true,
+            qualityName: qualityName, amendSettings: EnableRunFaster, prepareSource: root =>
+            {
+                string path = Path.Combine(root, "data", "qualities.xml");
+                var catalog = XDocument.Load(path);
+                // An explicit unconditional fixture, selected through the real catalog and purchase service.
+                catalog.Root!.Element("qualities")!.Add(new XElement("quality",
+                    new XElement("id", sourceId), new XElement("name", qualityName), new XElement("karma", "-10"),
+                    new XElement("category", "Negative"), new XElement("bonus", new XElement(effectName, literal)),
+                    new XElement("source", "RF"), new XElement("page", "157")));
+                catalog.Save(path);
+            });
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        var selected = saved.Document.AuxiliaryState.CharacterCreationQualitiesDraft!.Selections.Single();
+        Assert.AreEqual(Guid.Parse(sourceId), selected.SourceId);
+        Assert.AreEqual(qualityName, selected.Name);
+        Assert.IsFalse(selected.IsFreeOrGranted);
+        Assert.AreEqual(literal, XElement.Parse(selected.SourceNodeXml).Element("bonus")!.Element(effectName)!.Value);
+        // Creation purchases persist as typed drafts; inspect the same source-validated
+        // native projection used by lifestyle admission, not the unchanged base XML.
+        Assert.IsTrue(CharacterCreationLifestylesDraftRules.TryLoad(saved, context.Resolver,
+            out _, out var projected, out _));
+        Assert.IsNotNull(projected);
+        var native = XDocument.Parse(projected.Content).Root!;
+        var owner = native.Element("qualities")!.Elements("quality").Single(row => row.Element("sourceid")?.Value == sourceId);
+        Assert.AreEqual("Selected", owner.Element("qualitysource")!.Value);
+        var effect = native.Element("improvements")!.Elements("improvement").Single(row =>
+            row.Element("improvementttype")?.Value == nativeType && row.Element("sourcename")?.Value == owner.Element("guid")!.Value);
+        Assert.AreEqual(literal, effect.Element("val")!.Value);
+
+        var service = new CharacterCreationLifestylesService(context.Store, context.Resolver);
+        var state = service.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(state.CanEdit, string.Join(',', state.Blockers));
+        var home = Configuration(state.Authority, "Low");
+        var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, home.LifestyleId, home);
+        var manual = service.Preview(new(state.Binding, mutation)).Value!;
+        Assert.IsTrue(manual.CanConfirm, string.Join(',', manual.Blockers));
+        var inputs = LoadInputs(context);
+        var option = inputs.Lifestyles.Qualities.Authority.Options.Single(row => row.SourceId == selected.SourceId && row.Rating == 1);
+        Assert.AreEqual(selected.OptionId, option.OptionId);
+        Assert.AreEqual(selected.SourceNodeDigest, option.SourceNodeDigest);
+        int investment = inputs.Lifestyles.Gear.Resources.PendingDraft!.KarmaInvestment;
+        var completion = Preview(inputs, [home], investment, [option.OptionId]);
+        Assert.IsTrue(completion.Success, string.Join(',', completion.Blockers));
+        Assert.AreEqual((decimal)expectedCost, manual.BudgetAfter.Used);
+        Assert.AreEqual(manual.BudgetAfter.Used, completion.Value!.Budget.Used);
+        Assert.AreEqual(CharacterCreationSkillsDigest.Compute(new
+        {
+            PreviousRuntimeDigest = inputs.Lifestyles.Authority.RuntimeDigest,
+            PurchasedQualityCostLayer = basic
+                ? "unconditional-source-occurrences-min-minus100-standard-only-basic-after-racial-before-outings-v3"
+                : "unconditional-source-occurrences-min-minus100-after-racial-before-outings-v2"
+        }), completion.Value.Authority.RuntimeDigest,
+            "Pending discounts must identify their pricing semantics before persistence.");
+        Assert.AreEqual(selected.SourceNodeDigest, completion.Value.Authority.PurchasedQualityCosts!.Occurrences.Single().SourceNodeDigest);
+        Assert.AreEqual(basic ? CharacterCreationLifestyleCostEffectType.BasicLifestyleCost : CharacterCreationLifestyleCostEffectType.LifestyleCost,
+            completion.Value.Authority.PurchasedQualityCosts.Occurrences.Single().EffectType);
+        Assert.AreEqual(inputs.Lifestyles.Binding, completion.Value.Binding);
+        var command = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation, manual.PreviewDigest,
+            "purchased-discount-home", true);
+        Assert.IsTrue(service.Confirm(command).Success);
+        using ReadyContext cold = context.Restart();
+        var reopened = LoadInputs(cold);
+        var retained = Preview(reopened, reopened.Lifestyles.Lifestyles, investment, [option.OptionId]);
+        Assert.IsTrue(retained.Success, string.Join(',', retained.Blockers));
+        Assert.AreEqual((decimal)expectedCost, retained.Value!.Budget.Used);
+        Assert.AreEqual((decimal)expectedCost, retained.Value.Gear.Resources.Budget.KnownPurchaseCost);
+        var coldService = new CharacterCreationLifestylesService(cold.Store, cold.Resolver);
+        Assert.AreEqual((decimal)expectedCost, coldService.Load(new(cold.WorkspaceId)).Value!.Budget.Used);
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed, coldService.Confirm(command).Outcome);
+
+        var beforeRemoval = cold.Store.Get(cold.WorkspaceId).Value!;
+        var filesBeforeRemoval = CaptureFiles(cold);
+        var removed = Preview(reopened, reopened.Lifestyles.Lifestyles, investment, []);
+        Assert.IsTrue(removed.Success, string.Join(',', removed.Blockers));
+        Assert.IsNull(removed.Value!.Authority.PurchasedQualityCosts);
+        Assert.AreEqual(2000m, removed.Value.Budget.Used);
+        Assert.AreEqual(2000m, removed.Value.Gear.Resources.Budget.KnownPurchaseCost);
+        var replacement = reopened.Lifestyles.Qualities.Authority.Options.Single(row => row.Name == "Paraplegic" && row.Rating == 1);
+        var replaced = Preview(reopened, reopened.Lifestyles.Lifestyles, investment, [replacement.OptionId]);
+        Assert.IsTrue(replaced.Success, string.Join(',', replaced.Blockers));
+        Assert.AreEqual(2200m, replaced.Value!.Budget.Used);
+        Assert.AreEqual(2200m, replaced.Value.Gear.Resources.Budget.KnownPurchaseCost);
+        if (expectedCost < 2000)
+        {
+            int increments = decimal.ToInt32(decimal.Floor(retained.Value.Budget.Total / expectedCost));
+            Assert.IsTrue(increments is >= 1 and <= 10_000);
+            var bulk = home with { Increments = increments };
+            var affordable = Preview(reopened, [bulk], investment, [option.OptionId]);
+            Assert.IsTrue(affordable.Success, string.Join(',', affordable.Blockers));
+            var overBudget = Preview(reopened, [bulk], investment, []);
+            Assert.IsFalse(overBudget.Success);
+            CollectionAssert.Contains(overBudget.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InsufficientFunds);
+        }
+        AssertWorkspaceUnchanged(cold, beforeRemoval, filesBeforeRemoval);
+    }
+
+    [TestMethod]
+    public void Real_paraplegic_cost_matches_manual_completion_and_cold_retained_preview()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, includeNonEmptyPurchases: true, qualityName: "Paraplegic",
+            amendSettings: EnableRunFaster);
+        Assert.AreEqual("Paraplegic", context.Store.Get(context.WorkspaceId).Value!
+            .Document.AuxiliaryState.CharacterCreationQualitiesDraft!.Selections.Single().Name);
+        var service = new CharacterCreationLifestylesService(context.Store, context.Resolver);
+        var state = service.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(state.CanEdit, string.Join(',', state.Blockers));
+        var home = Configuration(state.Authority, "Low");
+        var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, home.LifestyleId, home);
+        var manual = service.Preview(new(state.Binding, mutation)).Value!;
+        Assert.IsTrue(manual.CanConfirm, string.Join(',', manual.Blockers));
+        var inputs = LoadInputs(context);
+        var paraplegic = inputs.Lifestyles.Qualities.Authority.Options.Single(option => option.Name == "Paraplegic" && option.Rating == 1);
+        Assert.AreEqual("10", XElement.Parse(paraplegic.SourceNodeXml).Element("bonus")!.Element("lifestylecost")!.Value);
+        int investment = inputs.Lifestyles.Gear.Resources.PendingDraft!.KarmaInvestment;
+        var completion = Preview(inputs, [home], investment, [paraplegic.OptionId]);
+        Assert.IsTrue(completion.Success, string.Join(',', completion.Blockers));
+        Assert.AreEqual(2200m, manual.BudgetAfter.Used);
+        Assert.AreEqual(manual.BudgetAfter.Used, completion.Value!.Budget.Used);
+        Assert.AreEqual(inputs.Lifestyles.Authority.RuntimeDigest, completion.Value.Authority.RuntimeDigest,
+            "Positive-only proposals retain their historical runtime identity.");
+        Assert.AreEqual(1, completion.Value.Authority.PurchasedQualityCosts!.Occurrences.Count);
+        var command = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation, manual.PreviewDigest, "paraplegic-home-255", true);
+        Assert.IsTrue(service.Confirm(command).Success);
+        using ReadyContext cold = context.Restart();
+        var reopened = LoadInputs(cold);
+        var repeated = Preview(reopened, reopened.Lifestyles.Lifestyles, investment, [paraplegic.OptionId]);
+        Assert.IsTrue(repeated.Success, string.Join(',', repeated.Blockers));
+        Assert.AreEqual(2200m, repeated.Value!.Budget.Used);
+        Assert.AreEqual(2200m, repeated.Value.Gear.Resources.Budget.KnownPurchaseCost);
+        Assert.AreEqual(1, repeated.Value.Authority.PurchasedQualityCosts!.Occurrences.Count);
+        var coldService = new CharacterCreationLifestylesService(cold.Store, cold.Resolver);
+        Assert.AreEqual(2200m, coldService.Load(new(cold.WorkspaceId)).Value!.Budget.Used);
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed, coldService.Confirm(command).Outcome);
+    }
+
+    [TestMethod]
+    public void Replacing_or_removing_purchased_cost_quality_reprices_every_lifestyle_and_affordability()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, qualityName: "Paraplegic",
+            amendSettings: EnableRunFaster);
+        var inputs = LoadInputs(context);
+        var paraplegic = inputs.Lifestyles.Qualities.Authority.Options.Single(option => option.Name == "Paraplegic" && option.Rating == 1);
+        var guts = inputs.Lifestyles.Qualities.Authority.Options.Single(option => option.Name == "Guts" && option.Rating == 1);
+        var home = Configuration(inputs.Lifestyles.Authority, "Low");
+        var without = Preview(inputs, [home], qualityIds: []);
+        Assert.IsTrue(without.Success, string.Join(',', without.Blockers));
+        int affordable = decimal.ToInt32(decimal.Floor(without.Value!.Budget.Total / 2000m));
+        Assert.IsTrue(affordable is > 1 and <= 10_000);
+        CharacterCreationLifestyleConfiguration[] basket = [home with { Increments = affordable - 1 },
+            home with { LifestyleId = Guid.Parse("351eef87-d18e-4bee-a972-1ee165b08522"), Name = "Second apartment" }];
+        var charged = Preview(inputs, basket, qualityIds: [paraplegic.OptionId]);
+        Assert.IsNotNull(charged.Value);
+        Assert.AreEqual(2200m * affordable, charged.Value.Budget.Used);
+        CollectionAssert.Contains(charged.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InsufficientFunds);
+        foreach (var qualityIds in new IReadOnlyList<string>[] { Array.Empty<string>(), new[] { guts.OptionId } })
+        {
+            var removed = Preview(inputs, basket, qualityIds: qualityIds);
+            Assert.IsTrue(removed.Success, string.Join(',', removed.Blockers));
+            Assert.AreEqual(2000m * affordable, removed.Value!.Budget.Used);
+            Assert.AreEqual(removed.Value.Budget.Used, removed.Value.Gear.Resources.Budget.KnownPurchaseCost);
+            Assert.IsNull(removed.Value.Authority.PurchasedQualityCosts);
+            Assert.AreEqual(removed.Value.Budget.Remaining, removed.Value.Gear.Resources.Budget.RemainingNuyen);
+        }
+    }
+
+    private static void EnableRunFaster(XElement settings)
+    {
+        var books = settings.Element("books")!;
+        if (!books.Elements("book").Any(book => book.Value == "RF")) books.Add(new XElement("book", "RF"));
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     public void Lifestyle_completion_before_attributes_or_resources_uses_real_prices_without_saving(string method)

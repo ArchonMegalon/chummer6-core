@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Runtime.CompilerServices;
+using System.Xml.Linq;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 
@@ -24,9 +26,13 @@ public sealed partial class CharacterCreationResourcesService
         WorkspaceStoredDocument workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
+        if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite))
+            return Blocked<CharacterCreationResourcesCompletionInputs>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationCompositeBaselineReader.Invalid);
         AuthorityContext context = BuildContext(workspace);
         string[] blockers = Normalize(context.Blockers.Concat(context.Budget.Blockers)
-            .Concat(ValidateContinuationDraft(workspace)));
+            .Concat(ValidateContinuationDraft(workspace)).Where(blocker =>
+                !(composite is not null && blocker == CharacterCreationResourcesBlockers.InsufficientNuyen)));
         if (blockers.Length != 0 || context.Prerequisite is null || context.PriorityOption is null)
             return new(CharacterCreationResourcesOutcomes.Blocked, null,
                 blockers.Length == 0 ? [CharacterCreationResourcesBlockers.AuthorityUnavailable] : blockers);
@@ -47,11 +53,11 @@ public sealed partial class CharacterCreationResourcesService
         // TryLoad may project that real history; it never receives proposed data.
         if (!TryGetRetainedCompletionLifestyleCost(inputs, out decimal lifestyleCost)
             || inputs.LifestylesDraft is { } retained
-                && (!CharacterCreationLifestylesDraftRules.TryLoad(workspace, _sourceData,
-                        out var current, out _, out _)
-                    || current is null
-                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
-                        retained.ProjectionAuthority, current.ProjectionAuthority)))
+                && !(CharacterCreationLifestylesDraftRules.AdmitsRetainedCompletionHistory(workspace, _sourceData, retained)
+                    || CharacterCreationLifestylesDraftRules.TryLoad(workspace, _sourceData,
+                        out var current, out _, out _) && current is not null
+                        && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                            retained.ProjectionAuthority, current.ProjectionAuthority)))
             return Blocked<CharacterCreationResourcesCompletionInputs>(CharacterCreationResourcesOutcomes.Blocked,
                 CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
         try { inputs = inputs with { KnownPurchaseCost = checked(context.KnownPurchaseCost + lifestyleCost) }; }
@@ -132,7 +138,8 @@ public sealed partial class CharacterCreationResourcesService
         cancellationToken.ThrowIfCancellationRequested();
         var pricing = PriceSelectedCompletion(new(resourcesInputs.Authority, resourcesInputs.PriorityOption,
             available, totalKarmaInvestment, resourcesInputs.PurchaseAuthorityExact,
-            resourcesInputs.KnownPurchaseCost, upstream.Blockers), cancellationToken);
+            resourcesInputs.KnownPurchaseCost, upstream.Blockers), cancellationToken,
+            resourcesInputs.PrerequisiteDraft.CreationKarmaTotal);
         if (pricing.Value is not { } priced)
             return new(pricing.Outcome, null, pricing.Blockers);
         var projection = new CharacterCreationResourcesCompletionProjection(
@@ -154,7 +161,8 @@ public sealed partial class CharacterCreationResourcesService
     /// saved-cost delta. This internal result cannot be confirmed or persisted.
     /// </summary>
     internal static CharacterCreationResourcesResult<SelectedCompletionResourcesPrice> PriceSelectedCompletion(
-        SelectedCompletionResourcesPricingInput input, CancellationToken cancellationToken = default)
+        SelectedCompletionResourcesPricingInput input, CancellationToken cancellationToken = default,
+        int? creationKarmaTotal = null, bool includeOptions = true)
     {
         ArgumentNullException.ThrowIfNull(input);
         cancellationToken.ThrowIfCancellationRequested();
@@ -162,14 +170,19 @@ public sealed partial class CharacterCreationResourcesService
         if (input.Authority is null || input.PriorityOption is null || input.UpstreamBlockers is null
             || !CharacterCreationResourcesRules.IsValidAuthority(input.Authority)
             || !CharacterCreationResourcesRules.IsValidPriorityOption(input.PriorityOption)
-            || input.FullPurchaseCost < 0m)
+            || input.FullPurchaseCost < 0m || input.AvailableKarma < 0)
             return Blocked<SelectedCompletionResourcesPrice>(CharacterCreationResourcesOutcomes.Blocked,
                 CharacterCreationResourcesBlockers.AuthorityUnavailable);
-        var options = BuildOptions(input.Authority, input.PriorityOption, input.AvailableKarma);
-        var selected = options.SingleOrDefault(option => option.KarmaInvestment == input.TotalKarmaInvestment);
+        var selected = CreateAllocationOption(input.Authority, input.PriorityOption,
+            input.AvailableKarma, input.TotalKarmaInvestment);
         if (selected is null)
             return new(CharacterCreationResourcesOutcomes.Invalid, null,
                 Normalize(input.UpstreamBlockers.Append(CharacterCreationResourcesBlockers.InvalidOption)));
+        // History validation only needs its recorded choice and must not enumerate
+        // the Int32.MaxValue allowance sentinel. Execution paths retain the catalogue.
+        CharacterCreationResourceAllocationOption[] options = includeOptions
+            ? BuildOptions(input.Authority, input.PriorityOption, input.AvailableKarma, creationKarmaTotal, cancellationToken)
+            : [selected];
         var blockers = new List<string>(input.UpstreamBlockers);
         blockers.AddRange(selected.Blockers);
         var budget = BuildBudget(input.Authority, input.PriorityOption, selected,
@@ -240,10 +253,287 @@ public sealed partial class CharacterCreationResourcesService
     {
         if (!IsValidCompletionInputs(inputs) || inputs.PendingDraft is not { } saved)
             return null;
-        var option = BuildOptions(inputs.Authority, inputs.PriorityOption, int.MaxValue)
-            .SingleOrDefault(item => item.OptionId == saved.SelectedOptionId);
+        var option = FindAllocationOption(inputs.Authority, inputs.PriorityOption,
+            int.MaxValue, saved.SelectedOptionId);
         return option is null ? null : BuildBudget(inputs.Authority, inputs.PriorityOption,
             option, inputs.PurchaseAuthorityExact, inputs.KnownPurchaseCost, null);
+    }
+
+    // Invocation-local evidence. Only successful canonical pricing can construct
+    // this object; neither a receipt nor a copied projection can restore it.
+    internal sealed class CompleteFundingExecution
+    {
+        private readonly string originalDigest;
+        private readonly string authorityDigest;
+        private readonly string upstreamDigest;
+        private readonly SelectedCompletionResourcesPricingInput input;
+        private readonly SelectedCompletionResourcesPrice price;
+        private readonly CharacterCreationCompleteUpstreamCostsExecution costs;
+
+        private CompleteFundingExecution(object original, object upstream,
+            SelectedCompletionResourcesPricingInput input, SelectedCompletionResourcesPrice price,
+            CharacterCreationCompleteAssessment authority, CharacterCreationCompleteUpstreamCostsExecution costs)
+        {
+            originalDigest = CharacterCreationFinalizationDigest.Compute(original);
+            authorityDigest = CharacterCreationFinalizationDigest.Compute(authority);
+            upstreamDigest = CharacterCreationFinalizationDigest.Compute(upstream);
+            this.input = DetachCompletion(input);
+            this.price = DetachCompletion(price);
+            this.costs = costs;
+            EvaluationDigest = CharacterCreationFinalizationDigest.Compute(new
+                { Input = this.input, Result = this.price, Costs = costs.EvaluationDigest });
+        }
+
+        internal string EvaluationDigest { get; }
+        internal bool TryGetCarryoverBudget995(CharacterCreationCompleteAssessment authority,
+            out int remainingKarma, out decimal remainingNuyen, out decimal nuyenLimit)
+        {
+            remainingKarma = 0; remainingNuyen = 0; nuyenLimit = 0;
+            if (!CanExecute(authority) || authorityDigest != CharacterCreationFinalizationDigest.Compute(authority)
+                || price.Blockers.Count != 0 || !price.Budget.IsExact || price.Budget.Blockers.Count != 0
+                || price.RemainingCreationKarma < 0 || price.Budget.RemainingNuyen < 0
+                || price.Budget.Overspend != 0) return false;
+            remainingKarma = price.RemainingCreationKarma;
+            remainingNuyen = price.Budget.RemainingNuyen;
+            nuyenLimit = price.Budget.CarryoverLimit;
+            return true;
+        }
+        internal string CopySourceResult718() => JsonSerializer.Serialize(new
+        {
+            Operation = "PriceSelectedCompletion", Input = input, Result = price
+        });
+        internal string? LoadoutEvaluationDigest => costs.LoadoutEvaluationDigest;
+
+        // The existing canonical execution owns these terms even at zero investment:
+        // The canonical option constructor and bounded catalogue both use the rate
+        // and ceiling; the wallet bounds display, never changes the profile rule.
+        // A serialized ResourcesExecution718 is diagnostic data, never this capability.
+        internal void BindSourceInvocation994(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationCompleteAssessment authority, CharacterCreationCompletionReviewInputs inputs,
+            CharacterCreationCompletionReviewRequest request)
+        {
+            var resources = inputs.Lifestyles.Gear.Resources;
+            if (!CanExecute(authority) || authorityDigest != CharacterCreationFinalizationDigest.Compute(authority)
+                || !CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+                || authority.InputsSnapshotDigest != inputs.SnapshotDigest || request.InputsSnapshotDigest != inputs.SnapshotDigest
+                || authority.RequestDigest != CharacterCreationFinalizationDigest.Compute(request)
+                || authority.SelectionsDigest != CharacterCreationFinalizationDigest.Compute(request.Selections)
+                || authority.RawCharacterXmlDigest != resources.Binding.RawCharacterXmlDigest
+                || authority.PolicyDigest != inputs.EffectivePolicy?.PolicyDigest
+                || invocation.PolicyDigest != authority.PolicyDigest || invocation.RequestDigest != authority.RequestDigest
+                || inputs.RuleSourceExecutionSchema != request.RuleSourceExecutionSchema
+                || invocation.CaptureDigest != inputs.RuleSourceCaptureDigest || invocation.CaptureDigest != request.RuleSourceCaptureDigest
+                || !CharacterCreationFinalizationDigest.IsCanonical(invocation.CaptureDigest)
+                || !CharacterCreationFinalizationDigest.IsCanonical(invocation.GraphDigest)
+                || invocation.WorkspaceId718 is null || invocation.WorkspaceId718 != inputs.OriginalCharacter?.WorkspaceId
+                || invocation.WorkspaceId718 != resources.Binding.WorkspaceId
+                || !Same(input.Authority, resources.Authority) || !Same(input.PriorityOption, resources.PriorityOption)
+                || !Same(invocation.CreationDraft718, resources.PrerequisiteDraft)
+                || !Same(invocation.Attributes718, invocation.Skills718?.Attributes)
+                || request.Selections.TotalKarmaInvestment != input.TotalKarmaInvestment
+                || price.SelectedOption.KarmaInvestment != input.TotalKarmaInvestment
+                || input.TotalKarmaInvestment < 0 || input.TotalKarmaInvestment > input.Authority.MaximumKarmaInvestment
+                || price.Options.Where(option => option.KarmaInvestment == input.TotalKarmaInvestment).ToArray() is not [var selected]
+                || !Same(selected, price.SelectedOption) || invocation.ResourcesExecution718 != CopySourceResult718()
+                || !invocation.TryGetCompletedConsumer("profile", out _)) return;
+            var policy = inputs.EffectivePolicy!;
+            var source = inputs.Magic.Authority.MysticAdeptPowerPointPolicy;
+            if (policy.SettingsProfileId != input.Authority.SettingsProfileId
+                || policy.ProfileInputsDigest != input.Authority.ProfileDigest
+                || !CharacterCreationCompleteProfileExecution.SupportsDomain(policy, source, CharacterCreationPolicyDomain.Profile)
+                || !CharacterCreationPolicyConsumptionProjection.MatchesSource(policy, source)) return;
+            var profile = XElement.Parse(source!.CanonicalSourceXml, LoadOptions.PreserveWhitespace);
+            if (profile.HasAttributes) return;
+            var leaves = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (string field in new[] { "chargenkarmatonuyenexpression", "nuyenmaxbp" })
+            {
+                var nodes = profile.Elements().Where(node => node.Name.LocalName == field).ToArray();
+                if (nodes is not [var leaf] || leaf.Name != field || leaf.HasAttributes
+                    || leaf.Nodes().ToArray() is not [XText text] || text.GetType() != typeof(XText)) continue;
+                leaves.Add(field, FundingXmlDigest994(leaf));
+            }
+            if (leaves.Count != 0)
+                fundingInvocations994.Add(invocation, new(this, FundingInvocationDigest994(invocation),
+                    FundingXmlDigest994(profile), leaves));
+        }
+
+        internal static bool TryReadSource994(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationResourcesAuthority authority, string profileXmlDigest, string field, string leafXmlDigest,
+            out string? result, out string? executionDigest)
+        {
+            result = null; executionDigest = null;
+            if (!fundingInvocations994.TryGetValue(invocation, out var bound)
+                || !Same(bound.Completed.input.Authority, authority)
+                || bound.ProfileXmlDigest != profileXmlDigest
+                || !bound.Leaves.TryGetValue(field, out var leaf) || leaf != leafXmlDigest
+                || bound.InvocationDigest != FundingInvocationDigest994(invocation)) return false;
+            result = bound.Completed.CopySourceResult718();
+            executionDigest = CharacterCreationFinalizationDigest.Compute(new
+            {
+                Operation = "canonical-funding-options-and-selection", bound.Completed.authorityDigest,
+                bound.Completed.EvaluationDigest, bound.InvocationDigest, bound.ProfileXmlDigest,
+                Authority = bound.Completed.input.Authority, Field = field, Leaf = leaf
+            });
+            return true;
+        }
+
+        private sealed record BoundFunding994(CompleteFundingExecution Completed, string InvocationDigest,
+            string ProfileXmlDigest, IReadOnlyDictionary<string, string> Leaves);
+        private static readonly ConditionalWeakTable<CharacterCreationRuleSourceScopeInvocation, BoundFunding994>
+            fundingInvocations994 = new();
+
+        private static string FundingInvocationDigest994(CharacterCreationRuleSourceScopeInvocation invocation)
+        {
+            invocation.TryGetCompletedConsumer("profile", out var consumer);
+            return CharacterCreationFinalizationDigest.Compute(new
+            {
+                invocation.PolicyDigest, invocation.CaptureDigest, invocation.RequestDigest, invocation.GraphDigest,
+                Consumer = consumer, invocation.CompiledEffects, invocation.CreationDraft718, invocation.WorkspaceId718,
+                invocation.Attributes718, invocation.AttributePolicy718, invocation.Skills718,
+                invocation.ResourcesExecution718, invocation.LifestyleAuthority718, invocation.Lifestyles718,
+                invocation.StartingLifestyleId718, invocation.SourceExecution832, invocation.CompiledMovement832,
+                invocation.PhysicalAuthority886, invocation.PhysicalInitiative886
+            });
+        }
+
+        private static string FundingXmlDigest994(XElement node)
+            => CharacterCreationFinalizationDigest.Compute(node.ToString(SaveOptions.DisableFormatting));
+
+        internal static CompleteFundingExecution? FromFull(CharacterCreationCompletionReviewInputs inputs,
+            CharacterCreationCompletionReview review, CharacterCreationCompleteAssessment? authority,
+            CancellationToken cancellationToken = default,
+            CharacterCreationLifestylesService.CompleteGraphExecution? lifestyles = null,
+            CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null)
+        {
+            if (!CanExecute(authority) || review.Blockers.Count != 0 || review.Lifestyles is null
+                || review.UpstreamBudget is null || review.Request.Selections.Gear is null
+                || inputs.SnapshotDigest != review.Request.InputsSnapshotDigest
+                || inputs.SnapshotDigest != CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs)
+                || !CharacterCreationEffectivePolicyValidation.IsValid(inputs.EffectivePolicy!, inputs)
+                || !Same(authority, CharacterCreationCompleteAssessmentService.FromFullAuthority(inputs, review.Request, ruleSourceExecution))) return null;
+            var original = inputs.Lifestyles.Gear.Resources;
+            var choices = review.Request.Selections;
+            // Prepare the upstream allowance from original inputs, not from the
+            // caller's scalar or the saved investment delta. The retained basket
+            // may be unaffordable before the proposed replacement is priced.
+            var funding = PreviewCompletion(original, inputs.Magic, inputs.Lifestyles.Qualities,
+                choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds,
+                choices.TotalKarmaInvestment, cancellationToken);
+            if (funding.Value is not { UpstreamBudget: { AvailableKarmaBeforeResources: int available, Blockers.Count: 0 } upstream }
+                || !Same(upstream, review.UpstreamBudget)) return null;
+            var costs = CharacterCreationCompleteUpstreamCostsExecution.FromFull(inputs, review, authority!, cancellationToken, lifestyles, ruleSourceExecution);
+            if (costs is null) return null;
+            var pricing = FullInput(inputs, review, available, costs);
+            var execution = Execute(original, inputs, upstream, pricing, authority!, costs, cancellationToken);
+            return execution?.MatchesFull(inputs, review, authority!) == true ? execution : null;
+        }
+
+        internal static CompleteFundingExecution? FromSelected(CharacterCreationSelectedCompletionWitness witness,
+            CharacterCreationCompletionReviewRequest request, CharacterCreationSelectedCompletionEvaluation result,
+            CharacterCreationCompleteAssessment? authority, CancellationToken cancellationToken = default,
+            CharacterCreationLifestylesService.CompleteGraphExecution? lifestyles = null)
+        {
+            if (!CanExecute(authority) || request.Selections.Gear is null
+                || authority!.InputsSnapshotDigest != witness.ProvenanceInputsSnapshotDigest
+                || authority.RequestDigest != CharacterCreationFinalizationDigest.Compute(request)
+                || request.InputsSnapshotDigest != witness.ProvenanceInputsSnapshotDigest
+                || authority.RawCharacterXmlDigest != witness.Skills.Binding.RawCharacterXmlDigest
+                || authority.SelectedInputsDigest != witness.SelectedPolicyInputs?.InputsDigest
+                || authority.PolicyDigest != witness.EffectivePolicy?.PolicyDigest
+                || authority.SelectionsDigest != CharacterCreationFinalizationDigest.Compute(request.Selections)
+                || authority.SettingsObservationDigest != CharacterCreationFinalizationDigest.Compute(witness.EffectivePolicy?.SettingObservations)
+                || result.Qualities.Blockers.Count != 0 || !IsValidCompletionInputs(witness.Resources)) return null;
+            // Rebuild the attribute/quality cost basis as well as Magic. A coherent
+            // replacement lifestyle quote must not borrow caller-supplied effects.
+            cancellationToken.ThrowIfCancellationRequested();
+            var attributes = CharacterCreationAttributesService.CreateDraftSession(witness.Skills.Attributes)
+                ?.Preview(request.Selections.AttributeAllocations);
+            if (attributes?.Value is not { } proposed
+                || proposed.Blockers.Any(blocker => blocker != CharacterCreationAttributesBlockers.DraftDuplicate)
+                || !Same(proposed, result.Skills.Attributes)
+                || proposed.CreationKarmaBudget.Used is < 0 or > int.MaxValue
+                || proposed.CreationKarmaBudget.Used != decimal.Truncate(proposed.CreationKarmaBudget.Used)
+                || !CharacterCreationQualitiesRules.TryEvaluateSelectedAuthority(witness.Qualities,
+                    request.Selections.QualityOptionIds, witness.Skills.PrerequisiteDraft.CreationKarmaTotal,
+                    (int)proposed.CreationKarmaBudget.Used, out var qualities)
+                || qualities is not { Blockers.Count: 0 } || !Same(qualities, result.Qualities)) return null;
+            var magic = CharacterCreationMagicResonanceService.EvaluateSelectedMagic(witness.Magic,
+                witness.Skills.PrerequisiteDraft, witness.Skills.Attributes.Attributes,
+                result.Skills.Attributes.Attributes, cancellationToken);
+            if (magic.Outcome != CharacterCreationFoundationOutcomes.Success || magic.Blockers.Count != 0
+                || magic.Value is null || !Same(magic.Value, result.Magic)
+                || !CharacterCreationPriorityKarmaBudget.TryEvaluate(result.Qualities.KarmaRemaining, 0,
+                    magic.Value.Proposed.MysticAdeptPowerPoints, out int available)) return null;
+            var costs = CharacterCreationCompleteUpstreamCostsExecution.FromSelected(witness, request, result, authority!, cancellationToken, lifestyles);
+            if (costs is null) return null;
+            var execution = Execute(witness.Resources, witness, SelectedUpstream(result), SelectedInput(witness, request, available, costs),
+                authority!, costs, cancellationToken);
+            return execution?.MatchesSelected(witness, request, result, authority!) == true ? execution : null;
+        }
+
+        private static CompleteFundingExecution? Execute(CharacterCreationResourcesCompletionInputs resources, object original, object upstream,
+            SelectedCompletionResourcesPricingInput input, CharacterCreationCompleteAssessment authority,
+            CharacterCreationCompleteUpstreamCostsExecution costs,
+            CancellationToken cancellationToken)
+        {
+            if (!IsValidCompletionInputs(resources)) return null;
+            var priced = PriceSelectedCompletion(input, cancellationToken, resources.PrerequisiteDraft.CreationKarmaTotal);
+            return priced.Outcome == CharacterCreationResourcesOutcomes.Available && priced.Blockers.Count == 0
+                && priced.Value is { Blockers.Count: 0 } value
+                ? new(original, upstream, input, value, authority, costs) : null;
+        }
+
+        internal bool MatchesFull(CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReview review,
+            CharacterCreationCompleteAssessment authority)
+        {
+            if (review.Blockers.Count != 0 || review.UpstreamBudget is not { AvailableKarmaBeforeResources: int available }
+                || review.Lifestyles?.Gear.Resources is not { } actual) return false;
+            var original = inputs.Lifestyles.Gear.Resources;
+            return authority.RequestDigest == CharacterCreationFinalizationDigest.Compute(review.Request)
+                && Same(actual.Binding, original.Binding) && actual.ResourcesSnapshotDigest == original.SnapshotDigest
+                && Same(actual.UpstreamBudget, review.UpstreamBudget)
+                && costs.MatchesFull(inputs, review, authority)
+                && Matches(inputs, review.UpstreamBudget, FullInput(inputs, review, available, costs),
+                    new(actual.Options, actual.SelectedOption, actual.Budget, actual.RemainingCreationKarma, actual.Blockers), authority);
+        }
+
+        internal bool MatchesSelected(CharacterCreationSelectedCompletionWitness witness,
+            CharacterCreationCompletionReviewRequest request, CharacterCreationSelectedCompletionEvaluation result,
+            CharacterCreationCompleteAssessment authority)
+            => authority.RequestDigest == CharacterCreationFinalizationDigest.Compute(request)
+                && CharacterCreationPriorityKarmaBudget.TryEvaluate(result.Qualities.KarmaRemaining, 0,
+                    result.Magic.Proposed.MysticAdeptPowerPoints, out int available)
+                && costs.MatchesSelected(witness, request, result, authority)
+                && Matches(witness, SelectedUpstream(result), SelectedInput(witness, request, available, costs), result.Resources, authority);
+
+        private bool Matches(object original, object upstream, SelectedCompletionResourcesPricingInput expected,
+            SelectedCompletionResourcesPrice actual, CharacterCreationCompleteAssessment authority)
+            => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority)
+                && originalDigest == CharacterCreationFinalizationDigest.Compute(original)
+                && upstreamDigest == CharacterCreationFinalizationDigest.Compute(upstream)
+                && Same(input, expected) && Same(price, actual);
+
+        private static object SelectedUpstream(CharacterCreationSelectedCompletionEvaluation result)
+            => new { result.Skills.Attributes, result.Qualities, result.Magic };
+
+        private static SelectedCompletionResourcesPricingInput FullInput(CharacterCreationCompletionReviewInputs inputs,
+            CharacterCreationCompletionReview review, int available, CharacterCreationCompleteUpstreamCostsExecution costs)
+        {
+            var original = inputs.Lifestyles.Gear.Resources;
+            return new(original.Authority, original.PriorityOption, available, review.Request.Selections.TotalKarmaInvestment,
+                original.PurchaseAuthorityExact, costs.FullPurchaseCost, review.UpstreamBudget!.Blockers);
+        }
+
+        private static SelectedCompletionResourcesPricingInput SelectedInput(CharacterCreationSelectedCompletionWitness witness,
+            CharacterCreationCompletionReviewRequest request, int available, CharacterCreationCompleteUpstreamCostsExecution costs)
+            => new(witness.Resources.Authority, witness.Resources.PriorityOption, available, request.Selections.TotalKarmaInvestment,
+                witness.Resources.PurchaseAuthorityExact, costs.FullPurchaseCost, []);
+
+        private static bool CanExecute(CharacterCreationCompleteAssessment? authority)
+            => authority is { Schema: CharacterCreationCompleteAssessment.SchemaV4, Phase: CharacterCreationCompletePhase.Authority };
+
+        private static bool Same<T>(T left, T right)
+            => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(left, right);
     }
 
     private static bool IsValidCompletionInputs(CharacterCreationResourcesCompletionInputs inputs)
@@ -301,8 +591,7 @@ public sealed partial class CharacterCreationResourcesService
 
         // Price retained history against its actual source and recorded purchase
         // cost. The current Gear basket may legitimately have been saved later.
-        var option = BuildOptions(authority, priority, int.MaxValue)
-            .SingleOrDefault(item => item.OptionId == pending.SelectedOptionId);
+        var option = FindAllocationOption(authority, priority, int.MaxValue, pending.SelectedOptionId);
         return option is not null && pending.KarmaInvestment == option.KarmaInvestment
             && pending.Budget.KnownPurchaseCost <= option.TotalStartingNuyen
             && pending.SourceAnchorIds.SequenceEqual(option.SourceAnchorIds, StringComparer.Ordinal)

@@ -305,7 +305,9 @@ public static class CharacterCreationBootstrapAuthority
         if (!CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
                 shape.BuildMethod,
                 shape.SettingsProfileId,
-                anchors))
+                anchors)
+            || !HasCurrentSourceAnchors(sourceProfile, metatypeAuthority, prerequisiteAuthority,
+                requiresPrerequisiteAuthority, anchors))
         {
             binding = EmptyBinding(workspaceId);
             sourceAnchorIds = [];
@@ -489,6 +491,43 @@ public static class CharacterCreationBootstrapAuthority
 
         shape = new BootstrapDocumentShape(buildMethod, settingsProfileId);
         return true;
+    }
+
+    private static bool HasCurrentSourceAnchors(
+        CharacterCreationSourceProfileAuthority profile,
+        CharacterCreationMetatypeCatalogAuthority metatypes,
+        CharacterCreationPrerequisiteAuthority prerequisites,
+        bool requiresPrerequisites,
+        string[] anchors)
+    {
+        CharacterCreationBootstrapSourceAnchorAuthority? observation = profile.BootstrapSourceAnchors;
+        if (observation is null)
+        {
+            // Preserve legacy base-only source providers. A custom anchor never
+            // gains authority merely by satisfying the persisted syntax check.
+            return anchors.SequenceEqual(CharacterCreationBootstrapProfiles.ExpectedSourceAnchorIds(
+                profile.BuildMethod, profile.SettingsProfileId), StringComparer.Ordinal);
+        }
+        if (!string.Equals(observation.SettingsProfileId, profile.SettingsProfileId, StringComparison.Ordinal)
+            || !string.Equals(observation.BuildMethod, profile.BuildMethod, StringComparison.Ordinal)
+            || !string.Equals(observation.RawProfileInputsDigest, profile.RawProfileInputsDigest, StringComparison.Ordinal)
+            || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(observation.SelectedCustomDataInputsDigest)
+            || !string.Equals(observation.SelectedCustomDataInputsDigest,
+                metatypes.SourceContext.SelectedCustomDataInputsDigest, StringComparison.Ordinal)
+            || requiresPrerequisites && !string.Equals(observation.SelectedCustomDataInputsDigest,
+                prerequisites.SelectedCustomDataInputsDigest, StringComparison.Ordinal)
+            || observation.SourceAnchorIds is null
+            || !anchors.SequenceEqual(observation.SourceAnchorIds, StringComparer.Ordinal)) return false;
+
+        string[] metatypeAnchors = observation.SourceAnchorIds
+            .Where(anchor => anchor.StartsWith("customdata:", StringComparison.Ordinal)
+                && anchor.IndexOf(':', "customdata:".Length) < 0)
+            .Concat(["metatypes.xml", CharacterCreationBootstrapProfiles.SettingsSourceAnchor(profile.SettingsProfileId)])
+            .Order(StringComparer.Ordinal).ToArray();
+        return metatypes.SourceContext.SourceAnchorIds.Order(StringComparer.Ordinal)
+                   .SequenceEqual(metatypeAnchors, StringComparer.Ordinal)
+               && (!requiresPrerequisites || prerequisites.SourceAnchorIds.Order(StringComparer.Ordinal)
+                   .SequenceEqual(anchors, StringComparer.Ordinal));
     }
 
     private static string ReadExactlyOne(

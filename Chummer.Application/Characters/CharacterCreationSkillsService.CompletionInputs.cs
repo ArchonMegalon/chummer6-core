@@ -10,6 +10,7 @@ public sealed partial class CharacterCreationSkillsService
     public CharacterCreationFoundationResult<CharacterCreationSkillsCompletionInputs> LoadCompletionInputs(
         CharacterCreationSkillsLoadRequest request)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         var read = _store.Get(request.WorkspaceId);
         if (!read.Success || read.Value is not { } workspace)
@@ -35,15 +36,25 @@ public sealed partial class CharacterCreationSkillsService
             return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Conflict,
                 CharacterCreationAttributeSkillsPreviewSchemas.SnapshotConflict);
 
+        if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite)
+            || composite is not null && !CharacterCreationCompositeBaselineReader.MatchesSkillsSource(
+                workspace, source.Authority, source.Prerequisite))
+            return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationCompositeBaselineReader.Invalid);
         CharacterCreationSkillsState? savedSkills = null;
         IReadOnlyList<CharacterCreationSkillAllocation> allocations;
         IReadOnlyList<CharacterCreationSkillGroupAllocation> groups;
-        if (workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft is not null
+        if (composite is not null)
+        {
+            allocations = composite.Selections.SkillAllocations;
+            groups = composite.Selections.GroupAllocations;
+        }
+        else if (workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft is not null
             || workspace.Document.AuxiliaryState.CharacterCreationSkillsReceipts is not null)
         {
             // No bypass for stale saved skills after an attribute/source edit.
             // Ordinary history/re-review requirements remain the authority.
-            var existing = BuildState(workspace);
+            var existing = BuildState(workspace, out _, forContinuation: true);
             if (existing.Value is not { PendingDraft: not null } current || CreateDraftSession(current) is null)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null,
                     existing.Blockers.Count == 0 ? [CharacterCreationSkillsBlockers.DraftInvalid] : existing.Blockers);
@@ -66,19 +77,65 @@ public sealed partial class CharacterCreationSkillsService
                 new CharacterCreationSkillGroupAllocation(group.GroupId, group.Rating)).ToArray();
         }
         CharacterCreationKarmaSkillsPolicy? karmaPolicy = null;
-        if (request.IncludeKarmaPurchasePolicy)
+        IReadOnlyList<string>? compensationOrder = null;
+        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null;
+        if (request.IncludeKarmaPurchasePolicy || composite?.Selections.SkillKarmaPurchases is not null)
         {
             var context = _resolver.TryCreateContext(workspace.Document.Content);
             if (context is null || !context.TryResolveCreationPrioritySkillKarmaPolicy(out karmaPolicy)
                 || !IsCompletionKarmaPolicyValid(karmaPolicy, source.Authority))
                 return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
                     CharacterCreationSkillKarmaPurchaseBlockers.PolicyUnavailable);
+            if (karmaPolicy!.CompensateSkillGroupKarmaDifference)
+            {
+                // Reuse the existing source resolver and its canonical order.
+                // Both projections must describe this very same effective source.
+                if (!context.TryResolveCreationSkillsCatalog(out var catalog)
+                    || !CharacterCreationSkillsCatalogAuthority.IsValid(catalog)
+                    || catalog!.SettingsProfileId != source.Authority.SettingsProfileId
+                    || catalog.RawProfileInputsDigest != source.Authority.RawProfileInputsDigest
+                    || catalog.SkillsInputsDigest != source.Authority.EffectiveSkillsInputsDigest
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                        catalog.ActiveSkills, source.Authority.ActiveSkills)
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                        catalog.SkillGroups, source.Authority.SkillGroups))
+                    return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
+                        CharacterCreationSkillKarmaPurchaseBlockers.PolicyUnavailable);
+                compensationOrder = catalog.ActiveSkillSourceOrder.ToArray();
+            }
+            if (composite is not null && composite.Selections.QualityOptionIds.Count > 0)
+            {
+                if (!context.TryResolveCreationQualitiesAuthority(source.Prerequisite, out var qualityAuthority)
+                    || qualityAuthority.SettingsProfileId != source.Authority.SettingsProfileId
+                    || qualityAuthority.RulesetId != workspace.Document.RulesetId)
+                    return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
+                        CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
+                qualityAuthority = CharacterCreationLegacySourceProjector.AdmitSkillKarmaQualityAuthority(qualityAuthority);
+                var qualityBinding = new CharacterCreationQualitiesBinding(workspace.Id, workspace.ContentRevision,
+                    workspace.SavedRevision, source.RawDigest, workspace.Document.AuxiliaryStateDigest,
+                    source.Prerequisite.DraftRevision, source.Prerequisite.DraftDigest,
+                    attributes.PendingDraft?.DraftRevision ?? 0, attributes.PendingDraft?.DraftDigest ?? string.Empty,
+                    workspace.Document.RulesetId, source.Prerequisite.BuildMethod, false,
+                    source.Prerequisite.CreationKarmaTotal, attributes.PendingDraft?.CreationKarmaUsed ?? 0,
+                    qualityAuthority.AuthorityDigest, qualityAuthority.RuntimeDigest);
+                var qualities = CharacterCreationQualitiesRules.EvaluateCompletion(new(qualityBinding, qualityAuthority,
+                    composite.Selections.QualityOptionIds), attributes.PendingDraft?.CreationKarmaUsed ?? 0);
+                if (qualities.Blockers.Count != 0
+                    || !CharacterCreationLegacySourceProjector.TrySkillKarmaModifiers(qualities.Selections, source.Authority, out _))
+                    return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
+                        CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
+                modifierSelections = qualities.Selections;
+            }
         }
         var inputs = new CharacterCreationSkillsCompletionInputs(CharacterCreationSkillsCompletionSchemas.InputsV1,
             binding, attributes, source.Authority, source.Prerequisite, allocations, groups, source.Contributions,
             source.ActiveTotal, source.GroupTotal, source.Movement, SnapshotDigest: string.Empty)
-            { SavedSkillsState = savedSkills, KarmaPurchasePolicy = karmaPolicy };
+            { SavedSkillsState = savedSkills, KarmaPurchasePolicy = karmaPolicy,
+                KarmaCompensationSourceOrder = compensationOrder, SkillKarmaQualitySelections = modifierSelections };
         inputs = inputs with { SnapshotDigest = CharacterCreationSkillsDigest.Compute(inputs) };
+        if (composite is not null && !ValidateCompositePending(workspace, inputs))
+            return Blocked<CharacterCreationSkillsCompletionInputs>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationSkillsBlockers.DraftInvalid);
         return new(CharacterCreationFoundationOutcomes.Success,
             JsonSerializer.Deserialize<CharacterCreationSkillsCompletionInputs>(JsonSerializer.SerializeToUtf8Bytes(inputs))!, []);
     }

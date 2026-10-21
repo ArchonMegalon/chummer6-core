@@ -18,6 +18,29 @@ public sealed class OwnerBoundCharacterCreationBootstrapService(
             return service.Create(expectedOwner, request);
     }
 
+    public CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> CreateReserved(
+        OwnerContextStamp expectedOwner, CharacterCreationReservedBootstrapRequest request,
+        ICharacterCreationReservationAuthority authority)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(authority);
+        if (request.Schema != CharacterCreationReservedBootstrapRequest.SchemaV1
+            || request.Creation is null || !CharacterCreationReservation.IsValid(request.Reservation)
+            || expectedOwner.Owner.IsLocalSingleUser
+            || request.Reservation.OwnerId != expectedOwner.Owner.NormalizedValue
+            || request.Reservation.RequestDigest != CharacterCreationFinalizationDigest.Compute(request.Creation)
+            || !OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return new(CharacterCreationBootstrapOutcomes.Unavailable, null,
+                [CharacterCreationBootstrapBlockers.AtomicCreateUnavailable]);
+        using (lease)
+        {
+            if (!authority.IsCurrent(expectedOwner, request.Reservation))
+                return new(CharacterCreationBootstrapOutcomes.Unavailable, null,
+                    [CharacterCreationBootstrapBlockers.AtomicCreateUnavailable]);
+            return service.CreateReserved(expectedOwner, request, authority);
+        }
+    }
+
     public CharacterCreationBootstrapActivationAttempt CreateActivation(
         OwnerContextStamp expectedOwner, CharacterCreationBootstrapRequest request)
     {

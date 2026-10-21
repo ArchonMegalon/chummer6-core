@@ -29,8 +29,10 @@ internal static class CharacterCreationSelectedCompletionEvaluator
     internal static CharacterCreationFoundationResult<CharacterCreationSelectedCompletionWitness> Capture(
         WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
         CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, CharacterCreationRuleSourceExecutionContext? ruleSources = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(bootstrap);
         ArgumentNullException.ThrowIfNull(inputs);
@@ -38,7 +40,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            var reviewed = ReviewedCompletion.Evaluate(inputs, request, cancellationToken);
+            var reviewed = ReviewedCompletion.Evaluate(inputs, request, cancellationToken, ruleSources, campaign);
             if (reviewed.Outcome != CharacterCreationFoundationOutcomes.Success || reviewed.Value is null)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, reviewed.Blockers);
             return reviewed.Value.Capture(original, bootstrap, cancellationToken);
@@ -59,30 +61,69 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         private readonly CharacterCreationCompletionReviewInputs inputs;
         private readonly CharacterCreationCompletionReviewRequest request;
         private readonly CharacterCreationCompletionReview review;
+        private readonly CharacterCreationRuleSourceExecutionContext? ruleSources;
+        private readonly CharacterCreationCampaignExecutionContext? campaign;
 
         private ReviewedCompletion(CharacterCreationCompletionReviewInputs inputs,
-            CharacterCreationCompletionReviewRequest request, CharacterCreationCompletionReview review)
+            CharacterCreationCompletionReviewRequest request, CharacterCreationCompletionReview review,
+            CharacterCreationRuleSourceExecutionContext? ruleSources, CharacterCreationCampaignExecutionContext? campaign)
         {
             this.inputs = inputs;
             this.request = request;
             this.review = review;
+            this.ruleSources = ruleSources;
+            this.campaign = campaign;
         }
 
         internal static CharacterCreationFoundationResult<ReviewedCompletion> Evaluate(
             CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, CharacterCreationRuleSourceExecutionContext? ruleSources = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (inputs.OriginalCharacter is { } originalInput
+                && !CharacterCreationOriginalCharacterSource.HasBoundedXml(originalInput.RawCharacterXml))
+                return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationCompletionReviewSchemas.SnapshotConflict]);
             inputs = Detach(inputs);
             request = Detach(request);
             // A content-free span counts actual full reviews on admission/capture,
             // without a global counter, character identifiers or authority cache.
             using var activity = Activities.StartActivity("Review");
-            var result = CharacterCreationCompletionReviewService.Review(inputs, request, cancellationToken);
+            var result = CharacterCreationCompletionReviewService.Review(inputs, request, cancellationToken, ruleSources, campaign);
+            // A refused caller can supply arbitrary schema text. Emit only known
+            // categorical identities, never the untrusted input value.
+            activity?.SetTag("completion.policy.schema", inputs.EffectivePolicy?.Schema switch
+            {
+                null => "legacy",
+                CharacterCreationEffectivePolicyContext.SchemaV1 => CharacterCreationEffectivePolicyContext.SchemaV1,
+                CharacterCreationEffectivePolicyContext.SchemaV2 => CharacterCreationEffectivePolicyContext.SchemaV2,
+                _ => "unknown"
+            });
+            activity?.SetTag("completion.consumer.schema", inputs.EffectivePolicy?.Consumers?.Schema switch
+            {
+                null => "none",
+                CharacterCreationCompletionConsumerPolicy.SchemaV1 => CharacterCreationCompletionConsumerPolicy.SchemaV1,
+                CharacterCreationCompletionConsumerPolicy.SchemaV2 => CharacterCreationCompletionConsumerPolicy.SchemaV2,
+                CharacterCreationCompletionConsumerPolicy.SchemaV3 => CharacterCreationCompletionConsumerPolicy.SchemaV3,
+                CharacterCreationCompletionConsumerPolicy.SchemaV4 => CharacterCreationCompletionConsumerPolicy.SchemaV4,
+                CharacterCreationCompletionConsumerPolicy.SchemaV5 => CharacterCreationCompletionConsumerPolicy.SchemaV5,
+                _ => "unknown"
+            });
+            activity?.SetTag("completion.outcome", result.Outcome);
+            activity?.SetTag("completion.blocker.count", result.Blockers.Count);
             return new(result.Outcome,
                 result.Outcome == CharacterCreationFoundationOutcomes.Success && result.Value is { } value
-                    ? new ReviewedCompletion(inputs, request, value) : null,
+                    ? new ReviewedCompletion(inputs, request, value, ruleSources, campaign) : null,
                 result.Blockers);
+        }
+
+        internal static void ObserveArchive(string schema, int uncompressedBytes, int compressedBytes)
+        {
+            using var activity = Activities.StartActivity("ReplayArchive");
+            activity?.SetTag("completion.witness.schema", schema);
+            activity?.SetTag("completion.archive.uncompressed_bytes", uncompressedBytes);
+            activity?.SetTag("completion.archive.compressed_bytes", compressedBytes);
         }
 
         internal CharacterCreationCompletionReview ReviewSnapshot => Detach(review);
@@ -90,19 +131,24 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         internal CharacterCreationFoundationResult<CharacterCreationSelectedCompletionWitness> Capture(
             WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
             CancellationToken cancellationToken)
-            => CaptureReviewed(original, bootstrap, inputs, request, review, cancellationToken);
+            => CaptureReviewed(original, bootstrap, inputs, request, review, cancellationToken, ruleSources, campaign);
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationSelectedCompletionWitness> CaptureReviewed(
         WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
         CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
-        CharacterCreationCompletionReview review, CancellationToken cancellationToken)
+        CharacterCreationCompletionReview review, CancellationToken cancellationToken,
+        CharacterCreationRuleSourceExecutionContext? ruleSources, CharacterCreationCampaignExecutionContext? campaign)
     {
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
             if (review.UpstreamBudget is null || review.Lifestyles is null)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, review.Blockers);
+            if (inputs.OriginalCharacter is not null
+                && (!CharacterCreationOriginalCharacterSource.TryFromFull(inputs, out var retained, cancellationToken)
+                    || !retained!.MatchesObservation(original, bootstrap)))
+                return Refuse<CharacterCreationSelectedCompletionWitness>(HistoryMismatch);
             var choices = request.Selections;
             var originalGear = inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(row => row.OptionId).ToArray() ?? [];
             if (!CharacterCreationQualitiesRules.TryCaptureSelectedAuthority(inputs.Lifestyles.Qualities.Authority,
@@ -119,15 +165,45 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                     loadoutInputs.Authority, loadoutInputs.OriginalSelections, choices.Loadout, out loadout)))
                 return Refuse<CharacterCreationSelectedCompletionWitness>(Invalid);
             var candidate = new CharacterCreationSelectedCompletionWitness(
-                loadout is null ? CharacterCreationSelectedCompletionWitness.SchemaV1
+                inputs.EffectivePolicy?.Consumers?.Schema == CharacterCreationCompletionConsumerPolicy.SchemaV5
+                    ? CharacterCreationSelectedCompletionWitness.SchemaV6
+                    : inputs.EffectivePolicy?.Consumers?.Schema == CharacterCreationCompletionConsumerPolicy.SchemaV4
+                    ? CharacterCreationSelectedCompletionWitness.SchemaV5
+                    : inputs.EffectivePolicy?.Consumers?.Schema is CharacterCreationCompletionConsumerPolicy.SchemaV2 or CharacterCreationCompletionConsumerPolicy.SchemaV3
+                    ? CharacterCreationSelectedCompletionWitness.SchemaV4
+                    : inputs.EffectivePolicy is not null ? CharacterCreationSelectedCompletionWitness.SchemaV3
+                    : loadout is null ? CharacterCreationSelectedCompletionWitness.SchemaV1
                     : CharacterCreationSelectedCompletionWitness.SchemaV2, inputs.SnapshotDigest, review.ReviewDigest,
                 inputs.Skills, qualities!, magic.Value, gear!, inputs.Lifestyles.Gear.Resources,
                 inputs.Lifestyles.Authority, inputs.Contacts.BootstrapBinding, inputs.Contacts.Policy,
                 inputs.Contacts.CarryoverPolicy, inputs.Contacts.Binding.SourceDigest,
                 review.UpstreamBudget.Qualities.ProposalDigest,
-                CharacterCreationFinalizationDigest.Compute(request), string.Empty) { Loadout = loadout };
+                CharacterCreationFinalizationDigest.Compute(request), string.Empty)
+            {
+                Loadout = loadout,
+                OriginalCharacterExecutionSchema = request.OriginalCharacterExecutionSchema,
+                RuleSourceExecutionSchema = request.RuleSourceExecutionSchema,
+                RuleSourceCaptureDigest = request.RuleSourceCaptureDigest,
+                PhysicalInitiative886 = inputs.PhysicalInitiative886,
+                SourcebookSelection = request.SourcebookSelection,
+                OriginalQualityAuthorityDigest = inputs.EffectivePolicy?.Consumers?.Schema == CharacterCreationCompletionConsumerPolicy.SchemaV5
+                    ? inputs.Lifestyles.Qualities.SavedQualitiesState?.Authority.AuthorityDigest : null,
+                AttributePolicy = inputs.AttributePolicy,
+                LoadoutLegalityPolicy = inputs.LoadoutLegalityPolicy,
+                EffectivePolicy = inputs.EffectivePolicy is null ? null : Detach(inputs.EffectivePolicy with
+                    { SelectedConsumption = review.PolicyConsumption }),
+                CompleteAssessment = review.CompleteAssessment,
+                SelectedPrerequisites = review.SelectedPrerequisites,
+                PolicyRequirement = inputs.EffectivePolicy is null ? null : request.PolicyRequirement
+            };
+            if (candidate.Schema is CharacterCreationSelectedCompletionWitness.SchemaV4 or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6)
+            {
+                if (!TryReadOriginal(original, bootstrap, candidate, out var originalChoices, out _)
+                    || originalChoices is null) return Refuse<CharacterCreationSelectedCompletionWitness>(HistoryMismatch);
+                candidate = candidate with { SelectedPolicyInputs = CharacterCreationSelectedPolicyProjection.FromFull(inputs, originalChoices) };
+            }
             candidate = candidate with { WitnessDigest = ComputeWitnessDigest(candidate) };
-            var replay = Replay(original, bootstrap, candidate, request, cancellationToken);
+            var replay = Replay(original, bootstrap, candidate, request, cancellationToken, ruleSources, campaign);
             if (replay.Value is null || replay.Outcome != CharacterCreationFoundationOutcomes.Success)
                 return new(replay.Outcome, null, replay.Blockers);
             // Capture also proves that the selected arithmetic reproduces the
@@ -143,30 +219,80 @@ internal static class CharacterCreationSelectedCompletionEvaluator
     internal static CharacterCreationFoundationResult<CharacterCreationSelectedCompletionEvaluation> Replay(
         WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
         CharacterCreationSelectedCompletionWitness witness, CharacterCreationCompletionReviewRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, CharacterCreationRuleSourceExecutionContext? ruleSources = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(bootstrap);
         ArgumentNullException.ThrowIfNull(witness);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+        if (witness.Schema is not (CharacterCreationSelectedCompletionWitness.SchemaV3 or CharacterCreationSelectedCompletionWitness.SchemaV4
+            or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6)
+            && request.PolicyRequirement != CharacterCreationPolicyRequirement.None)
+            return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationEffectivePolicyContext.ReplayUnavailable);
         try
         {
             witness = Detach(witness);
             request = Detach(request);
+            CharacterCreationOriginalCharacterSource? originalCharacter = null;
+            if (request.OriginalCharacterExecutionSchema is not null
+                && !CharacterCreationOriginalCharacterSource.TryFromSelected(original, bootstrap, witness, request,
+                    out originalCharacter, cancellationToken))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(HistoryMismatch);
             if (!IsValidEnvelope(witness, request)
                 || !TryReadOriginal(original, bootstrap, witness, out var baseline, out var effects)
                 || baseline is null || effects is null || !MatchesGrantedQualities(witness))
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(HistoryMismatch);
+            if (witness.Schema is (CharacterCreationSelectedCompletionWitness.SchemaV4 or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6)
+                && !CharacterCreationEffectivePolicyValidation.IsValidSelected(witness, baseline, effects))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationEffectivePolicyContext.Invalid);
+            if ((request.RuleSourceExecutionSchema is null) != (ruleSources is null))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid);
+            var ruleSourceExecution = ruleSources?.Resolve(original, request, cancellationToken);
+            if (request.RuleSourceExecutionSchema is not null
+                && (ruleSourceExecution is null || !Same(ruleSourceExecution.Inputs.PhysicalInitiative886, witness.PhysicalInitiative886)
+                    || !Same(ruleSourceExecution.Inputs.Skills, witness.Skills)
+                    || !Same(ruleSourceExecution.Inputs.EffectivePolicy,
+                        witness.EffectivePolicy! with { SelectedConsumption = null })))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid);
+            if (ruleSourceExecution is not null)
+                witness = witness with { Skills = ruleSourceExecution.Inputs.Skills };
+            if ((request.CampaignAuthority is null) != (campaign is null)
+                || campaign is not null && (campaign.Binding is null
+                    || !campaign.AuthorizesOriginal(campaign.Binding.RetainedIdentity.OwnerId, original,
+                        request.CampaignAuthority, campaign.Phase, cancellationToken)))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationCampaignExecutionContext.Blocker);
+            var campaignExecution = campaign?.Execute(request, witness.ProvenanceInputsSnapshotDigest,
+                witness.Skills.Binding.RawCharacterXmlDigest, witness.EffectivePolicy!.PolicyDigest, cancellationToken,
+            committedReplay: true);
+            if (request.CampaignAuthority is not null && campaignExecution is null)
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationCampaignExecutionContext.Blocker);
+            var completeAuthority = request.CompleteAssessmentSchema is null ? null
+                : CharacterCreationCompleteAssessmentService.FromSelectedAuthority(witness, request, baseline, effects, ruleSourceExecution);
             var choices = request.Selections;
             if (choices.KarmaToReserve < 0
                 || (witness.Skills.KarmaPurchasePolicy is null) != (choices.SkillKarmaPurchases is null))
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(HistoryMismatch);
             var preservation = CharacterCreationCompletionPreservationRules.Check(witness.Skills, baseline, choices);
             if (preservation.Count != 0) return new(CharacterCreationFoundationOutcomes.Blocked, null, preservation);
+            bool captureSkillExecution = witness.EffectivePolicy?.SettingObservations?.Schema
+                == CharacterCreationSettingsObservation.SchemaV2;
             var skillsResult = CharacterCreationSkillsService.PreviewCompletionPurchases(witness.Skills,
-                choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, choices.SkillKarmaPurchases, cancellationToken);
-            if (skillsResult.Value is not { } skills || skillsResult.Blockers.Count != 0)
+                choices.AttributeAllocations, choices.SkillAllocations, choices.GroupAllocations, choices.SkillKarmaPurchases, cancellationToken, captureSkillExecution);
+            if (skillsResult.Value is not { } skills)
+            {
+                if (witness.Schema != CharacterCreationSelectedCompletionWitness.SchemaV6)
+                    return new(CharacterCreationFoundationOutcomes.Blocked, null, skillsResult.Blockers);
+                var prepared = CharacterCreationSkillsService.PrepareCompletionPreview(witness.Skills, choices.AttributeAllocations, cancellationToken);
+                // Use the original allocations only to obtain the independent attribute projection.
+                var originalPreview = prepared.Value?.Preview(witness.Skills.Allocations, witness.Skills.GroupAllocations, cancellationToken);
+                if (originalPreview?.Value is not { } unpriced)
+                    return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid);
+                skills = unpriced;
+            }
+            if (witness.Schema != CharacterCreationSelectedCompletionWitness.SchemaV6 && skillsResult.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, skillsResult.Blockers);
             var session = CharacterCreationAttributesService.CreateDraftSession(witness.Skills.Attributes);
             var originalAllocations = witness.Skills.Attributes.Attributes.Select(row =>
@@ -186,7 +312,17 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 || originalQualities is null || qualities is null
                 || originalQualities.Blockers.Count != 0 || qualities.Blockers.Count != 0)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid);
-            if (choices.SkillKarmaPurchases is { Count: > 0 }
+            if (witness.Schema == CharacterCreationSelectedCompletionWitness.SchemaV6)
+            {
+                skillsResult = CharacterCreationSkillsService.PreviewCompletionKnowledgePurchases(witness.Skills, choices,
+                    qualities.Selections, (witness.Magic.Talent.GrantedQualitySources ?? []).Select(row => row.CanonicalSourceXml),
+                    cancellationToken, captureSkillExecution,
+                    allowDiceOnlyGrants: completeAuthority?.Schema == CharacterCreationCompleteAssessment.SchemaV4);
+                if (skillsResult.Value is null || skillsResult.Blockers.Count != 0)
+                    return new(CharacterCreationFoundationOutcomes.Blocked, null, skillsResult.Blockers);
+                skills = skillsResult.Value;
+            }
+            else if (choices.SkillKarmaPurchases is not null
                 && CharacterCreationSkillsService.HasUnsupportedCompletionSkillModifiers(
                     qualities.Selections.Select(row => row.SourceNodeXml)
                         .Concat((witness.Magic.Talent.GrantedQualitySources ?? []).Select(row => row.CanonicalSourceXml))))
@@ -205,7 +341,8 @@ internal static class CharacterCreationSelectedCompletionEvaluator
 
             var resourcesInput = new SelectedCompletionResourcesPricingInput(witness.Resources.Authority,
                 witness.Resources.PriorityOption, availableKarma, choices.TotalKarmaInvestment, true, 0m, []);
-            var funding = CharacterCreationResourcesService.PriceSelectedCompletion(resourcesInput, cancellationToken);
+            var funding = CharacterCreationResourcesService.PriceSelectedCompletion(resourcesInput, cancellationToken,
+                witness.Resources.PrerequisiteDraft.CreationKarmaTotal);
             if (funding.Value is not { } initialFunding || funding.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, funding.Blockers);
             if (!CharacterCreationGearRules.TryProjectSelectedBasket(choices.Gear, witness.Gear,
@@ -222,31 +359,42 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 loadout = CharacterCreationLoadoutCompletionService.BuildProjection(
                     choices.Loadout!, loadoutLines, loadoutCost, original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances);
             }
+            if (!CharacterCreationAmmunitionCompletionConsumer.TryValidateAssignments(choices.AmmunitionAssignments,
+                gear, loadout?.Lines ?? [], out var ammunitionBlockers))
+                return new(CharacterCreationFoundationOutcomes.Blocked, null, ammunitionBlockers);
             decimal afterLoadout = checked(gearBudget.RemainingNuyen - (loadout?.PurchaseCost ?? 0m));
             if (afterLoadout < 0m)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationResourcesBlockers.InsufficientNuyen);
             string[] purchaseAnchors = loadout is null ? gearAnchors : gearAnchors
                 .Concat(loadout.Lines.SelectMany(line => line.SourceAnchorIds))
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-            var lifestyles = CharacterCreationLifestylesService.PriceSelectedCompletion(new(witness.Lifestyles,
+            CharacterCreationLifestylesService.CompleteGraphExecution? lifestyleExecution = null;
+            var lifestyles = CharacterCreationLifestylesService.CompleteGraphExecution.Price(new(witness.Lifestyles,
                 witness.Skills.PrerequisiteDraft, witness.Magic.Talent.GrantedQualitySources ?? [], qualities.Selections,
                 witness.ProposedQualityProjectionProvenanceSeed, choices.Lifestyles, choices.StartingLifestyleId,
-                afterLoadout, purchaseAnchors, []), cancellationToken);
+                afterLoadout, purchaseAnchors, []), cancellationToken,
+                completeAuthority?.Schema is CharacterCreationCompleteAssessment.SchemaV3 or CharacterCreationCompleteAssessment.SchemaV4
+                    ? execution => lifestyleExecution = execution : null, completeAuthority);
             if (lifestyles.Value is not { } lifestylePrice || lifestyles.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, lifestyles.Blockers);
             var finalFunding = CharacterCreationResourcesService.PriceSelectedCompletion(resourcesInput with
                 { FullPurchaseCost = checked(gearBudget.BasketCost + lifestylePrice.FullLifestyleCost
-                    + (loadout?.PurchaseCost ?? 0m)) }, cancellationToken);
+                    + (loadout?.PurchaseCost ?? 0m)) }, cancellationToken,
+                witness.Resources.PrerequisiteDraft.CreationKarmaTotal);
             if (finalFunding.Value is not { } resources || finalFunding.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, finalFunding.Blockers);
             var contactResult = CharacterCreationContactsService.PriceSelectedCompletion(new(witness.ContactsPolicy,
                 witness.Skills.PrerequisiteDraft, witness.Magic.Talent.GrantedQualitySources ?? [], effects, baseline.Contacts,
                 skills.Attributes.Attributes, qualities.Selections, choices.Contacts,
-                witness.ContactsSourceProvenanceSeed, []), cancellationToken);
+                witness.ContactsSourceProvenanceSeed, [],
+                witness.Qualities.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+                witness.Qualities.QualityKarmaLimit,
+                witness.Qualities.MayExceedPositiveQualityLimit), cancellationToken);
             if (contactResult.Value is not { AdditionalKarmaCost: int contactCost } contacts || contactResult.Blockers.Count != 0)
                 return new(CharacterCreationFoundationOutcomes.Blocked, null, contactResult.Blockers);
             int skillCost = skills.Skills.Sum(row => row.KarmaCost);
-            int remaining = checked(resources.RemainingCreationKarma - contactCost - skillCost);
+            int remaining = CharacterCreationKarmaFinalizationBudgetRules.RemainingCreationKarma995(
+                resources.RemainingCreationKarma, skillCost, contactCost);
             if (contactCost < 0 || remaining < 0)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
             if (remaining < choices.KarmaToReserve)
@@ -257,21 +405,51 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 resources.Budget.TotalStartingNuyen, gearBudget.BasketCost, lifestylePrice.FullLifestyleCost,
                 resources.Budget.RemainingNuyen, resources.Budget.Overspend)
                 { LoadoutCost = loadout?.PurchaseCost };
+            var selectedPrerequisites = CharacterCreationSelectedPrerequisiteConsumer.EvaluateSelected(
+                witness.Skills.PrerequisiteDraft, originalAttributes.Attributes, witness.Magic, skills, qualities,
+                witness.ProvenanceInputsSnapshotDigest, CharacterCreationFinalizationDigest.Compute(choices), completeAuthority);
+            if (selectedPrerequisites is null)
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationSelectedPrerequisiteConsumer.Blocker);
+            var prerequisiteEvidence = completeAuthority is null ? null : selectedPrerequisites.Evaluation;
+            if (completeAuthority is null ? witness.SelectedPrerequisites is not null
+                : !CharacterCreationSelectedPrerequisiteConsumer.MatchesEvidence(selectedPrerequisites, witness.SelectedPrerequisites))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid);
             var result = new CharacterCreationSelectedCompletionEvaluation(witness.WitnessDigest, skills,
                 originalQualities, qualities, magic, resources, gear, gearBudget, gearAnchors,
-                lifestylePrice, contacts, balances, string.Empty) { Loadout = loadout };
+                lifestylePrice, contacts, balances, string.Empty)
+                { Loadout = loadout, SelectedPrerequisites = prerequisiteEvidence };
+            var consumption = CharacterCreationPolicyConsumptionProjection.FromSelected(witness, request, result, baseline, effects);
+            if (!Same(consumption, witness.EffectivePolicy?.SelectedConsumption))
+                return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationEffectivePolicyContext.Invalid);
+            if (completeAuthority is not null)
+            {
+                var assessment = CharacterCreationCompleteAssessmentService.AfterEvaluation(completeAuthority, consumption, true, selectedPrerequisites,
+                    CharacterCreationCompleteConsumerExecution.FromSelected(witness, request, result,
+                        baseline, effects, completeAuthority, cancellationToken, lifestyleExecution,
+                        original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances, originalCharacter, ruleSourceExecution));
+                if (campaignExecution is not null) assessment = campaignExecution.Project(assessment, cancellationToken);
+                // Rebuild both the exhaustive inventory and coverage from this
+                // route's typed authority, archive origin and actual arithmetic.
+                if (!Same(assessment, witness.CompleteAssessment))
+                    return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationCompleteAssessment.Invalid);
+                result = result with { CompleteAssessment = assessment };
+            }
             result = result with { ReplayDigest = ComputeReplayDigest(result) };
             cancellationToken.ThrowIfCancellationRequested();
+            if (!CharacterCreationEffectivePolicyValidation.SatisfiesAfterEvaluation(
+                    witness.EffectivePolicy, request, result.CompleteAssessment))
+                return new(CharacterCreationFoundationOutcomes.Blocked, null,
+                    [CharacterCreationEffectivePolicyContext.CoverageUnavailable]);
             return new(CharacterCreationFoundationOutcomes.Success, result, []);
         }
         catch (Exception error) when (IsMalformed(error))
         { return Refuse<CharacterCreationSelectedCompletionEvaluation>(Invalid); }
     }
 
-    private static bool IsValidEnvelope(CharacterCreationSelectedCompletionWitness witness,
+    internal static bool IsValidEnvelope(CharacterCreationSelectedCompletionWitness witness,
         CharacterCreationCompletionReviewRequest request)
     {
-        if (!HasMatchingLoadoutSchema(witness, request)
+        if (!HasMatchingSchema(witness, request)
             || witness.Skills?.Attributes?.Attributes is null || witness.Skills.Attributes.Binding is null
             || witness.Skills.Binding is null || witness.Skills.Authority is null || witness.Skills.PrerequisiteDraft is null
             || witness.Skills.Attributes.Attributes.Any(row => row is null)
@@ -321,6 +499,17 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             || witness.Resources.SnapshotDigest != CharacterCreationResourcesCompletionRules.ComputeInputsDigest(witness.Resources)
             || !witness.Resources.PurchaseAuthorityExact
             || !Same(witness.Skills.PrerequisiteDraft, witness.Resources.PrerequisiteDraft)) return false;
+        // Older witnesses did not carry an executed house-rule input. Do not
+        // reinterpret them under the newly explicit attribute-cost version.
+        if (witness.Skills.Attributes.HouseRules is not null
+            && (witness.Schema is not (CharacterCreationSelectedCompletionWitness.SchemaV4 or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6)
+                || !CharacterCreationAttributePolicyAuthority.MatchesHouseRules(witness.AttributePolicy, witness.Skills.Attributes)))
+            return false;
+        if (witness.EffectivePolicy is { } policy
+            && (policy.Domains is null || policy.Domains.Any(row => row is null) || policy.EnabledSourcebooks is null
+                || witness.Schema is not (CharacterCreationSelectedCompletionWitness.SchemaV4 or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6)
+                    && !CharacterCreationEffectivePolicyValidation.IsValid(policy, witness.Skills)
+                || !CharacterCreationEffectivePolicyValidation.MayEvaluate(policy, request))) return false;
         string profile = witness.BootstrapBinding.SettingsProfileId;
         var talentAccess = witness.Skills.Authority.TalentAccess;
         return witness.Skills.Authority.SettingsProfileId == profile && witness.Qualities.SettingsProfileId == profile
@@ -343,25 +532,53 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             && Same(witness.Magic.ProposedSelections, NormalizeMagic(request.Selections.MagicSelections));
     }
 
-    private static bool HasMatchingLoadoutSchema(CharacterCreationSelectedCompletionWitness witness,
+    private static bool HasMatchingSchema(CharacterCreationSelectedCompletionWitness witness,
         CharacterCreationCompletionReviewRequest request)
-        => witness.Schema switch
-        {
-            CharacterCreationSelectedCompletionWitness.SchemaV1
-                => witness.Loadout is null && request.Selections?.Loadout is null,
-            CharacterCreationSelectedCompletionWitness.SchemaV2
-                => witness.Loadout is not null && request.Selections?.Loadout is not null
+        => witness.HasVersionedShape()
+            && CharacterCreationCompletionReviewRules.HasValidAdditionalConsumerExecution(request)
+            && CharacterCreationCompletionReviewRules.HasValidRuleSourceExecution(request)
+            && witness.RuleSourceExecutionSchema == request.RuleSourceExecutionSchema
+            && witness.RuleSourceCaptureDigest == request.RuleSourceCaptureDigest
+            && witness.SourcebookSelection == request.SourcebookSelection
+            && CharacterCreationCompletionReviewRules.HasValidOriginalCharacterExecution(request)
+            && witness.OriginalCharacterExecutionSchema == request.OriginalCharacterExecutionSchema
+            && CharacterCreationCompletionReviewRules.HasValidProfileSettingsExecution(request)
+            && CharacterCreationCompletionReviewRules.HasValidMaximumAttributesDefaultExecution(request)
+            && (request.CompleteAssessmentSchema is null ? witness.CompleteAssessment is null
+                : request.CompleteAssessmentSchema is CharacterCreationCompleteAssessment.SchemaV1 or CharacterCreationCompleteAssessment.SchemaV2
+                    or CharacterCreationCompleteAssessment.SchemaV3 or CharacterCreationCompleteAssessment.SchemaV4
+                    && witness.CompleteAssessment?.Schema == request.CompleteAssessmentSchema
+                    && witness.CompleteAssessment.Phase == CharacterCreationCompletePhase.Coverage)
+            && (witness.EffectivePolicy?.SettingObservations is null
+                ? request.PolicyConsumptionSchema is null
+                : request.PolicyConsumptionSchema == CharacterCreationPolicyConsumption.SchemaV1)
+            && (witness.EffectivePolicy is null
+                ? request.EffectivePolicyDigest is null && request.PolicyRequirement == CharacterCreationPolicyRequirement.None
+                : request.EffectivePolicyDigest == witness.EffectivePolicy.PolicyDigest
+                    && witness.PolicyRequirement == request.PolicyRequirement)
+            && (witness.Loadout is null
+                ? request.Selections?.Loadout is null
+                : request.Selections?.Loadout is not null
                     && CharacterCreationLoadoutRules.IsValidSelectedAuthority(witness.Loadout)
-                    && Same(witness.Loadout.ProposedSelections, request.Selections.Loadout),
-            _ => false
-        };
+                    && Same(witness.Loadout.ProposedSelections, request.Selections.Loadout));
 
-    private static bool TryReadOriginal(WorkspaceStoredDocument original,
+    internal static bool TryReadOriginal(WorkspaceStoredDocument original,
         CharacterCreationCompletionBootstrapSnapshot bootstrap, CharacterCreationSelectedCompletionWitness witness,
         out CharacterCreationCompletionOriginalSelections? baseline, out IReadOnlyList<CharacterContactRuleEffect>? effects)
     {
         baseline = null; effects = null;
         var auxiliary = original.Document.AuxiliaryState;
+        if (!WorkspaceAuxiliaryStateIntegrity.IsValidShape(original.Id, original.ContentRevision, auxiliary))
+            return false;
+        if (!CharacterCreationCompositeBaselineReader.TryRead(original, out var composite)
+            || !Same(composite, witness.Skills.CompositeBaseline)) return false;
+        var ordinaryAttributes = auxiliary.CharacterCreationAttributesDraft;
+        var expectedAttributes = composite is null ? ordinaryAttributes
+            : CharacterCreationAttributesService.ProjectCompositeAttributes(
+                witness.Skills.Attributes, composite, ordinaryAttributes)?.PendingDraft;
+        if (composite is not null && (expectedAttributes is null || witness.Skills.SavedSkillsState is not null
+                || !CharacterCreationSkillsService.ValidateCompositePending(original, witness.Skills)))
+            return false;
         var binding = witness.Skills.Binding;
         string rawDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(original.Document.Content);
         if (original.Document.RulesetId != RulesetDefaults.Sr5 || original.Document.Format != WorkspaceDocumentFormat.NativeXml
@@ -371,16 +588,19 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             || original.Document.AuxiliaryStateDigest != binding.AuxiliaryStateDigest
             || auxiliary.CharacterCreationFoundationDraft is not null || auxiliary.LifeModuleDecisionAcceptances is not null
             || auxiliary.CharacterCreationFinalizationArchive is not null
-            || !WorkspaceAuxiliaryStateIntegrity.IsValidShape(original.Id, original.ContentRevision, auxiliary)
             || !bootstrap.IsValid() || bootstrap.RawCharacterXmlDigest != rawDigest
+            || witness.EffectivePolicy is { } policy && !policy.EnabledSourcebooks.SequenceEqual(
+                bootstrap.SourceProfile.EnabledSourcebooks.Order(StringComparer.Ordinal))
             || !CharacterCreationBootstrapAuthority.TryPrepareBinding(original.Id, original.Document,
                 bootstrap.CreateFrozenContext(), out var prepared, out _, out _)
             || !Same(prepared, auxiliary.CharacterCreationBootstrapBinding) || !Same(prepared, witness.BootstrapBinding)
             || !Same(auxiliary.CharacterCreationPrerequisiteDraft, witness.Skills.PrerequisiteDraft)
             || !CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(auxiliary.CharacterCreationPrerequisiteDraft,
                 original.Id, original.ContentRevision, rawDigest, bootstrap.Prerequisite)
-            || !Same(auxiliary.CharacterCreationAttributesDraft, witness.Skills.Attributes.PendingDraft)
-            || !Same(auxiliary.CharacterCreationSkillsDraft, witness.Skills.SavedSkillsState?.PendingDraft)
+            || !CharacterCreationAttributePolicyAuthority.MatchesSourceHouseRules(
+                witness.AttributePolicy, witness.Skills.Attributes, bootstrap.Prerequisite)
+            || !Same(expectedAttributes, witness.Skills.Attributes.PendingDraft)
+            || composite is null && !Same(auxiliary.CharacterCreationSkillsDraft, witness.Skills.SavedSkillsState?.PendingDraft)
             || !Same(auxiliary.CharacterCreationResourcesDraft, witness.Resources.PendingDraft)
             || !Same(auxiliary.CharacterCreationResourcesReceipts ?? [], witness.Resources.Receipts)
             || !Same(auxiliary.CharacterCreationLoadoutDraft, witness.Resources.LoadoutDraft)
@@ -395,13 +615,24 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         var root = XDocument.Parse(original.Document.Content).Root;
         if (root?.Name != "character" || root.Elements("contacts").Count() > 1
             || root.Element("contacts")?.Elements().Any() == true) return false;
+        bool creationLifecycle = root.Elements("created").ToArray() is [var lifecycle]
+            && !lifecycle.HasAttributes && !lifecycle.HasElements
+            && bool.TryParse(lifecycle.Value, out bool created) && !created;
+        if (witness.LoadoutLegalityPolicy is { Lifecycle: not null } legality
+            && (!legality.HasCreationLifecycle(rawDigest) || !creationLifecycle)) return false;
         var savedLoadout = auxiliary.CharacterCreationLoadoutDraft;
+        if (savedLoadout?.CompositePurchase is not null
+            && !CharacterCreationCompositePurchaseEdit.IsHistorical(original, savedLoadout.BaseContentRevision, savedLoadout.CompositePurchase,
+                savedLoadout.ResourcesDraftRevision, savedLoadout.ResourcesDraftDigest)) return false;
         if (savedLoadout is not null && witness.Loadout is null) return false;
         if (witness.Loadout is not null && (!IsEmptyOwnedContainer(root, "weapons")
             || !IsEmptyOwnedContainer(root, "armors")
             || !Same(witness.Loadout.OriginalSelections, savedLoadout?.Selections ?? CharacterCreationLoadoutSelections.Empty)
             || savedLoadout is not null && (savedLoadout.RawCharacterXmlDigest != rawDigest
                 || savedLoadout.Authority.AuthorityDigest != witness.Loadout.AuthorityDigest
+                    && (!creationLifecycle
+                        || !CharacterCreationLoadoutReceiptLedgerIntegrity.MatchesSelectedSourceContext(
+                            savedLoadout.Authority, witness.Loadout))
                 || !CharacterCreationLoadoutRules.TryProjectSelectedBasket(savedLoadout.Selections, witness.Loadout,
                     out var originalLines, out decimal originalCost, out _)
                 || originalCost != savedLoadout.PurchaseCost || !Same(originalLines, savedLoadout.Lines)))) return false;
@@ -412,6 +643,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             auxiliary.CharacterCreationResourcesDraft?.KarmaInvestment ?? 0,
             auxiliary.CharacterCreationContactsDraft?.Contacts ?? [], auxiliary.CharacterCreationLifestylesDraft?.Lifestyles ?? [])
             { Loadout = witness.Loadout is null ? null : savedLoadout?.Selections ?? CharacterCreationLoadoutSelections.Empty };
+
         return witness.Magic.OriginalHadSavedMagic == (auxiliary.CharacterCreationMagicResonanceDraft is not null)
             && Same(witness.Magic.OriginalSelections, NormalizeMagic(magic))
             && witness.Qualities.OriginalOptionIds.SequenceEqual(baseline.QualityOptionIds.Order(StringComparer.Ordinal))
@@ -430,42 +662,113 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         CharacterCreationSelectedMagicEvaluation magic)
     {
         var state = original.Document.AuxiliaryState;
-        if (state.CharacterCreationQualitiesDraft is { } qualityDraft
-            && (qualityDraft.AuthorityDigest != witness.Qualities.ProvenanceAuthorityDigest
-                || qualityDraft.RuntimeDigest != witness.Qualities.RuntimeDigest
-                || qualityDraft.BaseRawCharacterXmlDigest != witness.Skills.Binding.RawCharacterXmlDigest
-                || qualityDraft.PrerequisiteDraftRevision != witness.Skills.PrerequisiteDraft.DraftRevision
-                || qualityDraft.PrerequisiteDraftDigest != witness.Skills.PrerequisiteDraft.DraftDigest
-                || qualityDraft.AttributesDraftRevision != witness.Skills.Attributes.PendingDraft?.DraftRevision
-                || qualityDraft.AttributesDraftDigest != witness.Skills.Attributes.PendingDraft?.DraftDigest
+        if (state.CharacterCreationQualitiesDraft is { } qualityDraft)
+        {
+            if (!TryResolveOriginalPricingWitness(original, witness, false,
+                    qualityDraft.AttributesDraftRevision, qualityDraft.AttributesDraftDigest,
+                    out var qualityWitness, out var qualityReview)) return false;
+            if (qualityReview is not null)
+            {
+                var attributes = qualityWitness.Skills.Attributes;
+                var allocations = attributes.Attributes.Select(row => new CharacterCreationAttributeAllocation(
+                    row.AttributeId, row.PriorityPointsSpent, row.KarmaLevels)).ToArray();
+                var priced = CharacterCreationAttributesService.CreateDraftSession(attributes)?.Preview(allocations).Value;
+                if (priced is null || priced.Blockers.Any(value => value != CharacterCreationAttributesBlockers.DraftDuplicate)
+                    || !Same(priced.Attributes, attributes.Attributes)
+                    || !TryKarma(priced.CreationKarmaBudget.Used, out int attributeCost)
+                    || !CharacterCreationQualitiesRules.TryEvaluateSelectedAuthority(qualityWitness.Qualities,
+                        qualityDraft.SelectedOptionIds, qualityWitness.Skills.PrerequisiteDraft.CreationKarmaTotal,
+                        attributeCost, out var historical) || historical is null || historical.Blockers.Count != 0)
+                    return false;
+                qualities = historical;
+            }
+            if (qualityDraft.AuthorityDigest != (qualityWitness.Schema == CharacterCreationSelectedCompletionWitness.SchemaV6
+                    ? qualityWitness.OriginalQualityAuthorityDigest : qualityWitness.Qualities.ProvenanceAuthorityDigest)
+                || qualityDraft.RuntimeDigest != qualityWitness.Qualities.RuntimeDigest
+                || qualityDraft.BaseRawCharacterXmlDigest != qualityWitness.Skills.Binding.RawCharacterXmlDigest
+                || qualityDraft.PrerequisiteDraftRevision != qualityWitness.Skills.PrerequisiteDraft.DraftRevision
+                || qualityDraft.PrerequisiteDraftDigest != qualityWitness.Skills.PrerequisiteDraft.DraftDigest
+                || qualityDraft.AttributesDraftRevision != qualityWitness.Skills.Attributes.PendingDraft?.DraftRevision
+                || qualityDraft.AttributesDraftDigest != qualityWitness.Skills.Attributes.PendingDraft?.DraftDigest
                 || !qualityDraft.SelectedOptionIds.SequenceEqual(qualities.Selections.Select(row => row.OptionId), StringComparer.Ordinal)
                 || !Same(qualityDraft.Selections, qualities.Selections)
                 || !Same(qualityDraft.SourceAnchorIds, qualities.SourceAnchorIds)
                 || qualityDraft.PositiveKarmaUsed != qualities.PositiveQualityBudget.Used
                 || qualityDraft.NegativeKarmaUsed != qualities.NegativeQualityBudget.Used
-                || qualityDraft.KarmaRemaining != qualities.KarmaRemaining)) return false;
-        if (state.CharacterCreationMagicResonanceDraft is { } magicDraft
-            && (magicDraft.AuthorityDigest != witness.Magic.ProvenanceAuthorityDigest
-                || magicDraft.RuntimeDigest != witness.Magic.RuntimeDigest
-                || magicDraft.BaseRawCharacterXmlDigest != witness.Skills.Binding.RawCharacterXmlDigest
-                || magicDraft.PrerequisiteDraftDigest != witness.Skills.PrerequisiteDraft.DraftDigest
-                || magicDraft.PrerequisiteAuthorityDigest != witness.Skills.PrerequisiteDraft.AuthorityDigest
-                || magicDraft.AttributesDraftRevision != witness.Skills.Attributes.PendingDraft?.DraftRevision
-                || magicDraft.AttributesDraftDigest != witness.Skills.Attributes.PendingDraft?.DraftDigest
-                || magicDraft.SourceInputsDigest != witness.Magic.SourceInputsDigest
-                || magicDraft.CustomDataInputsDigest != witness.Magic.CustomDataInputsDigest
-                || magicDraft.GmPolicyDigest != witness.Magic.GmPolicyDigest
+                || qualityDraft.KarmaRemaining != qualities.KarmaRemaining) return false;
+        }
+        if (state.CharacterCreationMagicResonanceDraft is { } magicDraft)
+        {
+            if (!TryResolveOriginalPricingWitness(original, witness, true,
+                    magicDraft.AttributesDraftRevision, magicDraft.AttributesDraftDigest,
+                    out var magicWitness, out var magicReview)) return false;
+            if (magicReview is not null)
+            {
+                if (magicReview.Skills is not { } historicalSkills) return false;
+                var historical = CharacterCreationMagicResonanceService.EvaluateSelectedMagic(magicWitness.Magic,
+                    magicWitness.Skills.PrerequisiteDraft, magicWitness.Skills.Attributes.Attributes,
+                    historicalSkills.Attributes.Attributes);
+                if (historical.Value is null || historical.Blockers.Count != 0) return false;
+                magic = historical.Value.Original;
+            }
+            if (magicDraft.AuthorityDigest != magicWitness.Magic.ProvenanceAuthorityDigest
+                || magicDraft.RuntimeDigest != magicWitness.Magic.RuntimeDigest
+                || magicDraft.BaseRawCharacterXmlDigest != magicWitness.Skills.Binding.RawCharacterXmlDigest
+                || magicDraft.PrerequisiteDraftDigest != magicWitness.Skills.PrerequisiteDraft.DraftDigest
+                || magicDraft.PrerequisiteAuthorityDigest != magicWitness.Skills.PrerequisiteDraft.AuthorityDigest
+                || magicDraft.AttributesDraftRevision != magicWitness.Skills.Attributes.PendingDraft?.DraftRevision
+                || magicDraft.AttributesDraftDigest != magicWitness.Skills.Attributes.PendingDraft?.DraftDigest
+                || magicDraft.SourceInputsDigest != magicWitness.Magic.SourceInputsDigest
+                || magicDraft.CustomDataInputsDigest != magicWitness.Magic.CustomDataInputsDigest
+                || magicDraft.GmPolicyDigest != magicWitness.Magic.GmPolicyDigest
                 || !Same(magicDraft.TraditionBudget, magic.TraditionBudget)
                 || !Same(magicDraft.StreamBudget, magic.StreamBudget)
                 || !Same(magicDraft.AdeptPowerPointBudget, magic.AdeptPowerPointBudget)
                 || !Same(magicDraft.SpellBudget, magic.SpellBudget)
-                || !Same(magicDraft.ComplexFormBudget, magic.ComplexFormBudget))) return false;
+                || !Same(magicDraft.ComplexFormBudget, magic.ComplexFormBudget)) return false;
+        }
         var assignment = witness.Skills.PrerequisiteDraft.Assignments.Where(row =>
             row.CategoryId == CharacterCreationPriorityCategoryIds.Resources).ToArray();
         if (assignment.Length != 1 || assignment[0].SourceId != witness.Resources.PriorityOption.SourceId
             || assignment[0].Rank != witness.Resources.PriorityOption.Rank
             || !Same(witness.Resources.PriorityOption, witness.Resources.Authority.PriorityOptions.SingleOrDefault(row =>
                 row.SourceId == witness.Resources.PriorityOption.SourceId))) return false;
+        return true;
+    }
+
+    // Only an exact retained stage may follow the already authenticated Draft
+    // prefix back to the witness owning its attribute references. Each hop uses
+    // the real receipt revisions, original state and unchanged stage receipts.
+    // These inputs price historical evidence only; Replay keeps using its current
+    // witness for the proposal and original-purchase checks.
+    private static bool TryResolveOriginalPricingWitness(WorkspaceStoredDocument original,
+        CharacterCreationSelectedCompletionWitness witness, bool magic,
+        long attributesRevision, string attributesDigest,
+        out CharacterCreationSelectedCompletionWitness pricing,
+        out CharacterCreationCompletionReview? historicalReview)
+    {
+        pricing = witness;
+        historicalReview = null;
+        while (pricing.Skills.Attributes.PendingDraft?.DraftRevision != attributesRevision
+            || pricing.Skills.Attributes.PendingDraft?.DraftDigest != attributesDigest)
+        {
+            if (original.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not { Count: > 0 } entries)
+                return false;
+            WorkspaceStoredDocument? retained;
+            bool found = magic
+                ? CharacterCreationCompositeBaselineReader.TryReadRetainedMagic(original, out retained)
+                : CharacterCreationCompositeBaselineReader.TryReadRetainedQualities(original, out retained);
+            var entry = entries[^1];
+            if (!found || retained is null || retained.ContentRevision >= original.ContentRevision
+                || !CharacterCreationCompletionReplayCodec.TryDecode(entry.Baseline.SelectedReplay,
+                    out var bootstrap, out var historical)
+                || historical.WitnessDigest != entry.Baseline.Review.SelectedWitnessDigest
+                || !IsValidEnvelope(historical, entry.Baseline.Review.Review.Request)
+                || !TryReadOriginal(retained, bootstrap, historical, out _, out _)) return false;
+            pricing = historical;
+            historicalReview = entry.Baseline.Review.Review;
+            original = retained;
+        }
         return true;
     }
 
@@ -519,7 +822,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         {
             var price = CharacterCreationResourcesService.PriceSelectedCompletion(new(resourceAuthority,
                 resources.PriorityOption, int.MaxValue, savedResources.KarmaInvestment, true,
-                savedResources.Budget.KnownPurchaseCost, []), cancellationToken);
+                savedResources.Budget.KnownPurchaseCost, []), cancellationToken, includeOptions: false);
             if (price.Value is not { } priced || price.Blockers.Count != 0
                 || savedResources.PrerequisiteDraftRevision != resources.Binding.PrerequisiteDraftRevision
                 || savedResources.PrerequisiteDraftDigest != resources.Binding.PrerequisiteDraftDigest
@@ -543,7 +846,10 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         }
         if (state.CharacterCreationGearDraft is { } savedGear)
         {
-            if (state.CharacterCreationResourcesDraft is not { } savedFunding
+            var savedFunding = state.CharacterCreationResourcesDraft;
+            if (savedGear.CompositePurchase is not null
+                    && !CharacterCreationCompositePurchaseEdit.IsHistorical(original, savedGear.BaseContentRevision, savedGear.CompositePurchase,
+                    savedGear.ResourcesDraftRevision, savedGear.ResourcesDraftDigest)
                 || savedGear.BaseRawCharacterXmlDigest != raw
                 || savedGear.AuthorityDigest != witness.Gear.ProvenanceAuthorityDigest
                 || savedGear.SourceDigest != witness.Gear.SourceDigest
@@ -568,15 +874,22 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         }
         var contactPrice = CharacterCreationContactsService.PriceSelectedCompletion(new(witness.ContactsPolicy,
             witness.Skills.PrerequisiteDraft, witness.Magic.Talent.GrantedQualitySources ?? [], effects, baseline.Contacts,
-            attributes, qualities.Selections, baseline.Contacts, witness.ContactsSourceProvenanceSeed, []), cancellationToken);
+            attributes, qualities.Selections, baseline.Contacts, witness.ContactsSourceProvenanceSeed, [],
+            witness.Qualities.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+            witness.Qualities.QualityKarmaLimit,
+            witness.Qualities.MayExceedPositiveQualityLimit), cancellationToken);
         if (contactPrice.Value is null || contactPrice.Blockers.Count != 0) return false;
         if (state.CharacterCreationLifestylesDraft is { } savedLifestyles
             && (!MatchesContactInputs(original, witness, savedLifestyles.InputAuthority)
                 || savedLifestyles.InputAuthority.Contacts.Count != 0
-                || savedLifestyles.SkillsDraftDigest != state.CharacterCreationSkillsDraft?.DraftDigest
+                || (savedLifestyles.SkillsDraftDigest != state.CharacterCreationSkillsDraft?.DraftDigest
                 || savedLifestyles.ResourcesDraftDigest != state.CharacterCreationResourcesDraft?.DraftDigest
+                    && !CharacterCreationCompositeBaselineReader.RetainsLifestyles(original, savedLifestyles)
                 || savedLifestyles.GearDraftDigest != state.CharacterCreationGearDraft?.DraftDigest
-                || savedLifestyles.MagicDraftDigest != state.CharacterCreationMagicResonanceDraft?.DraftDigest)) return false;
+                    && !CharacterCreationLifestylesDraftRules.HasConfirmedGearSuccessor(original, savedLifestyles)
+                    && !CharacterCreationCompositeBaselineReader.RetainsLifestyles(original, savedLifestyles)
+                || savedLifestyles.MagicDraftDigest != state.CharacterCreationMagicResonanceDraft?.DraftDigest)
+                    && !CharacterCreationCompositeBaselineReader.RetainsLifestyles(original, savedLifestyles))) return false;
         return true;
     }
 
@@ -587,16 +900,23 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         return draft.WorkspaceId == original.Id
             && draft.RawCharacterXmlDigest == witness.Skills.Binding.RawCharacterXmlDigest
             && draft.PrerequisiteDraftDigest == state.CharacterCreationPrerequisiteDraft?.DraftDigest
-            && draft.AttributesDraftDigest == state.CharacterCreationAttributesDraft?.DraftDigest
-            && draft.QualitiesDraftDigest == state.CharacterCreationQualitiesDraft?.DraftDigest
+            && (draft.AttributesDraftDigest == state.CharacterCreationAttributesDraft?.DraftDigest
+                    && draft.QualitiesDraftDigest == state.CharacterCreationQualitiesDraft?.DraftDigest
+                || CharacterCreationCompositeBaselineReader.RetainsContacts(original, draft))
             && Same(draft.Policy, witness.ContactsPolicy) && Same(draft.CarryoverPolicy, witness.CarryoverPolicy);
     }
 
     private static bool TryOriginalGearFunding(CharacterCreationGearDraft gear,
-        CharacterCreationResourcesDraft current, IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> receipts,
+        CharacterCreationResourcesDraft? current, IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> receipts,
         out decimal total)
     {
-        total = current.Budget.TotalStartingNuyen;
+        if (gear.CompositePurchase is { } composite)
+        {
+            total = composite.TotalStartingNuyen;
+            return CharacterCreationCompositePurchaseEdit.IsValid(composite) && total == gear.Budget.TotalStartingNuyen;
+        }
+        total = current?.Budget.TotalStartingNuyen ?? 0m;
+        if (current is null) return false;
         if (gear.ResourcesDraftRevision == current.DraftRevision && gear.ResourcesDraftDigest == current.DraftDigest) return true;
         var historical = receipts.Select(row => row.Receipt).SingleOrDefault(row =>
             row.DraftRevision == gear.ResourcesDraftRevision && row.DraftDigest == gear.ResourcesDraftDigest);
@@ -610,9 +930,11 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         return true;
     }
 
-    private static bool MatchesFullReview(CharacterCreationSelectedCompletionEvaluation selected,
+    internal static bool MatchesFullReview(CharacterCreationSelectedCompletionEvaluation selected,
         CharacterCreationCompletionReview full)
-        => Same(selected.Skills, full.Skills) && Same(selected.Balances, full.Balances)
+        => Same(selected.CompleteAssessment, full.CompleteAssessment)
+            && Same(selected.SelectedPrerequisites, full.SelectedPrerequisites)
+            && Same(selected.Skills, full.Skills) && Same(selected.Balances, full.Balances)
             && Same(selected.Loadout, full.Loadout)
             && Same(selected.Qualities.Selections, full.UpstreamBudget!.Qualities.Qualities.Selections)
             && Same(selected.Qualities.GrantedQualities, full.UpstreamBudget.Qualities.Qualities.GrantedQualities)
@@ -636,7 +958,9 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             && Same(selected.Lifestyles.Budget, full.Lifestyles.Budget)
             && Same(selected.Contacts.Contacts, full.Contacts!.Contacts)
             && Same(selected.Contacts.ContactBudget, full.Contacts.ContactBudget)
-            && Same(selected.Contacts.HighPlacesBudget, full.Contacts.HighPlacesBudget);
+            && Same(selected.Contacts.HighPlacesBudget, full.Contacts.HighPlacesBudget)
+            && selected.Contacts.AdditionalKarmaCost == full.Contacts.AdditionalKarmaCost
+            && Same(selected.Contacts.GroupKarma, full.Contacts.GroupKarma);
 
     private static CharacterCreationMagicResonanceSelections NormalizeMagic(CharacterCreationMagicResonanceSelections value)
         => value with

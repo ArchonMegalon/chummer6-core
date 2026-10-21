@@ -1,7 +1,10 @@
 using System.Buffers;
+using System.Globalization;
+using System.Xml.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -25,12 +28,50 @@ public static class CharacterCreationSkillKinds
 
 /// <summary>
 /// Immutable SR5 Standard Priority Skills rules. Source XML proves which row was
-/// selected, but it may not redefine the rulebook totals or runtime policy.
+/// selected and supplies supported creation rating caps; it may not redefine
+/// rulebook point totals or unsupported runtime policy.
 /// </summary>
 public static class CharacterCreationStandardPrioritySkillsRules
 {
     public const string KnowledgePointsExpression = "({INTUnaug} + {LOGUnaug}) * 2";
     public const int MaximumRatingAtCreation = 6;
+    // Operational ceiling for this bounded consumer, not an SR5 rules maximum.
+    public const int MaximumSupportedCreationRating = 100;
+    public static bool IsSupportedCreationRatingLimit(int value) =>
+        value is >= 0 and <= MaximumSupportedCreationRating;
+    /// <summary>
+    /// CharacterSettings load precedence for a creation cap: six unless configured,
+    /// then clamp only by an explicitly present career cap. Creation groups use the
+    /// active pair. Missing is distinct from malformed/duplicate; Core rejects the
+    /// latter instead of adopting legacy first-node or parse-failure fallback.
+    /// Used both by live resolution and independent retained-source reconstruction.
+    /// </summary>
+    public static bool TryReadCreationRatingLimit(XElement settings, string creationName, string careerName,
+        out int cap)
+    {
+        cap = MaximumRatingAtCreation;
+        XElement[] creation = settings.Elements(creationName).Take(2).ToArray();
+        XElement[] career = settings.Elements(careerName).Take(2).ToArray();
+        if (creation.Length > 1 || career.Length > 1
+            || (creation.Length == 1 && !TryReadRatingLimit(creation[0], out cap)))
+            return false;
+        if (career.Length == 1)
+        {
+            if (!TryReadRatingLimit(career[0], out int careerCap)) return false;
+            cap = Math.Min(cap, careerCap);
+        }
+        return true;
+    }
+
+    private static bool TryReadRatingLimit(XElement element, out int value)
+    {
+        value = 0;
+        return !element.HasAttributes && !element.HasElements
+            && string.Equals(element.Value, element.Value.Trim(), StringComparison.Ordinal)
+            && int.TryParse(element.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+            && value >= 0;
+    }
+
     public const int BaseNativeLanguageCount = 1;
     public const int SpecializationPointCost = 1;
 
@@ -163,12 +204,23 @@ public static class CharacterCreationStandardPrioritySkillsRules
         bool usePointsOnBrokenGroups,
         bool strictSkillGroupsInCreateMode,
         bool specializationsBreakSkillGroups) =>
+        ComputeRuntimeDigest(usePointsOnBrokenGroups, strictSkillGroupsInCreateMode,
+            specializationsBreakSkillGroups, MaximumRatingAtCreation, MaximumRatingAtCreation);
+
+    // Preserve the exact v1/default-six digest for existing drafts and archives.
+    // Configured limits enter the same runtime identity as the evaluated authority.
+    public static string ComputeRuntimeDigest(
+        bool usePointsOnBrokenGroups,
+        bool strictSkillGroupsInCreateMode,
+        bool specializationsBreakSkillGroups,
+        int maxActiveSkillRatingCreate,
+        int maxKnowledgeSkillRatingCreate) =>
         CharacterCreationSkillsDigest.Compute(new
         {
             Schema = "chummer.sr5.standard-priority-skills-runtime.v1",
-            ActiveSkillRatingMaximum = MaximumRatingAtCreation,
-            KnowledgeSkillRatingMaximum = MaximumRatingAtCreation,
-            SkillGroupRatingMaximum = MaximumRatingAtCreation,
+            ActiveSkillRatingMaximum = maxActiveSkillRatingCreate,
+            KnowledgeSkillRatingMaximum = maxKnowledgeSkillRatingCreate,
+            SkillGroupRatingMaximum = maxActiveSkillRatingCreate,
             BaseNativeLanguageCount,
             SpecializationPointCost,
             KnowledgeOverflowConsumesActivePoints = true,
@@ -370,10 +422,18 @@ public sealed record CharacterCreationSkillProjection(
     /// PointCost still describes only point-funded levels and specializations.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public int KarmaLevels { get; init; }
+    /// <summary>Already funded group base/grant ranks included in the total rating.
+    /// Saved on the group (and its grant improvement), never in personal base.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int GroupRating { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public int KarmaCost { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool KarmaSpecialization { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKnowledgeCategoryPrice? KnowledgeCategoryPrice { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSkillKarmaPrice? SkillKarmaPrice { get; init; }
 }
 
 public sealed record CharacterCreationSkillGroupProjection(
@@ -388,6 +448,11 @@ public sealed record CharacterCreationSkillGroupProjection(
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public int GrantedRating { get; init; }
+    /// <summary>Creation-to-career break state. Null preserves historical projections.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsBroken { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowSkillRegrouping { get; init; }
 }
 
 public sealed record CharacterCreationSkillsBinding(
@@ -476,6 +541,9 @@ public sealed record CharacterCreationSkillsState(
     bool CanEdit,
     string SnapshotDigest)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSkillsCompletionInputs? CompositeInputs { get; init; }
+
     public int SelectedActiveSkillPoints { get; init; }
     public int SelectedSkillGroupPoints { get; init; }
     public CharacterCreationMovementCapability MovementCapability { get; init; } = new(false, false, false);
@@ -515,7 +583,16 @@ public sealed record CharacterCreationSkillsReceipt(
     int KnowledgePointsRemaining,
     int KnowledgePointOverflowToActive,
     bool CharacterDocumentChanged,
-    string ReceiptDigest);
+    string ReceiptDigest)
+{
+    /// <summary>
+    /// Exact validated attributes used by an ordinary nondefault-expression save.
+    /// The receipt digest binds this evidence to its Skills draft and authority;
+    /// it is historical input, never current write authority. Null preserves legacy bytes.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAttributesDraft? AttributesSnapshot { get; init; }
+}
 
 /// <summary>
 /// Shared canonical JSON digest used at every Skills trust boundary. Callers must sort

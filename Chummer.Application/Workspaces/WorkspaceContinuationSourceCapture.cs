@@ -19,6 +19,10 @@ internal sealed class WorkspaceContinuationSourceCapture
     private readonly Captured<AttributePolicySource> _attributePolicy;
     private readonly Captured<KarmaTalentsSource> _karmaTalents;
     private readonly Captured<KarmaSkillsPolicySource> _karmaSkillsPolicy;
+    private readonly Captured<KarmaSkillsPolicySource> _prioritySkillKarmaPolicy;
+    private readonly Captured<EffectivePolicySource> _effectivePolicy;
+    private readonly Captured<CharacterCreationLoadoutAuthority> _loadout;
+    private readonly Captured<LoadoutLegalitySource> _loadoutLegality;
     private readonly Captured<SkillsCatalogSource> _skillsCatalog;
     private readonly Captured<CharacterCreationMetatypeCatalogAuthority> _metatypes;
     private readonly Captured<CharacterCreationPrerequisiteAuthority> _prerequisite;
@@ -40,7 +44,8 @@ internal sealed class WorkspaceContinuationSourceCapture
     private WorkspaceContinuationSourceCapture(ICharacterSourceDataContext source,
         string characterXml, ILifeModulesCatalogService lifeModules,
         CharacterCreationPrerequisiteDraft? qualityPrerequisite,
-        WorkspaceStoredDocument? workspace, ICharacterSourceDataResolver? resolver)
+        WorkspaceStoredDocument? workspace, ICharacterSourceDataResolver? resolver,
+        bool includeCompletionInputs)
     {
         _characterXml = characterXml;
         _profile = Capture(source.TryResolveCreationSourceProfile, CharacterCreationSourceProfileAuthority.Unavailable);
@@ -69,10 +74,38 @@ internal sealed class WorkspaceContinuationSourceCapture
             result = new(policy);
             return resolved;
         }, new KarmaSkillsPolicySource(null));
-        // Only Karma currently consumes the method-neutral catalog. Priority's
-        // existing authority already embeds it; do not reproject every weapon
-        // specialization a second time on each Priority continuation capture.
+        _prioritySkillKarmaPolicy = includeCompletionInputs ? Capture((out KarmaSkillsPolicySource result) =>
+        {
+            bool resolved = source.TryResolveCreationPrioritySkillKarmaPolicy(out var policy);
+            if (resolved && policy is null)
+                throw new InvalidDataException("Resolved Priority skill Karma policy is missing.");
+            result = new(policy);
+            return resolved;
+        }, new KarmaSkillsPolicySource(null)) : new(false, new KarmaSkillsPolicySource(null));
+        _effectivePolicy = includeCompletionInputs ? Capture((out EffectivePolicySource result) =>
+        {
+            bool resolved = source.TryResolveCreationEffectivePolicy(out var policy);
+            if (resolved && policy is null)
+                throw new InvalidDataException("Resolved effective policy is missing.");
+            result = new(policy);
+            return resolved;
+        }, new EffectivePolicySource(null)) : new(false, new EffectivePolicySource(null));
+        _loadout = includeCompletionInputs
+            ? Capture(source.TryResolveCreationLoadoutAuthority, CharacterCreationLoadoutAuthority.Unavailable)
+            : new(false, CharacterCreationLoadoutAuthority.Unavailable);
+        _loadoutLegality = includeCompletionInputs ? Capture((out LoadoutLegalitySource result) =>
+        {
+            bool resolved = source.TryResolveCreationLoadoutLegalityPolicy(out var policy);
+            if (resolved && policy is null)
+                throw new InvalidDataException("Resolved loadout legality policy is missing.");
+            result = new(policy);
+            return resolved;
+        }, new LoadoutLegalitySource(null)) : new(false, new LoadoutLegalitySource(null));
+        // Completion needs native source-load order as well as Priority's sorted
+        // authority. Freeze the actual catalog in the same source observation.
         _skillsCatalog = !_profile.Resolved || profile.BuildMethod != CharacterCreationBuildMethods.Karma
+            && !(includeCompletionInputs && profile.BuildMethod is
+                CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
             ? new(false, new SkillsCatalogSource(null))
             : Capture((out SkillsCatalogSource result) =>
         {
@@ -106,7 +139,7 @@ internal sealed class WorkspaceContinuationSourceCapture
         bool pendingPurchases = workspace?.Document.AuxiliaryState is { } auxiliary
             && (auxiliary.CharacterCreationContactsDraft is not null
                 || auxiliary.CharacterCreationLifestylesDraft is not null);
-        _contactsPolicy = pendingPurchases ? Capture((out ContactsPolicySource result) =>
+        _contactsPolicy = pendingPurchases || includeCompletionInputs ? Capture((out ContactsPolicySource result) =>
         {
             bool resolved = source.TryResolveCreationContactsPolicy(out var policy);
             if (resolved && policy is null)
@@ -114,7 +147,7 @@ internal sealed class WorkspaceContinuationSourceCapture
             result = new(policy);
             return resolved;
         }, new ContactsPolicySource(null)) : new(false, new ContactsPolicySource(null));
-        _carryoverPolicy = pendingPurchases ? Capture((out CarryoverPolicySource result) =>
+        _carryoverPolicy = pendingPurchases || includeCompletionInputs ? Capture((out CarryoverPolicySource result) =>
         {
             bool resolved = source.TryResolveCreationCarryoverPolicy(out var policy);
             if (resolved && policy is null)
@@ -171,6 +204,14 @@ internal sealed class WorkspaceContinuationSourceCapture
                     : CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(_lifestyleBasisXml),
                 PendingLifestyles = _pendingLifestyles
             });
+        if (includeCompletionInputs)
+            Digest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
+            {
+                Semantics = "chummer.workspace-continuation-completion-source-capture/v1",
+                BaseCaptureDigest = Digest, EffectivePolicy = _effectivePolicy,
+                PrioritySkillKarmaPolicy = _prioritySkillKarmaPolicy, Loadout = _loadout, LoadoutLegality = _loadoutLegality,
+                ContactsPolicy = _contactsPolicy, CarryoverPolicy = _carryoverPolicy
+            });
     }
 
     public string Digest { get; }
@@ -181,7 +222,8 @@ internal sealed class WorkspaceContinuationSourceCapture
         ILifeModulesCatalogService lifeModules,
         [NotNullWhen(true)] out WorkspaceContinuationSourceCapture? capture,
         CharacterCreationPrerequisiteDraft? qualityPrerequisite = null,
-        WorkspaceStoredDocument? workspace = null, ICharacterSourceDataResolver? resolver = null)
+        WorkspaceStoredDocument? workspace = null, ICharacterSourceDataResolver? resolver = null,
+        bool includeCompletionInputs = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(characterXml);
@@ -191,7 +233,7 @@ internal sealed class WorkspaceContinuationSourceCapture
         {
             if (workspace is not null && !string.Equals(workspace.Document.Content, characterXml, StringComparison.Ordinal))
                 return false;
-            capture = new(source, characterXml, lifeModules, qualityPrerequisite, workspace, resolver);
+            capture = new(source, characterXml, lifeModules, qualityPrerequisite, workspace, resolver, includeCompletionInputs);
             return true;
         }
         catch (Exception exception) when (IsSourceFailure(exception))
@@ -251,6 +293,8 @@ internal sealed class WorkspaceContinuationSourceCapture
     private sealed record AttributePolicySource(CharacterCreationAttributePolicy? Policy);
     private sealed record KarmaTalentsSource(CharacterCreationKarmaTalentCatalog? Catalog);
     private sealed record KarmaSkillsPolicySource(CharacterCreationKarmaSkillsPolicy? Policy);
+    private sealed record EffectivePolicySource(CharacterCreationEffectivePolicyContext? Policy);
+    private sealed record LoadoutLegalitySource(CharacterCreationLoadoutLegalityPolicy? Policy);
     private sealed record SkillsCatalogSource(CharacterCreationSkillsCatalog? Catalog);
     private sealed record ContactsPolicySource(CharacterCreationKarmaContactsPolicy? Policy);
     private sealed record CarryoverPolicySource(CharacterCreationKarmaCarryoverPolicy? Policy);
@@ -277,6 +321,26 @@ internal sealed class WorkspaceContinuationSourceCapture
 
     private sealed class FrozenContext(WorkspaceContinuationSourceCapture capture) : ICharacterSourceDataContext
     {
+        public bool TryResolveCreationEffectivePolicy(out CharacterCreationEffectivePolicyContext? policy)
+        {
+            bool resolved = capture._effectivePolicy.Read(out var source);
+            policy = source.Policy;
+            return resolved;
+        }
+        public bool TryResolveCreationPrioritySkillKarmaPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+        {
+            bool resolved = capture._prioritySkillKarmaPolicy.Read(out var source);
+            policy = source.Policy;
+            return resolved;
+        }
+        public bool TryResolveCreationLoadoutLegalityPolicy(out CharacterCreationLoadoutLegalityPolicy? policy)
+        {
+            bool resolved = capture._loadoutLegality.Read(out var source);
+            policy = source.Policy;
+            return resolved;
+        }
+        public bool TryResolveCreationLoadoutAuthority(out CharacterCreationLoadoutAuthority authority)
+            => capture._loadout.Read(out authority);
         public bool TryResolveCreationSourceProfile(out CharacterCreationSourceProfileAuthority authority) => capture._profile.Read(out authority);
         public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
         {

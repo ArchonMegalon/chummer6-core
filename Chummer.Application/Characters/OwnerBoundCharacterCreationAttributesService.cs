@@ -9,11 +9,24 @@ namespace Chummer.Application.Characters;
 /// Uses the existing rules and atomic auxiliary checkpoint in the admitted
 /// owner's partition. No legacy fallback, XML mutation or write retry.
 /// </summary>
-public sealed class OwnerBoundCharacterCreationAttributesService(
+public sealed partial class OwnerBoundCharacterCreationAttributesService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationAttributesService
+    ICharacterSourceDataResolver sourceResolver)
+    : IOwnerBoundCharacterCreationAttributesService, IOwnerBoundCharacterCreationAttributesRebaseService
 {
+    private readonly CharacterCreationAttributesRebaseServices? rebaseServices;
+
+    // Preserve the original contextless constructor and its fail-closed behavior.
+    public OwnerBoundCharacterCreationAttributesService(IWorkspaceStore store,
+        IOwnerContextAccessor ownerContext, ICharacterSourceDataResolver sourceResolver,
+        CharacterCreationAttributesRebaseServices rebaseServices)
+        : this(store, ownerContext, sourceResolver)
+    {
+        ArgumentNullException.ThrowIfNull(rebaseServices);
+        this.rebaseServices = rebaseServices;
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationAttributesState> Load(
         OwnerContextStamp expectedOwner, CharacterCreationAttributesLoadRequest request)
     {

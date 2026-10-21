@@ -30,6 +30,9 @@ public static class CharacterCreationFinalizationTransaction
     public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>? Lookup(
         WorkspaceStoredDocument saved, CharacterCreationFinalizationConfirmRequest request)
     {
+        if (IsConfirmed(request) && CharacterCreationCompletionDraftTransaction.HasKey(saved.Document.AuxiliaryState,
+                CharacterCreationFinalizationDigest.ComputeIdempotencyKeyDigest(request.IdempotencyKey)))
+            return Rejected(CharacterCreationFinalizationBlockers.IdempotencyConflict);
         var ledger = saved.Document.AuxiliaryState.CharacterCreationFinalizationReceipts;
         if (ledger is null) return null;
         if (!IsConfirmed(request) || !WorkspaceAuxiliaryStateIntegrity.IsValidShape(saved.Id,

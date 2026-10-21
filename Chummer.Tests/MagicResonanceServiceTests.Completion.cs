@@ -1,8 +1,16 @@
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
+using Chummer.Infrastructure.Files;
+using Chummer.Infrastructure.Workspaces;
+using Chummer.Infrastructure.Xml;
+using Chummer.Rulesets.Hosting;
+using Chummer.Rulesets.Sr5;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Text.Json;
+using System.Xml.Linq;
 using ReadyContext = Chummer.Tests.CharacterCreationFinalizationServiceTests.ReadyContext;
 
 namespace Chummer.Tests;
@@ -10,6 +18,124 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class MagicResonanceCompletionTests
 {
+    [TestMethod]
+    [DataRow(0, false)]
+    [DataRow(2, true)]
+    public void Separate_magic_uses_metatype_limits_attribute_costs_and_no_purchase_or_spell_exchange(
+        int sourceMinimum, bool exchange)
+    {
+        using var context = SeparateMagicContext.Create(sourceMinimum, exchange);
+        var service = new CharacterCreationMagicResonanceService(context.Store, context.Resolver);
+        var loaded = service.LoadCompletionInputs(new(context.WorkspaceId));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome, string.Join(",", loaded.Blockers));
+        var inputs = loaded.Value!;
+        var original = JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value);
+        var sourceRange = inputs.PrerequisiteDraft.HeritageSelection!.Attributes.Single(row => row.AttributeId == "MAG");
+        Assert.AreEqual(sourceMinimum, sourceRange.Minimum);
+        var initial = inputs.Attributes.Attributes.Single(row => row.AttributeId == "MAGAdept");
+        Assert.AreEqual(sourceRange.Minimum, initial.Current);
+        Assert.AreEqual(sourceRange.Maximum, initial.Maximum);
+        Assert.AreEqual(sourceRange.AugmentedMaximum, initial.AugmentedMaximum);
+        Assert.AreEqual(inputs.SelectedTalent.Magic, inputs.Attributes.Attributes.Single(row => row.AttributeId == "MAG").Current);
+        Assert.AreNotEqual(inputs.SelectedTalent.Magic, initial.Minimum,
+            "The priority talent raises MAG only; MAGAdept starts at metatype magmin.");
+
+        CharacterCreationAttributeAllocation[] allocations = [new("MAGAdept", 1, 1)];
+        int adeptMagic = sourceMinimum + 2;
+        var choices = CompleteSelections(inputs, inputs.SelectedTalent.Magic, magicAdept: adeptMagic);
+        var proposed = CharacterCreationMagicResonanceService.PreviewCompletion(inputs, allocations, choices);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, proposed.Outcome, string.Join(",", proposed.Blockers));
+        var projection = proposed.Value!;
+        Assert.AreEqual(adeptMagic, projection.EffectiveAttributes.MagicAdept);
+        Assert.AreEqual(inputs.SelectedTalent.Magic, projection.EffectiveAttributes.Magic);
+        Assert.AreEqual((decimal)adeptMagic, projection.AdeptPowerPointBudget.Total);
+        Assert.AreEqual((decimal)inputs.SelectedTalent.SpellBudget, projection.SpellBudget.Total);
+        Assert.IsNull(projection.MysticAdeptPowerPoints, "Separate mode must not serialize a PP purchase.");
+        Assert.AreEqual(1m, projection.Attributes.SpecialPointBudget.Used);
+        Assert.AreEqual((decimal)(inputs.PrerequisiteDraft.CreationKarmaUsed + adeptMagic * 3),
+            projection.Attributes.CreationKarmaBudget.Used, "The next attribute rating costs karmaattribute, not karmamysadpp=99.");
+        Assert.AreEqual(original, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+
+        SaveAttributes(context.Store, context.Resolver, context.WorkspaceId, allocations);
+        var state = service.Load(new(context.WorkspaceId)).Value!;
+        var preview = service.Preview(new(state.Binding, choices));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preview.Outcome, string.Join(",", preview.Blockers));
+        AssertProjectionMatchesOrdinary(projection, preview.Value!);
+        Assert.AreEqual(adeptMagic, preview.Value!.FinalizationContribution!.EffectiveAttributes!.MagicAdept);
+        var command = new CharacterCreationMagicResonanceConfirmRequest(state.Binding, choices,
+            preview.Value.PreviewDigest, "separate-magic-source", true);
+        var saved = service.Confirm(command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, saved.Outcome, string.Join(",", saved.Blockers));
+        var coldStore = new FileWorkspaceStore(context.Directory);
+        var cold = new CharacterCreationMagicResonanceService(coldStore, context.Resolver);
+        var reopened = cold.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(reopened.CanEdit, string.Join(",", reopened.Blockers));
+        Assert.AreEqual(saved.Value!.ReceiptDigest, cold.Confirm(command).Value!.ReceiptDigest);
+        Assert.AreEqual(adeptMagic, reopened.PendingDraft!.FinalizationContribution!.EffectiveAttributes!.MagicAdept);
+        Assert.AreEqual(adeptMagic, reopened.AttributesDraft!.Attributes.Single(row => row.AttributeId == "MAGAdept").Current);
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+            reopened.PendingDraft.FinalizationContribution, reopened.PendingDraft, reopened.Authority, reopened.AttributesDraft));
+        int order = 0;
+        var graph = CharacterCreationFinalizationProjector.BuildAttributes(reopened.AttributesDraft,
+            new List<CharacterCreationFinalizationDelta>(), ref order);
+        var savedAttribute = graph.Elements("attribute").Single(row => row.Element("name")!.Value == "MAGAdept");
+        Assert.AreEqual(sourceMinimum.ToString(), savedAttribute.Element("metatypemin")!.Value);
+        Assert.AreEqual("1", savedAttribute.Element("base")!.Value);
+        Assert.AreEqual("1", savedAttribute.Element("karma")!.Value);
+        Assert.AreEqual(adeptMagic.ToString(), savedAttribute.Element("totalvalue")!.Value);
+    }
+
+    [TestMethod]
+    public void Separate_magic_rejects_invalid_allocations_purchases_forged_ranges_and_profile_drift()
+    {
+        using var context = SeparateMagicContext.Create(2, true);
+        var service = new CharacterCreationMagicResonanceService(context.Store, context.Resolver);
+        var inputs = service.LoadCompletionInputs(new(context.WorkspaceId)).Value!;
+        var choices = CompleteSelections(inputs, inputs.SelectedTalent.Magic, magicAdept: 2);
+        string before = JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value);
+        foreach (CharacterCreationAttributeAllocation[] allocations in new CharacterCreationAttributeAllocation[][]
+        {
+            [new("MAGAdept", 0, 0), new("MAGAdept", 0, 0)], [new("MAGadept", 0, 0)],
+            [new("MAGAdept", -1, 0)], [new("MAGAdept", 0, 4)], [new("MAGAdept", int.MaxValue, 1)],
+            [new("MAGAdept", 1, 0), new("MAG", 1, 0)], [new("MAGAdept", 0, 3)]
+        })
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationMagicResonanceService.PreviewCompletion(inputs, allocations, choices).Outcome);
+        var purchase = CharacterCreationMagicResonanceService.PreviewCompletion(inputs, [], choices with { MysticAdeptPowerPoints = 1 });
+        CollectionAssert.Contains(purchase.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+        var substituted = inputs.Attributes with { SeparateMagicPolicy = null, SnapshotDigest = string.Empty };
+        substituted = substituted with { SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(substituted) };
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked,
+            CharacterCreationMagicResonanceService.PreviewCompletion(Reseal(inputs with { Attributes = substituted }), [], choices).Outcome);
+        Assert.AreEqual(before, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+
+        SaveAttributes(context.Store, context.Resolver, context.WorkspaceId, []);
+        var state = service.Load(new(context.WorkspaceId)).Value!;
+        var attributes = state.AttributesDraft!;
+        foreach (var forged in new[]
+        {
+            attributes with { Attributes = attributes.Attributes.Select(row => row.AttributeId == "MAGAdept" ? row with { Maximum = 6 } : row).ToArray() },
+            attributes with { Attributes = attributes.Attributes.Select(row => row.AttributeId == "MAGAdept" ? row with { Minimum = 3, Current = 3 } : row).ToArray() },
+            attributes with { Attributes = attributes.Attributes.Concat([attributes.Attributes.Single(row => row.AttributeId == "MAGAdept")]).ToArray() }
+        })
+        {
+            var rehashed = forged with { DraftDigest = CharacterCreationAttributesDraftIntegrity.ComputeDigest(forged) };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
+                inputs.SelectedTalent, rehashed, out _, inputs.Authority.MysticAdeptPowerPointPolicy,
+                inputs.Authority.Metatypes.Single(row => row.MetatypeSourceId == attributes.MetatypeSourceId).SeparateMagicAttribute));
+        }
+        var preview = service.Preview(new(state.Binding, choices)).Value!;
+        var settings = XDocument.Load(context.SettingsPath);
+        settings.Root!.Element("settings")!.Elements("setting")
+            .Single(row => row.Element("id")!.Value == CharacterCreationBootstrapProfiles.PrioritySettingsProfileId)
+            .SetElementValue("mysadeptsecondmagattribute", false);
+        settings.Save(context.SettingsPath);
+        before = JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value);
+        var stale = service.Confirm(new(state.Binding, choices, preview.PreviewDigest, "drifted-separate-magic", true));
+        Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, stale.Outcome);
+        Assert.AreEqual(before, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+    }
+
     [TestMethod]
     [DataRow("Adept", "D", "MAG")]
     [DataRow("Magician", "B", "MAG")]
@@ -377,9 +503,13 @@ public sealed class MagicResonanceCompletionTests
             new CharacterCreationAttributesService(context.Store, context.Resolver));
 
     internal static void SavePrerequisite(ReadyContext context, string talentName, string talentRank)
+        => SavePrerequisite(context.Store, context.Queries, context.Resolver, context.WorkspaceId, talentName, talentRank);
+
+    private static void SavePrerequisite(IWorkspaceStore store, ICharacterFileQueries queries,
+        ICharacterSourceDataResolver resolver, CharacterWorkspaceId workspaceId, string talentName, string talentRank)
     {
-        var service = new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver);
-        var loaded = service.Load(new(context.WorkspaceId));
+        var service = new CharacterCreationPrerequisiteService(store, queries, resolver);
+        var loaded = service.Load(new(workspaceId));
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome, string.Join(",", loaded.Blockers));
         var state = loaded.Value!;
         var ranks = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -411,13 +541,17 @@ public sealed class MagicResonanceCompletionTests
             TalentActiveSkillSelectionIds = skills, TalentSkillGroupSelectionIds = groups
         });
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, saved.Outcome, string.Join(",", saved.Blockers));
-        Assert.IsNull(context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryState.CharacterCreationAttributesDraft);
+        Assert.IsNull(store.Get(workspaceId).Value!.Document.AuxiliaryState.CharacterCreationAttributesDraft);
     }
 
     internal static void SaveAttributes(ReadyContext context, IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
+        => SaveAttributes(context.Store, context.Resolver, context.WorkspaceId, allocations);
+
+    private static void SaveAttributes(IWorkspaceStore store, ICharacterSourceDataResolver resolver,
+        CharacterWorkspaceId workspaceId, IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
     {
-        var service = new CharacterCreationAttributesService(context.Store, context.Resolver);
-        var state = service.Load(new(context.WorkspaceId)).Value!;
+        var service = new CharacterCreationAttributesService(store, resolver);
+        var state = service.Load(new(workspaceId)).Value!;
         var preview = service.Preview(new(state.Binding, allocations));
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preview.Outcome, string.Join(",", preview.Blockers));
         var saved = service.Confirm(new(state.Binding, allocations, preview.Value!.PreviewDigest, true));
@@ -425,18 +559,18 @@ public sealed class MagicResonanceCompletionTests
     }
 
     internal static CharacterCreationMagicResonanceSelections CompleteSelections(
-        CharacterCreationMagicResonanceCompletionInputs inputs, int magic, int mysticPowerPoints = 0)
+        CharacterCreationMagicResonanceCompletionInputs inputs, int magic, int mysticPowerPoints = 0, int? magicAdept = null)
     {
         var talent = inputs.SelectedTalent;
         Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(inputs.Authority.MysticAdeptPowerPointPolicy,
-            talent.Kind, magic, talent.SpellBudget, mysticPowerPoints, out var purchase));
-        decimal remaining = talent.Kind == CharacterCreationMagicResonanceKinds.MysticAdept ? mysticPowerPoints
+            talent.Kind, magic, talent.SpellBudget, mysticPowerPoints, out var purchase, magicAdept));
+        decimal remaining = talent.Kind == CharacterCreationMagicResonanceKinds.MysticAdept ? magicAdept ?? mysticPowerPoints
             : talent.Kind == CharacterCreationMagicResonanceKinds.Adept ? magic : 0m;
         var powers = new List<CharacterCreationAdeptPowerAllocation>();
         foreach (var power in inputs.Authority.AdeptPowers.Where(item => item.IsEnabled && item.PointCost > 0)
                      .OrderByDescending(item => item.PointCost).ThenBy(item => item.Identity.SourceId, StringComparer.Ordinal))
         {
-            int levels = (int)Math.Min(CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(power, magic),
+            int levels = (int)Math.Min(CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(power, magicAdept ?? magic),
                 decimal.Floor(remaining / power.PointCost));
             if (levels == 0) continue;
             powers.Add(new(power.Identity, levels));
@@ -451,6 +585,82 @@ public sealed class MagicResonanceCompletionTests
                 .Select(item => item.Identity).ToArray(),
             inputs.Authority.ComplexForms.Where(item => item.IsEnabled).Take(talent.ComplexFormBudget)
                 .Select(item => item.Identity).ToArray()) { MysticAdeptPowerPoints = mysticPowerPoints };
+    }
+
+    internal sealed class SeparateMagicContext : IDisposable
+    {
+        private SeparateMagicContext(string directory, FileWorkspaceStore store,
+            ICharacterSourceDataResolver resolver, CharacterWorkspaceId workspaceId, string settingsPath)
+            => (Directory, Store, Resolver, WorkspaceId, SettingsPath) = (directory, store, resolver, workspaceId, settingsPath);
+
+        public string Directory { get; }
+        public FileWorkspaceStore Store { get; }
+        public ICharacterSourceDataResolver Resolver { get; }
+        public CharacterWorkspaceId WorkspaceId { get; }
+        public string SettingsPath { get; }
+
+        // Real effective catalogs, with deliberately non-default metatype limits
+        // and prices. No synthetic capability or policy is injected into Core.
+        public static SeparateMagicContext Create(int minimum, bool exchange, bool separate = true)
+        {
+            string directory = Path.Combine(Path.GetTempPath(), $"chummer-separate-magic-{Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(directory);
+            try
+            {
+                var root = new DirectoryInfo(AppContext.BaseDirectory);
+                while (root is not null && !File.Exists(Path.Combine(root.FullName, "Chummer", "data", "metatypes.xml")))
+                    root = root.Parent;
+                if (root is null)
+                {
+                    root = new DirectoryInfo(Environment.CurrentDirectory);
+                    while (root is not null && !File.Exists(Path.Combine(root.FullName, "Chummer", "data", "metatypes.xml")))
+                        root = root.Parent;
+                }
+                Assert.IsNotNull(root, "Retained source data must be available to this source-semantic test.");
+                string sourceRoot = Path.Combine(directory, "source");
+                string data = Path.Combine(sourceRoot, "data");
+                System.IO.Directory.CreateDirectory(data);
+                foreach (string file in System.IO.Directory.EnumerateFiles(Path.Combine(root!.FullName, "Chummer", "data"), "*.xml"))
+                    File.Copy(file, Path.Combine(data, Path.GetFileName(file)));
+                string profileId = CharacterCreationBootstrapProfiles.PrioritySettingsProfileId;
+                string settingsPath = Path.Combine(data, CharacterCreationBootstrapProfiles.SettingsSourceFile(profileId));
+                var settings = XDocument.Load(settingsPath);
+                var profile = settings.Root!.Element("settings")!.Elements("setting").Single(row => row.Element("id")!.Value == profileId);
+                profile.SetElementValue("mysadeptsecondmagattribute", separate);
+                profile.SetElementValue("priorityspellsasadeptpowers", exchange);
+                profile.Element("karmacost")!.SetElementValue("karmaattribute", 3);
+                profile.Element("karmacost")!.SetElementValue("karmamysadpp", 99);
+                settings.Save(settingsPath);
+                string metatypesPath = Path.Combine(data, "metatypes.xml");
+                var metatypes = XDocument.Load(metatypesPath);
+                var human = metatypes.Root!.Element("metatypes")!.Elements("metatype").Single(row => row.Element("name")!.Value == "Human");
+                human.SetElementValue("magmin", minimum);
+                human.SetElementValue("magmax", 5);
+                human.SetElementValue("magaug", 7);
+                metatypes.Save(metatypesPath);
+                var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(sourceRoot, sourceRoot, null));
+                var queries = new XmlCharacterFileQueries(new CharacterFileService());
+                var store = new FileWorkspaceStore(directory);
+                var codec = new Sr5WorkspaceCodec(queries,
+                    new XmlCharacterSectionQueries(new CharacterSectionService(resolver)),
+                    new XmlCharacterMetadataCommands(new CharacterFileService()));
+                var bootstrap = new CharacterCreationBootstrapService(store, new RulesetWorkspaceCodecResolver([codec]), queries, resolver);
+                var created = bootstrap.Create(new(CharacterCreationBootstrapSchemas.RequestV1,
+                    CharacterCreationBootstrapStages.AwaitingFoundationSelection, RulesetDefaults.Sr5,
+                    "Separate Magic", "Source Oracle", CharacterCreationBuildMethods.Priority, profileId));
+                Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome, string.Join(",", created.Blockers));
+                var id = created.Value!.WorkspaceId;
+                SavePrerequisite(store, queries, resolver, id, "Mystic Adept", "B");
+                return new(directory, store, resolver, id, settingsPath);
+            }
+            catch
+            {
+                System.IO.Directory.Delete(directory, true);
+                throw;
+            }
+        }
+
+        public void Dispose() => System.IO.Directory.Delete(Directory, true);
     }
 
     private static CharacterCreationMagicResonanceCompletionInputs Reseal(CharacterCreationMagicResonanceCompletionInputs inputs)

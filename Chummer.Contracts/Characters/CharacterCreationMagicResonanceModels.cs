@@ -105,7 +105,11 @@ public sealed record CharacterCreationMagicResonanceMetatypeCapability(
     string MetatypeName,
     string MetatypeCategory,
     IReadOnlyList<string> SourceAnchorIds,
-    string SourceNodeDigest);
+    string SourceNodeDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeAttributeProjection? SeparateMagicAttribute { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceTalentOption(
     CharacterCreationMagicResonanceTalentIdentity Identity,
@@ -295,7 +299,11 @@ public sealed record CharacterCreationMagicResonanceEffectiveAttributes(
     int Magic,
     int Resonance,
     int Depth,
-    decimal AdeptPowerPointBudget);
+    decimal AdeptPowerPointBudget)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? MagicAdept { get; init; }
+}
 
 /// <summary>
 /// Source-bound input for the later whole-character finalizer. This is not a
@@ -419,6 +427,10 @@ public sealed record CharacterCreationMagicResonanceState(
     bool CanEdit,
     string SnapshotDigest)
 {
+    /// <summary>Current source-admitted composite choices. PendingDraft remains immutable ordinary history.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMagicResonanceSelections? CompositeSelections { get; init; }
+
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
 }
@@ -439,6 +451,9 @@ public sealed record CharacterCreationMagicResonancePreview(
     bool CanConfirm,
     string PreviewDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompositeReviewDigest { get; init; }
+
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
 

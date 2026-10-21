@@ -27,7 +27,14 @@ public static class CharacterCreationSkillsDraftIntegrity
             || state.LogicUnaugmented < 0)
             return false;
 
-        long knowledgeTotal = ((long)state.IntuitionUnaugmented + state.LogicUnaugmented) * 2L
+        var attributeRows = state.AttributesDraft?.Attributes;
+        if (attributeRows is null
+            || !CharacterCreationKarmaSkillsRules.TryKnowledgePoints(state.Authority.KnowledgePointsExpression,
+                attributeRows, out int attributePoints)
+            || attributeRows.SingleOrDefault(item => item.AttributeId == "INT")?.UnaugmentedCurrent != state.IntuitionUnaugmented
+            || attributeRows.SingleOrDefault(item => item.AttributeId == "LOG")?.UnaugmentedCurrent != state.LogicUnaugmented)
+            return false;
+        long knowledgeTotal = (long)attributePoints
                               + state.KnowledgePointContributions.Sum(item => (long)item.Points);
         if (knowledgeTotal is < 0 or > int.MaxValue
             || !BudgetMatches(state.ActiveSkillPointBudget, state.SelectedActiveSkillPoints,
@@ -87,17 +94,12 @@ public static class CharacterCreationSkillsDraftIntegrity
             || string.IsNullOrWhiteSpace(authority.SettingsProfileId)
             || !CharacterCreationSkillsDigest.IsCanonical(authority.EffectiveSkillsInputsDigest)
             || !CharacterCreationSkillsDigest.IsCanonical(authority.RawProfileInputsDigest)
-            || !string.Equals(
-                authority.KnowledgePointsExpression,
-                CharacterCreationStandardPrioritySkillsRules.KnowledgePointsExpression,
-                StringComparison.Ordinal)
-            || authority.MaxActiveSkillRatingCreate != CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation
-            || authority.MaxKnowledgeSkillRatingCreate != CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation
-            || authority.MaxSkillGroupRatingCreate != CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation
+            || string.IsNullOrWhiteSpace(authority.KnowledgePointsExpression)
+            || authority.KnowledgePointsExpression.Length > 2048
+            || !CharacterCreationStandardPrioritySkillsRules.IsSupportedCreationRatingLimit(authority.MaxActiveSkillRatingCreate)
+            || !CharacterCreationStandardPrioritySkillsRules.IsSupportedCreationRatingLimit(authority.MaxKnowledgeSkillRatingCreate)
+            || authority.MaxSkillGroupRatingCreate != authority.MaxActiveSkillRatingCreate
             || authority.BaseNativeLanguageLimit != CharacterCreationStandardPrioritySkillsRules.BaseNativeLanguageCount
-            || authority.UsePointsOnBrokenGroups
-            || authority.StrictSkillGroupsInCreateMode
-            || !authority.SpecializationsBreakSkillGroups
             || authority.ActiveSkills is null
             || authority.KnowledgeSkills is null
             || authority.SkillGroups is null
@@ -112,7 +114,9 @@ public static class CharacterCreationSkillsDraftIntegrity
                 CharacterCreationStandardPrioritySkillsRules.ComputeRuntimeDigest(
                     authority.UsePointsOnBrokenGroups,
                     authority.StrictSkillGroupsInCreateMode,
-                    authority.SpecializationsBreakSkillGroups))
+                    authority.SpecializationsBreakSkillGroups,
+                    authority.MaxActiveSkillRatingCreate,
+                    authority.MaxKnowledgeSkillRatingCreate))
             || !CharacterCreationSkillsDigest.IsCanonical(authority.AuthorityDigest)
             || !CharacterCreationSkillsDigest.EqualsFixedTime(
                 authority.AuthorityDigest,
@@ -249,7 +253,7 @@ public static class CharacterCreationSkillsDraftIntegrity
            && draft.Skills is not null
            && draft.SkillGroups is not null
            && CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out var grants)
-           && grants.IsValidProjection(draft.Skills, draft.SkillGroups)
+           && IsValidPointAndGrantProjection(grants, draft.Skills, draft.SkillGroups)
            && CharacterCreationSkillsAccessRules.MatchesPrerequisite(authority, prerequisite)
            && draft.Skills.All(item => item.Kind != CharacterCreationSkillKinds.Active
                || CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, item.SourceSkillId))
@@ -262,6 +266,26 @@ public static class CharacterCreationSkillsDraftIntegrity
            && CharacterCreationSkillsDigest.IsCanonical(draft.LastCommandDigest)
            && CharacterCreationSkillsDigest.IsCanonical(draft.DraftDigest)
            && CharacterCreationSkillsDigest.EqualsFixedTime(draft.DraftDigest, ComputeDigest(draft));
+
+    private static bool IsValidPointAndGrantProjection(CharacterCreationTalentSkillGrants grants,
+        IReadOnlyList<CharacterCreationSkillProjection> skills, IReadOnlyList<CharacterCreationSkillGroupProjection> groups)
+    {
+        if (skills.Any(row => row is null) || groups.Any(row => row?.MemberSkillSourceIds is null)) return false;
+        foreach (var skill in skills)
+        {
+            var matching = groups.Where(group => skill.Kind == CharacterCreationSkillKinds.Active
+                && group.MemberSkillSourceIds.Contains(skill.SourceSkillId, StringComparer.Ordinal)).Take(2).ToArray();
+            if (matching.Length > 1 || skill.GroupRating < 0 || skill.GroupRating != (matching.FirstOrDefault()?.Rating ?? 0)
+                || skill.KarmaLevels != 0 || skill.KarmaCost != 0 || skill.KarmaSpecialization
+                || skill.GroupRating > 0 && (skill.IsNativeLanguage || skill.Rating < skill.GroupRating || skill.EffectiveRating < skill.GroupRating))
+                return false;
+        }
+        // The grant validator describes personal ranks. Validate the real group
+        // contribution above, then remove only that contribution for its personal
+        // point/free-base equality. Never rewrite the stored projection or choices.
+        return grants.IsValidProjection(skills.Select(row => row.GroupRating == 0 ? row : row with
+        { Rating = row.Rating - row.GroupRating, EffectiveRating = row.EffectiveRating - row.GroupRating }).ToArray(), groups);
+    }
 
     public static bool HasSameLogicalPayload(
         CharacterCreationSkillsDraft left,
@@ -294,6 +318,7 @@ public static class CharacterCreationSkillsDraftIntegrity
         if (receipts is null)
             return true;
         if (receipts.Count == 0
+            || receipts.Any(receipt => receipt is null || !IsValidReceiptAttributesSnapshot(receipt, workspaceId))
             || receipts[0].DraftRevision != 1
             || receipts.Any(receipt => !CharacterCreationSkillsDigest.IsValidReceipt(
                 receipt,
@@ -319,6 +344,22 @@ public static class CharacterCreationSkillsDraftIntegrity
             && CharacterCreationSkillsDigest.EqualsFixedTime(
                 pair.Second.PreviousReceiptDigest,
                 pair.First.ReceiptDigest));
+    }
+
+    private static bool IsValidReceiptAttributesSnapshot(CharacterCreationSkillsReceipt receipt,
+        CharacterWorkspaceId workspaceId)
+    {
+        if (receipt.AttributesSnapshot is not { } attributes) return true;
+        return attributes.Schema == CharacterCreationAttributesSchemas.DraftV1
+            && attributes.WorkspaceId == workspaceId
+            && attributes.DraftRevision > 0
+            && attributes.BaseContentRevision > 0
+            && attributes.BaseContentRevision < receipt.PreviousContentRevision
+            && attributes.Allocations is not null && attributes.Allocations.All(row => row is not null)
+            && attributes.Attributes is not null && attributes.Attributes.All(row => row is not null)
+            && CharacterCreationSkillsDigest.IsCanonical(attributes.DraftDigest)
+            && CharacterCreationSkillsDigest.EqualsFixedTime(attributes.DraftDigest,
+                CharacterCreationAttributesDraftIntegrity.ComputeDigest(attributes));
     }
 
     private static bool IsValidCatalogEntry(

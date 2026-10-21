@@ -9,10 +9,23 @@ namespace Chummer.Application.Characters;
 public interface ICharacterSourceDataResolver
 {
     ICharacterSourceDataContext? TryCreateContext(string characterXml);
+
+    // A new immutable source-admission view. Older implementations cannot opt into V4.
+    ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
+        => schema is null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1
+            or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV2
+            or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV3 ? this : null;
 }
 
 public interface ICharacterSourceDataContext
 {
+    /// <summary>Bounded effective-policy evidence; absence is never standard-policy authority.</summary>
+    bool TryResolveCreationEffectivePolicy(out CharacterCreationEffectivePolicyContext? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>
     /// Reads the exact effective saved profile for legacy Career editors that
     /// still consume settings XML. No Standard-profile substitution is allowed.
@@ -155,6 +168,14 @@ public interface ICharacterSourceDataContext
     /// callers must not substitute a multiplier or enable special attributes.
     /// </summary>
     bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Actual R/F exclusion switches for the bounded Loadout consumer.
+    /// This never authorizes unsupported multiplier pricing.</summary>
+    bool TryResolveCreationLoadoutLegalityPolicy(out CharacterCreationLoadoutLegalityPolicy? policy)
     {
         policy = null;
         return false;
@@ -389,6 +410,14 @@ public interface ICharacterSourceDataContext
     /// saved creation profile. False means the Contacts/Lifestyles step must expose no
     /// mutation route; callers may not substitute labels, prices, or unfiltered XML rows.
     /// </summary>
+    // Fixed historical compiler on this context's exact sources. This is read
+    // authority only; callers must also prove the confirmed draft and its receipt.
+    bool TryResolveCreationLifestylesPre1008Authority(out CharacterCreationLifestylesAuthority authority)
+    {
+        authority = CharacterCreationLifestylesAuthority.Unavailable;
+        return false;
+    }
+
     bool TryResolveCreationLifestylesAuthority(
         out CharacterCreationLifestylesAuthority authority)
     {
@@ -474,6 +503,13 @@ public interface ICharacterSourceDataContext
     /// character's source profile. False means no catalog authority exists;
     /// callers must never substitute their own source filters or defaults.
     /// </summary>
+    bool TryResolveCreationPhysicalInitiative886(CharacterCreationPrerequisiteDraft draft,
+        out CharacterCreationPhysicalInitiativeAuthority? authority)
+    {
+        authority = null;
+        return false;
+    }
+
     bool TryResolveCreationMetatypeCatalog(
         out CharacterCreationMetatypeCatalogAuthority authority)
     {
@@ -688,6 +724,11 @@ public sealed record CharacterCreationSourceProfileAuthority(
     string RawProfileInputsDigest,
     IReadOnlyList<string> SourceAnchorIds)
 {
+    // Optional for legacy base-only resolvers. Selected custom inputs require the
+    // exact observation produced from the same source snapshot as this profile.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationBootstrapSourceAnchorAuthority? BootstrapSourceAnchors { get; init; }
+
     public static CharacterCreationSourceProfileAuthority Unavailable { get; } = new(
         SettingsProfileId: string.Empty,
         EnabledSourcebooks: Array.Empty<string>(),
@@ -698,6 +739,13 @@ public sealed record CharacterCreationSourceProfileAuthority(
         RawProfileInputsDigest: string.Empty,
         SourceAnchorIds: Array.Empty<string>());
 }
+
+public sealed record CharacterCreationBootstrapSourceAnchorAuthority(
+    string SettingsProfileId,
+    string BuildMethod,
+    string RawProfileInputsDigest,
+    string SelectedCustomDataInputsDigest,
+    IReadOnlyList<string> SourceAnchorIds);
 
 public sealed record CharacterQualityLevelSource(
     string SourceId,

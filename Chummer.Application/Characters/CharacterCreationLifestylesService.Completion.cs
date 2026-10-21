@@ -11,7 +11,10 @@ public sealed partial class CharacterCreationLifestylesService
     /// drafts exist. The ordinary Lifestyle editor retains its saved-graph gate.
     /// </summary>
     public CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionInputs> LoadCompletionInputs(
-        CharacterCreationLifestylesLoadRequest request)
+        CharacterCreationLifestylesLoadRequest request) => LoadCompletionInputs(request, false);
+
+    internal CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionInputs> LoadCompletionInputs(
+        CharacterCreationLifestylesLoadRequest request, bool knowledgeModifiers)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (_completionQueries is null)
@@ -25,7 +28,8 @@ public sealed partial class CharacterCreationLifestylesService
         var resolver = scope ?? _sourceData;
         var source = resolver.TryCreateContext(workspace.Document.Content);
         if (source is null || !source.TryResolveCreationLifestylesAuthority(out var authority)
-            || !CharacterCreationLifestylesRules.IsValidAuthority(authority))
+            || !CharacterCreationLifestylesRules.IsValidAuthority(authority)
+            || !CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(authority.PurchasedQualityCosts))
             return Blocked<CharacterCreationLifestylesCompletionInputs>(CharacterCreationLifestyleOutcomes.Blocked,
                 CharacterCreationLifestylesBlockers.AuthorityUnavailable);
 
@@ -36,7 +40,7 @@ public sealed partial class CharacterCreationLifestylesService
                 Normalize(gearResult.Blockers.Append(CharacterCreationLifestylesCompletionSchemas.UpstreamBudgetUnavailable)));
         var qualitiesResult = new CharacterCreationQualitiesService(_workspaceStore, resolver,
             new CharacterCreationPrerequisiteService(_workspaceStore, _completionQueries, resolver),
-            new CharacterCreationAttributesService(_workspaceStore, resolver)).LoadCompletionInputs(new(workspace.Id));
+            new CharacterCreationAttributesService(_workspaceStore, resolver), _completionQueries).LoadCompletionInputs(new(workspace.Id), knowledgeModifiers);
         if (qualitiesResult.Value is not { } qualities)
             return new(CharacterCreationLifestyleOutcomes.Blocked, null,
                 Normalize(qualitiesResult.Blockers.Append(CharacterCreationLifestylesCompletionSchemas.UpstreamBudgetUnavailable)));
@@ -68,6 +72,22 @@ public sealed partial class CharacterCreationLifestylesService
             || !SameCompletionDigest(authority.AuthorityDigest, after.AuthorityDigest))
             return Blocked<CharacterCreationLifestylesCompletionInputs>(CharacterCreationLifestyleOutcomes.Conflict,
                 CharacterCreationLifestylesBlockers.StaleSourceDigest);
+        if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite))
+            return Blocked<CharacterCreationLifestylesCompletionInputs>(CharacterCreationLifestyleOutcomes.Blocked,
+                CharacterCreationCompositeBaselineReader.Invalid);
+        if (composite is not null)
+        {
+            var magic = new CharacterCreationMagicResonanceService(_workspaceStore, resolver)
+                .LoadCompletionInputs(new(workspace.Id));
+            if (magic.Value is null)
+                return new(CharacterCreationLifestyleOutcomes.Blocked, null, magic.Blockers);
+            var selected = composite.Selections;
+            var current = PreviewCompletion(inputs, magic.Value, selected.AttributeAllocations,
+                selected.MagicSelections, selected.QualityOptionIds, selected.TotalKarmaInvestment,
+                selected.Gear, selected.Lifestyles, selected.StartingLifestyleId);
+            if (current.Blockers.Count != 0)
+                return new(CharacterCreationLifestyleOutcomes.Blocked, null, current.Blockers);
+        }
         return new(CharacterCreationLifestyleOutcomes.Available, DetachCompletion(inputs), []);
     }
 
@@ -100,7 +120,9 @@ public sealed partial class CharacterCreationLifestylesService
         IReadOnlyList<CharacterCreationLifestyleConfiguration> lifestyles,
         Guid? startingLifestyleId,
         CharacterCreationLoadoutCompletionProjection? loadout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<CompleteGraphExecution>? observeCompleteGraph = null,
+        CharacterCreationCompleteAssessment? completeAuthority = null)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(magicInputs);
@@ -122,7 +144,7 @@ public sealed partial class CharacterCreationLifestylesService
         var prepared = PrepareDetachedCompletionPreview(inputs, magicInputs, attributeAllocations,
             magicSelections, qualityOptionIds, totalKarmaInvestment, cancellationToken);
         return prepared.Value is { } session
-            ? session.Preview(basket, frozen, startingLifestyleId, loadout, cancellationToken)
+            ? session.Preview(basket, frozen, startingLifestyleId, loadout, cancellationToken, observeCompleteGraph, completeAuthority)
             : new(prepared.Outcome, null, prepared.Blockers);
     }
 
@@ -165,7 +187,9 @@ public sealed partial class CharacterCreationLifestylesService
             IReadOnlyList<CharacterCreationLifestyleConfiguration> lifestyles,
             Guid? startingLifestyleId,
             CharacterCreationLoadoutCompletionProjection? loadout,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Action<CompleteGraphExecution>? observeCompleteGraph = null,
+            CharacterCreationCompleteAssessment? completeAuthority = null)
         {
             ArgumentNullException.ThrowIfNull(basket);
             ArgumentNullException.ThrowIfNull(lifestyles);
@@ -197,10 +221,10 @@ public sealed partial class CharacterCreationLifestylesService
             // completion budget. Its admitted graph already owns the quality preview.
             cancellationToken.ThrowIfCancellationRequested();
             var qualities = gear.Resources.UpstreamBudget.Qualities;
-            var pricing = PriceSelectedCompletion(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
+            var pricing = CompleteGraphExecution.Price(new(inputs.Authority, inputs.Qualities.PrerequisiteDraft,
                 magicInputs.SelectedTalent.GrantedQualitySources ?? [], qualities.Qualities.Selections,
                 qualities.ProposalDigest, frozen, startingLifestyleId, gear.Budget.RemainingNuyen - loadoutCost,
-                purchaseAnchors, gear.Blockers), cancellationToken);
+                purchaseAnchors, gear.Blockers), cancellationToken, observeCompleteGraph, completeAuthority);
             if (pricing.Value is not { } priced)
                 return new(pricing.Outcome, null, pricing.Blockers);
 
@@ -341,12 +365,14 @@ public sealed partial class CharacterCreationLifestylesService
         out CharacterCreationLifestylesAuthority effective)
     {
         effective = CharacterCreationLifestylesAuthority.Unavailable;
-        if (!CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(qualitySelections,
+        if (!CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(original.PurchasedQualityCosts)
+            || !CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts(qualitySelections, out var costs)
+            || !CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(qualitySelections,
                 out var effects)) return false;
         int level = original.TrustFundLevel;
         foreach (var effect in effects)
         {
-            if (effect.ImprovementType is "LifestyleCost" or "BasicLifestyleCost") return false;
+            // The shared consumer above admits both bounded lifestyle cost types.
             if (effect.ImprovementType != "TrustFund") continue;
             if (effect.ImprovedName.Length != 0 || effect.Value is < 1m or > 4m
                 || effect.Value != decimal.Truncate(effect.Value) || level != 0) return false;
@@ -355,6 +381,9 @@ public sealed partial class CharacterCreationLifestylesService
         var candidate = original with
         {
             TrustFundLevel = level,
+            // Replace the purchased-quality layer; retained authority already
+            // contains it. Removal also reprices the entire lifestyle basket.
+            PurchasedQualityCosts = costs,
             GmPolicyDigest = CharacterCreationFinalizationDigest.Compute(new
             {
                 original.GmPolicyDigest, OriginalAuthority = original.AuthorityDigest,
@@ -362,6 +391,23 @@ public sealed partial class CharacterCreationLifestylesService
             }),
             AuthorityDigest = string.Empty
         };
+        if (costs is not null || original.PurchasedQualityCosts is not null)
+            candidate = candidate with { GmPolicyDigest = CharacterCreationFinalizationDigest.Compute(new
+            {
+                PreviousPolicyDigest = candidate.GmPolicyDigest, PurchasedQualityCosts = costs
+            }) };
+        // Pending Basic effects and discounts must identify their semantics.
+        // Leave both historical no-Basic runtime paths byte-for-byte unchanged.
+        bool hasBasicCosts = costs?.Occurrences.Any(effect =>
+            effect.EffectType == CharacterCreationLifestyleCostEffectType.BasicLifestyleCost) == true;
+        if (hasBasicCosts || costs?.Occurrences.Any(effect => effect.Percentage < 0m) == true)
+            candidate = candidate with { RuntimeDigest = CharacterCreationSkillsDigest.Compute(new
+            {
+                PreviousRuntimeDigest = original.RuntimeDigest,
+                PurchasedQualityCostLayer = hasBasicCosts
+                    ? "unconditional-source-occurrences-min-minus100-standard-only-basic-after-racial-before-outings-v3"
+                    : "unconditional-source-occurrences-min-minus100-after-racial-before-outings-v2"
+            }) };
         effective = candidate with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(candidate) };
         return CharacterCreationLifestylesRules.IsValidAuthority(effective);
     }

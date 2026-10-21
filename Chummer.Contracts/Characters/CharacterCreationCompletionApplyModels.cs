@@ -35,6 +35,8 @@ public sealed record CharacterCreationCompletionAuthority(
 {
     public const string SchemaV2 = "chummer.character-creation-completion-authority.v2";
     public const string SchemaV3 = "chummer.character-creation-completion-authority.v3";
+    // V4 requires ordered skill authority bound into the V3 native result identity.
+    public const string SchemaV4 = "chummer.character-creation-completion-authority.v4";
 
     // V3 emits explicit nulls for the two legacy constructor parameters above:
     // strict continuation decoding requires their presence, even when nullable.
@@ -57,4 +59,28 @@ public sealed record CharacterCreationCompletionReplayArchive(
     string Data)
 {
     public const string SchemaV1 = "chummer.creation-completion-replay-archive.v1";
+}
+
+/// <summary>
+/// A cash-free, owner-admitted proposal review for a future Creation draft save.
+/// The shared binding describes the original observation, not a finalization.
+/// This is not a saved draft, receipt, projection or transferable write authority.
+/// A writer must independently regenerate the selected witness under its lease.
+/// </summary>
+public sealed record CharacterCreationCompletionDraftReview(
+    string Schema,
+    CharacterCreationFinalizationBinding Binding,
+    CharacterCreationCompletionReview Review,
+    string SelectedWitnessDigest,
+    string DraftReviewDigest)
+{
+    public const string SchemaV1 = "chummer.character-creation-completion-draft-review.v1";
+    public string? OwnerScopeDigest { get; init; }
+    public string? OwnerStampDigest { get; init; }
+}
+
+public static class CharacterCreationCompletionDraftReviewRules
+{
+    public static string ComputeDigest(CharacterCreationCompletionDraftReview review)
+        => CharacterCreationFinalizationDigest.Compute(review with { DraftReviewDigest = string.Empty });
 }

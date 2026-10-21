@@ -13,6 +13,8 @@ public sealed record CharacterCreationLoadoutDraft(
     decimal PurchaseCost, string DraftDigest)
 {
     public const string SchemaV1 = "chummer.creation-loadout-draft.v1";
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompositePurchaseBinding? CompositePurchase { get; init; }
 }
 
 public sealed record CharacterCreationLoadoutReceipt(
@@ -26,14 +28,22 @@ public sealed record CharacterCreationLoadoutReceipt(
 
 public sealed record CharacterCreationLoadoutState(
     CharacterCreationLoadoutCompletionInputs Inputs, CharacterCreationResourcesCompletionInputs Resources,
-    CharacterCreationResourcesBudget Budget);
+    CharacterCreationResourcesBudget Budget)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLoadoutSelections? CompositeSelections { get; init; }
+}
 
 public sealed record CharacterCreationLoadoutPreviewRequest(
     CharacterCreationLoadoutBinding Binding, string SnapshotDigest, CharacterCreationLoadoutSelections Selections);
 
 public sealed record CharacterCreationLoadoutPreview(
     CharacterCreationLoadoutPreviewRequest Request, CharacterCreationLoadoutCompletionProjection Projection,
-    decimal TotalStartingNuyen, decimal TotalPurchaseCost, decimal RemainingNuyen, string PreviewDigest);
+    decimal TotalStartingNuyen, decimal TotalPurchaseCost, decimal RemainingNuyen, string PreviewDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompositePurchaseBinding? CompositePurchase { get; init; }
+}
 
 public sealed record CharacterCreationLoadoutConfirmRequest(
     CharacterCreationLoadoutPreviewRequest Request, string PreviewDigest, string IdempotencyKey, bool ExplicitlyConfirmed);

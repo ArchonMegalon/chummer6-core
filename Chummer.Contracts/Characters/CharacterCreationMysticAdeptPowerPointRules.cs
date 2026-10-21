@@ -89,17 +89,32 @@ public static class CharacterCreationMysticAdeptPowerPointRules
 
     public static bool TryEvaluate(CharacterCreationMysticAdeptPowerPointPolicy? policy,
         string talentKind, int currentMagic, int sourceSpellBudget, int selectedPowerPoints,
-        out CharacterCreationMysticAdeptPowerPointAllocation? allocation)
+        out CharacterCreationMysticAdeptPowerPointAllocation? allocation, int? currentMagicAdept = null)
     {
         allocation = null;
+        if (currentMagicAdept is not null && (talentKind != CharacterCreationMagicResonanceKinds.MysticAdept
+            || policy?.UsesSeparateMagicAttribute != true))
+            return false;
         if (talentKind != CharacterCreationMagicResonanceKinds.MysticAdept)
             return selectedPowerPoints == 0;
         // Historical source authorities can still represent a zero-purchase draft.
         // They cannot authorize a purchase or a different price.
         if (policy is null) return selectedPowerPoints == 0;
-        if (!IsValidPolicy(policy) || policy.UsesSeparateMagicAttribute
+        if (!IsValidPolicy(policy)
             || currentMagic < 0 || sourceSpellBudget < 0
-            || selectedPowerPoints < 0 || selectedPowerPoints > currentMagic)
+            || selectedPowerPoints < 0)
+            return false;
+        // Character.UseMysticAdeptPPs is false in separate mode. PP come from
+        // MAGAdept; neither the purchase price nor priority spell exchange applies.
+        if (policy.UsesSeparateMagicAttribute)
+        {
+            if (selectedPowerPoints != 0 || currentMagicAdept is null or < 0)
+                return false;
+            // This is an attribute-derived budget, not a magsplitadept purchase.
+            // The effective-attributes projection carries its PP total.
+            return true;
+        }
+        if (currentMagicAdept is not null || selectedPowerPoints > currentMagic)
             return false;
         int exchange = policy.PrioritySpellsAsPowerPoints ? Math.Min(sourceSpellBudget, selectedPowerPoints) : 0;
         try

@@ -17,10 +17,19 @@ using Chummer.Contracts.Rulesets;
 
 namespace Chummer.Infrastructure.Xml;
 
-public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver,
-    ICharacterSourceDataResolverOperationScopeFactory
+public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver,
+    ICharacterSourceDataResolverOperationScopeFactory, ICharacterCreationRuleSourceCapture
 {
     private static readonly AsyncLocal<SourceInputSnapshot?> ActiveSourceInputs = new();
+
+    private static string SourcePathOrderKey(string path) =>
+        ActiveSourceInputs.Value?.PathOrderKey(path) ?? path;
+
+
+    // Only the synchronous Core operation may defer per-method scans to its exit
+    // fence. This must not flow with ExecutionContext into asynchronous work.
+    [ThreadStatic]
+    private static SynchronousOperationScope? _activeSynchronousOperation;
 
     private sealed class SourceInputSnapshot
     {
@@ -28,6 +37,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly Dictionary<string, byte[]> _bytes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, XDocument> _documents = new(StringComparer.Ordinal);
         private readonly Dictionary<string, XDocument> _effectiveDocuments = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _selectedProfileFiles = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _digests = new(StringComparer.Ordinal);
         private readonly Dictionary<string, FileSnapshot> _files = new(StringComparer.Ordinal);
         private readonly Dictionary<string, bool> _fileExistence = new(StringComparer.Ordinal);
@@ -37,6 +47,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly Dictionary<string, int> _physicalParses = new(StringComparer.Ordinal);
         private readonly Action<string>? _afterSourceBytesRead;
         private readonly bool _useStrongChangeIdentity;
+        private readonly RetainedCharacterRuleSourceInputs? _retained;
+        public RuleSourceAccounting? Accounting { get; init; }
+        public bool Sourcebooks800 { get; init; }
+        public string? CreationSourceExecutionSchema { get; init; }
+        private bool _captureBounded;
+        private long _capturedBytes;
         private readonly long _startedTimestamp = Stopwatch.GetTimestamp();
         private string _catalogFingerprint = string.Empty;
         private int _cacheHits;
@@ -44,19 +60,92 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private long _validationBytesRead;
         private int _directoryValidationCount;
         private int _prerequisiteProjectionCount;
+        private int _loadoutProjectionCount;
 
         public SourceInputSnapshot(
             Action<string>? afterSourceBytesRead,
-            bool useStrongChangeIdentity)
+            bool useStrongChangeIdentity,
+            bool captureBounded = false,
+            RetainedCharacterRuleSourceInputs? retained = null)
         {
             _afterSourceBytesRead = afterSourceBytesRead;
             _useStrongChangeIdentity = useStrongChangeIdentity;
+            _captureBounded = captureBounded || retained is not null;
+            _retained = retained;
+        }
+
+        public string PathOrderKey(string path) => _retained?.PathOrderKey(path) ?? path;
+
+        public void EnableCaptureBounds()
+        {
+            lock (_sync)
+            {
+                _captureBounded = true;
+                long total = 0;
+                if (_bytes.Count > RetainedCharacterRuleSourceInputs.MaximumFiles
+                    || _fileExistence.Count > RetainedCharacterRuleSourceInputs.MaximumObservations
+                    || _directoryInventories.Count > RetainedCharacterRuleSourceInputs.MaximumObservations
+                    || _directoryInventories.Values.Sum(item => (long)item.Entries.Length)
+                        > RetainedCharacterRuleSourceInputs.MaximumObservations)
+                    throw RetainedCharacterRuleSourceInputs.Rejected();
+                foreach (var (path, bytes) in _bytes)
+                    RetainedCharacterRuleSourceInputs.ValidateFile(path, bytes, ref total);
+                _capturedBytes = total;
+            }
+        }
+
+        public RetainedCharacterRuleSourceInputs Export(ContentOverlayCatalog catalog, string characterXml,
+            string policyDigest, string profileId, IEnumerable<RetainedCharacterRuleSourceInputs.Selection> selection)
+        {
+            lock (_sync)
+            {
+                if (!TryAdmitReuse(catalog)) throw RetainedCharacterRuleSourceInputs.Rejected();
+                // A membership observation must not lose a file merely because the original
+                // consumer ignored its name. Retain bytes without executing its rule operations.
+                foreach (string path in _directoryInventories.Where(row => row.Key.Kind == DirectoryInventoryKind.Files)
+                             .SelectMany(row => row.Value.Entries).Distinct(StringComparer.Ordinal).ToArray())
+                    if (!FileExists(path)) throw RetainedCharacterRuleSourceInputs.Rejected();
+                return new(catalog, characterXml, policyDigest, profileId, selection, _bytes, _fileExistence,
+                    _directoryInventories.Select(row => new RetainedCharacterRuleSourceInputs.Inventory(
+                        RetainedKey(row.Key), row.Value.Exists, row.Value.Entries)),
+                    portable: _retained?.IsPortable == true,
+                    sourcePathSeparator: _retained?.SourcePathSeparator);
+            }
+        }
+
+        private static RetainedCharacterRuleSourceInputs.InventoryKey RetainedKey(DirectoryInventoryKey key)
+            => new(key.Directory, key.SearchPattern, key.SearchOption, key.Kind == DirectoryInventoryKind.Directories);
+
+        private byte[] ReadCaptureBytes(string path)
+        {
+            try
+            {
+                if (_bytes.Count >= RetainedCharacterRuleSourceInputs.MaximumFiles)
+                    throw RetainedCharacterRuleSourceInputs.Rejected();
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+                long length = stream.Length;
+                if (length > RetainedCharacterRuleSourceInputs.MaximumFileBytes
+                    || _capturedBytes + length > RetainedCharacterRuleSourceInputs.MaximumTotalBytes)
+                    throw RetainedCharacterRuleSourceInputs.Rejected();
+                byte[] bytes = new byte[checked((int)length)];
+                stream.ReadExactly(bytes);
+                if (stream.ReadByte() != -1) throw RetainedCharacterRuleSourceInputs.Rejected();
+                RetainedCharacterRuleSourceInputs.ValidateFile(path, bytes, ref _capturedBytes);
+                return bytes;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or XmlException or InvalidOperationException)
+            {
+                _driftedFiles.Add("private-rule-input-unavailable");
+                throw RetainedCharacterRuleSourceInputs.Rejected();
+            }
         }
 
         public IDisposable Enter()
         {
             SourceInputSnapshot? previous = ActiveSourceInputs.Value;
-            if (!ReferenceEquals(previous, this))
+            if (!ReferenceEquals(previous, this)
+                && _activeSynchronousOperation?.Contains(this) != true)
             {
                 lock (_sync)
                 {
@@ -117,13 +206,24 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     return cached;
                 }
 
-                FileSnapshot before = CaptureFileSnapshot(identity);
-                byte[] bytes = File.ReadAllBytes(identity);
+                if (_retained is not null)
+                {
+                    byte[] detached = _retained.ReadAllBytes(identity);
+                    _bytes.Add(identity, detached);
+                    return detached;
+                }
+                FileSnapshot before = CaptureRequiredFileSnapshot(identity);
+                byte[] bytes = _captureBounded ? ReadCaptureBytes(identity) : File.ReadAllBytes(identity);
                 _afterSourceBytesRead?.Invoke(identity);
-                FileSnapshot after = CaptureFileSnapshot(identity);
+                FileSnapshot after = CaptureRequiredFileSnapshot(identity);
                 if (!HasStableIdentity(before, after)
                     || !ValidateContentBytes(identity, bytes, after))
                 {
+                    if (_captureBounded)
+                    {
+                        _driftedFiles.Add("private-rule-input-changed");
+                        throw RetainedCharacterRuleSourceInputs.Rejected();
+                    }
                     throw new IOException($"Source input changed while it was captured: {identity}");
                 }
                 _bytes.Add(identity, bytes);
@@ -194,7 +294,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     return cached;
                 }
 
-                bool exists = File.Exists(identity);
+                if (_captureBounded && _fileExistence.Count >= RetainedCharacterRuleSourceInputs.MaximumObservations)
+                    throw RetainedCharacterRuleSourceInputs.Rejected();
+                bool exists = _retained is not null ? _retained.FileExists(identity) : File.Exists(identity);
                 if (exists)
                     _ = ReadAllBytes(identity);
                 _fileExistence.Add(identity, exists);
@@ -320,6 +422,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
+        // Selected settings are compiled once, before any profile-derived authority is built.
+        // Keep the marker in the same per-character snapshot as its source bytes and cache.
+        public void SetSelectedProfile(string fileName, XDocument document, string digest)
+        {
+            lock (_sync)
+            {
+                _effectiveDocuments[CreateSourceCacheKey("effective-document", fileName)] = new XDocument(document);
+                _digests[CreateSourceCacheKey("effective-input-digest", fileName)] = digest;
+                _selectedProfileFiles.Add(fileName);
+            }
+        }
+
+        public bool HasSelectedProfile(string fileName)
+        {
+            lock (_sync) return _selectedProfileFiles.Contains(fileName);
+        }
+
         public bool TryGetEffectiveDocument(string key, out XDocument? document)
         {
             lock (_sync)
@@ -391,7 +510,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     _driftedFiles.Count > 0,
                     _driftedFiles.OrderBy(path => path, StringComparer.Ordinal).ToArray())
                 {
-                    PrerequisiteProjectionCount = _prerequisiteProjectionCount
+                    PrerequisiteProjectionCount = _prerequisiteProjectionCount,
+                    LoadoutProjectionCount = _loadoutProjectionCount
                 };
             }
         }
@@ -401,8 +521,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             lock (_sync) { _prerequisiteProjectionCount++; }
         }
 
+        public void RecordLoadoutProjection()
+        {
+            lock (_sync) { _loadoutProjectionCount++; }
+        }
+
         private void ValidateKnownInputs()
         {
+            if (_retained is not null) return; // Immutable bytes; never inspect ambient paths during replay.
             foreach ((string path, FileSnapshot snapshot) in _files)
             {
                 try
@@ -538,8 +664,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                    || before.ChangeIdentity == after.ChangeIdentity;
         }
 
-        private static DirectoryInventorySnapshot CaptureDirectoryInventory(DirectoryInventoryKey key)
+        private DirectoryInventorySnapshot CaptureDirectoryInventory(DirectoryInventoryKey key)
         {
+            if (_retained is not null)
+            {
+                var inventory = _retained.ReadInventory(RetainedKey(key));
+                return new(inventory.Exists, inventory.Entries);
+            }
+            if (_captureBounded && !_directoryInventories.ContainsKey(key)
+                && _directoryInventories.Count >= RetainedCharacterRuleSourceInputs.MaximumObservations)
+                throw RetainedCharacterRuleSourceInputs.Rejected();
             bool exists = Directory.Exists(key.Directory);
             if (!exists && key.Kind == DirectoryInventoryKind.Directories)
                 return new DirectoryInventorySnapshot(false, []);
@@ -547,11 +681,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             IEnumerable<string> entries = key.Kind == DirectoryInventoryKind.Directories
                 ? Directory.EnumerateDirectories(key.Directory, key.SearchPattern, key.SearchOption)
                 : Directory.EnumerateFiles(key.Directory, key.SearchPattern, key.SearchOption);
-            return new DirectoryInventorySnapshot(
-                exists,
-                entries.Select(Path.GetFullPath)
-                    .OrderBy(path => path, StringComparer.Ordinal)
-                    .ToArray());
+            if (_captureBounded)
+            {
+                long retained = _directoryInventories.Where(row => row.Key != key).Sum(row => (long)row.Value.Entries.Length);
+                int remaining = checked((int)(RetainedCharacterRuleSourceInputs.MaximumObservations - retained));
+                string[] bounded = entries.Take(remaining + 1).Select(Path.GetFullPath).ToArray();
+                if (bounded.Length > remaining) throw RetainedCharacterRuleSourceInputs.Rejected();
+                Array.Sort(bounded, StringComparer.Ordinal);
+                return new(exists, bounded);
+            }
+            return new DirectoryInventorySnapshot(exists,
+                entries.Select(Path.GetFullPath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
         }
 
         private FileSnapshot CaptureFileSnapshot(string path)
@@ -578,6 +718,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _useStrongChangeIdentity
                     ? TryCaptureChangeIdentity(path)
                     : FileChangeIdentity.Unavailable);
+        }
+
+        private FileSnapshot CaptureRequiredFileSnapshot(string path)
+        {
+            try { return CaptureFileSnapshot(path); }
+            catch (Exception error) when (_captureBounded && error is (IOException or UnauthorizedAccessException))
+            {
+                _driftedFiles.Add("private-rule-input-unavailable");
+                throw RetainedCharacterRuleSourceInputs.Rejected();
+            }
         }
 
         private static FileChangeIdentity TryCaptureChangeIdentity(string path)
@@ -731,6 +881,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         IReadOnlyList<string> DriftedPaths)
     {
         public int PrerequisiteProjectionCount { get; init; }
+        public int LoadoutProjectionCount { get; init; }
     }
 
     private sealed record CustomDirectory(
@@ -794,10 +945,37 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
     }
 
+    private readonly string? _creationSourceExecutionSchema;
+
+    private FileSystemCharacterSourceDataResolver(FileSystemCharacterSourceDataResolver original, string? schema)
+        : this(original._overlays, original._afterSourceBytesRead, original._useStrongChangeIdentity)
+    {
+        _creationSourceExecutionSchema = schema;
+        _retainedInputs = original._retainedInputs;
+        _ruleSourceAccounting = original._ruleSourceAccounting;
+        _sourcebooks800 = original._sourcebooks800;
+    }
+
+    public ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
+    {
+        if (schema is not (null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1
+            or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV2
+            or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV3
+            or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)) return null;
+        // All historical schemas use the original grammar and cache partition.
+        string? admitted = schema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 ? schema : null;
+        return admitted == _creationSourceExecutionSchema ? this : new FileSystemCharacterSourceDataResolver(this, admitted);
+    }
+
     private readonly IContentOverlayCatalogService _overlays;
     private readonly Action<string>? _afterSourceBytesRead;
     private readonly bool _useStrongChangeIdentity;
     private SourceInputSnapshot? _lastSourceInputs;
+    private readonly RetainedCharacterRuleSourceInputs? _retainedInputs;
+    private RuleSourceAccounting? _ruleSourceAccounting;
+
+    private FileSystemCharacterSourceDataResolver(RetainedCharacterRuleSourceInputs inputs)
+        : this(new RetainedCatalogService(inputs)) => _retainedInputs = inputs;
 
     public FileSystemCharacterSourceDataResolver(IContentOverlayCatalogService overlays)
         : this(overlays, null, true)
@@ -824,16 +1002,347 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     internal SourceInputSnapshotDiagnostics? LastSourceInputSnapshotDiagnostics
         => Volatile.Read(ref _lastSourceInputs)?.Diagnostics();
 
+    public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+    {
+        using var reads = CreateValidatedReadScope();
+        return CaptureRuleSources(reads, characterXml, out capture);
+    }
+
+    private static bool CaptureRuleSources(ValidatedReadScope reads, string characterXml,
+        out CharacterCreationRuleSourceCapture? capture)
+    {
+        capture = null;
+        try
+        {
+            RetainedCharacterRuleSourceInputs retained;
+            // Publication occurs outside this block: Dispose performs the live exit fence,
+            // including a fresh catalog read and every input first observed by capture.
+            using (var operation = new SynchronousOperationScope(reads))
+            {
+                if (operation.TryCreateContext(characterXml, captureBounded: true) is not SourceDataContext context)
+                    return false;
+                reads.ValidateOperationBoundary([context]);
+                if (!context.TryCaptureInputs(characterXml, out var inputs) || inputs is null) return false;
+                retained = inputs;
+                if (inputs.TryCreatePortable(out var portable)) retained = portable!;
+                reads.ValidateOperationBoundary([context]);
+            }
+            if (!VerifyRetainedPolicy(retained)) return false;
+            capture = new RuleSourceCapture(retained);
+            return true;
+        }
+        catch (Exception error) when (IsCaptureRejection(error)) { return false; }
+    }
+
+    /// <summary>Restores a private archive, checking its integrity and recomputing the existing
+    /// policy through a fresh retained-only resolver. The digest confers no write authority.</summary>
+    public static bool TryRestoreRuleSourceCapture(ReadOnlySpan<byte> privateInputs, string integrityDigest,
+        out CharacterCreationRuleSourceCapture? capture)
+    {
+        if (privateInputs.StartsWith(SourcebookEnvelope800))
+            return RestoreSourcebooks800(privateInputs, integrityDigest, out capture);
+        capture = null;
+        try
+        {
+            var retained = RetainedCharacterRuleSourceInputs.Import(privateInputs, integrityDigest);
+            if (!VerifyRetainedPolicy(retained)) return false;
+            capture = new RuleSourceCapture(retained);
+            return true;
+        }
+        catch (Exception error) when (IsCaptureRejection(error)) { return false; }
+    }
+
+    private static bool IsCaptureRejection(Exception error)
+        => error is IOException or UnauthorizedAccessException or XmlException or InvalidOperationException
+            or ArgumentException or OverflowException;
+
+    private static FileSystemCharacterSourceDataResolver CreateRetainedResolver(RetainedCharacterRuleSourceInputs inputs)
+        => new(inputs);
+
+    private static bool VerifyRetainedPolicy(RetainedCharacterRuleSourceInputs inputs)
+    {
+        var resolver = CreateRetainedResolver(inputs);
+        using var reads = resolver.CreateValidatedReadScope();
+        using var operation = reads.CreateOperationScope();
+        return operation.TryCreateContext(inputs.CharacterXml) is SourceDataContext context
+            && context.MatchesRetainedSelection(inputs)
+            && context.TryResolveCreationEffectivePolicy(out var policy)
+            && policy?.PolicyDigest == inputs.PolicyDigest
+            // Re-observe the complete capture recipe, not just the policy subset. Extra,
+            // missing or invented inventories/existence entries cannot enter new archives.
+            && (!inputs.IsPortable || context.TryCaptureInputs(inputs.CharacterXml, out var observed)
+                && observed is not null && observed.ToPortable().Export().AsSpan().SequenceEqual(inputs.Export()));
+    }
+
+    private sealed class RuleSourceCapture : CharacterCreationRuleSourceCapture
+    {
+        private readonly RetainedCharacterRuleSourceInputs _inputs;
+        public RuleSourceCapture(RetainedCharacterRuleSourceInputs inputs)
+        {
+            _inputs = inputs;
+            IntegrityDigest = RetainedCharacterRuleSourceInputs.Digest(inputs.Export());
+        }
+        public override string IntegrityDigest { get; }
+        public override string EffectivePolicyDigest => _inputs.PolicyDigest;
+        public override byte[] ExportPrivateInputs() => _inputs.Export();
+        public override ICharacterSourceDataResolver CreateReplayResolver() => CreateRetainedResolver(_inputs);
+        public override bool MatchesOriginalCharacter(string characterXml) => characterXml == _inputs.CharacterXml;
+        public override CharacterCreationRuleSourceResolution CreateExecutionResolution() => new RuleSourceAccounting(_inputs, IntegrityDigest);
+        public override CharacterCreationRuleSourceResolution? CreateExecutionResolution(string? schema)
+            => schema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                ? new RuleSourceAccounting(_inputs, IntegrityDigest, sourceExecutionSchema: schema)
+                : base.CreateExecutionResolution(schema);
+        public override string ToString() => nameof(CharacterCreationRuleSourceCapture);
+    }
+
+    // Opt-in accounting is local to one retained reconstruction. The ordinary
+    // resolver and merger keep their historical behavior and cache identities.
+    private sealed partial class RuleSourceAccounting : CharacterCreationRuleSourceResolution
+    {
+        private readonly RetainedCharacterRuleSourceInputs inputs;
+        private readonly string captureDigest;
+        private readonly FileSystemCharacterSourceDataResolver resolver;
+        private readonly Dictionary<string, ProfileFileAccounting> files = new(StringComparer.Ordinal);
+        private int observedTargets;
+
+        internal RuleSourceAccounting(RetainedCharacterRuleSourceInputs inputs, string captureDigest, bool sourcebooks800 = false, string? sourceExecutionSchema = null)
+        {
+            this.inputs = inputs;
+            // Keep the originating capture identity, including any admitted carrier envelope.
+            this.captureDigest = captureDigest;
+            sourcebookSelection800 = sourcebooks800;
+            resolver = new FileSystemCharacterSourceDataResolver(new FileSystemCharacterSourceDataResolver(inputs), sourceExecutionSchema);
+            resolver._ruleSourceAccounting = this;
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public override ICharacterSourceDataResolver Resolver => resolver;
+
+        internal ProfileFileAccounting BeginFile(string path, string prefix, XElement root)
+        {
+            // Reconstructing the same immutable profile again replaces its trace;
+            // call counts are not semantics and must not affect replay identities.
+            int order = files.TryGetValue(path, out var previous) ? previous.Order : files.Count;
+            var result = new ProfileFileAccounting(root, prefix, order, Charge)
+            { IncludeAdditionalSkillCaps = captureCompleteSkillCaps };
+            files[path] = result;
+            return result;
+        }
+
+        private void Charge(int count)
+        {
+            observedTargets = checked(observedTargets + Math.Max(1, count));
+            if (observedTargets > RetainedCharacterRuleSourceInputs.MaximumObservations)
+                throw RetainedCharacterRuleSourceInputs.Rejected();
+        }
+
+    }
+
+    private sealed partial class ProfileFileAccounting
+    {
+        internal sealed record Operation(int Order, string Kind, string Target, string[] Before, string[] After,
+            string? BeforeValue = null, string? AfterValue = null);
+        private readonly HashSet<XElement> unhandled;
+        private readonly List<Operation> operations = [];
+        private readonly bool amend;
+        private readonly HashSet<XElement> unhandledTextOwners;
+        private readonly Action<int> charge;
+        internal int Order { get; }
+        internal IReadOnlyList<Operation> Operations => operations;
+        internal bool Accounted => amend && unhandledTextOwners.Count == 0 && unhandled.Count == 0 && operations.Count > 0;
+
+        internal ProfileFileAccounting(XElement root, string prefix, int order, Action<int> charge)
+        {
+            this.charge = charge;
+            Order = order;
+            amend = prefix == "amend_";
+            unhandled = root.DescendantsAndSelf().ToHashSet();
+            // Handling a structural element does not consume its direct text,
+            // even when it has no children. Keep each text owner's provenance.
+            unhandledTextOwners = unhandled.Where(node => node.Nodes().OfType<XText>()
+                .Any(text => !string.IsNullOrWhiteSpace(text.Value))).ToHashSet();
+            if (amend)
+            {
+                unhandled.Remove(root);
+                foreach (var container in root.Elements("settings")) unhandled.Remove(container);
+            }
+        }
+
+        internal void Selected(XElement entry, bool matches, bool exact)
+        {
+            if (!amend || !exact) return;
+            if (!matches)
+            {
+                // The existing parser actually evaluated this selector. Unknown
+                // content under a proven nonmatching profile cannot affect it.
+                foreach (var node in entry.DescendantsAndSelf())
+                {
+                    unhandled.Remove(node);
+                    unhandledTextOwners.Remove(node);
+                }
+                charge(1);
+                operations.Add(new(operations.Count, "selector-no-match", "setting", [NodeDigest(entry)], []));
+                return;
+            }
+            if (ReadOperation(entry) is "" or "RECURSE"
+                && entry.Attributes().All(attribute => attribute.Name == "amendoperation")) unhandled.Remove(entry);
+            // ID is an actual selector in AmendmentMatchesTarget, and immutable
+            // identity is checked after every mutation by ValidateSelection.
+            if (entry.Element("id") is { HasElements: false, HasAttributes: false } id
+                && Guid.TryParse(id.Value.Trim(), out _))
+            {
+                unhandled.Remove(id);
+                unhandledTextOwners.Remove(id);
+            }
+        }
+
+        internal int BeginEntry(string prefix, XElement entry, XElement? target)
+        {
+            charge(1);
+            int index = operations.Count;
+            operations.Add(new(index, prefix + ReadOperation(entry), "setting",
+                target is null ? [] : [NodeDigest(target)], []));
+            return index;
+        }
+
+        internal void EndEntry(int? index, XElement? target)
+        {
+            if (index is null) return;
+            charge(1);
+            operations[index.Value] = operations[index.Value] with { After = target is null ? [] : [NodeDigest(target)] };
+        }
+
+        internal IDisposable Observe(XElement parent, XElement amendment, string operation, IReadOnlyList<XElement> candidates)
+        {
+            charge(candidates.Count);
+            int index = operations.Count;
+            string target = string.Join('/', parent.AncestorsAndSelf().Reverse().Select(node => node.Name.LocalName))
+                + "/" + amendment.Name.LocalName;
+            if (target.Length > RetainedCharacterRuleSourceInputs.MaximumTextBytes) throw RetainedCharacterRuleSourceInputs.Rejected();
+            var before = candidates.Select(NodeDigest).ToArray();
+            string? beforeValue = candidates.Count == 1 ? Scalar(candidates[0]) : null;
+            operations.Add(new(index, operation, target, before, [], beforeValue));
+            return new Observation(() =>
+            {
+                var after = parent.Elements(amendment.Name).ToArray();
+                charge(after.Length);
+                operations[index] = new(index, operation, target, before, after.Select(NodeDigest).ToArray(),
+                    beforeValue, after.Length == 1 ? Scalar(after[0]) : null);
+                // Exact replacements are routed to the existing skill-cap parser
+                // and must match its completed canonical skill scopes.
+                if (parent.Name == "setting" && operation == "REPLACE" && candidates.Count == 1 && after.Length == 1
+                    && !amendment.HasElements && !after[0].HasElements && !after[0].HasAttributes
+                    && amendment.Attributes().All(attribute => attribute.Name == "amendoperation")
+                    && ConsumeSkillCap(amendment.Name))
+                {
+                    unhandled.Remove(amendment);
+                    unhandledTextOwners.Remove(amendment);
+                }
+            });
+        }
+
+        private static string NodeDigest(XElement node)
+            => CharacterCreationFinalizationDigest.Compute(node.ToString(SaveOptions.DisableFormatting));
+
+        private static string? Scalar(XElement node)
+            => !node.HasElements && node.Value.Length <= 64 ? node.Value : null;
+
+        private sealed class Observation(Action complete) : IDisposable
+        {
+            public void Dispose() => complete();
+        }
+    }
+
+    private sealed class RetainedCatalogService(RetainedCharacterRuleSourceInputs inputs) : IContentOverlayCatalogService
+    {
+        public ContentOverlayCatalog GetCatalog() => inputs.Catalog;
+        public IReadOnlyList<string> GetDataDirectories() => throw RetainedCharacterRuleSourceInputs.Rejected();
+        public IReadOnlyList<string> GetLanguageDirectories() => throw RetainedCharacterRuleSourceInputs.Rejected();
+        public string ResolveDataFile(string fileName) => throw RetainedCharacterRuleSourceInputs.Rejected();
+    }
+
     public ICharacterSourceDataResolverOperationScope CreateOperationScope() => new OperationScope(this);
 
     private sealed class OperationScope(FileSystemCharacterSourceDataResolver resolver)
-        : ICharacterSourceDataResolverOperationScope
+        : ICharacterSourceDataResolverOperationScope, ICharacterCreationRuleSourceCapture
     {
+        private readonly ValidatedReadScope _reads = new(resolver);
+        public ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
+        {
+            var selected = _reads.ForCreationSourceExecution(schema);
+            return ReferenceEquals(selected, _reads) ? this : selected;
+        }
+
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml) => _reads.TryCreateContext(characterXml);
+        public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+            => _reads.TryCaptureRuleSources(characterXml, out capture);
+
+        public bool TryCaptureSourcebookRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+            => _reads.TryCaptureSourcebookRuleSources(characterXml, out capture);
+        public void Dispose() => _reads.Dispose();
+    }
+
+    /// <summary>
+    /// Retains private source parsing/projections for one bounded owner request.
+    /// Every context request freshly admits the complete catalog and observed
+    /// bytes/membership; drift poisons that entry until disposal. This is not an
+    /// owner lease, domain-result cache or authorization, and holds no ambient
+    /// source scope across awaits. Callers must reacquire their own authority and
+    /// evaluate domain rules on every read. Never share between owners or requests.
+    /// </summary>
+    public ValidatedReadScope CreateValidatedReadScope() => new(this);
+
+    public sealed class ValidatedReadScope : ICharacterSourceDataResolver,
+        ICharacterSourceDataResolverOperationScopeFactory, ICharacterCreationRuleSourceCapture, IDisposable
+    {
+        private readonly FileSystemCharacterSourceDataResolver resolver;
         private readonly object _sync = new();
         private readonly Dictionary<string, SourceDataContext> _contexts = new(StringComparer.Ordinal);
         private bool _disposed;
 
-        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        internal ValidatedReadScope(FileSystemCharacterSourceDataResolver resolver) => this.resolver = resolver;
+
+        public ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var selected = resolver.ForCreationSourceExecution(schema);
+            return ReferenceEquals(selected, resolver) ? this : selected;
+        }
+
+        /// <summary>
+        /// Bounds source reuse to one synchronous evaluation on the calling thread.
+        /// Each context enters through fresh validation; disposal validates every
+        /// admitted context again and throws on drift before the caller can publish
+        /// its result. Unused contexts retain their independent source selections.
+        /// Never hold this operation across an await.
+        /// </summary>
+        public ICharacterSourceDataResolverOperationScope CreateOperationScope() => new SynchronousOperationScope(this);
+
+        internal void ValidateOperationBoundary(IEnumerable<ICharacterSourceDataContext> contexts)
+        {
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                ContentOverlayCatalog catalog = FreezeContentOverlayCatalog(resolver._overlays.GetCatalog());
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                bool admitted = true;
+                foreach (SourceDataContext context in contexts.Cast<SourceDataContext>())
+                    admitted &= context.TryAdmitReuse(catalog);
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!admitted)
+                    throw new IOException("Source inputs changed during the synchronous operation.");
+            }
+        }
+
+        public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+            => CaptureRuleSources(this, characterXml, out capture);
+
+        public bool TryCaptureSourcebookRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+            => CaptureSourcebookRuleSources800(this, characterXml, out capture);
+
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml) => TryCreateContext(characterXml, false);
+
+        internal ICharacterSourceDataContext? TryCreateContext(string characterXml, bool captureBounded)
         {
             lock (_sync)
             {
@@ -846,17 +1355,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     // catalog roots. Re-read and freeze the complete graph even
                     // when the XML and every previously observed file match.
                     ContentOverlayCatalog catalog = FreezeContentOverlayCatalog(resolver._overlays.GetCatalog());
+                    if (captureBounded)
+                    {
+                        RetainedCharacterRuleSourceInputs.ValidateCatalog(catalog);
+                        RetainedCharacterRuleSourceInputs.ValidateCharacter(characterXml);
+                    }
                     ObjectDisposedException.ThrowIf(_disposed, this);
                     if (_contexts.TryGetValue(characterXml, out SourceDataContext? existing))
                     {
                         // Keep drifted entries poisoned for the rest of this
-                        // operation; eviction/recreation would permit ABA revival.
+                        // scope; eviction/recreation would permit ABA revival.
+                        if (captureBounded) existing.SourceInputs.EnableCaptureBounds();
                         bool admitted = existing.TryAdmitReuse(catalog);
                         ObjectDisposedException.ThrowIf(_disposed, this);
                         return admitted ? existing : null;
                     }
 
-                    SourceDataContext? created = resolver.TryCreateContextCore(characterXml, catalog);
+                    SourceDataContext? created = resolver.TryCreateContextCore(characterXml, catalog, captureBounded);
                     // Monitor is reentrant: a catalog/source-read callback can
                     // dispose this scope while this same thread owns the lock.
                     // Never repopulate the map or return success after that.
@@ -890,22 +1405,124 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
     }
 
+    private sealed class SynchronousOperationScope : ICharacterSourceDataResolverOperationScope, ICharacterCreationRuleSourceCapture
+    {
+        private readonly ValidatedReadScope _reads;
+        private readonly int _threadId = Environment.CurrentManagedThreadId;
+        private readonly Dictionary<SourceInputSnapshot, SourceDataContext> _contexts = new();
+        private SynchronousOperationScope? _previous;
+        private bool _disposed;
+
+        public SynchronousOperationScope(ValidatedReadScope reads)
+        {
+            _reads = reads;
+            // No source snapshot is admitted until TryCreateContext validates its
+            // complete observed inputs. Check the owner lifetime and catalog now;
+            // failed entry must not disturb an enclosing ambient operation.
+            _reads.ValidateOperationBoundary([]);
+            _previous = _activeSynchronousOperation;
+            _activeSynchronousOperation = this;
+        }
+
+        public ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
+        {
+            VerifyThread();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var selected = _reads.ForCreationSourceExecution(schema);
+            return ReferenceEquals(selected, _reads) ? this : selected;
+        }
+
+        public bool Contains(SourceInputSnapshot inputs) => !_disposed && _contexts.ContainsKey(inputs);
+
+        public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+        {
+            capture = null;
+            try
+            {
+                VerifyThread();
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (TryCreateContext(characterXml, captureBounded: true) is null) return false;
+                return _reads.TryCaptureRuleSources(characterXml, out capture);
+            }
+            catch (Exception error) when (IsCaptureRejection(error)) { return false; }
+        }
+
+        public bool TryCaptureSourcebookRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
+        {
+            capture = null;
+            try
+            {
+                VerifyThread();
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (TryCreateContext(characterXml, captureBounded: true) is null) return false;
+                return _reads.TryCaptureSourcebookRuleSources(characterXml, out capture);
+            }
+            catch (Exception error) when (IsCaptureRejection(error)) { return false; }
+        }
+
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml) => TryCreateContext(characterXml, false);
+
+        internal ICharacterSourceDataContext? TryCreateContext(string characterXml, bool captureBounded)
+        {
+            VerifyThread();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            // Deliberately keep explicit nested reuse admission: callers can have
+            // changed sources since their last context request, even on this thread.
+            ICharacterSourceDataContext? context = _reads.TryCreateContext(characterXml, captureBounded);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (context is SourceDataContext source)
+                _contexts[source.SourceInputs] = source;
+            return context;
+        }
+
+        public void Dispose()
+        {
+            VerifyThread();
+            if (_disposed) return;
+            _disposed = true;
+            try
+            {
+                if (!ReferenceEquals(_activeSynchronousOperation, this))
+                    throw new InvalidOperationException("Source operations must be disposed in nesting order.");
+                // Includes inputs first observed during evaluation, and rejects an
+                // already-poisoned entry even if the filesystem has returned to A.
+                _reads.ValidateOperationBoundary(_contexts.Values);
+            }
+            finally
+            {
+                _contexts.Clear();
+                _activeSynchronousOperation = _previous;
+                _previous = null;
+            }
+        }
+
+        private void VerifyThread()
+        {
+            if (Environment.CurrentManagedThreadId != _threadId)
+                throw new InvalidOperationException("Source operations must remain on their synchronous calling thread.");
+        }
+    }
+
     public ICharacterSourceDataContext? TryCreateContext(string characterXml)
         => TryCreateContextCore(characterXml, null);
 
-    private SourceDataContext? TryCreateContextCore(string characterXml, ContentOverlayCatalog? admittedCatalog)
+    private SourceDataContext? TryCreateContextCore(string characterXml, ContentOverlayCatalog? admittedCatalog, bool captureBounded = false)
     {
-        if (string.IsNullOrWhiteSpace(characterXml))
+        if (string.IsNullOrWhiteSpace(characterXml)
+            || _retainedInputs is not null && characterXml != _retainedInputs.CharacterXml)
         {
             return null;
         }
 
         var sourceInputs = new SourceInputSnapshot(
             _afterSourceBytesRead,
-            _useStrongChangeIdentity);
+            _useStrongChangeIdentity, captureBounded, _retainedInputs)
+            { Accounting = characterXml == _retainedInputs?.CharacterXml ? _ruleSourceAccounting : null, Sourcebooks800 = _sourcebooks800, CreationSourceExecutionSchema = _creationSourceExecutionSchema };
         using IDisposable sourceInputScope = sourceInputs.Enter();
         try
         {
+            if (captureBounded || _retainedInputs is not null)
+                RetainedCharacterRuleSourceInputs.ValidateCharacter(characterXml);
             XDocument characterDocument = XDocument.Parse(characterXml, LoadOptions.None);
             XElement? character = characterDocument.Root;
             if (character is null || !string.Equals(character.Name.LocalName, "character", StringComparison.Ordinal))
@@ -914,6 +1531,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             ContentOverlayCatalog catalog = admittedCatalog ?? FreezeContentOverlayCatalog(_overlays.GetCatalog());
+            if (captureBounded || _retainedInputs is not null) RetainedCharacterRuleSourceInputs.ValidateCatalog(catalog);
             sourceInputs.BindCatalog(catalog);
             string settingsKey = ReadValue(character, "settings");
             string settingsFile = CharacterCreationBootstrapProfiles.SettingsSourceFile(settingsKey);
@@ -961,6 +1579,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 return null;
             }
+
+            if (!TryResolveSelectedSettings(sourceInputs, settingsDocument, settingsFile, settingsKey,
+                    enabledDirectories, ref settings, ref settingsInputsDigest))
+                return null;
 
             string[] enabledSourcebooks = settings
                 .Element("books")?
@@ -1177,6 +1799,102 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             return null;
         }
+    }
+
+    private static bool TryResolveSelectedSettings(
+        SourceInputSnapshot inputs, XDocument document, string fileName, string profileId,
+        IReadOnlyList<CustomDirectory> directories, ref XElement settings, ref string inputsDigest)
+    {
+        if (directories.Count == 0) return true; // Preserve the original default-profile digest exactly.
+        XElement original = settings;
+        XElement? selected = new(settings);
+        TargetLocator locator = TargetLocator.Create(profileId, string.Empty);
+        // Match against the immutable selection and validate every mutation, including nested
+        // operations in one row. A later operation must never repair a redirected identity/graph.
+        bool ValidateSelection(XElement? candidate) => candidate is not null
+            && candidate.Name == "setting" && !candidate.HasAttributes
+            && candidate.Elements("id").Count() == 1
+            && !candidate.Element("id")!.HasElements && !candidate.Element("id")!.HasAttributes
+            && string.Equals(ReadValue(candidate, "id"), profileId, StringComparison.OrdinalIgnoreCase)
+            && XNode.DeepEquals(original.Element("id"), candidate.Element("id"))
+            && original.Elements("customdatadirectorynames").Count() <= 1
+            && candidate.Elements("customdatadirectorynames").Count() == original.Elements("customdatadirectorynames").Count()
+            && XNode.DeepEquals(original.Element("customdatadirectorynames"), candidate.Element("customdatadirectorynames"))
+            && !HasAmbiguousAmendmentIdentifiers(candidate)
+            && candidate.Descendants().Take(CharacterCreationEffectivePolicyContext.MaximumSettings + 1).Count()
+                <= CharacterCreationEffectivePolicyContext.MaximumSettings;
+        if (!ValidateSelection(selected)) return false;
+        int fileCount = 0;
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendFramed(hash, Encoding.UTF8.GetBytes("selected-effective-settings-v1"));
+        AppendFramed(hash, Encoding.UTF8.GetBytes(inputsDigest));
+        foreach (CustomDirectory directory in directories)
+        {
+            string[] paths = EnumerateSourceFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                .Where(path => IsLegacyCustomDataInputFor(path, fileName))
+                .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(path => path, StringComparer.Ordinal).ToArray();
+            foreach (string prefix in new[] { "override_", "custom_", "amend_" })
+            foreach (string path in paths.Where(path => Path.GetFileName(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (++fileCount > CharacterCreationEffectivePolicyContext.MaximumSources
+                    || !TryLoadXml(path, out XDocument? fragment) || fragment?.Root is not { } root
+                    || root.Name != "chummer" || root.HasAttributes
+                    || root.Elements().Any(node => node.Name != "settings")
+                    || root.Elements("settings").Count() != 1
+                    || root.Element("settings")!.HasAttributes
+                    || root.Element("settings")!.Elements().Any(node => node.Name != "setting")
+                    || root.Descendants().Take(CharacterCreationEffectivePolicyContext.MaximumSettings + 1).Count()
+                        > CharacterCreationEffectivePolicyContext.MaximumSettings
+                    // The shared amendment evaluator supplies value semantics. This bounded profile
+                    // lane does not admit XPath or regular expressions, nor silently drop operations.
+                    || root.DescendantsAndSelf().Any(node => node.Name.NamespaceName.Length != 0
+                        || node.Attributes().Any(attribute => attribute.Name.NamespaceName.Length != 0
+                            || attribute.Name.LocalName is not ("amendoperation" or "addifnotfound" or "isidnode")
+                            || (attribute.Name.LocalName is "addifnotfound" or "isidnode") && !bool.TryParse(attribute.Value, out _))
+                        || ReadOperation(node) is not ("" or "RECURSE" or "REPLACE" or "APPEND" or "ADDNODE" or "REMOVE"))
+                    || HasAmbiguousAmendmentIdentifiers(root)
+                    || root.Element("settings")!.Elements("setting").Count(row => LocatorMatches(row, locator)) > 1)
+                    return false;
+                if (!TryApplyCustomFile(root, prefix, ["settings"], "setting", locator, ref selected,
+                        boundIdentity: original, validateTarget: ValidateSelection,
+                        accounting: inputs.Accounting?.BeginFile(path, prefix, root)))
+                    return false;
+                // Frame exact contributors in application order, including files with no matching row.
+                // Only the hash escapes; paths, imported names and values remain inside the resolver.
+                AppendFramed(hash, Encoding.UTF8.GetBytes(directory.Name));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(directory.ManifestId?.ToString("D") ?? string.Empty));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(string.Join('.', directory.Version.Parts)));
+                string manifestPath = Path.Combine(directory.Path, "manifest.xml");
+                AppendFramed(hash, SourceFileExists(manifestPath) ? ReadSourceBytes(manifestPath) : Array.Empty<byte>());
+                AppendFramed(hash, Encoding.UTF8.GetBytes(Path.GetRelativePath(directory.Path, path).Replace('\\', '/')));
+                AppendFramed(hash, ReadSourceBytes(path));
+            }
+        }
+        if (fileCount == 0) return true;
+        if (!ValidateSelection(selected) || inputs.HasSourceDrift) return false;
+        settings = selected!;
+        original.ReplaceWith(selected!);
+        inputsDigest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        inputs.SetSelectedProfile(fileName, document, inputsDigest);
+        return true;
+    }
+
+    private static bool HasAmbiguousAmendmentIdentifiers(XElement root)
+    {
+        foreach (XElement node in root.DescendantsAndSelf())
+        {
+            XElement? name = node.Element("name");
+            bool nameIsIdentifier = node.Element("id") is null && name is not null
+                && (ReadOperation(node) == "REMOVE" || node.Elements().Any(child => child != name));
+            foreach (XElement identifier in node.Elements().Where(child => child.Name == "id"
+                || nameIsIdentifier && child.Name == "name" || ParseBool(child.Attribute("isidnode")?.Value)))
+            {
+                if (identifier.HasElements || node.Elements(identifier.Name).Count() != 1)
+                    return true;
+            }
+        }
+        return false;
     }
 
     private static ContentOverlayCatalog FreezeContentOverlayCatalog(ContentOverlayCatalog catalog)
@@ -1481,35 +2199,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         out string[] blockers)
     {
         var resolvedBlockers = new List<string>();
-        XElement[] maximumNodes = settings.Elements("maxnumbermaxattributescreate").Take(2).ToArray();
-        if (maximumNodes.Length == 0)
-        {
-            XElement[] legacyNodes = settings.Elements("allow2ndmaxattribute").Take(2).ToArray();
-            if (legacyNodes.Length == 0)
-            {
-                maxNumberMaxAttributesCreate = 1;
-            }
-            else if (legacyNodes.Length == 1
-                     && TryParseStrictBoolElement(legacyNodes[0], out bool allowSecond))
-            {
-                maxNumberMaxAttributesCreate = allowSecond ? 2 : 1;
-            }
-            else
-            {
-                maxNumberMaxAttributesCreate = null;
-                resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.AttributeSettingsInvalid);
-            }
-        }
-        else if (maximumNodes.Length == 1
-                 && TryParseNonNegativeIntElement(maximumNodes[0], out int maximum))
-        {
-            maxNumberMaxAttributesCreate = maximum;
-        }
-        else
-        {
-            maxNumberMaxAttributesCreate = null;
+        maxNumberMaxAttributesCreate = CharacterCreationAttributePolicyAuthority.ResolveMaximumAttributesAtCap(settings);
+        if (!maxNumberMaxAttributesCreate.HasValue)
             resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.AttributeSettingsInvalid);
-        }
 
         alternateMetatypeAttributeKarma = TryReadStrictBool(
             settings,
@@ -1704,10 +2396,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         List<CustomDirectory> result = [];
-        foreach (string root in roots.OrderBy(path => path, StringComparer.Ordinal))
+        foreach (string root in roots.OrderBy(path => SourcePathOrderKey(path), StringComparer.Ordinal))
         {
             foreach (string directory in EnumerateSourceDirectories(root, "*", SearchOption.TopDirectoryOnly)
-                         .OrderBy(path => path, StringComparer.Ordinal))
+                         .OrderBy(path => SourcePathOrderKey(path), StringComparer.Ordinal))
             {
                 string name = Path.GetFileName(directory);
                 string manifestPath = Path.Combine(directory, "manifest.xml");
@@ -1864,7 +2556,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         return true;
     }
 
-    private sealed class SourceDataContext : ICharacterSourceDataContext
+    private sealed partial class SourceDataContext : ICharacterSourceDataContext, ICharacterCreationPolicyConsumptionSource
     {
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
@@ -1877,6 +2569,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private CharacterCreationSkillsAuthority? _creationSkillsAuthoritySnapshot;
         private JsonElement? _lifeModuleQualitiesPolicySnapshot;
         private CharacterCreationGearAuthority? _creationGearAuthoritySnapshot;
+        private CharacterCreationLoadoutAuthority? _creationLoadoutAuthoritySnapshot;
         private JsonElement? _creationLifestylesAuthoritySnapshot;
         private CharacterCreationLifeModuleMagicCatalog? _lifeModuleMagicCatalogSnapshot;
         private CharacterCreationLifeModuleTalentCatalog? _lifeModuleTalentCatalogSnapshot;
@@ -2049,6 +2742,38 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryAdmitReuse(ContentOverlayCatalog currentCatalog)
             => _sourceInputs.TryAdmitReuse(currentCatalog);
 
+        public SourceInputSnapshot SourceInputs => _sourceInputs;
+
+        private IEnumerable<RetainedCharacterRuleSourceInputs.Selection> RetainedSelection()
+            => _customDirectories.Select(directory => new RetainedCharacterRuleSourceInputs.Selection(
+                directory.Name, directory.Path, directory.ManifestId?.ToString("D") ?? string.Empty,
+                string.Join('.', directory.Version.Parts)));
+
+        public bool MatchesRetainedSelection(RetainedCharacterRuleSourceInputs inputs)
+            => inputs.MatchesSelection(_settingsProfileId, RetainedSelection());
+
+        public bool TryCaptureInputs(string characterXml, out RetainedCharacterRuleSourceInputs? retained)
+        {
+            retained = null;
+            using IDisposable scope = _sourceInputs.Enter();
+            if (_sourceInputs.HasSourceDrift || !TryResolveCreationEffectivePolicy(out var policy) || policy is null)
+                return false;
+
+            // Record the exact selected-file queries used by existing target consumers, without
+            // executing their amendments. Scope names come from the policy's existing source rows,
+            // not a new assertion that any category has an implemented completion consumer.
+            string[] fileNames = policy.Sources.Where(source => source.Kind == CharacterCreationPolicySourceKind.Rules)
+                .Select(source => source.SourceId == "profile" ? SettingsFile : source.SourceId + ".xml")
+                .Distinct(StringComparer.Ordinal).ToArray();
+            foreach (CustomDirectory directory in _customDirectories)
+            foreach (string fileName in fileNames)
+                _ = EnumerateSourceFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories);
+
+            if (!_sourceInputs.TryAdmitReuse(_catalog)) return false;
+            retained = _sourceInputs.Export(_catalog, characterXml, policy.PolicyDigest, _settingsProfileId, RetainedSelection());
+            return !_sourceInputs.HasSourceDrift;
+        }
+
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
@@ -2072,6 +2797,29 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
+            CharacterCreationBootstrapSourceAnchorAuthority? bootstrapAnchors = null;
+            if (_customDirectories.Count != 0)
+            {
+                // Resolve from this snapshot's selected directories and actual Priority
+                // inputs, not from anchor strings supplied by a bootstrap caller.
+                authority = CharacterCreationSourceProfileAuthority.Unavailable;
+                if (!TryComputeSelectedCustomDataInputsDigest(_customDirectories, out string customDigest)
+                    || !string.Equals(customDigest, _selectedCustomDataInputsDigest, StringComparison.Ordinal)
+                    || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string profileDigest)
+                    || !string.Equals(BindSelectedProfile(profileDigest, _settingsProfileId),
+                        _rawProfileInputsDigest, StringComparison.Ordinal)) return false;
+                CreationPriorityCustomSource[] prioritySources = [];
+                if ((_buildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    && !TryResolveCreationPriorityCustomSources(_customDirectories, out prioritySources))
+                    return false;
+                string[] anchors = CharacterCreationBootstrapProfiles.ExpectedSourceAnchorIds(_buildMethod, _settingsProfileId)
+                    .Concat(_customDirectories.Select(directory => $"customdata:{directory.Name}"))
+                    .Concat(prioritySources.Select(source => source.SourceAnchorId)).Order(StringComparer.Ordinal).ToArray();
+                if (_sourceInputs.HasSourceDrift) return false;
+                bootstrapAnchors = new(_settingsProfileId, _buildMethod, _rawProfileInputsDigest,
+                    customDigest, Array.AsReadOnly(anchors));
+            }
+
             authority = new CharacterCreationSourceProfileAuthority(
                 SettingsProfileId: _settingsProfileId,
                 EnabledSourcebooks: _enabledSourcebooks
@@ -2083,8 +2831,158 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && _buildPoints.HasValue,
                 BudgetBlockers: _lifeModuleBudgetBlockers,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
-                SourceAnchorIds: [SettingsAnchor]);
+                SourceAnchorIds: [SettingsAnchor])
+            {
+                BootstrapSourceAnchors = bootstrapAnchors
+            };
             return true;
+        }
+
+        public bool TryResolveCreationEffectivePolicy(out CharacterCreationEffectivePolicyContext? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift
+                || _buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                || !Guid.TryParseExact(_settingsProfileId, "D", out _)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string profileDigest)
+                || BindSelectedProfile(profileDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId, string.Empty, out var settings)
+                || settings is null) return false;
+
+            var books = _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray();
+            if (books.Length > 256 || books.Any(book => book.Length is < 1 or > 32
+                    || book.Any(value => !char.IsAsciiLetterOrDigit(value) && value != '-'))) return false;
+            XElement[] bookNodes = settings.Elements("books").Take(2).ToArray();
+            string? booksDigest = bookNodes.Length == 1 && bookNodes[0].Elements().All(node =>
+                node.Name == "book" && !node.HasElements && !node.HasAttributes)
+                ? CharacterCreationFinalizationDigest.Compute(bookNodes[0].ToString(SaveOptions.DisableFormatting)) : null;
+
+            bool hasSkillConsumer = TryResolveCreationSkillsAuthority(out var skills) && skills.IsAuthoritative;
+            var rows = new List<CharacterCreationPolicySettingCoverage>
+            {
+                DescribeSkillLimit(settings, CharacterCreationEffectivePolicyContext.ActiveLimit,
+                    "maxskillratingcreate", "maxskillrating", hasSkillConsumer),
+                DescribeSkillLimit(settings, CharacterCreationEffectivePolicyContext.KnowledgeLimit,
+                    "maxknowledgeskillratingcreate", "maxknowledgeskillrating", hasSkillConsumer),
+                new(CharacterCreationPolicyDomain.SkillLimits, CharacterCreationEffectivePolicyContext.GroupLimit,
+                    hasSkillConsumer ? CharacterCreationPolicyDisposition.Effective : CharacterCreationPolicyDisposition.Missing,
+                    hasSkillConsumer ? skills.MaxSkillGroupRatingCreate : null,
+                    hasSkillConsumer ? CharacterCreationPolicyConsumer.StandardPrioritySkills : CharacterCreationPolicyConsumer.None,
+                    hasSkillConsumer
+                        ? skills.MaxSkillGroupRatingCreate == CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation
+                            ? CharacterCreationPolicyReason.ExistingConsumerDefault
+                            : CharacterCreationPolicyReason.ResolvedAuthority
+                        : CharacterCreationPolicyReason.ConsumerUnavailable)
+            };
+            // Classify every other leaf conservatively. Only identity is exported: arbitrary imported
+            // names/values may contain private notes or paths. No retained setting implies execution.
+            string[] represented = ["id", "name", "buildmethod", "books", "customdatadirectorynames",
+                "maxskillratingcreate", "maxskillrating", "maxknowledgeskillratingcreate", "maxknowledgeskillrating"];
+            int settingOrder = 0;
+            foreach (XElement node in settings.Elements().Where(node => node.Name.NamespaceName.Length != 0
+                             || !represented.Contains(node.Name.LocalName, StringComparer.Ordinal))
+                         .SelectMany(node => node.DescendantsAndSelf().Where(child => !child.HasElements)))
+            {
+                if (rows.Count >= CharacterCreationEffectivePolicyContext.MaximumSettings) return false;
+                string identity = CharacterCreationFinalizationDigest.Compute(new
+                    { Order = settingOrder++, Name = node.Name.ToString(), Parent = node.Parent?.Name.ToString() });
+                rows.Add(new(CharacterCreationPolicyDomain.OtherSettings, "legacy:" + identity,
+                    CharacterCreationPolicyDisposition.Unsupported, null, CharacterCreationPolicyConsumer.None,
+                    CharacterCreationPolicyReason.UnclassifiedLegacySetting));
+            }
+
+            var sources = new List<CharacterCreationPolicySource>();
+            foreach (string scope in CharacterCreationEffectivePolicyContext.RulesScopes)
+            {
+                string? digest = scope == "profile" ? _rawProfileInputsDigest
+                    : TryComputeEffectiveInputDigest(_catalog, scope + ".xml", out string resolved) ? resolved : null;
+                sources.Add(new(CharacterCreationPolicySourceKind.Rules, sources.Count, scope,
+                    CharacterCreationFinalizationDigest.Compute(new { Scope = scope }), digest));
+            }
+            try
+            {
+                int order = 0;
+                foreach (var pack in _catalog.Overlays.Where(pack => pack.Enabled).OrderBy(pack => pack.Priority)
+                             .ThenBy(pack => pack.Id, StringComparer.Ordinal))
+                {
+                    if (sources.Count >= CharacterCreationEffectivePolicyContext.MaximumSources
+                        || string.IsNullOrWhiteSpace(pack.DataPath) || !SourceDirectoryExists(pack.DataPath)) return false;
+                    string identity = CharacterCreationFinalizationDigest.Compute(new
+                        { pack.Id, pack.Name, pack.Mode, pack.Priority, pack.Enabled, pack.Description });
+                    sources.Add(new(CharacterCreationPolicySourceKind.GlobalAmend, order++, "amend", identity,
+                        ComputePolicyDirectoryDigest(pack.DataPath, identity, Path.Combine(pack.RootPath, "manifest.json"))));
+                }
+                order = 0;
+                foreach (var directory in _customDirectories)
+                {
+                    if (sources.Count >= CharacterCreationEffectivePolicyContext.MaximumSources) return false;
+                    string identity = CharacterCreationFinalizationDigest.Compute(new
+                        { directory.Name, directory.ManifestId, Version = string.Join('.', directory.Version.Parts) });
+                    sources.Add(new(CharacterCreationPolicySourceKind.SelectedAmend, order++, "amend", identity,
+                        ComputePolicyDirectoryDigest(directory.Path, identity)));
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return false; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            var result = new CharacterCreationEffectivePolicyContext(CharacterCreationEffectivePolicyContext.SchemaV1,
+                RulesetDefaults.Sr5, _buildMethod, _settingsProfileId, _rawProfileInputsDigest, books, booksDigest,
+                sources.ToArray(), CharacterCreationEffectivePolicyContext.DescribeDomains(rows, sources, booksDigest), rows.ToArray(), string.Empty);
+            policy = result with { PolicyDigest = CharacterCreationEffectivePolicyContext.ComputeDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationPolicyConsumption(out CharacterCreationEffectivePolicyContext? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (!TryResolveCreationEffectivePolicy(out var inventory) || inventory is null
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId, string.Empty, out var settings)
+                || settings is null) return false;
+            if (!CharacterCreationSettingsObservation.TryCapture(settings.ToString(SaveOptions.DisableFormatting),
+                    inventory.ProfileInputsDigest, CharacterCreationSettingsObservation.SchemaV2,
+                    out var observations) || _sourceInputs.HasSourceDrift) return false;
+            var result = inventory with { SettingObservations = observations };
+            policy = result with { PolicyDigest = CharacterCreationEffectivePolicyContext.ComputeDigest(result) };
+            return true;
+        }
+
+        private static CharacterCreationPolicySettingCoverage DescribeSkillLimit(XElement settings, string id,
+            string creationName, string careerName, bool hasConsumer)
+        {
+            bool valid = TryReadCreationSkillCap(settings, creationName, careerName, out int cap);
+            if (!valid || !CharacterCreationStandardPrioritySkillsRules.IsSupportedCreationRatingLimit(cap))
+                return new(CharacterCreationPolicyDomain.SkillLimits, id, CharacterCreationPolicyDisposition.Unsupported,
+                    valid ? cap : null, CharacterCreationPolicyConsumer.None, valid
+                        ? CharacterCreationPolicyReason.ConfiguredLimitUnsupported : CharacterCreationPolicyReason.InvalidSetting);
+            if (!hasConsumer)
+                return new(CharacterCreationPolicyDomain.SkillLimits, id, CharacterCreationPolicyDisposition.Missing,
+                    null, CharacterCreationPolicyConsumer.None, CharacterCreationPolicyReason.ConsumerUnavailable);
+            return new(CharacterCreationPolicyDomain.SkillLimits, id, CharacterCreationPolicyDisposition.Effective, cap,
+                CharacterCreationPolicyConsumer.StandardPrioritySkills, settings.Element(creationName) is null && settings.Element(careerName) is null
+                    ? CharacterCreationPolicyReason.ExistingConsumerDefault : CharacterCreationPolicyReason.ResolvedAuthority);
+        }
+
+        private static string ComputePolicyDirectoryDigest(string directory, string identity, string? manifestPath = null)
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendFramed(hash, Encoding.UTF8.GetBytes(identity));
+            if (manifestPath is not null && SourceFileExists(manifestPath))
+            {
+                AppendFramed(hash, Encoding.UTF8.GetBytes("manifest"));
+                AppendFramed(hash, ReadSourceBytes(manifestPath));
+            }
+            // Include all selected XML, even inputs outside the implemented completion subset.
+            // Hashing these bytes is expressly not a claim that their operations are supported.
+            int count = 0;
+            foreach (string path in EnumerateSourceFiles(directory, "*.xml", SearchOption.AllDirectories)
+                         .OrderBy(path => SourcePathOrderKey(Path.GetRelativePath(directory, path)), StringComparer.Ordinal))
+            {
+                if (++count > 4096) throw new IOException("Effective policy source inventory exceeds its bound.");
+                AppendFramed(hash, Encoding.UTF8.GetBytes(Path.GetRelativePath(directory, path).Replace('\\', '/')));
+                AppendFramed(hash, ReadSourceBytes(path));
+            }
+            return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
         }
 
         public bool TryResolveCreationFoundationEffectSources(
@@ -2211,11 +3109,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryReadKarmaCost(settings, "karmaknospecialization", out int knowledgeSpecialization)
                 || !TryReadCreationSkillCap(settings, "maxskillratingcreate", "maxskillrating", out int activeCap)
                 || !TryReadCreationSkillCap(settings, "maxknowledgeskillratingcreate", "maxknowledgeskillrating", out int knowledgeCap)
-                || !TryReadOptionalStrictBoolean(settings, "usepointsonbrokengroups", false, out bool useBroken)
-                || !TryReadOptionalStrictBoolean(settings, "breakskillgroupsincreatemode", false, out bool strict)
-                || !TryReadOptionalStrictBoolean(settings, "specializationsbreakskillgroups", true, out bool specBreak)
+                || !CharacterCreationSkillGroupPolicyAuthority.TryResolve(settings,
+                    out bool useBroken, out bool strict, out bool specBreak)
                 || !TryReadOptionalStrictBoolean(settings, "allowpointbuyspecializationsonkarmaskills", false, out bool pointSpecs)
-                || !TryReadOptionalStrictBoolean(settings, "compensateskillgroupkarmadifference", false, out bool compensate))
+                || !TryReadOptionalStrictBoolean(settings, "compensateskillgroupkarmadifference", false, out bool compensate)
+                || !TryReadOptionalStrictBoolean(settings, "allowskillregrouping", true, out bool regroup))
                 return false;
             string expression = ReadUniqueScalar(settings, "knowledgepointsexpression", out bool expressionValid);
             if (!expressionValid || string.IsNullOrWhiteSpace(expression) || _sourceInputs.HasSourceDrift)
@@ -2225,7 +3123,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 newActive, improveActive, newKnowledge, improveKnowledge, newGroup, improveGroup,
                 specialization, knowledgeSpecialization, activeCap, knowledgeCap, expression,
                 useBroken, strict, specBreak, pointSpecs, compensate,
-                [SettingsAnchor], string.Empty);
+                [SettingsAnchor], string.Empty)
+                { AllowSkillRegrouping = schema == CharacterCreationKarmaSkillsPolicy.PriorityPurchaseSchemaV1 ? regroup : null };
             policy = result with { AuthorityDigest = CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(result) };
             return true;
         }
@@ -2463,23 +3362,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         private static bool TryReadCreationSkillCap(XElement settings, string creationName, string careerName,
             out int cap)
-        {
-            // Exact CharacterSettings load semantics: default six; only an
-            // explicitly present career cap clamps the creation cap. Missing is
-            // distinct from malformed/duplicate, which must never default.
-            cap = 6;
-            XElement[] creation = settings.Elements(creationName).Take(2).ToArray();
-            XElement[] career = settings.Elements(careerName).Take(2).ToArray();
-            if (creation.Length > 1 || career.Length > 1
-                || (creation.Length == 1 && !TryParseNonNegativeIntElement(creation[0], out cap)))
-                return false;
-            if (career.Length == 1)
-            {
-                if (!TryParseNonNegativeIntElement(career[0], out int careerCap)) return false;
-                cap = Math.Min(cap, careerCap);
-            }
-            return true;
-        }
+            => CharacterCreationStandardPrioritySkillsRules.TryReadCreationRatingLimit(
+                settings, creationName, careerName, out cap);
 
         public bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
         {
@@ -3082,7 +3966,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}"),
                     .. customSourceAnchors
                 ],
-                Blockers: blockers);
+                Blockers: blockers, SourceExecutionSchema: _sourceInputs.CreationSourceExecutionSchema);
 
             // Cold or drifted contexts retain the full source/projection path.
             // A concurrent cold reader may have filled the entry in the meantime;
@@ -3120,7 +4004,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string racialQualityDigest)
                     && TryResolveRacialQualitySources(metatypesDocument, out var racialQualities)
                         ? CharacterCreationPriorityRacialAuthority.BindOptions(candidate, metatypesDocument,
-                            racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks)
+                            racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks, projectionContext.SourceExecutionSchema)
                         : candidate);
             if ((projected.IsAuthoritative && blockers.Count == 0)
                 || (reusableMethodRejection && !projected.IsAuthoritative
@@ -3390,6 +4274,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             // drift. It must not turn into a successful cache hit.
             if (!TryEnumerateTargets("gear.xml", ["gears"], "gear", out XElement[] rows))
                 return false;
+            var sourceExecution = BeginPurchaseCatalogue("gear", "gears", "gear", rows);
 
             var options = new List<CharacterCreationGearCatalogOption>();
             var identities = new HashSet<Guid>();
@@ -3508,10 +4393,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     SourceNodeXml: sourceNodeXml,
                     SourceNodeDigest: nodeDigest,
                     OptionDigest: string.Empty);
-                options.Add(candidate with
+                var projectedOption = candidate with
                 {
                     OptionDigest = CharacterCreationGearRules.ComputeOptionDigest(candidate)
-                });
+                };
+                options.Add(projectedOption);
+                sourceExecution?.Gear(row, sourceEnabled, projectedOption);
             }
 
             if (options.Count == 0 || options.All(option => !option.IsSelectable))
@@ -3565,11 +4452,40 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(candidateAuthority)
             };
+            sourceExecution?.Finish(authority);
             if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
             {
                 CharacterCreationGearAuthority frozen = CopyGearAuthority(authority);
                 lock (_completionProjectionSync) { _creationGearAuthoritySnapshot = frozen; }
             }
+            return true;
+        }
+
+        public bool TryResolveCreationLoadoutLegalityPolicy(out CharacterCreationLoadoutLegalityPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
+                || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId, string.Empty, out XElement? profile)
+                || profile is null
+                || !TryReadStrictBool(profile, "multiplyrestrictedcost", out bool restricted)
+                || !TryReadStrictBool(profile, "multiplyforbiddencost", out bool forbidden)
+                || _sourceInputs.HasSourceDrift) return false;
+            var candidate = new CharacterCreationLoadoutLegalityPolicy(_settingsProfileId, _rawProfileInputsDigest,
+                restricted, forbidden, string.Empty);
+            if (restricted || forbidden)
+            {
+                // Career rates do not participate in Creation. Require the actual
+                // source lifecycle before emitting the new applicability evidence.
+                if (_character.Elements("created").ToArray() is not [var lifecycle]
+                    || lifecycle.HasAttributes || lifecycle.HasElements
+                    || !bool.TryParse(lifecycle.Value, out bool created) || created) return false;
+                candidate = candidate with { Lifecycle = new(false, _rawCharacterXmlDigest) };
+            }
+            policy = candidate with { PolicyDigest = CharacterCreationLoadoutLegalityPolicy.ComputeDigest(candidate) };
             return true;
         }
 
@@ -3591,14 +4507,33 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "weapons.xml", out string weaponsCustomDigest)
                 || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "armor.xml", out string armorCustomDigest)
                 || !TryValidateLoadoutCustomCategoryScope("weapons.xml")
-                || !TryValidateLoadoutCustomCategoryScope("armor.xml")
-                || !TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weaponRows)
+                || !TryValidateLoadoutCustomCategoryScope("armor.xml")) return false;
+
+            // Source admission above remains mandatory. The private context is
+            // keyed by exact XML; its source snapshot validates bytes and
+            // membership on context entry and synchronous operation exit.
+            // Reuse only pure catalog projection, never a retained-read result.
+            CharacterCreationLoadoutAuthority? cached;
+            lock (_completionProjectionSync) { cached = _creationLoadoutAuthoritySnapshot; }
+            if (_sourceInputs.HasSourceDrift) return false;
+            if (cached is { } snapshot)
+            {
+                var detached = CopyLoadoutAuthority(snapshot);
+                if (_sourceInputs.HasSourceDrift) return false;
+                authority = detached;
+                return true;
+            }
+
+            _sourceInputs.RecordLoadoutProjection();
+            if (!TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weaponRows)
                 || !TryEnumerateTargets("armor.xml", ["armors"], "armor", out XElement[] armorRows)
                 || !TryLoadEffectiveDocument(_catalog, "weapons.xml", out XDocument? weapons)
                 || !TryLoadEffectiveDocument(_catalog, "armor.xml", out XDocument? armor)
                 || weapons?.Root?.Elements("categories").ToArray() is not [var weaponCategories]
                 || armor?.Root?.Elements("categories").ToArray() is not [var armorCategories]) return false;
 
+            var legalityPolicy = new CharacterCreationLoadoutLegalityPolicy(_settingsProfileId, _rawProfileInputsDigest,
+                multiplyRestricted, multiplyForbidden, string.Empty);
             var options = new List<CharacterCreationLoadoutCatalogOption>();
             var identities = new HashSet<string>(StringComparer.Ordinal);
             foreach (var source in new[]
@@ -3617,21 +4552,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     if (!CharacterCreationLoadoutSourceProjector.TryCreateOption(source.Kind, row, categories.SingleOrDefault(),
                             enabled, maximumAvailability, out CharacterCreationLoadoutCatalogOption? option)
                         || option is null || !identities.Add(option.OptionId)) return false;
-                    // This source-bound subset cannot quote profile R/F multipliers.
-                    // Keep unaffected legal items admitted, but never quote an affected
-                    // item at its unmodified source price as though that were exact.
-                    if (multiplyRestricted && option.Legality == CharacterCreationGearLegality.Restricted
-                        || multiplyForbidden && option.Legality == CharacterCreationGearLegality.Forbidden)
-                    {
-                        option = option with
-                        {
-                            IsSelectable = false,
-                            PricingIsExact = false,
-                            Blockers = option.Blockers.Append(CharacterCreationLoadoutBlockers.UnsupportedSemantics)
-                                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()
-                        };
-                        option = option with { OptionDigest = CharacterCreationLoadoutRules.ComputeOptionDigest(option) };
-                    }
+                    // Creation spends the source base price. R/F multipliers apply
+                    // to career purchase expenses, not to this catalog or native cost.
                     options.Add(option);
                 }
             }
@@ -3644,13 +4566,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 [], true,
                 CharacterCreationLoadoutRules.Compute(new { weaponsDigest, armorDigest, weaponsCustomDigest, armorCustomDigest }),
                 _rawProfileInputsDigest,
-                CharacterCreationLoadoutRules.Compute(new
-                {
-                    Schema = CharacterCreationLoadoutSchemas.RulesV1, maximumAvailability,
-                    FixedNumericCostAndAvailability = true, multiplyRestricted, multiplyForbidden,
-                    UnsupportedLegalityMultipliersExcluded = true, SelectedCustomCategoryMutationsExcluded = true,
-                    PlainUnloadedFirearms = true, SinglePlainArmor = true, SourceCategoriesCaptured = true
-                }),
+                legalityPolicy.ComputeRulesDigest(maximumAvailability),
                 CharacterCreationLoadoutRules.Compute(new
                 {
                     Schema = CharacterCreationLoadoutSchemas.RuntimeV1, DistinctWeaponArmorGraphs = true,
@@ -3659,9 +4575,27 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 }), string.Empty);
             candidate = candidate with { AuthorityDigest = CharacterCreationLoadoutRules.ComputeAuthorityDigest(candidate) };
             if (!CharacterCreationLoadoutRules.IsValidAuthority(candidate) || _sourceInputs.HasSourceDrift) return false;
+            var frozen = CopyLoadoutAuthority(candidate);
+            if (_sourceInputs.HasSourceDrift) return false;
+            lock (_completionProjectionSync) { _creationLoadoutAuthoritySnapshot = frozen; }
             authority = candidate;
             return true;
         }
+
+        private static CharacterCreationLoadoutAuthority CopyLoadoutAuthority(
+            CharacterCreationLoadoutAuthority source) => source with
+        {
+            // The sealed DTO graph contains immutable scalars/strings plus
+            // these collections. Detach on both storage and return; update
+            // this copy if the DTOs gain another mutable member.
+            Options = source.Options.Select(option => option with
+            {
+                Blockers = option.Blockers.ToArray(),
+                SourceAnchorIds = option.SourceAnchorIds.ToArray()
+            }).ToArray(),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+            Blockers = source.Blockers.ToArray()
+        };
 
         private bool TryValidateLoadoutCustomCategoryScope(string fileName)
         {
@@ -4125,6 +5059,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
             }
+            // Both point allocation and optional Karma consume these resolved limits.
+            // SR5 groups share the active-skill cap; career clamping and missing-field
+            // defaults retain CharacterSettings semantics, while invalid fields fail closed.
+            bool activeCapValid = TryReadCreationSkillCap(settings,
+                "maxskillratingcreate", "maxskillrating", out int activeCap);
+            bool knowledgeCapValid = TryReadCreationSkillCap(settings,
+                "maxknowledgeskillratingcreate", "maxknowledgeskillrating", out int knowledgeCap);
+            if (!activeCapValid || !knowledgeCapValid
+                || !CharacterCreationStandardPrioritySkillsRules.IsSupportedCreationRatingLimit(activeCap)
+                || !CharacterCreationStandardPrioritySkillsRules.IsSupportedCreationRatingLimit(knowledgeCap))
+                blockers.Add(CharacterCreationEffectivePolicyContext.SkillLimitsUnsupported);
             if (!string.Equals(
                     BindSelectedProfile(currentSettingsInputsDigest, _settingsProfileId),
                     _rawProfileInputsDigest,
@@ -4162,36 +5107,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryEnumerateTargets("skills.xml", ["knowledgeskills"], "skill", out XElement[] knowledgeRows))
                 return false;
 
+            var sourceExecution = BeginSkillCatalogue(activeRows, knowledgeRows);
             string knowledgeExpression = ReadUniqueScalar(
                 settings,
                 "knowledgepointsexpression",
                 out bool expressionValid);
-            bool usePointsOnBrokenGroups = ReadUniqueBoolean(
-                settings,
-                "usepointsonbrokengroups",
-                defaultWhenMissing: false,
-                out bool useBrokenValid);
-            bool strictGroups = ReadUniqueBoolean(
-                settings,
-                "breakskillgroupsincreatemode",
-                defaultWhenMissing: false,
-                out bool strictValid);
-            bool specializationsBreakGroups = ReadUniqueBoolean(
-                settings,
-                "specializationsbreakskillgroups",
-                defaultWhenMissing: true,
-                out bool specializationsBreakValid);
+            bool groupPolicyValid = CharacterCreationSkillGroupPolicyAuthority.TryResolve(settings,
+                out bool usePointsOnBrokenGroups, out bool strictGroups, out bool specializationsBreakGroups);
             if (!expressionValid
-                || !string.Equals(
-                    knowledgeExpression,
-                    CharacterCreationStandardPrioritySkillsRules.KnowledgePointsExpression,
-                    StringComparison.Ordinal)
-                || !useBrokenValid
-                || !strictValid
-                || !specializationsBreakValid
-                || usePointsOnBrokenGroups
-                || strictGroups
-                || !specializationsBreakGroups)
+                || string.IsNullOrWhiteSpace(knowledgeExpression)
+                || knowledgeExpression.Length > 2048
+                || !groupPolicyValid)
             {
                 blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
             }
@@ -4199,11 +5125,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             CharacterCreationSkillCatalogEntry[] active = ProjectSkills(
                 activeRows,
                 CharacterCreationSkillKinds.Active,
-                blockers);
+                blockers, sourceExecution);
             CharacterCreationSkillCatalogEntry[] knowledge = ProjectSkills(
                 knowledgeRows,
                 CharacterCreationSkillKinds.Knowledge,
-                blockers);
+                blockers, sourceExecution);
             CharacterCreationKnowledgePointContribution[] knowledgeContributions =
                 ProjectKnowledgePointContributions(blockers);
             if (active.Length == 0 || knowledge.Length == 0)
@@ -4226,7 +5152,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string runtimeDigest = CharacterCreationStandardPrioritySkillsRules.ComputeRuntimeDigest(
                 usePointsOnBrokenGroups,
                 strictGroups,
-                specializationsBreakGroups);
+                specializationsBreakGroups,
+                activeCap,
+                knowledgeCap);
             string[] orderedBlockers = blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(blocker => blocker, StringComparer.Ordinal)
                 .ToArray();
@@ -4236,9 +5164,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 EffectiveSkillsInputsDigest: _effectiveSkillsInputsDigest,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
                 KnowledgePointsExpression: knowledgeExpression,
-                MaxActiveSkillRatingCreate: CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation,
-                MaxKnowledgeSkillRatingCreate: CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation,
-                MaxSkillGroupRatingCreate: CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation,
+                MaxActiveSkillRatingCreate: activeCap,
+                MaxKnowledgeSkillRatingCreate: knowledgeCap,
+                MaxSkillGroupRatingCreate: activeCap,
                 BaseNativeLanguageLimit: CharacterCreationStandardPrioritySkillsRules.BaseNativeLanguageCount,
                 UsePointsOnBrokenGroups: usePointsOnBrokenGroups,
                 StrictSkillGroupsInCreateMode: strictGroups,
@@ -4270,6 +5198,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 AuthorityDigest = CharacterCreationSkillsDigest.Compute(
                     projected with { AuthorityDigest = string.Empty })
             };
+            sourceExecution?.Finish(authority);
             if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
             {
                 var frozen = CopySkillsAuthority(authority);
@@ -4499,6 +5428,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             // Retain the ordinary diagnostic projection when reuse is not admitted.
             if (!TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out XElement[] rows))
                 return false;
+            var sourceExecution = BeginPurchaseCatalogue("qualities", "qualities", "quality", rows);
 
             string metagenicLimitText = ReadValue(_character, "metageniclimit");
             int metagenicLimit = 0;
@@ -4625,7 +5555,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 string sourceNodeXml = sourceText.ToString();
                 sourceText.GetStringBuilder().Clear();
                 bool effectsProjectable =
-                    CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount);
+                    CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount, _sourceInputs.CreationSourceExecutionSchema);
+                // A legacy comparison can only affect non-null schema metadata.
+                // Resolve it once per source row, before expanding its ratings.
+                string? optionSourceExecutionSchema = effectsProjectable
+                    && _sourceInputs.CreationSourceExecutionSchema is { } executionSchema
+                    && !CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml, armCount)
+                        ? executionSchema : null;
                 bool selectable = sourceEnabled
                     && implemented
                     && !careerOnly
@@ -4700,15 +5636,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         OptionDigest: string.Empty)
                     {
                         ResolvedArmCount = limit == "{arm} - 1" && !hasVariableRatingLimit && !noLevels
-                            ? armCount : null
+                            ? armCount : null,
+                        SourceExecutionSchema = optionSourceExecutionSchema
                     };
-                    options.Add(option with
+                    var projectedOption = option with
                     {
                         OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(option)
-                    });
+                    };
+                    options.Add(projectedOption);
+                    sourceExecution?.Quality(row, sourceEnabled, projectedOption);
                 }
             }
 
+            // The trace records the actual parser decisions, including skipped rows.
+            sourceExecution?.FinishQualities(options, _sourceInputs.HasSourceDrift || blockers.Count != 0);
             if (options.Count == 0)
                 blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
             string gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
@@ -4833,9 +5774,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             bool profileMatches = string.Equals(
                 BindSelectedProfile(settingsDigest, _settingsProfileId),
                 _rawProfileInputsDigest, StringComparison.Ordinal);
+            // Admit the actual saved owners against live quality inputs before a
+            // cached lifestyle projection can be reused. The ordinary quality
+            // catalog intentionally cannot authorize an existing saved graph.
+            XElement[] improvements = _character.Elements("improvements")
+                .SelectMany(container => container.Elements("improvement")).ToArray();
+            bool qualitySourcesExact = TryResolveSavedLifestyleQualitySources(improvements,
+                out var qualityInstances, out string qualityInputsDigest, out string? qualitySourceBlocker);
+            CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts(improvements,
+                qualityInstances, 0, out int trustFundLevel, out decimal metatypeCostPercent,
+                out var purchasedQualityCosts, out var effectBlockers);
             JsonElement? cached;
             lock (_completionProjectionSync) { cached = _creationLifestylesAuthoritySnapshot; }
-            if (!_sourceInputs.HasSourceDrift && profileMatches && cached is { } snapshot)
+            if (!_sourceInputs.HasSourceDrift && profileMatches && qualitySourcesExact
+                && effectBlockers.Length == 0 && cached is { } snapshot)
             {
                 var detached = snapshot.Deserialize<CharacterCreationLifestylesAuthority>();
                 if (!_sourceInputs.HasSourceDrift && detached is not null)
@@ -4892,15 +5844,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
             }
 
-            bool freeGridsEnabled = ParseBool(ReadValue(settings, "allowfreegrids"))
-                || _enabledSourcebooks.Contains("HT");
-            XElement[] improvements = _character.Element("improvements")?.Elements("improvement").ToArray()
-                ?? [];
-            CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(improvements, 0,
-                out int trustFundLevel, out decimal metatypeCostPercent, out var effectBlockers);
+            string? rawFreeGrids = settings.Element("allowfreegrids")?.Value.Trim();
+            bool freeGridsFromSetting = ParseBool(rawFreeGrids);
+            bool freeGridsFromBook = _enabledSourcebooks.Contains("HT");
+            bool freeGridsEnabled = freeGridsFromSetting || freeGridsFromBook;
+            var freeGridsActivation = new CharacterCreationFreeGridsActivation(rawFreeGrids, freeGridsFromBook,
+                freeGridsFromSetting ? CharacterCreationFreeGridsActivationReason.Setting
+                    : freeGridsFromBook ? CharacterCreationFreeGridsActivationReason.Sourcebook
+                    : CharacterCreationFreeGridsActivationReason.Disabled,
+                CharacterCreationFinalizationDigest.Compute(settings.ToString(SaveOptions.DisableFormatting)), sourceDigest);
             blockers.AddRange(effectBlockers);
+            if (!qualitySourcesExact)
+                blockers.Add(qualitySourceBlocker ?? CharacterCreationLifestylesBlockers.AuthorityUnavailable);
 
+            bool cataloguesExact1008 = TryResolveLifestyleCatalogues1008(out var locations1008, out var categories1008);
+            if (!cataloguesExact1008) blockers.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
             var qualities = new List<CharacterCreationLifestyleQualityCatalogOption>();
+            var exactQualityCosts1000 = new HashSet<Guid>();
             foreach (XElement row in qualityRows.OrderBy(
                          item => ReadValue(item, "id"),
                          StringComparer.Ordinal))
@@ -4912,7 +5872,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 }
                 string name = ReadValue(row, "name");
                 string category = ReadValue(row, "category");
-                string qualityType = ResolveLifestyleQualityType(category);
+                string qualityType = categories1008 is null ? ResolveLifestyleQualityType(category)
+                    : categories1008.SingleOrDefault(item => item.Name == category)?.QualityType ?? string.Empty;
+                if (qualityType.Length == 0) blockers.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
                 string sourceBook = ReadValue(row, "source");
                 string page = ReadValue(row, "page");
                 bool sourceEnabled = !string.IsNullOrWhiteSpace(sourceBook)
@@ -4922,8 +5884,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 bool careerOnly = ParseBool(ReadValue(row, "careeronly"));
                 bool hasRequirements = row.Elements("required").Any()
                     || row.Elements("forbidden").Any();
+                bool selectionExact1008 = TryReadLifestyleSelection1008(row, out var selectionSemantics1008);
                 bool hasUnboundedPrompt = row.Descendants().Any(element =>
-                    element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase));
+                    element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase)
+                    && !(selectionExact1008 && element.Name == "selecttext" && element.Parent == row.Element("bonus")));
                 int lp = 0;
                 decimal flatCost = 0m;
                 decimal multiplier = 0m;
@@ -4944,7 +5908,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 numericExact &= TryReadOptionalInt(row, "areamaximum", out areaMaximum);
                 numericExact &= TryReadOptionalInt(row, "comfortsmaximum", out comfortsMaximum);
                 numericExact &= TryReadOptionalInt(row, "securitymaximum", out securityMaximum);
+                bool allowedExact = TryReadLifestyleAllowed1000(row, out var allowedFreeLifestyles);
+                if (numericExact && allowedExact && selectionExact1008 && !hasUnboundedPrompt
+                    && !hasRequirements && qualityType.Length != 0)
+                    exactQualityCosts1000.Add(sourceId);
                 bool eligibilityExact = numericExact
+                    && selectionExact1008
+                    && qualityType.Length != 0
+                    && allowedExact
                     && !hasRequirements
                     && !hasUnboundedPrompt
                     && !string.IsNullOrWhiteSpace(page);
@@ -4979,17 +5950,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     numericExact ? areaMaximum : 0,
                     numericExact ? comfortsMaximum : 0,
                     numericExact ? securityMaximum : 0,
-                    row.Element("allowedfreelifestyles")?.Elements("lifestyle")
-                        .Select(item => item.Value.Trim())
-                        .Where(item => item.Length > 0)
-                        .Distinct(StringComparer.Ordinal)
-                        .OrderBy(item => item, StringComparer.Ordinal)
-                        .ToArray() ?? [],
+                    allowedFreeLifestyles,
                     selectable,
                     eligibilityExact,
                     optionBlockers,
                     [anchor],
-                    string.Empty);
+                    string.Empty) { SelectionSemantics = selectionSemantics1008 };
                 qualities.Add(candidate with
                 {
                     OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(candidate)
@@ -5062,7 +6028,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         if (!qualitiesByName.TryGetValue(
                                 qualityName,
                                 out CharacterCreationLifestyleQualityCatalogOption[]? matches)
-                            || matches.Length != 1)
+                            || matches.Length != 1
+                            || !exactQualityCosts1000.Contains(matches[0].SourceId))
                         {
                             builtInsExact = false;
                             continue;
@@ -5157,6 +6124,37 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     MetatypeCostLayer = "unconditional-global-racial-after-split-before-outings-v1"
                 });
             }
+            string[] lifestyleSourceAnchors = ["lifestyles.xml", SettingsAnchor, "character.xml#improvements"];
+            if (!string.IsNullOrEmpty(qualityInputsDigest))
+            {
+                sourceDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Lifestyles = sourceDigest,
+                    PurchasedQualitySources = qualityInputsDigest
+                });
+                lifestyleSourceAnchors = lifestyleSourceAnchors
+                    .Concat(["qualities.xml", "character.xml#qualities"])
+                    .Concat(qualityInstances.SelectMany(instance => instance.Selection.SourceAnchorIds))
+                    .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray();
+            }
+            if (purchasedQualityCosts is not null)
+            {
+                gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    PreviousPolicyDigest = gmPolicyDigest,
+                    PurchasedQualityCosts = purchasedQualityCosts
+                });
+                runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    PreviousRuntimeDigest = runtimeDigest,
+                    PurchasedQualityCostLayer = purchasedQualityCosts.Occurrences.Any(effect =>
+                        effect.EffectType == CharacterCreationLifestyleCostEffectType.BasicLifestyleCost)
+                        ? "unconditional-source-occurrences-min-minus100-standard-only-basic-after-racial-before-outings-v3"
+                        : purchasedQualityCosts.Occurrences.Any(effect => effect.Percentage < 0m)
+                        ? "unconditional-source-occurrences-min-minus100-after-racial-before-outings-v2"
+                        : "unconditional-nonnegative-source-occurrences-after-racial-before-outings-v1"
+                });
+            }
             string[] normalized = blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(item => item, StringComparer.Ordinal)
                 .ToArray();
@@ -5168,11 +6166,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 qualities,
                 trustFundLevel,
                 freeGridsEnabled,
-                [
-                    "lifestyles.xml",
-                    SettingsAnchor,
-                    "character.xml#improvements"
-                ],
+                lifestyleSourceAnchors,
                 normalized,
                 normalized.Length == 0,
                 sourceDigest,
@@ -5181,7 +6175,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 runtimeDigest,
                 string.Empty)
             {
-                MetatypeCostPercent = metatypeCostPercent
+                MetatypeCostPercent = metatypeCostPercent,
+                PurchasedQualityCosts = purchasedQualityCosts,
+                FreeGridsActivation = freeGridsActivation,
+                LocationCatalog = locations1008,
+                Categories = categories1008
             };
             authority = projected with
             {
@@ -5194,6 +6192,138 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
             return true;
         }
+
+        private bool TryResolveSavedLifestyleQualitySources(
+            IReadOnlyList<XElement> improvements,
+            out CharacterCreationLifestyleQualityInstance[] instances,
+            out string inputsDigest,
+            out string? blocker)
+        {
+            instances = [];
+            inputsDigest = string.Empty;
+            blocker = CharacterCreationLifestylesBlockers.UnsupportedSemantics;
+            XElement[] saved = _character.Elements("qualities")
+                .SelectMany(container => container.Elements("quality")).ToArray();
+            bool hasCostHint = saved.Any(HasLifestyleCostSource)
+                || improvements.Any(item => ReadValue(item, "improvementsource") == "Quality"
+                    && ReadValue(item, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost");
+            if (saved.Length == 0 && !hasCostHint)
+                return true;
+            if (saved.Length > 4096)
+                return false;
+
+            // A legacy no-cost graph does not require an installed quality
+            // catalog. When one is present, inspect live rows too: deleting a
+            // saved bonus and its improvement must not hide a source cost.
+            if (!TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string sourceDigest))
+            {
+                blocker = CharacterCreationLifestylesBlockers.AuthorityUnavailable;
+                return !hasCostHint;
+            }
+            if (!TryHasSelectedCustomDataInputFor(_customDirectories, "qualities.xml", out bool hasCustomInput))
+                return false;
+
+            var admitted = new List<CharacterCreationLifestyleQualityInstance>();
+            foreach (var group in saved.GroupBy(item =>
+                         Guid.TryParse(ReadValue(item, "sourceid"), out Guid id) ? id : Guid.Empty))
+            {
+                bool savedCost = group.Any(HasLifestyleCostSource);
+                if (group.Key == Guid.Empty)
+                {
+                    if (savedCost) return false;
+                    continue;
+                }
+                bool resolved = TryResolveTarget("qualities.xml", ["qualities"], "quality",
+                    group.Key.ToString("D", CultureInfo.InvariantCulture), string.Empty,
+                    out XElement? source, out bool ambiguous, inspectIdentity: true);
+                if (!resolved || source is null)
+                {
+                    if (savedCost) return false;
+                    continue;
+                }
+                if (ambiguous) return false;
+                if (!savedCost && !HasLifestyleCostSource(source))
+                    continue;
+
+                inputsDigest = hasCustomInput
+                    ? CharacterCreationSkillsDigest.Compute(new
+                    {
+                        QualitySources = sourceDigest,
+                        SelectedCustomData = _selectedCustomDataInputsDigest
+                    })
+                    : sourceDigest;
+                if (!Guid.TryParse(ReadValue(source, "id"), out Guid sourceId) || sourceId != group.Key
+                    || group.Any(item => ReadValue(item, "qualitysource") != "Selected")
+                    || ParseBool(ReadValue(source, "careeronly"))
+                    || ParseBool(ReadValue(source, "onlyprioritygiven"))
+                    || source.Elements("implemented").Any() && !ParseBool(ReadValue(source, "implemented")))
+                    return false;
+                string book = ReadValue(source, "source");
+                if (string.IsNullOrWhiteSpace(book) || !_enabledSourcebooks.Contains(book))
+                {
+                    blocker = CharacterCreationLifestylesBlockers.SourceDisabled;
+                    return false;
+                }
+                string sourceXml = source.ToString(SaveOptions.DisableFormatting);
+                // The downstream source-backed matcher compiles the entire exact
+                // selection with the shared saved/completion grammar. Ordinary
+                // catalog admission excludes SkillKarma effects even when this
+                // same purchased quality also has a supported LifestyleCost.
+                // Skill target/policy admission remains the Skill consumer's job.
+                if (!int.TryParse(ReadValue(source, "karma"), NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out int karma))
+                    return false;
+                int rating = group.Count();
+                int cost;
+                try { cost = checked(karma * rating); }
+                catch (OverflowException) { return false; }
+                string name = ReadValue(source, "name");
+                CharacterCreationQualityType type = ReadValue(source, "category") == "Positive"
+                    ? CharacterCreationQualityType.Positive : CharacterCreationQualityType.Negative;
+                bool metagenic = ParseBool(ReadValue(source, "metagenic"))
+                    || ParseBool(ReadValue(source, "metagenetic"));
+                bool countsAgainstLimit = !source.Elements("contributetolimit").Any()
+                    || ParseBool(ReadValue(source, "contributetolimit"));
+                bool countsAgainstKarma = !source.Elements("contributetobp").Any()
+                    || ParseBool(ReadValue(source, "contributetobp"));
+                string optionId = $"quality:{sourceId:D}:rating:{rating}";
+                string[] anchors = [$"qualities.xml#quality:{sourceId:D}"];
+                string nodeDigest = CharacterCreationQualitiesRules.ComputeSourceNodeDigest(sourceXml);
+                var option = new CharacterCreationQualityCatalogOption(optionId, sourceId,
+                    sourceId.ToString("D"), name, type, rating, cost, 1, metagenic,
+                    countsAgainstLimit, countsAgainstKarma, false, true, true, null, null, null,
+                    anchors, sourceXml, nodeDigest, string.Empty);
+                var selection = new CharacterCreationQualitySelection(optionId, sourceId,
+                    option.SelectionKey, name, type, rating, cost, metagenic, countsAgainstLimit,
+                    countsAgainstKarma, false, null, null, anchors, sourceXml, nodeDigest,
+                    CharacterCreationQualitiesRules.ComputeOptionDigest(option));
+                int level = 0;
+                foreach (XElement quality in group)
+                    admitted.Add(new CharacterCreationLifestyleQualityInstance(quality, ++level, selection));
+            }
+
+            if (admitted.Count > 0 || hasCostHint)
+            {
+                if (_character.Elements("qualities").Count() != 1
+                    || _character.Elements("improvements").Count() != 1)
+                    return false;
+                // Even an unrelated native quality cannot alias a cost owner.
+                var ownerIds = admitted.Select(instance => ReadValue(instance.Quality, "guid"))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (string ownerId in ownerIds)
+                    if (!Guid.TryParse(ownerId, out Guid id) || id == Guid.Empty
+                        || saved.Count(item => Guid.TryParse(ReadValue(item, "guid"), out Guid other)
+                            && other == id) != 1)
+                        return false;
+            }
+            instances = admitted.ToArray();
+            blocker = null;
+            return true;
+        }
+
+        private static bool HasLifestyleCostSource(XElement quality) => quality.Descendants()
+            .Any(item => string.Equals(item.Name.LocalName, "lifestylecost", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.Name.LocalName, "basiclifestylecost", StringComparison.OrdinalIgnoreCase));
 
         private static string ResolveLifestyleQualityType(string category) =>
             category switch
@@ -5605,7 +6735,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private CharacterCreationSkillCatalogEntry[] ProjectSkills(
             IReadOnlyList<XElement> rows,
             string kind,
-            ICollection<string> blockers)
+            ICollection<string> blockers, SkillCatalogueTrace? sourceExecution = null)
         {
             var projected = new List<CharacterCreationSkillCatalogEntry>();
             var identities = new HashSet<string>(StringComparer.Ordinal);
@@ -5701,12 +6831,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     if (!string.IsNullOrWhiteSpace(sourceBook)
                         && !ignoresSourceDisabled
                         && !IsEnabledSource(sourceBook))
+                    {
+                        sourceExecution?.Skip(row, kind, "source-disabled", scalarShapeValid
+                            && Guid.TryParseExact(id, "D", out var skippedId) && skippedId != Guid.Empty
+                            && CharacterCreationStandardPrioritySkillsRules.IsSupportedCategory(kind, category)
+                            && CharacterCreationStandardPrioritySkillsRules.IsSupportedAttribute(attribute));
                         continue;
+                    }
                     blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
                     continue;
                 }
                 if (hidden)
+                {
+                    sourceExecution?.Skip(row, kind, "hidden", true, IsEnabledSource(sourceBook));
                     continue;
+                }
 
                 CharacterCareerSkillKind careerKind = string.Equals(
                     kind,
@@ -5783,6 +6922,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     RequiresFlyMovement = requiresFlyMovement,
                     CanBeNativeLanguage = canBeNativeLanguage
                 });
+                sourceExecution?.Project(row, kind, IsEnabledSource(sourceBook), projected[^1]);
             }
 
             CharacterCreationSkillCatalogEntry[] ordered = projected
@@ -5943,6 +7083,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeSelectedCustomDataInputsDigest(
                     _customDirectories,
                     out string currentCustomDataInputsDigest)
+                || !TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "metatypes.xml",
+                    out bool hasMetatypeCustomData)
                 || !TryComputeRawBaseFileDigest(
                     _catalog,
                     "metatypes.xml",
@@ -5996,7 +7140,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 blockers.Add(CharacterCreationMetatypeCatalogBlockers.CustomDataDrift);
             }
-            if (_customDirectories.Count != 0)
+            // A selected directory can amend settings without changing metatypes.
+            // Keep actual metatype custom data unsupported, as in the prerequisite authority.
+            if (hasMetatypeCustomData)
             {
                 blockers.Add(CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported);
             }
@@ -6065,7 +7211,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
 
             authority = CharacterCreationMetatypeCatalogProjector.Project(document, sourceContext,
-                includeKarmaBaseBonuses: _buildMethod == CharacterCreationBuildMethods.Karma);
+                includeKarmaBaseBonuses: _buildMethod == CharacterCreationBuildMethods.Karma, sourceExecutionSchema: _sourceInputs.CreationSourceExecutionSchema);
             if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
             {
                 var frozen = CopyMetatypeCatalog(authority);
@@ -7280,7 +8426,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 && ActiveSourceInputs.Value is { } inputs
                 && inputs.TryGetEffectiveTarget(CreateSourceCacheKey("effective-document", fileName),
                     containerNames, entryName, locator, out target))
-                return true;
+                return FilterSourcebookTarget800(fileName, ref target, entryName == "skill"
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
             if (!TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
                 || document?.Root is null)
             {
@@ -7303,6 +8450,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     ambiguousIdentity = true;
             }
             target = FindTarget(document.Root, containerNames, entryName, locator);
+            // This profile already includes selected settings in the snapshot. Reapplying APPEND
+            // or ADDNODE would disagree with the values captured during context construction.
+            // Raw contributor ambiguity checks above still run for identity-sensitive consumers.
+            if (_sourceInputs.HasSelectedProfile(fileName)) return target is not null;
             foreach (CustomDirectory directory in _customDirectories)
             {
                 string[] relevantFiles;
@@ -7355,7 +8506,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 }
             }
 
-            return true;
+            return FilterSourcebookTarget800(fileName, ref target, entryName == "skill"
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
         }
 
         private bool TryHasAmbiguousRawTargetContributor(
@@ -7409,7 +8561,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     foreach (string fragmentPath in EnumerateSourceFiles(
                                  pack.DataPath,
                                  "*.xml",
-                                 SearchOption.TopDirectoryOnly).OrderBy(path => path, StringComparer.Ordinal))
+                                 SearchOption.TopDirectoryOnly).OrderBy(path => SourcePathOrderKey(path), StringComparer.Ordinal))
                     {
                         if (!string.Equals(
                                 ResolveCatalogTargetFileName(Path.GetFileName(fragmentPath)),
@@ -7455,8 +8607,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 .Where(row => row.Element("name")?.Value is "Elf" or "Ork")
                 .SelectMany(row => row.Elements("qualities").Elements().Elements("quality"))
                 .Select(row => row.Value.Trim()).ToHashSet(StringComparer.Ordinal);
-            return _sourceInputs.TryLoadQualityReferences(Path.Combine(_catalog.BaseDataPath, "qualities.xml"),
-                references, out qualities);
+            if (!_sourceInputs.TryLoadQualityReferences(Path.Combine(_catalog.BaseDataPath, "qualities.xml"),
+                references, out qualities)) return false;
+            // Required grants cannot silently disappear through the optimized reference path.
+            if (_sourceInputs.Sourcebooks800 && !_readingSourcebooks800)
+                foreach (var quality in qualities)
+                    if (!SourceGate800("qualities.xml", quality).Eligible) return false;
+            return true;
         }
 
         private bool TryEnumerateTargets(
@@ -7489,7 +8646,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     if (targets[i].Parent is null) targets[i] = new XElement(targets[i]);
                     else targets[i].Remove();
                 }
-                return true;
+                return FilterSourcebookTargets800(fileName, ref targets, entryName == "skill"
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
             }
             var locators = new List<TargetLocator>();
             AddLocators(document.Root, containerNames, entryName, locators);
@@ -7574,7 +8732,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => pair.Value)
                 .ToArray();
-            return true;
+            return FilterSourcebookTargets800(fileName, ref targets, entryName == "skill"
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
         }
 
         private static void AddLocators(
@@ -7838,17 +8997,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         IReadOnlyList<string> containerNames,
         string entryName,
         TargetLocator locator,
-        ref XElement? target)
+        ref XElement? target,
+        XElement? boundIdentity = null,
+        Func<XElement?, bool>? validateTarget = null, ProfileFileAccounting? accounting = null)
     {
+        if (validateTarget is not null && !validateTarget(target)) return false;
         foreach (XElement entry in containerNames.SelectMany(containerName =>
                      customRoot.Element(containerName)?.Elements(entryName) ?? []))
         {
+            int? entryOperation = accounting?.BeginEntry(prefix, entry, target);
             if (string.Equals(prefix, "override_", StringComparison.OrdinalIgnoreCase))
             {
-                if (target is not null && AmendmentMatchesTarget(entry, target, locator, out bool exact) && exact)
+                if (target is not null && AmendmentMatchesTarget(entry, boundIdentity ?? target, locator, out bool exact) && exact)
                 {
                     target = StripAmendAttributes(new XElement(entry));
                 }
+                accounting?.EndEntry(entryOperation, target);
+                if (validateTarget is not null && !validateTarget(target)) return false;
                 continue;
             }
 
@@ -7858,15 +9023,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     target = StripAmendAttributes(new XElement(entry));
                 }
+                accounting?.EndEntry(entryOperation, target);
+                if (validateTarget is not null && !validateTarget(target)) return false;
                 continue;
             }
 
-            if (!AmendmentMatchesTarget(entry, target, locator, out bool amendmentExact))
+            bool matches = AmendmentMatchesTarget(entry, boundIdentity ?? target, locator, out bool amendmentExact);
+            accounting?.Selected(entry, matches, amendmentExact);
+            if (!matches)
             {
                 if (!amendmentExact)
                 {
                     return false;
                 }
+                accounting?.EndEntry(entryOperation, target);
                 continue;
             }
 
@@ -7895,7 +9065,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         }
                         break;
                     }
-                    if (!TryMergeAmendment(target, entry))
+                    XElement currentTarget = target;
+                    if (!TryMergeAmendment(target, entry,
+                        validateTarget is null ? null : () => validateTarget(currentTarget), accounting))
                     {
                         return false;
                     }
@@ -7903,6 +9075,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 default:
                     return false;
             }
+            accounting?.EndEntry(entryOperation, target);
+            if (validateTarget is not null && !validateTarget(target)) return false;
         }
 
         return true;
@@ -7975,11 +9149,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         return true;
     }
 
-    private static bool TryMergeAmendment(XElement target, XElement amendment)
+    private static bool TryMergeAmendment(XElement target, XElement amendment, Func<bool>? validateMutation = null,
+        ProfileFileAccounting? accounting = null)
     {
         foreach (XElement child in amendment.Elements())
         {
-            if (!TryApplyAmendmentNode(target, child))
+            if (!TryApplyAmendmentNode(target, child, validateMutation, accounting))
             {
                 return false;
             }
@@ -7988,7 +9163,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         return true;
     }
 
-    private static bool TryApplyAmendmentNode(XElement targetParent, XElement amendment)
+    private static bool TryApplyAmendmentNode(XElement targetParent, XElement amendment, Func<bool>? validateMutation = null,
+        ProfileFileAccounting? accounting = null)
     {
         string operation = ReadOperation(amendment);
         string? xpathFilter = amendment.Attribute("xpathfilter")?.Value;
@@ -8036,17 +9212,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
-        if (string.Equals(operation, "ADDNODE", StringComparison.Ordinal))
-        {
-            targetParent.Add(StripAmendAttributes(new XElement(amendment)));
-            return true;
-        }
-
         bool hasElementChildren = amendment.Elements().Any();
         if (string.IsNullOrEmpty(operation))
         {
             operation = hasElementChildren ? "RECURSE" : candidates.Count == 0 ? "APPEND" : "REPLACE";
         }
+        using var observed = accounting?.Observe(targetParent, amendment, operation, candidates);
+
+        if (string.Equals(operation, "ADDNODE", StringComparison.Ordinal))
+        {
+            targetParent.Add(StripAmendAttributes(new XElement(amendment)));
+            return validateMutation?.Invoke() ?? true;
+        }
+
 
         if (candidates.Count == 0)
         {
@@ -8055,7 +9233,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || operation == "RECURSE")
             {
                 targetParent.Add(StripAmendAttributes(new XElement(amendment)));
-                return true;
+                return validateMutation?.Invoke() ?? true;
             }
             return operation == "REMOVE";
         }
@@ -8081,7 +9259,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     }
                     break;
                 case "RECURSE":
-                    if (!TryMergeAmendment(candidate, amendment))
+                    if (!TryMergeAmendment(candidate, amendment, validateMutation, accounting))
                     {
                         return false;
                     }
@@ -8105,6 +9283,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 default:
                     return false;
             }
+            // Observe each mutation before the next candidate or recursive operation can run.
+            if (validateMutation is not null && !validateMutation()) return false;
         }
 
         return true;
@@ -8180,7 +9360,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             foreach (string fragmentPath in EnumerateSourceFiles(pack.DataPath, "*.xml", SearchOption.TopDirectoryOnly)
-                         .OrderBy(path => path, StringComparer.Ordinal))
+                         .OrderBy(path => SourcePathOrderKey(path), StringComparer.Ordinal))
             {
                 if (!string.Equals(ResolveCatalogTargetFileName(Path.GetFileName(fragmentPath)), fileName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -8245,7 +9425,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 foreach (string fragmentPath in EnumerateSourceFiles(
                              pack.DataPath,
                              "*.xml",
-                             SearchOption.TopDirectoryOnly).OrderBy(path => path, StringComparer.Ordinal))
+                             SearchOption.TopDirectoryOnly).OrderBy(path => SourcePathOrderKey(path), StringComparer.Ordinal))
                 {
                     if (string.Equals(
                             ResolveCatalogTargetFileName(Path.GetFileName(fragmentPath)),
@@ -8340,7 +9520,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
                 foreach (string path in EnumerateSourceFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
                              .Where(path => IsLegacyCustomDataInputFor(path, "metatypes.xml"))
-                             .OrderBy(path => Path.GetRelativePath(directory.Path, path), StringComparer.Ordinal))
+                             .OrderBy(path => SourcePathOrderKey(Path.GetRelativePath(directory.Path, path)), StringComparer.Ordinal))
                 {
                     string relativePath = Path.GetRelativePath(directory.Path, path).Replace('\\', '/');
                     AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
@@ -8519,7 +9699,32 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return false;
         }
 
-        var anchors = new List<string>();
+        if (!TryResolveCreationPriorityCustomSources(directories, out CreationPriorityCustomSource[] sources))
+            return false;
+        try
+        {
+            foreach (CreationPriorityCustomSource source in sources)
+            {
+                if (!Path.GetFileName(source.Path).StartsWith("amend_", StringComparison.OrdinalIgnoreCase)
+                    || !TryApplyCreationPriorityWeightAmendment(document, source.Path))
+                    customDataUnsupported = true;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or XmlException)
+        {
+            return false;
+        }
+        sourceAnchors = sources.Select(source => source.SourceAnchorId).ToArray();
+        return true;
+    }
+
+    private sealed record CreationPriorityCustomSource(string Path, string SourceAnchorId);
+
+    private static bool TryResolveCreationPriorityCustomSources(
+        IReadOnlyList<CustomDirectory> directories, out CreationPriorityCustomSource[] sources)
+    {
+        sources = [];
+        var resolved = new List<CreationPriorityCustomSource>();
         try
         {
             foreach (CustomDirectory directory in directories)
@@ -8535,14 +9740,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     string relativePath = Path.GetRelativePath(directory.Path, path)
                         .Replace('\\', '/');
-                    anchors.Add($"customdata:{directory.Name}:{relativePath}");
-                    if (!Path.GetFileName(path).StartsWith(
-                            "amend_",
-                            StringComparison.OrdinalIgnoreCase)
-                        || !TryApplyCreationPriorityWeightAmendment(document, path))
-                    {
-                        customDataUnsupported = true;
-                    }
+                    resolved.Add(new(path, $"customdata:{directory.Name}:{relativePath}"));
                 }
             }
         }
@@ -8553,7 +9751,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return false;
         }
 
-        sourceAnchors = anchors.ToArray();
+        sources = resolved.ToArray();
         return true;
     }
 
@@ -8734,12 +9932,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     }
 
     private static string BindSelectedProfile(string rawInputsDigest, string settingsProfileId)
-    {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendFramed(hash, Encoding.UTF8.GetBytes(rawInputsDigest));
-        AppendFramed(hash, Encoding.UTF8.GetBytes(settingsProfileId.Trim()));
-        return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-    }
+        => CharacterCreationBootstrapProfiles.BindSettingsInputsDigest(rawInputsDigest, settingsProfileId);
 
     private static void AppendFramed(IncrementalHash hash, byte[] bytes)
     {

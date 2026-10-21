@@ -205,12 +205,12 @@ public sealed class CharacterCreationLoadoutSourceTests
     }
 
     [TestMethod]
-    [DataRow(true, false, "4R", false)]
-    [DataRow(false, true, "4F", false)]
+    [DataRow(true, false, "4R", true)]
+    [DataRow(false, true, "4F", true)]
     [DataRow(true, true, "4", true)]
     [DataRow(false, true, "4R", true)]
     [DataRow(true, false, "4F", true)]
-    public void Unsupported_profile_price_multiplier_disables_only_affected_legality(
+    public void Career_price_switches_keep_base_creation_weapon_and_armor_prices(
         bool multiplyRestricted, bool multiplyForbidden, string weaponAvailability, bool weaponSelectable)
     {
         var baseline = ResolveFixture(out bool baselineAvailable);
@@ -219,26 +219,60 @@ public sealed class CharacterCreationLoadoutSourceTests
         {
             profile.SetElementValue("multiplyrestrictedcost", multiplyRestricted);
             profile.SetElementValue("multiplyforbiddencost", multiplyForbidden);
-        }, weaponAvailability: weaponAvailability);
+            profile.SetElementValue("restrictedcostmultiplier", 2);
+            profile.SetElementValue("forbiddencostmultiplier", 3);
+        }, weaponAvailability: weaponAvailability, armorAvailability: "4F");
         Assert.IsTrue(available);
         Assert.IsTrue(CharacterCreationLoadoutRules.IsValidAuthority(authority));
         Assert.AreNotEqual(baseline.RulesDigest, authority.RulesDigest);
         var weapon = authority.Options.Single(option => option.OptionId == WeaponId);
         Assert.AreEqual(weaponSelectable, weapon.IsSelectable);
         Assert.AreEqual(weaponSelectable, weapon.PricingIsExact);
-        if (!weaponSelectable)
-            CollectionAssert.Contains(weapon.Blockers.ToArray(), CharacterCreationLoadoutBlockers.UnsupportedSemantics);
+        Assert.AreEqual(320m, weapon.UnitCost);
+        Assert.AreEqual("320", XElement.Parse(weapon.SourceNodeXml).Element("cost")!.Value);
         var armor = authority.Options.Single(option => option.OptionId == ArmorId);
         Assert.IsTrue(armor.IsSelectable);
         Assert.IsTrue(armor.PricingIsExact);
         Assert.IsTrue(CharacterCreationLoadoutRules.TryProjectBasket(new([], [new(ArmorId)]), authority,
             out _, out decimal cost, out _));
         Assert.AreEqual(1000m, cost);
+        Assert.AreEqual("1000", XElement.Parse(armor.SourceNodeXml).Element("cost")!.Value);
+        Assert.IsTrue(CharacterCreationLoadoutRules.TryProjectBasket(new([new(WeaponId)], [new(ArmorId)]), authority,
+            out var lines, out decimal mixedCost, out _));
+        Assert.AreEqual(1320m, mixedCost);
+        Assert.IsTrue(CharacterCreationLoadoutSourceProjector.TryBuildGraph(lines,
+            CharacterCreationLoadoutRules.Compute("creation-base-prices"), out var nativeWeapons, out var nativeArmor));
+        Assert.AreEqual("320", nativeWeapons.Single().Element("cost")!.Value);
+        Assert.AreEqual("1000", nativeArmor.Single().Element("cost")!.Value);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Creation_base_price_correction_keeps_availability_and_source_fences(bool availability)
+    {
+        var authority = ResolveFixture(out bool available, amendProfile: profile =>
+        {
+            profile.SetElementValue("multiplyrestrictedcost", true);
+            profile.SetElementValue("multiplyforbiddencost", true);
+            profile.SetElementValue("restrictedcostmultiplier", 2);
+            profile.SetElementValue("forbiddencostmultiplier", 3);
+            if (availability) profile.SetElementValue("availability", 3);
+            else profile.Element("books")!.RemoveNodes();
+        }, armorAvailability: "4F");
+        Assert.IsTrue(available);
+        foreach (var option in authority.Options)
+        {
+            Assert.IsFalse(option.IsSelectable);
+            Assert.IsTrue(option.PricingIsExact);
+            CollectionAssert.Contains(option.Blockers.ToArray(), availability
+                ? CharacterCreationLoadoutBlockers.AvailabilityExceeded : CharacterCreationLoadoutBlockers.SourceDisabled);
+        }
     }
 
     private static CharacterCreationLoadoutAuthority ResolveFixture(out bool available,
         string? customFileName = null, XElement? customContent = null, bool enableCustom = true,
-        Action<XElement>? amendProfile = null, string weaponAvailability = "4R")
+        Action<XElement>? amendProfile = null, string weaponAvailability = "4R", string armorAvailability = "2")
     {
         string root = Path.Combine(Path.GetTempPath(), $"chummer-loadout-source-{Guid.NewGuid():N}");
         const string profileId = "e7aef934-912f-43d0-a555-50ebc2ffca08";
@@ -268,8 +302,9 @@ public sealed class CharacterCreationLoadoutSourceTests
             XElement weapon = Weapon(); weapon.SetElementValue("avail", weaponAvailability);
             new XElement("chummer", new XElement("categories", WeaponCategory()), new XElement("weapons", weapon))
                 .Save(Path.Combine(root, "data", "weapons.xml"));
+            XElement armor = Armor(); armor.SetElementValue("avail", armorAvailability);
             new XElement("chummer", new XElement("categories", new XElement("category",
-                    new XAttribute("blackmarket", "Armor"), "Armor")), new XElement("armors", Armor()))
+                    new XAttribute("blackmarket", "Armor"), "Armor")), new XElement("armors", armor))
                 .Save(Path.Combine(root, "data", "armor.xml"));
             var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
             var context = resolver.TryCreateContext(character.ToString());

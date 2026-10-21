@@ -10,7 +10,10 @@ namespace Chummer.Application.Characters;
 public static class CharacterCreationKarmaMetatypeTransaction
 {
     public const int MaximumDecisions = 128;
-    private const int MaximumDecisionBytes = 128 * 1024;
+    // A source-bound magic/contact/lifestyle decision retains the location catalogue
+    // for exact replay and exceeds the original 128 KiB allowance. Keep both this
+    // per-decision ceiling and MaximumDecisions bounded; do not discard authority.
+    private const int MaximumDecisionBytes = 256 * 1024;
 
     public static bool IsConfirmed(CharacterCreationKarmaMetatypeConfirmRequest? request)
         => request is { ExplicitlyConfirmed: true, Binding: { } binding }

@@ -25,6 +25,409 @@ namespace Chummer.Tests;
 public sealed partial class CharacterCreationCompletionApplyTests
 {
     [TestMethod]
+    public void Completion_draft_review_without_a_cash_choice_captures_real_witness_and_leaves_original_unchanged()
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        IOwnerBoundCharacterCreationCompletionService service = Service(context, context.Store, owners);
+        var inputs = Inputs(context, context.Store, owners);
+        var proposal = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest, UnsavedChoices(inputs));
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var files = Snapshot(context);
+        var result = service.ReviewDraft(owners.Capture(), context.WorkspaceId, proposal);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+        var draft = result.Value!;
+        Assert.AreEqual(CharacterCreationCompletionDraftReview.SchemaV1, draft.Schema);
+        Assert.AreEqual(before.ContentRevision, draft.Binding.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, draft.Binding.SavedRevision);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, draft.Binding.AuxiliaryStateDigest);
+        Assert.AreEqual(CharacterCreationFinalizationDigest.ComputeUtf8(before.Document.Content), draft.Binding.RawCharacterXmlDigest);
+        Assert.AreEqual(proposal.InputsSnapshotDigest, draft.Review.InputsSnapshotDigest);
+        Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(proposal), CharacterCreationFinalizationDigest.Compute(draft.Review.Request));
+        Assert.AreEqual(CharacterCreationCompletionReviewRules.ComputeReviewDigest(draft.Review), draft.Review.ReviewDigest);
+        Assert.AreEqual(CharacterCreationCompletionDraftReviewRules.ComputeDigest(draft), draft.DraftReviewDigest);
+        Assert.IsTrue(CharacterCreationFinalizationDigest.IsCanonical(draft.SelectedWitnessDigest));
+        Assert.AreNotEqual(draft.Review.ReviewDigest, draft.DraftReviewDigest);
+        Assert.IsTrue(draft.Review.Skills!.ActiveSkillPointBudget.Remaining > 0,
+            "A legal proposal with unused Creation points does not require finalization or loss confirmation.");
+        Assert.IsTrue(draft.Review.Balances.RemainingNuyen > 0);
+        AssertUnchanged(context, files);
+        var reopened = new FileWorkspaceStore(context.Directory).Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.Document.Content, reopened.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, reopened.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(before.ContentRevision, reopened.ContentRevision);
+        Assert.IsFalse(bool.Parse(XDocument.Parse(reopened.Document.Content).Root!.Element("created")!.Value));
+        Assert.IsNull(reopened.Document.AuxiliaryState.CharacterCreationFinalizationReceipts);
+        Assert.IsNull(reopened.Document.AuxiliaryState.CharacterCreationFinalizationArchive);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    public void Completion_draft_review_rejects_changed_owner_revision_and_locked_choices_without_writing()
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var service = Service(context, context.Store, owners);
+        var inputs = Inputs(context, context.Store, owners);
+        var proposal = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest, UnsavedChoices(inputs));
+        var stamp = owners.Capture();
+        var files = Snapshot(context);
+        var locked = proposal with { Selections = proposal.Selections with { ChangeableAttributeIds = [] } };
+        Assert.IsNull(service.ReviewDraft(stamp, context.WorkspaceId, locked).Value);
+        AssertUnchanged(context, files);
+        owners.Set(new OwnerScope("completion-draft-other-owner"));
+        Assert.IsNull(service.ReviewDraft(stamp, context.WorkspaceId, proposal).Value);
+        owners.Set(OwnerScope.LocalSingleUser);
+        Assert.AreNotEqual(stamp, owners.Capture());
+        Assert.IsNull(service.ReviewDraft(stamp, context.WorkspaceId, proposal).Value);
+        AssertUnchanged(context, files);
+        MagicResonanceCompletionTests.SaveAttributes(context, [new("MAG", 1, 0), new("CHA", 1, 0)]);
+        var changedFiles = Snapshot(context);
+        Assert.IsNull(service.ReviewDraft(owners.Capture(), context.WorkspaceId, proposal).Value);
+        AssertUnchanged(context, changedFiles);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    public void Completion_draft_review_rejects_changed_real_selected_source_without_writing()
+    {
+        using var context = ReadyContext.Create(includeGearReview: true,
+            includeNonEmptyPurchases: true, amendSettings: _ => { });
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var service = Service(context, context.Store, owners);
+        var inputs = Inputs(context, context.Store, owners);
+        var proposal = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest,
+            CharacterCreationCompletionReviewServiceTests.BaselineSelections(inputs));
+        var admitted = service.ReviewDraft(owners.Capture(), context.WorkspaceId, proposal);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, admitted.Outcome, string.Join(",", admitted.Blockers));
+        // amendSettings makes ReadyContext copy the source files into this test's
+        // own directory. Never edit the shared repository's source catalog.
+        string path = Path.Combine(context.Directory, "source", "data", "gear.xml");
+        var source = XDocument.Load(path);
+        Guid selected = inputs.Lifestyles.Gear.State.PendingDraft!.Lines.Single().SourceId;
+        var gear = source.Root!.Element("gears")!.Elements("gear").Single(row =>
+            row.Element("id")?.Value == selected.ToString("D"));
+        Assert.AreNotEqual("101", gear.Element("cost")!.Value);
+        gear.SetElementValue("cost", "101");
+        source.Save(path);
+        var files = Snapshot(context);
+        Assert.IsNull(service.ReviewDraft(owners.Capture(), context.WorkspaceId, proposal).Value);
+        AssertUnchanged(context, files);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    public void Completion_draft_review_cancellation_before_admission_preserves_original()
+    {
+        using var context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        MagicResonanceCompletionTests.SavePrerequisite(context, "Mystic Adept", "B");
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var service = Service(context, context.Store, owners);
+        var inputs = Inputs(context, context.Store, owners);
+        var proposal = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest, UnsavedChoices(inputs));
+        var files = Snapshot(context);
+        try
+        {
+            service.ReviewDraft(owners.Capture(), context.WorkspaceId, proposal, new CancellationToken(true));
+            Assert.Fail("Cancellation must be observed before draft review admission.");
+        }
+        catch (OperationCanceledException) { }
+        AssertUnchanged(context, files);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(true, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(true, true, false)]
+    [DataRow(false, false, true)]
+    [DataRow(true, false, true)]
+    [DataRow(false, true, true)]
+    [DataRow(true, true, true)]
+    public void Completion_V3_public_observation_reviews_applies_and_cold_replays_with_exact_optional_inputs(
+        bool linkedOwner, bool includeKarmaPolicy, bool includeLoadout)
+    {
+        using var fixture = ReadyContext.Create(includeGearReview: false);
+        string directory = linkedOwner ? Path.Combine(fixture.Directory, "completion-v3-linked") : fixture.Directory;
+        var (initialStore, owners, id) = linkedOwner
+            ? CreateLinkedPrerequisite(fixture, directory)
+            : (fixture.Store, new CharacterCreationAttributesServiceTests.AllocationOwners(), fixture.WorkspaceId);
+        var owner = owners.Current;
+        var stamp = owners.Capture();
+        var probe = new AtomicWriteProbe();
+        var store = new FileWorkspaceStore(directory, probe);
+        var initialRead = linkedOwner ? initialStore.Get(owner, id) : initialStore.Get(id);
+        Assert.IsTrue(initialRead.Success, initialRead.Error);
+        var before = initialRead.Value!;
+        var files = Snapshot(fixture);
+        var (inputs, proposal, cash) = LoadV3CompletionProposal(fixture, store, owners, id,
+            includeKarmaPolicy, includeLoadout);
+        if (includeKarmaPolicy && includeLoadout)
+        {
+            const int maximumBytes = 4 * 1024 * 1024;
+            var exported = new WorkspaceContinuationExportService(store, owners).Export(stamp, id);
+            Assert.IsTrue(exported.Success, exported.Error);
+            byte[] bytes = WorkspaceContinuationCodec.Encode(exported.Value!, maximumBytes);
+            var retained = new WorkspaceContinuationCompletionReader(owners, fixture.Resolver, fixture.Queries,
+                ContinuationCatalog()).LoadCompletionInputs(stamp, bytes, maximumBytes);
+            Assert.IsTrue(retained.Success, JsonSerializer.Serialize(retained));
+            Assert.IsFalse(retained.HasPersistenceAuthority);
+            Assert.AreEqual(inputs.SnapshotDigest, retained.Identity!.InputsDigest);
+            Assert.AreEqual(JsonSerializer.Serialize(inputs), JsonSerializer.Serialize(retained.Inputs));
+        }
+        var service = Service(fixture, store, owners);
+        var review = service.Review(stamp, id, proposal, cash);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, review.Outcome, string.Join(",", review.Blockers));
+        Assert.AreEqual(inputs.SnapshotDigest, review.Value!.Proposal.InputsSnapshotDigest);
+        Assert.AreEqual(proposal.EffectivePolicyDigest, review.Value.Proposal.EffectivePolicyDigest);
+        AssertUnchanged(fixture, files);
+        var command = Command(review.Value, "completion-v3-public-observation");
+        var applied = service.Apply(stamp, command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, applied.Outcome, string.Join(",", applied.Blockers));
+        Assert.AreEqual(1, probe.Replacements);
+        var cold = new FileWorkspaceStore(directory);
+        var opened = linkedOwner ? cold.Get(owner, id) : cold.Get(id);
+        Assert.IsTrue(opened.Success, opened.Error);
+        AssertCommitted(before, opened.Value!, applied.Value!, review.Value.Projection);
+        if (linkedOwner) Assert.IsFalse(cold.Get(id).Success);
+        Assert.IsFalse(cold.Get(new OwnerScope("completion-v3-foreign"), id).Success);
+        var committedFiles = Snapshot(fixture);
+        var replay = Service(fixture, cold, owners).Apply(stamp, command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, replay.Outcome, string.Join(",", replay.Blockers));
+        Assert.AreEqual(applied.Value!.ReceiptDigest, replay.Value!.ReceiptDigest);
+        AssertUnchanged(fixture, committedFiles);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Completion_V3_public_observation_does_not_authorize_readonly_foreign_or_stale_application(bool linkedOwner)
+    {
+        using var fixture = ReadyContext.Create(includeGearReview: false);
+        var (store, owners, id) = linkedOwner
+            ? CreateLinkedPrerequisite(fixture, Path.Combine(fixture.Directory, "completion-v3-refusals"))
+            : (fixture.Store, new CharacterCreationAttributesServiceTests.AllocationOwners(), fixture.WorkspaceId);
+        var owner = owners.Current;
+        var stamp = owners.Capture();
+        var initialRead = linkedOwner ? store.Get(owner, id) : store.Get(id);
+        Assert.IsTrue(initialRead.Success, initialRead.Error);
+        var before = initialRead.Value!;
+        var (_, proposal, cash) = LoadV3CompletionProposal(fixture, store, owners, id,
+            includeKarmaPolicy: true, includeLoadout: true);
+        var service = Service(fixture, store, owners);
+        var review = service.Review(stamp, id, proposal, cash);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, review.Outcome, string.Join(",", review.Blockers));
+        var command = Command(review.Value!, "completion-v3-refusals");
+        var files = Snapshot(fixture);
+        var readOnly = Service(fixture, new WorkspaceContinuationReadView(owner, before), owners);
+        var denied = readOnly.Review(stamp, id, proposal, cash);
+        Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, denied.Outcome);
+        Assert.IsNull(denied.Value);
+        CollectionAssert.Contains(denied.Blockers.ToArray(), CharacterCreationAttributesBlockers.PersistenceAuthorityRequired);
+        Assert.IsNull(readOnly.Apply(stamp, command).Value);
+        AssertUnchanged(fixture, files);
+
+        owners.Set(new OwnerScope("completion-v3-foreign"));
+        Assert.IsNull(service.Review(owners.Capture(), id, proposal, cash).Value);
+        AssertUnchanged(fixture, files, "foreign-owner review");
+        Assert.IsNull(service.Apply(owners.Capture(), command).Value);
+        AssertUnchanged(fixture, files, "foreign-owner apply");
+        Assert.IsNull(service.Apply(stamp, command).Value);
+        AssertUnchanged(fixture, files, "stale-owner apply");
+        owners.Set(owner);
+        Assert.AreNotEqual(stamp, owners.Capture());
+        Assert.IsNull(service.Apply(stamp, command).Value);
+        AssertUnchanged(fixture, files);
+
+        var xml = XDocument.Parse(before.Document.Content);
+        xml.Root!.Element("name")!.Value += " changed after V3 review";
+        var document = before.Document with { State = before.Document.State with { Payload = xml.ToString() } };
+        var replaced = linkedOwner
+            ? store.ReplaceWorkspaceDocument(owner, id, before.ContentRevision, document)
+            : store.ReplaceWorkspaceDocument(id, before.ContentRevision, document);
+        Assert.IsTrue(replaced.Success, replaced.Error);
+        var changed = linkedOwner ? store.Get(owner, id) : store.Get(id);
+        Assert.IsTrue(changed.Success, changed.Error);
+        var saved = linkedOwner
+            ? store.SaveCheckpoint(owner, id, changed.Value!.ContentRevision)
+            : store.SaveCheckpoint(id, changed.Value!.ContentRevision);
+        Assert.IsTrue(saved.Success, saved.Error);
+        var changedFiles = Snapshot(fixture);
+        Assert.IsNull(service.Review(owners.Capture(), id, proposal, cash).Value);
+        Assert.IsNull(service.Apply(owners.Capture(), command).Value);
+        AssertUnchanged(fixture, changedFiles);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Completion_owner_namespace_absence_reads_preserve_existing_linked_owner_files(bool legacyMetadataOnly)
+    {
+        using var fixture = new OwnerNamespaceFixture();
+        var foreign = new OwnerScope("completion-missing-owner");
+        if (legacyMetadataOnly)
+        {
+            string legacy = fixture.LegacyDirectory(foreign);
+            Directory.CreateDirectory(legacy);
+            File.WriteAllText(Path.Combine(legacy, "desktop-state.json"), "{\"theme\":\"dark\"}");
+        }
+        var files = Snapshot(fixture.Directory);
+        Assert.AreEqual(WorkspaceOperationOutcome.Missing, fixture.Store.Get(foreign, fixture.Id).Outcome);
+        AssertUnchanged(fixture.Directory, files, "missing owner read");
+        Assert.AreEqual(WorkspaceOperationOutcome.Missing, fixture.Store.ReadContinuation(foreign, fixture.Id).Outcome);
+        AssertUnchanged(fixture.Directory, files, "missing owner continuation");
+        var inventory = fixture.Store.Inspect(foreign);
+        Assert.IsTrue(inventory.Success, inventory.Error);
+        Assert.AreEqual(0, inventory.Value!.Count);
+        AssertUnchanged(fixture.Directory, files, "missing owner inventory");
+
+        var cold = new FileWorkspaceStore(fixture.Directory);
+        var reopened = cold.Get(fixture.Owner, fixture.Id);
+        Assert.IsTrue(reopened.Success, reopened.Error);
+        Assert.AreEqual(fixture.Document.Content, reopened.Value!.Document.Content);
+        var continuation = cold.ReadContinuation(fixture.Owner, fixture.Id);
+        Assert.IsTrue(continuation.Success, continuation.Error);
+        AssertUnchanged(fixture.Directory, files, "existing linked owner cold read");
+    }
+
+    [TestMethod]
+    public void Completion_owner_namespace_legacy_workspace_requires_explicit_migration_then_cold_reads()
+    {
+        using var fixture = new OwnerNamespaceFixture();
+        var owner = new OwnerScope("completion-legacy-owner");
+        string legacy = fixture.LegacyDirectory(owner);
+        string legacyWorkspaces = Path.Combine(legacy, "workspaces");
+        Directory.CreateDirectory(legacyWorkspaces);
+        string metadata = Path.Combine(legacy, "desktop-state.json");
+        File.WriteAllText(metadata, "{\"theme\":\"dark\"}");
+        byte[] metadataBytes = File.ReadAllBytes(metadata);
+        string legacyRecord = Path.Combine(legacyWorkspaces, $"{fixture.Id.Value}.json");
+        File.WriteAllText(legacyRecord,
+            """{"Content":"<character><name>Legacy owner</name></character>","Format":"NativeXml","RulesetId":"SR5"}""");
+        byte[] legacyBytes = File.ReadAllBytes(legacyRecord);
+        string canonical = OwnerScopedStatePath.ResolveWorkspaceOwnerDirectory(fixture.Directory, owner);
+
+        var refused = fixture.Store.ReadContinuation(owner, fixture.Id);
+        Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, refused.Outcome);
+        Assert.IsFalse(Directory.Exists(canonical));
+        CollectionAssert.AreEqual(legacyBytes, File.ReadAllBytes(legacyRecord));
+        Assert.IsTrue(File.Exists(canonical + ".owner-migration.lock"));
+
+        var migrated = fixture.Store.Get(owner, fixture.Id);
+        Assert.IsTrue(migrated.Success, migrated.Error);
+        Assert.AreEqual(1L, migrated.Value!.ContentRevision);
+        Assert.AreEqual(1L, migrated.Value.SavedRevision);
+        Assert.IsFalse(Directory.Exists(legacyWorkspaces));
+        Assert.IsTrue(File.Exists(Path.Combine(canonical, "workspaces", $"{fixture.Id.Value}.json")));
+        CollectionAssert.AreEqual(metadataBytes, File.ReadAllBytes(metadata));
+        var files = Snapshot(fixture.Directory);
+        var cold = new FileWorkspaceStore(fixture.Directory);
+        var reopened = cold.Get(owner, fixture.Id);
+        Assert.IsTrue(reopened.Success, reopened.Error);
+        Assert.AreEqual(migrated.Value.Document.Content, reopened.Value!.Document.Content);
+        Assert.IsTrue(cold.ReadContinuation(owner, fixture.Id).Success);
+        AssertUnchanged(fixture.Directory, files, "migrated owner cold read");
+    }
+
+    [TestMethod]
+    [DataRow("canonical")]
+    [DataRow("legacy-owner")]
+    [DataRow("legacy-workspaces")]
+    public void Completion_owner_namespace_regular_files_are_unavailable_not_absent(string location)
+    {
+        using var fixture = new OwnerNamespaceFixture();
+        var foreign = new OwnerScope("completion-malformed-owner");
+        string path = fixture.NamespacePath(foreign, location);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "A regular file cannot stand in for an owner directory.");
+        var files = Snapshot(fixture.Directory);
+        Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, fixture.Store.Get(foreign, fixture.Id).Outcome);
+        AssertUnchanged(fixture.Directory, files, "malformed owner read");
+        Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, fixture.Store.ReadContinuation(foreign, fixture.Id).Outcome);
+        AssertUnchanged(fixture.Directory, files, "malformed owner continuation");
+    }
+
+    [TestMethod]
+    [DataRow("canonical", false)]
+    [DataRow("canonical", true)]
+    [DataRow("legacy-owner", false)]
+    [DataRow("legacy-owner", true)]
+    [DataRow("legacy-workspaces", false)]
+    [DataRow("legacy-workspaces", true)]
+    public void Completion_owner_namespace_links_are_unavailable_not_absent(string location, bool dangling)
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Inconclusive("This fixture requires unprivileged directory symbolic links.");
+        using var fixture = new OwnerNamespaceFixture();
+        var foreign = new OwnerScope("completion-linked-path-owner");
+        string path = fixture.NamespacePath(foreign, location);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string target = Path.Combine(fixture.Directory, "link-target");
+        if (!dangling)
+        {
+            Directory.CreateDirectory(target);
+            File.WriteAllText(Path.Combine(target, "sentinel.json"), "{\"preserve\":true}");
+        }
+        var files = Snapshot(fixture.Directory);
+        Directory.CreateSymbolicLink(path, target);
+        try
+        {
+            Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, fixture.Store.Get(foreign, fixture.Id).Outcome);
+            Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, fixture.Store.ReadContinuation(foreign, fixture.Id).Outcome);
+            Assert.AreEqual(target, new DirectoryInfo(path).LinkTarget);
+            Assert.AreEqual(!dangling, Directory.Exists(target));
+        }
+        finally
+        {
+            // Unlink the fixture entry without resolving its target, including dangling links.
+            File.Delete(path);
+        }
+        // Remove only the fixture link before enumerating; do not follow it or omit any files.
+        AssertUnchanged(fixture.Directory, files, "refused owner link");
+    }
+
+    private static (CharacterCreationCompletionReviewInputs Inputs, CharacterCreationCompletionReviewRequest Proposal,
+        CharacterCreationStartingCashChoice Cash) LoadV3CompletionProposal(ReadyContext fixture, IWorkspaceStore store,
+        CharacterCreationAttributesServiceTests.AllocationOwners owners, CharacterWorkspaceId id,
+        bool includeKarmaPolicy, bool includeLoadout)
+    {
+        var loaded = new OwnerBoundCharacterCreationCompletionReader(store, owners, fixture.Resolver, fixture.Queries)
+            .LoadCompletionInputsWithEffectivePolicy(owners.Capture(),
+                new(id) { IncludeKarmaPurchasePolicy = includeKarmaPolicy }, includeLoadout);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome, string.Join(",", loaded.Blockers));
+        var inputs = loaded.Value!;
+        Assert.AreEqual(CharacterCreationCompletionReviewSchemas.InputsV3, inputs.Schema);
+        Assert.AreEqual(includeKarmaPolicy, inputs.Skills.KarmaPurchasePolicy is not null);
+        Assert.AreEqual(includeLoadout, inputs.Loadout is not null);
+        Assert.IsFalse(inputs.Skills.Attributes.CanEdit);
+        CollectionAssert.Contains(inputs.Skills.Attributes.Blockers.ToArray(), CharacterCreationAttributesBlockers.PersistenceAuthorityRequired);
+        var native = inputs.Skills.Authority.KnowledgeSkills.First(row => row.CanBeNativeLanguage);
+        var choices = CharacterCreationCompletionReviewServiceTests.BaselineSelections(inputs) with
+        {
+            SkillAllocations = [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)],
+            SkillKarmaPurchases = includeKarmaPolicy ? [] : null,
+            Loadout = inputs.Loadout?.OriginalSelections
+        };
+        var proposal = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest, choices)
+        {
+            EffectivePolicyDigest = inputs.EffectivePolicy!.PolicyDigest,
+            PolicyRequirement = CharacterCreationPolicyRequirement.SkillLimits
+        };
+        var workspace = owners.Current.UsesLocalSingleUserValue ? store.Get(id) : store.Get(owners.Current, id);
+        Assert.IsTrue(workspace.Success, workspace.Error);
+        var source = fixture.Resolver.TryCreateContext(workspace.Value!.Document.Content);
+        Assert.IsNotNull(source);
+        Assert.IsTrue(source!.TryResolveCreationDefaultStartingNuyen(out var cash));
+        Assert.IsNotNull(cash);
+        return (inputs, proposal, new(cash!.AuthorityDigest, cash.Dice * 3));
+    }
+
+    [TestMethod]
     public void Completion_apply_commits_and_cold_replays_a_real_linked_owner_workspace_without_a_local_copy()
     {
         using var fixture = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
@@ -571,7 +974,7 @@ public sealed partial class CharacterCreationCompletionApplyTests
         CharacterCreationAttributesServiceTests.AllocationOwners owners)
         => new(store, owners, context.Resolver, context.Queries);
 
-    private static (FileWorkspaceStore Store, CharacterCreationAttributesServiceTests.AllocationOwners Owners,
+    internal static (FileWorkspaceStore Store, CharacterCreationAttributesServiceTests.AllocationOwners Owners,
         CharacterWorkspaceId Id) CreateLinkedPrerequisite(ReadyContext fixture, string directory)
     {
         var store = new FileWorkspaceStore(directory);
@@ -874,14 +1277,54 @@ public sealed partial class CharacterCreationCompletionApplyTests
     }
 
     private static Dictionary<string, byte[]> Snapshot(ReadyContext context)
-        => Directory.EnumerateFiles(context.Directory, "*", SearchOption.AllDirectories).ToDictionary(
-            path => Path.GetRelativePath(context.Directory, path), File.ReadAllBytes, StringComparer.Ordinal);
+        => Snapshot(context.Directory);
 
-    private static void AssertUnchanged(ReadyContext context, Dictionary<string, byte[]> before)
+    private static Dictionary<string, byte[]> Snapshot(string directory)
+        => Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).ToDictionary(
+            path => Path.GetRelativePath(directory, path), File.ReadAllBytes, StringComparer.Ordinal);
+
+    private static void AssertUnchanged(ReadyContext context, Dictionary<string, byte[]> before, string? operation = null)
+        => AssertUnchanged(context.Directory, before, operation);
+
+    private static void AssertUnchanged(string directory, Dictionary<string, byte[]> before, string? operation = null)
     {
-        var after = Snapshot(context);
-        CollectionAssert.AreEquivalent(before.Keys.ToArray(), after.Keys.ToArray());
+        var after = Snapshot(directory);
+        string Paths(IEnumerable<string> paths) => string.Join(", ", paths.OrderBy(path => path, StringComparer.Ordinal)
+            .Take(8).Select(path => path.Length <= 240 ? path : path[..240] + "..."));
+        CollectionAssert.AreEquivalent(before.Keys.ToArray(), after.Keys.ToArray(),
+            $"{operation ?? "Workspace observation"}: added=[{Paths(after.Keys.Except(before.Keys, StringComparer.Ordinal))}]; "
+            + $"removed=[{Paths(before.Keys.Except(after.Keys, StringComparer.Ordinal))}].");
         foreach (var entry in before) CollectionAssert.AreEqual(entry.Value, after[entry.Key], entry.Key);
+    }
+
+    private sealed class OwnerNamespaceFixture : IDisposable
+    {
+        public string Directory { get; } = Path.Combine(Path.GetTempPath(), "chummer-owner-absence-" + Guid.NewGuid().ToString("N"));
+        public OwnerScope Owner { get; } = new("completion-existing-owner");
+        public CharacterWorkspaceId Id { get; } = new("existing-owner-workspace");
+        public WorkspaceDocument Document { get; } = new(
+            "<character><name>Existing linked owner</name></character>", RulesetId: RulesetDefaults.Sr5);
+        public FileWorkspaceStore Store { get; }
+
+        public OwnerNamespaceFixture()
+        {
+            Store = new FileWorkspaceStore(Directory);
+            var created = Store.CreateWorkspaceDocument(Owner, Id, Document);
+            Assert.IsTrue(created.Success, created.Error);
+        }
+
+        public string LegacyDirectory(OwnerScope owner) => Path.Combine(
+            Directory, "owners", Uri.EscapeDataString(owner.NormalizedValue));
+
+        public string NamespacePath(OwnerScope owner, string location) => location switch
+        {
+            "canonical" => OwnerScopedStatePath.ResolveWorkspaceOwnerDirectory(Directory, owner),
+            "legacy-owner" => LegacyDirectory(owner),
+            "legacy-workspaces" => Path.Combine(LegacyDirectory(owner), "workspaces"),
+            _ => throw new ArgumentOutOfRangeException(nameof(location))
+        };
+
+        public void Dispose() => System.IO.Directory.Delete(Directory, recursive: true);
     }
 
     private sealed class AtomicWriteProbe : IFileWorkspaceStoreFaultInjector

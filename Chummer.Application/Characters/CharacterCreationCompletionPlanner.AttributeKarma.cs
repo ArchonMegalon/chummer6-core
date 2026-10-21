@@ -26,7 +26,8 @@ public static partial class CharacterCreationCompletionPlanner
         CharacterCreationAttributeCompletionPlan attributes,
         CharacterCreationCompletionSelections choices,
         CharacterCreationCompletionReview review,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CharacterCreationRuleSourceExecutionContext? ruleSources,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
         var blockers = attributes.Blockers.ToList();
         var goals = request.Attributes.KarmaTargets;
@@ -80,7 +81,7 @@ public static partial class CharacterCreationCompletionPlanner
                 // a previously complete magic graph. Never re-select magic here.
                 var nextChoices = choices with { AttributeAllocations = candidate };
                 var evaluated = CharacterCreationCompletionReviewService.Review(inputs,
-                    new(request.InputsSnapshotDigest, nextChoices), cancellationToken);
+                    ReviewRequest(request, nextChoices), cancellationToken, ruleSources, campaign);
                 if (Terminal(evaluated.Outcome)) return new(evaluated.Outcome, null, evaluated.Blockers);
                 if (evaluated.Outcome != CharacterCreationFoundationOutcomes.Success
                     || evaluated.Value is not { Blockers.Count: 0 } nextReview)

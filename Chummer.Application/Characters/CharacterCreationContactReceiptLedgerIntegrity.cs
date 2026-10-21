@@ -262,10 +262,13 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
             var workspace = new WorkspaceStoredDocument(receipt.WorkspaceId, current,
                 receipt.PreviousContentRevision, receipt.PreviousSavedRevision, DateTimeOffset.UnixEpoch);
             var oldDraft = current.AuxiliaryState.CharacterCreationContactsDraft;
+            if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite)) return false;
+            if (composite is not null && !CharacterCreationFinalizationDigest.IsCanonical(plan.CompositeReviewDigest))
+                return false;
             var beforeDraft = CharacterCreationContactsDraftRules.Create(workspace,
-                draft.Policy, draft.CarryoverPolicy, oldDraft?.Contacts ?? []);
+                draft.Policy, draft.CarryoverPolicy, composite?.Selections.Contacts ?? oldDraft?.Contacts ?? []);
             if (beforeDraft is null || !CharacterCreationContactsDraftRules.InputsMatch(beforeDraft, draft)
-                || oldDraft is not null && !CharacterCreationContactsDraftRules.InputsMatch(oldDraft, draft)
+                || composite is null && oldDraft is not null && !CharacterCreationContactsDraftRules.InputsMatch(oldDraft, draft)
                 || !CharacterCreationContactsDraftRules.TryProject(workspace, beforeDraft, out var logicalBefore)
                 || logicalBefore is null) return false;
 
@@ -297,7 +300,7 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
             {
                 State = logicalBefore.State with { Payload = expected.ToString(SaveOptions.DisableFormatting) }
             };
-            if (CharacterCreationContactsDraftRules.ValidatePointOnlySelection(logicalAfter).Length != 0)
+            if (composite is null && CharacterCreationContactsDraftRules.ValidatePointOnlySelection(logicalAfter).Length != 0)
                 return false;
             var logicalPlan = plan with
             {
@@ -541,6 +544,8 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
                 !CharacterCreationContactsDraftRules.IsValidShape(receipt.WorkspaceId, receipt.ContentRevision, draft)
                 || draft.BaseContentRevision != receipt.PreviousContentRevision
                 || !FixedEquals(draft.RawCharacterXmlDigest, receipt.ContentDigestBefore))
+            || plan.CompositeReviewDigest is not null
+                && !CharacterCreationFinalizationDigest.IsCanonical(plan.CompositeReviewDigest)
             || !string.Equals(plan.StepId, CharacterCreationWizardStepIds.ContactsLifestyles, StringComparison.Ordinal)
             || plan.ContactId != receipt.ContactId
             || plan.Operations is not { Count: > 0 }

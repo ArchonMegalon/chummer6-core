@@ -323,8 +323,19 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(1, pending.Contacts!.KarmaUsed);
         Assert.AreEqual(2000m, pending.Lifestyles!.LifestyleNuyenUsed);
         Assert.AreEqual(5, pending.Magic!.Cost.TotalKarma);
-        var committed = fixture.Service.Confirm(new(state.Binding, HumanId, pending.QuoteDigest, Guid.NewGuid(), true,
-            MagicianId, attributes, skills, 10, [], [], [contact], [low], low.LifestyleId, selections));
+        var command = new CharacterCreationKarmaMetatypeConfirmRequest(state.Binding, HumanId,
+            pending.QuoteDigest, Guid.NewGuid(), true, MagicianId, attributes, skills, 10, [], [],
+            [contact], [low], low.LifestyleId, selections);
+        var decision = new CharacterCreationKarmaMetatypeDecision(CharacterCreationKarmaMetatypeSchemas.DecisionV1,
+            command, pending, 1, state.Binding.ContentRevision + 1, string.Empty);
+        decision = decision with { DecisionDigest = CharacterCreationKarmaMetatypeTransaction.DecisionDigest(decision) };
+        AssertJsonEqual(state.LifestylesAuthority!.LocationCatalog!, pending.Lifestyles.ProjectionAuthority.LocationCatalog!);
+        Assert.IsTrue(JsonSerializer.SerializeToUtf8Bytes(decision).Length > 128 * 1024,
+            "This full-source fixture must exercise the old decision-capacity regression.");
+        Console.WriteLine($"Karma decision bytes={JsonSerializer.SerializeToUtf8Bytes(decision).Length}; "
+            + $"lifestyle authority bytes={JsonSerializer.SerializeToUtf8Bytes(pending.Lifestyles.ProjectionAuthority).Length}; "
+            + $"location catalogue bytes={JsonSerializer.SerializeToUtf8Bytes(pending.Lifestyles.ProjectionAuthority.LocationCatalog).Length}");
+        var committed = fixture.Service.Confirm(command);
         Assert.IsNotNull(committed.Value, string.Join(",", committed.Blockers));
         var coldStore = new FileWorkspaceStore(fixture.StateRoot);
         var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
@@ -342,6 +353,48 @@ public sealed class CharacterCreationBootstrapServiceTests
         fixture.EditSpell(spell.Identity.SourceId, row => row.SetElementValue("dv", "F+99"));
         Assert.IsNull(cold.ConfirmFinalization(request).Value, "A reviewed source may not change before the atomic write.");
         AssertJsonEqual(before, coldStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_oversized_source_valid_lifestyle_decision_is_rejected_without_mutation()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var state = fixture.Service.Load(fixture.Id, true, true, true, true).Value!;
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        var street = KarmaLifestyle(state.LifestylesAuthority!, "Street");
+        var lifestyles = Enumerable.Range(0, 256)
+            .Select(_ => street with { LifestyleId = Guid.NewGuid() }).ToArray();
+        var preview = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], skills, 0, [], [],
+            [], lifestyles, lifestyles[0].LifestyleId).Value;
+        Assert.IsNotNull(preview);
+        Assert.IsTrue(preview.CanSelect, string.Join(",", preview.Blockers));
+        Assert.AreEqual(0m, preview.Lifestyles!.LifestyleNuyenUsed,
+            "The rejection must be storage capacity, not a forged source or overspent budget.");
+        var command = new CharacterCreationKarmaMetatypeConfirmRequest(state.Binding, HumanId,
+            preview.QuoteDigest, Guid.NewGuid(), true, "mundane", [], skills, 0, [], [], [],
+            lifestyles, lifestyles[0].LifestyleId);
+        var decision = new CharacterCreationKarmaMetatypeDecision(CharacterCreationKarmaMetatypeSchemas.DecisionV1,
+            command, preview, 1, state.Binding.ContentRevision + 1, string.Empty);
+        decision = decision with { DecisionDigest = CharacterCreationKarmaMetatypeTransaction.DecisionDigest(decision) };
+        int bytes = JsonSerializer.SerializeToUtf8Bytes(decision).Length;
+        Console.WriteLine($"Oversized source-valid Karma decision bytes={bytes}");
+        Assert.IsTrue(bytes > 256 * 1024, "The fixture must exceed the bounded decision allowance.");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(command).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var reopened = new FileWorkspaceStore(fixture.StateRoot);
+        AssertJsonEqual(before, reopened.Get(fixture.Id).Value!);
+
+        // The refused operation leaves the same source and starting state usable.
+        var bounded = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], skills, 0, [], [],
+            [], [street], street.LifestyleId).Value!;
+        var accepted = fixture.Service.Confirm(command with
+        {
+            QuoteDigest = bounded.QuoteDigest, LifestyleSelections = [street], StartingLifestyleId = street.LifestyleId
+        });
+        Assert.IsNotNull(accepted.Value, string.Join(",", accepted.Blockers));
+        Assert.IsNotNull(new CharacterCreationKarmaMetatypeService(
+            new FileWorkspaceStore(fixture.StateRoot), fixture.Resolver).Open(fixture.Id).Value);
     }
 
     [TestMethod]
@@ -3836,7 +3889,11 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsTrue(catalog.KnowledgeSkills.Count > 50);
         Assert.IsFalse(catalog.SourceAnchorIds.Any(anchor => anchor.StartsWith("priorities.xml", StringComparison.Ordinal)));
         Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var priority));
-        Assert.IsFalse(priority.IsAuthoritative, "Strict house rules are not Standard Priority policy.");
+        Assert.IsTrue(priority.IsAuthoritative, string.Join(",", priority.Blockers));
+        Assert.IsTrue(priority.StrictSkillGroupsInCreateMode,
+            "Resolving the shared source catalogue must retain the selected strict-group policy.");
+        Assert.AreEqual(CharacterCreationSkillsDigest.Compute(priority with { AuthorityDigest = string.Empty }),
+            priority.AuthorityDigest);
         AssertJsonEqual(priority.ActiveSkills, catalog.ActiveSkills);
         AssertJsonEqual(priority.KnowledgeSkills, catalog.KnowledgeSkills);
         AssertJsonEqual(priority.SkillGroups, catalog.SkillGroups);

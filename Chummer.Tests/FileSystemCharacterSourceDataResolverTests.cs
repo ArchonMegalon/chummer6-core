@@ -20,6 +20,680 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     [TestMethod]
+    public void Setting_observation_reads_real_Standard_leaves_without_inventing_consumption()
+    {
+        var document = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "settings.xml"));
+        var standard = document.Descendants("setting").Single(row => row.Element("name")?.Value == "Standard");
+        string digest = CharacterCreationFinalizationDigest.Compute(standard.ToString(SaveOptions.DisableFormatting));
+        Assert.IsTrue(CharacterCreationSettingsObservation.TryCapture(standard.ToString(SaveOptions.DisableFormatting), digest, out var observation));
+        foreach (var key in new[] { CharacterCreationObservedSetting.AttributeKarma, CharacterCreationObservedSetting.SecondMaximumAttribute,
+                     CharacterCreationObservedSetting.KnowledgePoints, CharacterCreationObservedSetting.ContactPoints,
+                     CharacterCreationObservedSetting.ResourceExpression, CharacterCreationObservedSetting.NewActiveSkill })
+            Assert.AreEqual(CharacterCreationSettingObservationState.Present, observation!.Settings.Single(row => row.Key == key).State);
+        Assert.IsTrue(observation!.Settings.Count(row => row.State == CharacterCreationSettingObservationState.Opaque) > 50);
+        Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(observation).Contains("<setting", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Live_setting_observation_distinguishes_duplicates_invalid_values_absence_and_source_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty, "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>");
+            WriteSkillsAuthorityFixture(root);
+            string path = Path.Combine(root, "data", "settings.xml");
+            var document = XDocument.Load(path);
+            var settings = document.Descendants("setting").Single();
+            settings.Elements("contactpointsexpression").Remove();
+            settings.Elements("allowfreegrids").Remove();
+            settings.Elements("qualitykarmalimit").Remove();
+            settings.Add(new XElement("contactpointsexpression", "{CHAUnaug} * 3"),
+                new XElement("contactpointsexpression", "{CHAUnaug} * 4"),
+                new XElement("qualitykarmalimit", "unrecognized-private-value"),
+                new XElement("private-key", "private-text /private/path"));
+            document.Save(path);
+            var context = CreateContext(root, CharacterXml())!;
+            var source = (ICharacterCreationPolicyConsumptionSource)context;
+            Assert.IsTrue(source.TryResolveCreationPolicyConsumption(out var policy));
+            var observations = policy!.SettingObservations!.Settings;
+            Assert.AreEqual(2, observations.Count(row => row.Key == CharacterCreationObservedSetting.ContactPoints));
+            Assert.IsTrue(observations.Where(row => row.Key == CharacterCreationObservedSetting.ContactPoints)
+                .All(row => row.State == CharacterCreationSettingObservationState.Duplicate && row.ValueDigest is null));
+            Assert.AreEqual(CharacterCreationSettingObservationState.Invalid,
+                observations.Single(row => row.Key == CharacterCreationObservedSetting.QualityLimit).State);
+            Assert.AreEqual(CharacterCreationSettingObservationState.Absent,
+                observations.Single(row => row.Key == CharacterCreationObservedSetting.FreeGrids).State);
+            string json = System.Text.Json.JsonSerializer.Serialize(policy);
+            Assert.IsFalse(json.Contains("private-", StringComparison.Ordinal));
+            Assert.IsFalse(json.Contains("/private/path", StringComparison.Ordinal));
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var historical));
+            Assert.IsNull(historical!.SettingObservations);
+            Assert.AreNotEqual(historical.PolicyDigest, policy.PolicyDigest);
+            settings.Element("contactpointsexpression")!.Value = "{CHAUnaug} * 5";
+            document.Save(path);
+            Assert.IsFalse(source.TryResolveCreationPolicyConsumption(out _));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Creation_lifestyle_quality_source_accepts_actual_literal_but_not_unsupported_cost_shapes()
+    {
+        XDocument catalog = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "qualities.xml"));
+        XElement source = catalog.Root!.Element("qualities")!.Elements("quality")
+            .Single(row => row.Element("id")?.Value == "dca0897f-532a-43ab-8796-4ef761e829af");
+        Assert.AreEqual("10", source.Element("bonus")!.Element("lifestylecost")!.Value);
+        Assert.IsTrue(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+            source.ToString(SaveOptions.DisableFormatting)));
+
+        foreach (string effects in new[]
+                 {
+                     "<basiclifestylecost>10</basiclifestylecost>",
+                     "<lifestylecost>10</lifestylecost><basiclifestylecost>-5</basiclifestylecost>"
+                 })
+        {
+            var changed = new XElement(source);
+            changed.Element("bonus")!.ReplaceWith(XElement.Parse("<bonus>" + effects + "</bonus>"));
+            Assert.IsTrue(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+                changed.ToString(SaveOptions.DisableFormatting)), effects);
+        }
+
+        string[] unsupported =
+        [
+            "<lifestylecost>-100.0001</lifestylecost>",
+            "<lifestylecost>-101</lifestylecost>",
+            "<lifestylecost>-100.00000000000000000000000000001</lifestylecost>",
+            "<lifestylecost>Rating * 10</lifestylecost>",
+            "<lifestylecost>1e2</lifestylecost>",
+            "<lifestylecost>79228162514264337593543950336</lifestylecost>",
+            "<lifestylecost condition=\"create\">10</lifestylecost>",
+            "<lifestylecost><name>High</name><val>10</val></lifestylecost>",
+            "<lifestylecost>10</lifestylecost><lifestylecost>20</lifestylecost>",
+            "<basiclifestylecost>-100.0001</basiclifestylecost>",
+            "<basiclifestylecost>Rating * 10</basiclifestylecost>",
+            "<basiclifestylecost condition=\"create\">10</basiclifestylecost>",
+            "<basiclifestylecost><name>High</name><val>10</val></basiclifestylecost>",
+            "<basiclifestylecost>10</basiclifestylecost><basiclifestylecost>20</basiclifestylecost>",
+            "<lifestylecost>10</lifestylecost><unknown-effect/>"
+        ];
+        foreach (string effects in unsupported)
+        {
+            var changed = new XElement(source);
+            changed.Element("bonus")!.ReplaceWith(XElement.Parse("<bonus>" + effects + "</bonus>"));
+            Assert.IsFalse(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+                changed.ToString(SaveOptions.DisableFormatting)), effects);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("f767c6fa-c316-428b-b15d-f7f96be97fba", "-10", true)]
+    [DataRow("b3fce27e-d762-4eaa-9cb6-c62cfb2fbccf", "-20", true)]
+    [DataRow("5ce51789-1ed2-446a-8aff-5f7f70969507", "-10", false)]
+    public void Actual_negative_lifestyle_sources_keep_prerequisite_and_sibling_checks(
+        string sourceId, string literal, bool unsupportedSibling)
+    {
+        XDocument catalog = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "qualities.xml"));
+        XElement source = catalog.Root!.Element("qualities")!.Elements("quality")
+            .Single(row => row.Element("id")?.Value == sourceId);
+        Assert.AreEqual(literal, source.Element("bonus")!.Element("lifestylecost")!.Value);
+        Assert.IsNotNull(source.Element("required"));
+        Assert.IsFalse(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+            source.ToString(SaveOptions.DisableFormatting)), "The real source still requires unadmitted prerequisites.");
+
+        // These are explicit fixture variants, not admission of the original quality.
+        var unconditional = new XElement(source);
+        unconditional.Elements("required").Remove();
+        unconditional.Elements("forbidden").Remove();
+        Assert.AreEqual(!unsupportedSibling, CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+            unconditional.ToString(SaveOptions.DisableFormatting)));
+        unconditional.Element("bonus")!.Elements().Where(effect => effect.Name != "lifestylecost").Remove();
+        unconditional.SetElementValue("name", "Unconditional discount fixture");
+        Assert.IsTrue(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+            unconditional.ToString(SaveOptions.DisableFormatting)), "Literal admission must not depend on a quality name.");
+
+        foreach (string unsupported in new[]
+        {
+            "<lifestylecost condition=\"once\">-10</lifestylecost>",
+            "<lifestylecost name=\"Low\">-10</lifestylecost>",
+            "<lifestylecost><name>Low</name><val>-10</val></lifestylecost>",
+            "<lifestylecost>-10 * Rating</lifestylecost>",
+            "<lifestylecost>-10</lifestylecost><unknown-effect/>"
+        })
+        {
+            var changed = new XElement(unconditional);
+            changed.Element("bonus")!.ReplaceWith(XElement.Parse("<bonus>" + unsupported + "</bonus>"));
+            Assert.IsFalse(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+                changed.ToString(SaveOptions.DisableFormatting)), unsupported);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_lifestyle_quality_requires_enabled_source_and_rejects_source_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, string.Empty, string.Empty);
+            XDocument catalog = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "qualities.xml"));
+            XElement source = catalog.Root!.Element("qualities")!.Elements("quality")
+                .Single(row => row.Element("id")?.Value == "dca0897f-532a-43ab-8796-4ef761e829af");
+            string qualityPath = Path.Combine(root, "data", "qualities.xml");
+            new XDocument(new XElement("chummer", new XElement("qualities", new XElement(source)))).Save(qualityPath);
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationQualitiesAuthority(out var disabled));
+            Assert.IsFalse(disabled.Options.Single().IsSelectable);
+            Assert.AreEqual("creation-qualities-source-disabled", disabled.Options.Single().DisableReasonKey);
+
+            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            File.WriteAllText(settingsPath, File.ReadAllText(settingsPath).Replace(
+                "</books>", "<book>RF</book></books>", StringComparison.Ordinal));
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var admitted));
+            Assert.IsTrue(admitted.IsAuthoritative, string.Join(",", admitted.Blockers));
+            Assert.IsTrue(admitted.Options.Single().IsSelectable);
+
+            var changed = new XElement(source);
+            changed.Element("bonus")!.SetElementValue("lifestylecost", "20");
+            new XDocument(new XElement("chummer", new XElement("qualities", changed))).Save(qualityPath);
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var stale));
+            Assert.IsFalse(stale.IsAuthoritative,
+                "A diagnostic projection must not authorize changed quality source bytes.");
+            CollectionAssert.Contains(stale.Blockers.ToArray(), CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationQualitiesAuthority(out var refreshed));
+            Assert.IsTrue(refreshed.Options.Single().IsSelectable);
+            Assert.AreNotEqual(admitted.AuthorityDigest, refreshed.AuthorityDigest);
+            Assert.AreNotEqual(admitted.Options.Single().SourceNodeDigest, refreshed.Options.Single().SourceNodeDigest);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Selected_settings_feed_the_same_books_and_values_to_profile_and_canonical_consumers_once()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string path = WriteSelectedSettingsFixture(root,
+                "<books amendoperation=\"REPLACE\"><book>SR5</book></books>"
+                + "<buildpoints amendoperation=\"APPEND\">0</buildpoints>"
+                + "<maxskillratingcreate>4</maxskillratingcreate><karmacost><karmaattribute>7</karmaattribute></karmacost>"
+                + "<private-mechanic>private-value</private-mechanic>");
+            var skillsDocument = XDocument.Load(Path.Combine(root, "data", "skills.xml"));
+            // Keep both enabled Athletics members: the disabled book is exercised by an
+            // independent ungrouped skill, so authoritative group validation remains meaningful.
+            var disabledSkill = new XElement(skillsDocument.Root!.Element("skills")!.Elements("skill").First());
+            disabledSkill.SetElementValue("id", "30000000-0000-0000-0000-000000000003");
+            disabledSkill.SetElementValue("name", "Disabled Book Skill");
+            disabledSkill.SetElementValue("skillgroup", string.Empty);
+            disabledSkill.SetElementValue("source", "SG");
+            skillsDocument.Root.Element("skills")!.Add(disabledSkill);
+            skillsDocument.Save(Path.Combine(root, "data", "skills.xml"));
+            var context = CreateContext(root, SelectedSettingsCharacterXml())!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
+            Assert.AreEqual((int?)250, profile.BuildPoints); // APPEND runs once, including later target reads.
+            CollectionAssert.AreEqual(new[] { "SR5" }, profile.EnabledSourcebooks.ToArray());
+            Assert.IsTrue(context.TryIsBookEnabled("SG", out bool enabled));
+            Assert.IsFalse(enabled);
+            Assert.IsFalse(context.TryResolveActiveSkillSource("30000000-0000-0000-0000-000000000003", out _));
+            Assert.IsTrue(context.TryResolveActiveSkillSource("30000000-0000-0000-0000-000000000001", out _));
+            Assert.IsTrue(context.TryResolveActiveSkillSource("30000000-0000-0000-0000-000000000002", out _));
+            Assert.IsTrue(context.TryResolveCreationAttributePolicy(out var attributes));
+            Assert.AreEqual(7, attributes!.KarmaAttribute);
+            Assert.AreEqual(profile.RawProfileInputsDigest, attributes.RawProfileInputsDigest);
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var skills));
+            Assert.IsTrue(skills.IsAuthoritative, string.Join(",", skills.Blockers));
+            Assert.AreEqual(4, skills.MaxActiveSkillRatingCreate);
+            Assert.AreEqual(profile.RawProfileInputsDigest, skills.RawProfileInputsDigest);
+            Assert.IsTrue(context.TryResolveCareerSettingsProfile(out string xml, out _));
+            var effective = XElement.Parse(xml);
+            Assert.AreEqual("250", effective.Element("buildpoints")!.Value);
+            Assert.AreEqual("private-value", effective.Element("private-mechanic")!.Value);
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var policy));
+            CollectionAssert.AreEqual(profile.EnabledSourcebooks.ToArray(), policy!.EnabledSourcebooks.ToArray());
+            Assert.AreEqual(profile.RawProfileInputsDigest, policy.ProfileInputsDigest);
+            Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(effective.Element("books")!.ToString(SaveOptions.DisableFormatting)),
+                policy.BooksInputsDigest);
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Unsupported,
+                policy.Domains.Single(row => row.Domain == CharacterCreationPolicyDomain.Amendments).Disposition);
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Missing,
+                policy.Domains.Single(row => row.Domain == CharacterCreationPolicyDomain.CharacterMechanics).Disposition);
+            string json = System.Text.Json.JsonSerializer.Serialize(policy);
+            Assert.IsFalse(json.Contains("private-", StringComparison.Ordinal));
+            Assert.IsFalse(json.Contains(path, StringComparison.Ordinal));
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var repeated));
+            Assert.AreEqual(json, System.Text.Json.JsonSerializer.Serialize(repeated));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Selected_settings_reject_the_two_row_repeated_identifier_A_B_A_repro()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string path = WriteSelectedSettingsFixture(root, string.Empty);
+            const string otherId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+            // Row one matches A, then writes A followed by B. Row two matches B,
+            // writes B followed by A, and changes a value before the final identity check.
+            File.WriteAllText(path, $"""
+                <chummer><settings>
+                  <setting><id>{SettingsId}</id><id>{otherId}</id></setting>
+                  <setting><id>{otherId}</id><id>{SettingsId}</id><maxskillratingcreate>4</maxskillratingcreate></setting>
+                </settings></chummer>
+                """);
+            Assert.IsNull(CreateContext(root, SelectedSettingsCharacterXml()));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("same-id")]
+    [DataRow("name")]
+    [DataRow("isidnode")]
+    [DataRow("remove-restore-id-files")]
+    [DataRow("remove-restore-directories")]
+    [DataRow("nested-directory-ABA")]
+    [DataRow("directory-ABA-files")]
+    public void Selected_settings_reject_ambiguous_identifiers_and_each_transient_selection_mutation(string scenario)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string path = WriteSelectedSettingsFixture(root, string.Empty);
+            var document = XDocument.Load(path);
+            var row = document.Descendants("setting").Single();
+            var originalDirectories = new XElement(XDocument.Load(Path.Combine(root, "data", "settings.xml"))
+                .Descendants("setting").Single().Element("customdatadirectorynames")!);
+            string later = Path.Combine(Path.GetDirectoryName(path)!, "amend_z_settings.xml");
+            switch (scenario)
+            {
+                case "same-id": row.Add(new XElement("id", SettingsId)); break;
+                case "name":
+                    row.Element("id")!.Remove();
+                    row.Add(new XElement("name", "A"), new XElement("name", "B"));
+                    break;
+                case "isidnode":
+                    row.Add(new XElement("private-mechanic",
+                        new XElement("key", new XAttribute("isidnode", true), "A"), new XElement("key", "A")));
+                    break;
+                case "remove-restore-id-files":
+                    File.WriteAllText(later, document.ToString(SaveOptions.DisableFormatting));
+                    row.Element("id")!.SetAttributeValue("amendoperation", "REMOVE");
+                    break;
+                case "remove-restore-directories":
+                    row.Add(new XElement("customdatadirectorynames", new XAttribute("amendoperation", "REMOVE")),
+                        originalDirectories);
+                    break;
+                case "nested-directory-ABA":
+                    row.Add(new XElement("customdatadirectorynames", new XElement("customdatadirectoryname",
+                        new XElement("order", new XAttribute("amendoperation", "REPLACE"), "1"),
+                        new XElement("order", new XAttribute("amendoperation", "REPLACE"), "0"))));
+                    break;
+                case "directory-ABA-files":
+                    row.Add(originalDirectories);
+                    File.WriteAllText(later, document.ToString(SaveOptions.DisableFormatting));
+                    originalDirectories.Descendants("order").Single().Value = "1";
+                    break;
+            }
+            document.Save(path);
+            Assert.IsNull(CreateContext(root, SelectedSettingsCharacterXml()), scenario);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Selected_settings_compose_supported_value_operations_against_the_original_selection()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string path = WriteSelectedSettingsFixture(root,
+                "<buildpoints amendoperation=\"APPEND\">0</buildpoints>"
+                + "<karmacost amendoperation=\"RECURSE\"><karmaattribute amendoperation=\"REPLACE\">7</karmaattribute></karmacost>"
+                + "<temporary amendoperation=\"ADDNODE\">value</temporary><temporary amendoperation=\"REMOVE\"/>"
+                + "<private-mechanic amendoperation=\"ADDNODE\">retained</private-mechanic>");
+            string basePath = Path.Combine(root, "data", "settings.xml");
+            var baseline = XDocument.Load(basePath);
+            var original = baseline.Descendants("setting").Single();
+            original.SetElementValue("name", "Original selected profile");
+            baseline.Save(basePath);
+            var replacement = new XElement(original);
+            replacement.SetElementValue("name", "Replacement display name");
+            replacement.SetElementValue("buildpoints", "30");
+            string directory = Path.GetDirectoryName(path)!;
+            new XDocument(new XElement("chummer", new XElement("settings", replacement)))
+                .Save(Path.Combine(directory, "override_settings.xml"));
+            File.WriteAllText(Path.Combine(directory, "custom_settings.xml"),
+                $"<chummer><settings><setting><id>{SettingsId}</id><buildpoints>999</buildpoints></setting></settings></chummer>");
+            // The selected identity also anchors name matching, even after a legitimate name value edit.
+            File.WriteAllText(Path.Combine(directory, "amend_z_settings.xml"),
+                "<chummer><settings><setting><name>Original selected profile</name>"
+                + "<maxskillratingcreate>4</maxskillratingcreate></setting></settings></chummer>");
+            var context = CreateContext(root, SelectedSettingsCharacterXml())!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
+            Assert.AreEqual((int?)300, profile.BuildPoints);
+            Assert.IsTrue(context.TryResolveCreationAttributePolicy(out var attributes));
+            Assert.AreEqual(7, attributes!.KarmaAttribute);
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var skills));
+            Assert.IsTrue(skills.IsAuthoritative, string.Join(",", skills.Blockers));
+            Assert.AreEqual(4, skills.MaxActiveSkillRatingCreate);
+            Assert.IsTrue(context.TryResolveCareerSettingsProfile(out string xml, out _));
+            var effective = XElement.Parse(xml);
+            Assert.AreEqual(SettingsId, effective.Element("id")!.Value);
+            Assert.AreEqual("Original selected profile", effective.Element("name")!.Value);
+            Assert.IsNull(effective.Element("temporary"));
+            Assert.AreEqual("retained", effective.Element("private-mechanic")!.Value);
+            Assert.IsTrue(XNode.DeepEquals(original.Element("customdatadirectorynames"), effective.Element("customdatadirectorynames")));
+            Assert.AreEqual(profile.RawProfileInputsDigest, attributes.RawProfileInputsDigest);
+            Assert.AreEqual(profile.RawProfileInputsDigest, skills.RawProfileInputsDigest);
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out var repeated));
+            Assert.AreEqual((int?)300, repeated.BuildPoints);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("operation")]
+    [DataRow("xpath")]
+    [DataRow("regex")]
+    [DataRow("profile")]
+    [DataRow("directories")]
+    [DataRow("duplicate")]
+    [DataRow("files")]
+    [DataRow("nodes")]
+    public void Selected_settings_fail_closed_for_unsupported_syntax_redirection_ambiguity_and_bounds(string scenario)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string path = WriteSelectedSettingsFixture(root, "<maxskillratingcreate>4</maxskillratingcreate>");
+            var document = XDocument.Load(path);
+            var row = document.Descendants("setting").Single();
+            var field = row.Element("maxskillratingcreate")!;
+            switch (scenario)
+            {
+                case "operation": field.SetAttributeValue("amendoperation", "MULTIPLY"); break;
+                case "xpath": field.SetAttributeValue("xpathfilter", "true()"); break;
+                case "regex": field.SetAttributeValue("amendoperation", "REGEXREPLACE"); field.SetAttributeValue("regexpattern", ".*"); break;
+                case "profile": row.SetAttributeValue("amendoperation", "REPLACE"); row.Element("id")!.Remove(); break;
+                case "directories": row.Add(new XElement("customdatadirectorynames", new XAttribute("amendoperation", "REMOVE"))); break;
+                case "duplicate": row.Parent!.Add(new XElement(row)); break;
+                case "nodes": row.Add(Enumerable.Range(0, CharacterCreationEffectivePolicyContext.MaximumSettings + 1).Select(_ => new XElement("extra", "value"))); break;
+                case "files":
+                    for (int index = 0; index < CharacterCreationEffectivePolicyContext.MaximumSources; index++)
+                        File.Copy(path, Path.Combine(Path.GetDirectoryName(path)!, $"amend_{index:D3}_settings.xml"));
+                    break;
+            }
+            document.Save(path);
+            Assert.IsNull(CreateContext(root, SelectedSettingsCharacterXml()));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Selected_settings_preserve_unsupported_mechanics_and_invalid_caps_without_default_substitution()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteSelectedSettingsFixture(root, "<alternatemetatypeattributekarma>True</alternatemetatypeattributekarma>"
+                + "<maxskillratingcreate>101</maxskillratingcreate>");
+            var context = CreateContext(root, SelectedSettingsCharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationAttributePolicy(out var attributes));
+            Assert.IsTrue(attributes!.AlternateMetatypeAttributeKarma);
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var skills));
+            Assert.IsFalse(skills.IsAuthoritative);
+            CollectionAssert.Contains(skills.Blockers.ToArray(), CharacterCreationEffectivePolicyContext.SkillLimitsUnsupported);
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var policy));
+            var cap = policy!.Settings.Single(row => row.SettingId == CharacterCreationEffectivePolicyContext.ActiveLimit);
+            Assert.AreEqual((int?)101, cap.IntegerValue);
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Unsupported, cap.Disposition);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("bytes")]
+    [DataRow("addition")]
+    [DataRow("removal")]
+    public void Selected_settings_bind_changed_policy_and_keep_source_ABA_closed(string change)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string path = WriteSelectedSettingsFixture(root, "<maxskillratingcreate>4</maxskillratingcreate>");
+            string original = File.ReadAllText(path);
+            string added = Path.Combine(Path.GetDirectoryName(path)!, "amend_z_settings.xml");
+            var context = CreateContext(root, SelectedSettingsCharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var before));
+            if (change == "bytes") File.WriteAllText(path, original.Replace(">4<", ">5<", StringComparison.Ordinal));
+            else if (change == "addition") File.WriteAllText(added, original.Replace(">4<", ">5<", StringComparison.Ordinal));
+            else File.Delete(path);
+            Assert.IsFalse(context.TryResolveCreationEffectivePolicy(out _));
+            var fresh = CreateContext(root, SelectedSettingsCharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCreationEffectivePolicy(out var changed));
+            Assert.AreNotEqual(before!.ProfileInputsDigest, changed!.ProfileInputsDigest);
+            Assert.AreNotEqual(before.PolicyDigest, changed.PolicyDigest);
+            Assert.AreEqual((int?)(change == "removal" ? 6 : 5),
+                changed.Settings.Single(row => row.SettingId == CharacterCreationEffectivePolicyContext.ActiveLimit).IntegerValue);
+            File.WriteAllText(path, original);
+            if (File.Exists(added)) File.Delete(added);
+            Assert.IsFalse(context.TryResolveCreationEffectivePolicy(out _));
+            Assert.IsFalse(fresh.TryResolveCreationEffectivePolicy(out _));
+            Assert.IsTrue(CreateContext(root, SelectedSettingsCharacterXml())!.TryResolveCreationEffectivePolicy(out var restored));
+            Assert.AreEqual(before.PolicyDigest, restored!.PolicyDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Profiles_without_selected_settings_keep_the_original_framed_digest_and_detached_values()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty, "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>");
+            WriteSkillsAuthorityFixture(root);
+            byte[] bytes = File.ReadAllBytes(Path.Combine(root, "data", "settings.xml"));
+            static string Frames(params byte[][] inputs)
+            {
+                using var stream = new MemoryStream();
+                using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+                    foreach (byte[] input in inputs) { writer.Write((long)input.Length); writer.Write(input); }
+                return "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream.ToArray())).ToLowerInvariant();
+            }
+            string raw = Frames(System.Text.Encoding.UTF8.GetBytes("base"), bytes);
+            string expected = Frames(System.Text.Encoding.UTF8.GetBytes(raw), System.Text.Encoding.UTF8.GetBytes(SettingsId));
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var policy));
+            Assert.AreEqual(expected, policy!.ProfileInputsDigest);
+            Assert.AreEqual(CharacterCreationEffectivePolicyContext.SchemaV1, policy.Schema);
+            Assert.IsNull(policy.Consumers);
+            Assert.IsTrue(context.TryResolveCareerSettingsProfile(out string xml, out _));
+            Assert.IsTrue(XNode.DeepEquals(new XElement("settings", XDocument.Load(Path.Combine(root, "data", "settings.xml"))
+                .Descendants("setting").Single().Nodes()), XElement.Parse(xml)));
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationEffectivePolicy(out var cold));
+            Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(policy), System.Text.Json.JsonSerializer.Serialize(cold));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static string SelectedSettingsCharacterXml() => CharacterXml(
+        "<customdatadirectorynames><directoryname>PolicyPack</directoryname></customdatadirectorynames>");
+
+    private static string WriteSelectedSettingsFixture(string root, string fields)
+    {
+        WriteBaseContent(root,
+            "<customdatadirectoryname><directoryname>PolicyPack</directoryname><order>0</order><enabled>True</enabled></customdatadirectoryname>",
+            "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+            + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>");
+        WritePriorityFixture(root);
+        WriteSkillsAuthorityFixture(root);
+        string directory = Path.Combine(root, "customdata", "PolicyPack");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "amend_settings.xml");
+        File.WriteAllText(path, $"<chummer><settings><setting><id>{SettingsId}</id>{fields}</setting></settings></chummer>");
+        return path;
+    }
+
+    [TestMethod]
+    [DataRow("", "", true)]
+    [DataRow("maxskillratingcreate", "6", true)]
+    [DataRow("maxskillratingcreate", "4", true)]
+    [DataRow("maxskillratingcreate", "7", true)]
+    [DataRow("maxskillrating", "4", true)]
+    [DataRow("maxknowledgeskillratingcreate", "7", true)]
+    [DataRow("maxknowledgeskillrating", "4", true)]
+    [DataRow("maxskillratingcreate", "8", true)]
+    [DataRow("maxknowledgeskillratingcreate", "8", true)]
+    [DataRow("maxskillratingcreate", "101", false)]
+    [DataRow("maxknowledgeskillratingcreate", "101", false)]
+    [DataRow("maxskillratingcreate", "invalid", false)]
+    [DataRow("maxskillratingcreate", "duplicate", false)]
+    public void Effective_policy_never_normalizes_differing_point_funded_skill_caps(string field, string value, bool supported)
+    {
+        foreach (string method in new[] { CharacterCreationBuildMethods.Priority, CharacterCreationBuildMethods.SumToTen })
+        {
+            string root = CreateTempDirectory();
+            try
+            {
+                WriteBaseContent(root, string.Empty, $"<buildmethod>{method}</buildmethod><buildpoints>25</buildpoints>"
+                    + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>");
+                WritePriorityFixture(root);
+                WriteSkillsAuthorityFixture(root);
+                string path = Path.Combine(root, "data", "settings.xml");
+                var document = XDocument.Load(path);
+                var settings = document.Descendants("setting").Single();
+                if (value == "duplicate") settings.Add(new XElement(field, 6), new XElement(field, 6));
+                else if (field.Length != 0) settings.Add(new XElement(field, value));
+                foreach (string cost in new[] { "karmanewactiveskill", "karmaimproveactiveskill", "karmanewknowledgeskill",
+                             "karmaimproveknowledgeskill", "karmanewskillgroup", "karmaimproveskillgroup", "karmaspecialization", "karmaknospecialization" })
+                    settings.Element("karmacost")!.Add(new XElement(cost, 2));
+                document.Save(path);
+                var context = CreateContext(root, CharacterXml())!;
+                Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var authority));
+                Assert.AreEqual(supported, authority.IsAuthoritative, string.Join(",", authority.Blockers));
+                if (!supported) CollectionAssert.Contains(authority.Blockers.ToArray(), CharacterCreationEffectivePolicyContext.SkillLimitsUnsupported);
+                // Reading optional Karma must not change point-funded admission or normalize either cap.
+                bool karmaResolved = context.TryResolveCreationPrioritySkillKarmaPolicy(out var karma);
+                Assert.AreEqual(value is not ("invalid" or "duplicate"), karmaResolved);
+                Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var repeated));
+                Assert.AreEqual(authority.AuthorityDigest, repeated.AuthorityDigest);
+                Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var policy));
+                var active = policy!.Settings.Single(row => row.SettingId == CharacterCreationEffectivePolicyContext.ActiveLimit);
+                var knowledge = policy.Settings.Single(row => row.SettingId == CharacterCreationEffectivePolicyContext.KnowledgeLimit);
+                if (supported)
+                {
+                    Assert.AreEqual(CharacterCreationPolicyDisposition.Effective, active.Disposition);
+                    Assert.AreEqual(CharacterCreationPolicyDisposition.Effective, knowledge.Disposition);
+                    Assert.AreEqual((int?)authority.MaxActiveSkillRatingCreate, active.IntegerValue);
+                    Assert.AreEqual((int?)authority.MaxKnowledgeSkillRatingCreate, knowledge.IntegerValue);
+                    if (int.TryParse(value, out int configured))
+                        Assert.AreEqual((int?)configured,
+                            (field.Contains("knowledge", StringComparison.Ordinal) ? knowledge : active).IntegerValue);
+                    Assert.AreEqual(authority.MaxActiveSkillRatingCreate, authority.MaxSkillGroupRatingCreate);
+                }
+                else
+                {
+                    var changed = field.Contains("knowledge", StringComparison.Ordinal) ? knowledge : active;
+                    Assert.AreEqual(CharacterCreationPolicyDisposition.Unsupported, changed.Disposition);
+                    if (int.TryParse(value, out int configured)) Assert.AreEqual((int?)configured, changed.IntegerValue);
+                }
+                Assert.AreEqual(CharacterCreationEffectivePolicyContext.ComputeDigest(policy), policy.PolicyDigest);
+            }
+            finally { DeleteTempDirectory(root); }
+        }
+    }
+
+    [TestMethod]
+    public void Effective_policy_classifies_imported_settings_missing_books_and_unimplemented_domains_without_exporting_values()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty, "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>");
+            WriteSkillsAuthorityFixture(root);
+            string path = Path.Combine(root, "data", "settings.xml");
+            var document = XDocument.Load(path);
+            var settings = document.Descendants("setting").Single();
+            settings.Element("books")!.Remove();
+            settings.Add(new XElement("private-imported-name", new XElement("private-key", "private-value /private/path")));
+            document.Save(path);
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationEffectivePolicy(out var policy));
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Missing, policy!.Domains.Single(row => row.Domain == CharacterCreationPolicyDomain.Books).Disposition);
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Missing, policy.Domains.Single(row => row.Domain == CharacterCreationPolicyDomain.Errata).Disposition);
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Missing, policy.Domains.Single(row => row.Domain == CharacterCreationPolicyDomain.CharacterMechanics).Disposition);
+            Assert.IsTrue(policy.Settings.Skip(3).All(row => row.Disposition == CharacterCreationPolicyDisposition.Unsupported && row.IntegerValue is null));
+            string json = System.Text.Json.JsonSerializer.Serialize(policy);
+            Assert.IsFalse(json.Contains("private-", StringComparison.Ordinal));
+            Assert.IsFalse(json.Contains(root, StringComparison.Ordinal));
+            Assert.IsFalse(json.Contains("<setting", StringComparison.Ordinal));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("rules")]
+    [DataRow("books")]
+    [DataRow("profile")]
+    [DataRow("amend")]
+    [DataRow("global-amend")]
+    [DataRow("global-manifest")]
+    public void Effective_policy_identity_tracks_same_profile_changed_bytes_and_rejects_source_ABA(string changedSource)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root,
+                "<customdatadirectoryname><directoryname>PolicyPack</directoryname><order>0</order><enabled>True</enabled></customdatadirectoryname>",
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>");
+            WriteSkillsAuthorityFixture(root);
+            string custom = Path.Combine(root, "customdata", "PolicyPack");
+            Directory.CreateDirectory(custom);
+            string amend = Path.Combine(custom, "custom_unimplemented.xml");
+            File.WriteAllText(amend, "<chummer><unimplemented>one</unimplemented></chummer>");
+            string overlays = Path.Combine(root, "overlays");
+            WriteOverlay(overlays, "policy-overlay", 1, 4);
+            string xml = CharacterXml("<customdatadirectorynames><directoryname>PolicyPack</directoryname></customdatadirectorynames>");
+            var context = CreateContext(root, xml, overlays)!;
+            Assert.IsTrue(context.TryResolveCreationEffectivePolicy(out var before));
+            Assert.AreEqual(CharacterCreationPolicyDisposition.Unsupported, before!.Domains.Single(row => row.Domain == CharacterCreationPolicyDomain.Amendments).Disposition);
+            string path = changedSource switch
+            {
+                "rules" => Path.Combine(root, "data", "skills.xml"),
+                "amend" => amend,
+                "global-amend" => Path.Combine(overlays, "policy-overlay", "data", "cyberware.fragment.xml"),
+                "global-manifest" => Path.Combine(overlays, "policy-overlay", "manifest.json"),
+                _ => Path.Combine(root, "data", "settings.xml")
+            };
+            byte[] original = File.ReadAllBytes(path);
+            if (changedSource == "books")
+            {
+                var document = XDocument.Load(path);
+                document.Descendants("books").Single().Add(new XElement("book", "RF"));
+                document.Save(path);
+            }
+            else File.AppendAllText(path, changedSource == "global-manifest" ? "\n " : "<!-- changed policy bytes -->");
+            Assert.IsFalse(context.TryResolveCreationEffectivePolicy(out _));
+            Assert.IsTrue(CreateContext(root, xml, overlays)!.TryResolveCreationEffectivePolicy(out var changed));
+            Assert.AreEqual(before.SettingsProfileId, changed!.SettingsProfileId);
+            Assert.AreNotEqual(before.PolicyDigest, changed.PolicyDigest);
+            if (changedSource == "books") CollectionAssert.Contains(changed.EnabledSourcebooks.ToArray(), "RF");
+            File.WriteAllBytes(path, original);
+            Assert.IsFalse(context.TryResolveCreationEffectivePolicy(out _), "Restored bytes cannot revive a poisoned source observation.");
+            Assert.IsTrue(CreateContext(root, xml, overlays)!.TryResolveCreationEffectivePolicy(out var restored));
+            Assert.AreEqual(before.PolicyDigest, restored!.PolicyDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     [DataRow(SettingsId)]
     [DataRow(CharacterCreationBootstrapProfiles.PrioritySettingsProfileId)]
     [DataRow(CharacterCreationBootstrapProfiles.SumToTenSettingsProfileId)]
@@ -501,6 +1175,52 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Separate_mystic_magic_capability_uses_exact_metatype_bounds_only_when_enabled()
+    {
+        const string inputs = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        XElement metatype = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "metatypes.xml"))
+            .Root!.Element("metatypes")!.Elements("metatype").Single(row => row.Element("name")?.Value == "Human");
+        foreach (bool enabled in new[] { false, true })
+        {
+            string settings = $"<setting><id>{SettingsId}</id><priorityspellsasadeptpowers>True</priorityspellsasadeptpowers>"
+                + $"<mysadeptsecondmagattribute>{enabled}</mysadeptsecondmagattribute>"
+                + "<karmacost><karmamysadpp>5</karmamysadpp></karmacost></setting>";
+            Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(SettingsId, inputs, settings, out var policy));
+            var context = new CharacterCreationMagicResonanceProjectionContext(
+                SettingsProfileId: SettingsId, PrerequisiteAuthority: CharacterCreationPrerequisiteAuthority.Unavailable,
+                PrioritiesInputsDigest: inputs, MetatypesInputsDigest: inputs, TraditionsInputsDigest: inputs,
+                StreamsInputsDigest: inputs, PowersInputsDigest: inputs, SpellsInputsDigest: inputs,
+                ComplexFormsInputsDigest: inputs, QualitiesInputsDigest: inputs, GearInputsDigest: inputs,
+                CustomDataInputsDigest: inputs, EnabledSourcebooks: ["SR5"], SourceAnchorIds: ["metatypes.xml"], Blockers: [])
+            { MysticAdeptPowerPointPolicy = policy };
+            var authority = CharacterCreationMagicResonanceAuthorityProjector.Project(
+                [metatype], [], [], [], [], [], [], [], context);
+            var capability = authority.Metatypes.Single();
+            if (!enabled)
+            {
+                Assert.IsNull(capability.SeparateMagicAttribute);
+                continue;
+            }
+            Assert.IsNotNull(capability.SeparateMagicAttribute);
+            Assert.AreEqual(new CharacterCreationMetatypeAttributeProjection("MAGAdept",
+                int.Parse(metatype.Element("magmin")!.Value, System.Globalization.CultureInfo.InvariantCulture),
+                int.Parse(metatype.Element("magmax")!.Value, System.Globalization.CultureInfo.InvariantCulture),
+                int.Parse(metatype.Element("magaug")!.Value, System.Globalization.CultureInfo.InvariantCulture)),
+                capability.SeparateMagicAttribute);
+            foreach (bool duplicate in new[] { false, true })
+            {
+                var malformed = new XElement(metatype);
+                if (duplicate) malformed.Add(new XElement(malformed.Element("magmax")!));
+                else malformed.SetElementValue("magmax", "MAG + 1");
+                var rejected = CharacterCreationMagicResonanceAuthorityProjector.Project(
+                    [malformed], [], [], [], [], [], [], [], context).Metatypes.Single();
+                Assert.IsNull(rejected.SeparateMagicAttribute);
+                Assert.AreNotEqual(capability.SourceNodeDigest, rejected.SourceNodeDigest);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Magic_catalog_keeps_each_rows_xml_scope_and_parallel_projection_isolated()
     {
         const string inputs = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -594,7 +1314,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             File.WriteAllBytes(path, expected);
             const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic;
             var type = typeof(FileSystemCharacterSourceDataResolver).GetNestedType("SourceInputSnapshot", flags)!;
-            object snapshot = Activator.CreateInstance(type, [null, false])!;
+            // Reflection does not bind omitted optional constructor arguments.
+            object snapshot = Activator.CreateInstance(type, [null, false, false, null])!;
             var read = type.GetMethod("ReadValidationBytes", flags | System.Reflection.BindingFlags.Instance)!
                 .CreateDelegate<Func<string, byte[], bool>>(snapshot);
             for (int i = 0; i < 8; i++) Assert.IsTrue(read(path, expected));
@@ -1252,6 +1973,394 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow(false, "")]
+    [DataRow(true, "")]
+    [DataRow(true, "nested/amend_extra_spells.xml")]
+    [DataRow(true, "nested/amend_metatypes_notes.xml")]
+    [DataRow(true, "nested/amend_table_priorities.xml")]
+    public void Metatype_catalog_and_bootstrap_accept_selected_directories_without_metatype_inputs(
+        bool amendSettings, string unrelatedFile)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var ordinary = (CharacterCreationMetatypeCatalogAuthority)ReadCompletionProjection(
+                CreateContext(FindCoreRoot(), CharacterXml())!, "metatypes");
+            string directory = WriteMetatypeSettingsDirectoryFixture(root, amendSettings);
+            if (unrelatedFile.Length != 0)
+            {
+                string path = Path.Combine(directory, unrelatedFile);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, unrelatedFile == "nested/amend_table_priorities.xml"
+                    ? "<chummer><priortysumtotenvalues><A>4</A></priortysumtotenvalues></chummer>"
+                    : "<chummer />");
+            }
+            var document = MetatypeSettingsBootstrapDocument();
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var context = resolver.TryCreateContext(document.Content)!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
+            Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(out var selected));
+            Assert.IsTrue(selected.IsAuthoritative, string.Join(",", selected.Blockers));
+            Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(ordinary.Options),
+                System.Text.Json.JsonSerializer.Serialize(selected.Options));
+            Assert.AreEqual(ordinary.SourceContext.RawMetatypesXmlDigest, selected.SourceContext.RawMetatypesXmlDigest);
+            Assert.AreEqual(ordinary.SourceContext.EffectiveMetatypesInputsDigest, selected.SourceContext.EffectiveMetatypesInputsDigest);
+            Assert.AreEqual(SettingsId, selected.SourceContext.SettingsProfileId);
+            Assert.AreEqual(profile.RawProfileInputsDigest, selected.SourceContext.RawProfileInputsDigest);
+            Assert.AreNotEqual(ordinary.SourceContext.RawProfileInputsDigest, selected.SourceContext.RawProfileInputsDigest);
+            Assert.AreNotEqual(ordinary.SourceContext.SelectedCustomDataInputsDigest, selected.SourceContext.SelectedCustomDataInputsDigest);
+            CollectionAssert.Contains(selected.SourceContext.SourceAnchorIds.ToArray(), "customdata:MetatypePolicy");
+            Assert.IsTrue(context.TryResolveCreationAttributePolicy(out var attributes));
+            Assert.AreEqual(amendSettings ? 7 : 5, attributes!.KarmaAttribute);
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document, resolver,
+                out var binding, out _, out var blockers), string.Join(",", blockers));
+            Assert.AreEqual(profile.RawProfileInputsDigest, binding.RawProfileInputsDigest);
+            Assert.AreEqual(selected.SourceContext.AuthorityDigest, binding.MetatypeAuthorityDigest);
+            Assert.IsNotNull(profile.BootstrapSourceAnchors);
+            Assert.AreEqual(profile.RawProfileInputsDigest, profile.BootstrapSourceAnchors.RawProfileInputsDigest);
+            Assert.AreEqual(selected.SourceContext.SelectedCustomDataInputsDigest,
+                profile.BootstrapSourceAnchors.SelectedCustomDataInputsDigest);
+            CollectionAssert.AreEqual(profile.BootstrapSourceAnchors.SourceAnchorIds.ToArray(), binding.SourceAnchorIds.ToArray());
+            Assert.IsTrue(CharacterCreationBootstrapBindingDigest.IsValid(binding));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("amend_metatypes.xml")]
+    [DataRow("custom_metatypes.xml")]
+    [DataRow("override_metatypes.xml")]
+    [DataRow("nested/amend_house_metatypes.xml")]
+    [DataRow("nested/custom_house_metatypes.xml")]
+    [DataRow("nested/OVERRIDE_house_METATYPES.xml")]
+    public void Metatype_catalog_and_bootstrap_reject_selected_metatype_custom_inputs(string relativePath)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string directory = WriteMetatypeSettingsDirectoryFixture(root);
+            string path = Path.Combine(directory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "<chummer><metatypes><metatype><name>Human</name>"
+                + "<karma>1</karma></metatype></metatypes></chummer>");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var document = MetatypeSettingsBootstrapDocument();
+            var context = resolver.TryCreateContext(document.Content)!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(out var authority));
+            Assert.IsFalse(authority.IsAuthoritative);
+            Assert.IsFalse(authority.SourceContext.IsAuthoritative);
+            Assert.HasCount(0, authority.Options);
+            CollectionAssert.Contains(authority.Blockers.ToArray(), CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported);
+            Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(authority.SourceContext.SelectedCustomDataInputsDigest));
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var prerequisites));
+            Assert.IsFalse(prerequisites.IsAuthoritative);
+            CollectionAssert.Contains(prerequisites.Blockers.ToArray(), CharacterCreationPrerequisiteBlockers.MetatypeCustomDataUnsupported);
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document, resolver,
+                out _, out _, out var blockers));
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationBootstrapBlockers.MetatypeAuthorityUnavailable);
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Metatype_settings_only_cached_authority_rejects_late_custom_data_and_observed_ABA(bool strongIdentity)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string directory = WriteMetatypeSettingsDirectoryFixture(root);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, strongIdentity);
+            string xml = MetatypeSettingsBootstrapDocument().Content;
+            var context = resolver.TryCreateContext(xml)!;
+            var workspaceId = new CharacterWorkspaceId(Guid.NewGuid().ToString("N"));
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(workspaceId,
+                MetatypeSettingsBootstrapDocument(), context, out _, out _, out var baseline), string.Join(",", baseline));
+            string expected = System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "metatypes"));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadCompletionProjection(context, "metatypes")));
+            string path = Path.Combine(directory, "amend_metatypes.xml");
+            File.WriteAllText(path, "<chummer><metatypes><metatype><name>Human</name>"
+                + "<karma>1</karma></metatype></metatypes></chummer>");
+            Assert.IsFalse(context.TryResolveCreationMetatypeCatalog(out var drifted) && drifted.IsAuthoritative);
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(workspaceId,
+                MetatypeSettingsBootstrapDocument(), context, out _, out _, out _));
+            var fresh = resolver.TryCreateContext(xml)!;
+            Assert.IsTrue(fresh.TryResolveCreationMetatypeCatalog(out var unsupported));
+            CollectionAssert.Contains(unsupported.Blockers.ToArray(), CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported);
+            File.Delete(path);
+            Assert.IsFalse(context.TryResolveCreationMetatypeCatalog(out var restored) && restored.IsAuthoritative);
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(workspaceId,
+                MetatypeSettingsBootstrapDocument(), context, out _, out _, out _));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(
+                ReadCompletionProjection(resolver.TryCreateContext(xml)!, "metatypes")));
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(workspaceId,
+                MetatypeSettingsBootstrapDocument(), resolver, out _, out _, out var cold), string.Join(",", cold));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Metatype_settings_only_directory_does_not_authorize_metatype_overlays(bool replaceFile)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteMetatypeSettingsDirectoryFixture(root);
+            string overlay = Path.Combine(root, "overlay");
+            Directory.CreateDirectory(overlay);
+            File.WriteAllText(Path.Combine(overlay, replaceFile ? "metatypes.xml" : "metatypes.fragment.xml"),
+                replaceFile ? File.ReadAllText(Path.Combine(root, "data", "metatypes.xml")) : "<chummer><metatypes /></chummer>");
+            var pack = new ContentOverlayPack("metatype-overlay", "Metatype overlay", overlay, overlay, overlay,
+                1, true, replaceFile ? ContentOverlayModes.ReplaceFile : ContentOverlayModes.MergeCatalog, string.Empty);
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), [pack]));
+            var document = MetatypeSettingsBootstrapDocument();
+            var context = resolver.TryCreateContext(document.Content)!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(out var authority));
+            Assert.IsFalse(authority.IsAuthoritative);
+            CollectionAssert.Contains(authority.Blockers.ToArray(), CharacterCreationMetatypeCatalogBlockers.OverlayUnsupported);
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document, resolver,
+                out _, out _, out var blockers));
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationBootstrapBlockers.MetatypeAuthorityUnavailable);
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationMetatypeCatalogBlockers.OverlayUnsupported);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("metatypecostskarma", "False", CharacterCreationMetatypeCatalogBlockers.ProfileKarmaModeInvalid)]
+    [DataRow("metatypecostskarmamultiplier", "0", CharacterCreationMetatypeCatalogBlockers.ProfileKarmaMultiplierInvalid)]
+    [DataRow("mininitiativedice", "-1", CharacterCreationMetatypeCatalogBlockers.ProfileInitiativeFallbackInvalid)]
+    [DataRow("dronemods", "invalid", CharacterCreationMetatypeCatalogBlockers.ProfileDroneModsInvalid)]
+    public void Metatype_settings_only_directory_preserves_invalid_profile_blockers(string field, string value, string blocker)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string directory = WriteMetatypeSettingsDirectoryFixture(root);
+            File.WriteAllText(Path.Combine(directory, "amend_settings.xml"),
+                $"<chummer><settings><setting><id>{SettingsId}</id><{field}>{value}</{field}></setting></settings></chummer>");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var document = MetatypeSettingsBootstrapDocument();
+            var context = resolver.TryCreateContext(document.Content)!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(out var authority));
+            Assert.IsFalse(authority.IsAuthoritative);
+            CollectionAssert.Contains(authority.Blockers.ToArray(), blocker);
+            Assert.IsFalse(authority.Blockers.Contains(CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported));
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document, resolver,
+                out _, out _, out var blockers));
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationBootstrapBlockers.MetatypeAuthorityUnavailable);
+            CollectionAssert.Contains(blockers.ToArray(), blocker);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, true)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, true)]
+    [DataRow(CharacterCreationBuildMethods.Karma, true)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, true)]
+    [DataRow(CharacterCreationBuildMethods.Priority, false)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, false)]
+    [DataRow(CharacterCreationBuildMethods.Karma, false)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, false)]
+    public void Selected_directory_bootstrap_anchors_bind_each_canonical_method(string method, bool selected)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(method, out string profileId));
+            if (selected) WriteMetatypeSettingsDirectoryFixture(root, profileId: profileId);
+            else CopyCanonicalDataFiles(root, CharacterCreationBootstrapProfiles.SettingsSourceFile(profileId),
+                "priorities.xml", "metatypes.xml", "skills.xml");
+            var xml = XDocument.Parse(MetatypeSettingsBootstrapDocument().Content);
+            xml.Root!.SetElementValue("settings", profileId);
+            xml.Root.SetElementValue("buildmethod", method);
+            if (!selected) xml.Root.Element("customdatadirectorynames")!.Remove();
+            var document = new WorkspaceDocument(new WorkspacePayloadEnvelope("sr5", 1, "sr5/chum5-xml", xml.ToString()));
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document, resolver,
+                out var binding, out _, out var blockers), string.Join(",", blockers));
+            Assert.IsTrue(CharacterCreationBootstrapBindingDigest.IsValid(binding));
+            Assert.IsTrue(resolver.TryCreateContext(document.Content)!.TryResolveCreationSourceProfile(out var cold));
+            if (selected)
+            {
+                CollectionAssert.Contains(binding.SourceAnchorIds.ToArray(), "customdata:MetatypePolicy");
+                CollectionAssert.AreEqual(binding.SourceAnchorIds.ToArray(), cold.BootstrapSourceAnchors!.SourceAnchorIds.ToArray());
+            }
+            else
+            {
+                Assert.IsNull(cold.BootstrapSourceAnchors);
+                CollectionAssert.AreEqual(CharacterCreationBootstrapProfiles.ExpectedSourceAnchorIds(method, profileId),
+                    binding.SourceAnchorIds.ToArray());
+                Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(cold).Contains("BootstrapSourceAnchors", StringComparison.Ordinal));
+            }
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("missing-observation")]
+    [DataRow("missing-anchor")]
+    [DataRow("unknown-anchor")]
+    [DataRow("profile")]
+    [DataRow("method")]
+    [DataRow("profile-digest")]
+    [DataRow("custom-digest")]
+    [DataRow("metatype-anchor")]
+    [DataRow("prerequisite-anchor")]
+    [DataRow("duplicate-metatype-anchor")]
+    public void Selected_directory_bootstrap_rejects_inconsistent_typed_anchor_observations(string mutation)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteMetatypeSettingsDirectoryFixture(root);
+            var document = MetatypeSettingsBootstrapDocument();
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            var source = resolver.TryCreateContext(document.Content)!;
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document, source, out _, out _, out var baseline),
+                string.Join(",", baseline));
+            Assert.IsTrue(source.TryResolveCreationSourceProfile(out var profile));
+            Assert.IsTrue(source.TryResolveCreationMetatypeCatalog(out var metatypes));
+            Assert.IsTrue(source.TryResolveCreationPrerequisiteAuthority(out var prerequisites));
+            var observation = profile.BootstrapSourceAnchors!;
+            const string custom = "customdata:MetatypePolicy";
+            string changedDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(prerequisites with { BuildMethod = "changed" });
+            if (mutation == "missing-observation") profile = profile with { BootstrapSourceAnchors = null };
+            else if (mutation == "metatype-anchor" || mutation == "duplicate-metatype-anchor")
+                metatypes = metatypes with { SourceContext = metatypes.SourceContext with
+                {
+                    SourceAnchorIds = mutation == "metatype-anchor"
+                        ? metatypes.SourceContext.SourceAnchorIds.Where(anchor => anchor != custom).ToArray()
+                        : metatypes.SourceContext.SourceAnchorIds.Concat([custom]).ToArray()
+                }};
+            else if (mutation == "prerequisite-anchor")
+            {
+                prerequisites = prerequisites with { SourceAnchorIds = prerequisites.SourceAnchorIds.Where(anchor => anchor != custom).ToArray() };
+                prerequisites = prerequisites with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(prerequisites) };
+            }
+            else profile = profile with { BootstrapSourceAnchors = mutation switch
+            {
+                "missing-anchor" => observation with { SourceAnchorIds = observation.SourceAnchorIds.Where(anchor => anchor != custom).ToArray() },
+                "unknown-anchor" => observation with { SourceAnchorIds = observation.SourceAnchorIds.Concat(["customdata:Unknown"]).Order(StringComparer.Ordinal).ToArray() },
+                "profile" => observation with { SettingsProfileId = CharacterCreationBootstrapProfiles.PrioritySettingsProfileId },
+                "method" => observation with { BuildMethod = CharacterCreationBuildMethods.Karma },
+                "profile-digest" => observation with { RawProfileInputsDigest = changedDigest },
+                "custom-digest" => observation with { SelectedCustomDataInputsDigest = changedDigest },
+                _ => throw new InvalidOperationException(mutation)
+            }};
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document,
+                new BootstrapAnchorContext(profile, metatypes, prerequisites), out _, out _, out var blockers));
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationBootstrapBlockers.SourceAnchorsInvalid);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("customdata:")]
+    [DataRow("customdata:../MetatypePolicy")]
+    [DataRow("customdata:MetatypePolicy:../amend_priorities.xml")]
+    [DataRow("customdata:MetatypePolicy:/amend_priorities.xml")]
+    [DataRow("customdata:MetatypePolicy:nested//amend_priorities.xml")]
+    [DataRow("customdata:MetatypePolicy:amend_settings.xml")]
+    [DataRow("customdata:MetatypePolicy:amend_metatypes.xml")]
+    [DataRow("customdata:Unknown:amend_priorities.xml")]
+    [DataRow("unknown:MetatypePolicy")]
+    public void Selected_directory_bootstrap_rejects_malformed_or_orphaned_anchor_identities(string invalid)
+    {
+        string[] anchors = CharacterCreationBootstrapProfiles.ExpectedSourceAnchorIds(CharacterCreationBuildMethods.Priority, SettingsId)
+            .Concat(["customdata:MetatypePolicy", invalid]).Order(StringComparer.Ordinal).ToArray();
+        Assert.IsFalse(CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+            "sr5", CharacterCreationBuildMethods.Priority, SettingsId, anchors));
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteMetatypeSettingsDirectoryFixture(root);
+            var document = MetatypeSettingsBootstrapDocument();
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            var source = resolver.TryCreateContext(document.Content)!;
+            Assert.IsTrue(source.TryResolveCreationSourceProfile(out var profile));
+            Assert.IsTrue(source.TryResolveCreationMetatypeCatalog(out var metatypes));
+            Assert.IsTrue(source.TryResolveCreationPrerequisiteAuthority(out var prerequisites));
+            profile = profile with { BootstrapSourceAnchors = profile.BootstrapSourceAnchors! with { SourceAnchorIds = anchors } };
+            metatypes = metatypes with { SourceContext = metatypes.SourceContext with
+                { SourceAnchorIds = metatypes.SourceContext.SourceAnchorIds.Concat([invalid]).ToArray() } };
+            prerequisites = prerequisites with { SourceAnchorIds = prerequisites.SourceAnchorIds.Concat([invalid]).ToArray() };
+            prerequisites = prerequisites with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(prerequisites) };
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                new CharacterWorkspaceId(Guid.NewGuid().ToString("N")), document,
+                new BootstrapAnchorContext(profile, metatypes, prerequisites), out _, out _, out var blockers));
+            CollectionAssert.Contains(blockers.ToArray(), CharacterCreationBootstrapBlockers.SourceAnchorsInvalid);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private sealed class BootstrapAnchorContext(CharacterCreationSourceProfileAuthority profile,
+        CharacterCreationMetatypeCatalogAuthority metatypes, CharacterCreationPrerequisiteAuthority prerequisites)
+        : ICharacterSourceDataContext
+    {
+        public bool TryResolveCreationSourceProfile(out CharacterCreationSourceProfileAuthority authority)
+        { authority = profile; return true; }
+        public bool TryResolveCreationMetatypeCatalog(out CharacterCreationMetatypeCatalogAuthority authority)
+        { authority = metatypes; return true; }
+        public bool TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority authority)
+        { authority = prerequisites; return true; }
+        public bool TryResolveCyberwareGradeDeviceRating(string gradeName, string improvementSource, out int deviceRating)
+        { deviceRating = 0; return false; }
+        public bool TryResolveVehicleModBonuses(string sourceId, string name, out CharacterVehicleModSourceBonuses bonuses)
+        { bonuses = CharacterVehicleModSourceBonuses.Empty; return false; }
+    }
+
+    private static string WriteMetatypeSettingsDirectoryFixture(string root, bool amendSettings = true, string profileId = SettingsId)
+    {
+        string file = CharacterCreationBootstrapProfiles.SettingsSourceFile(profileId);
+        CopyCanonicalDataFiles(root, file, "priorities.xml", "metatypes.xml", "skills.xml");
+        string path = Path.Combine(root, "data", file);
+        var document = XDocument.Load(path);
+        var profile = document.Descendants("setting").Single(row => row.Element("id")?.Value == profileId);
+        profile.SetElementValue("customdatadirectorynames", string.Empty);
+        profile.Element("customdatadirectorynames")!.Add(new XElement("customdatadirectoryname",
+            new XElement("directoryname", "MetatypePolicy"), new XElement("order", 0), new XElement("enabled", true)));
+        document.Save(path);
+        string directory = Path.Combine(root, "customdata", "MetatypePolicy");
+        Directory.CreateDirectory(directory);
+        if (amendSettings)
+            File.WriteAllText(Path.Combine(directory, "amend_" + file),
+                $"<chummer><settings><setting><id>{profileId}</id><karmacost><karmaattribute>7</karmaattribute></karmacost></setting></settings></chummer>");
+        return directory;
+    }
+
+    private static WorkspaceDocument MetatypeSettingsBootstrapDocument() => new(new WorkspacePayloadEnvelope(
+        "sr5", 1, "sr5/chum5-xml", CharacterXml($"""
+            <buildmethod>Priority</buildmethod><created>False</created><gameedition>SR5</gameedition>
+            <customdatadirectorynames><directoryname>MetatypePolicy</directoryname></customdatadirectorynames>
+            <{CharacterCreationBootstrapXml.MarkerElement}>
+              <{CharacterCreationBootstrapXml.SchemaElement}>{CharacterCreationBootstrapSchemas.MarkerV1}</{CharacterCreationBootstrapXml.SchemaElement}>
+              <{CharacterCreationBootstrapXml.StageElement}>{CharacterCreationBootstrapStages.AwaitingFoundationSelection}</{CharacterCreationBootstrapXml.StageElement}>
+            </{CharacterCreationBootstrapXml.MarkerElement}>
+            """)));
+
+    [TestMethod]
     [DataRow("qualities.xml")]
     [DataRow("spells.xml")]
     [DataRow("traditions.xml")]
@@ -1510,6 +2619,165 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             }
         }
     }
+
+    // Retained343 proposal: authored only; execution belongs to the controller.
+    [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CanonicalSumToTenSettingsId)]
+    public void Retained_loadout_projection_reuses_detached_catalog_after_fresh_source_admission(string profile)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null), null, false);
+        using var reads = resolver.CreateValidatedReadScope();
+        string xml = $"<character><settings>{profile}</settings></character>";
+        string expected;
+        using (var operation = reads.CreateOperationScope())
+        {
+            var context = operation.TryCreateContext(xml)!;
+            var first = ReadRetainedLoadout(context);
+            expected = System.Text.Json.JsonSerializer.Serialize(first);
+            Assert.IsTrue(CharacterCreationLoadoutRules.IsValidAuthority(first));
+            PoisonRetainedLoadout(first);
+            var second = ReadRetainedLoadout(context);
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
+            PoisonRetainedLoadout(second);
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(context)));
+            Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.LoadoutProjectionCount);
+        }
+        int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+        using (var operation = reads.CreateOperationScope())
+        {
+            var context = operation.TryCreateContext(xml)!;
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(context)));
+            Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.LoadoutProjectionCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+                "A warm projection must still enter through fresh byte admission.");
+        }
+        using var coldReads = resolver.CreateValidatedReadScope();
+        var coldContext = coldReads.TryCreateContext(xml)!;
+        Assert.AreEqual(0, resolver.LastSourceInputSnapshotDiagnostics!.LoadoutProjectionCount);
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(coldContext)));
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.LoadoutProjectionCount,
+            "A new request must reconstruct its own catalog.");
+    }
+
+    [TestMethod]
+    [DataRow("weapons.xml", false)]
+    [DataRow("armor.xml", false)]
+    [DataRow("settings.xml", false)]
+    [DataRow("armor.xml", true)]
+    public void Retained_loadout_projection_rejects_same_length_source_drift_and_observed_ABA(
+        string fileName, bool strongIdentity)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml",
+                "weapons.xml", "armor.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, strongIdentity);
+            using var reads = resolver.CreateValidatedReadScope();
+            string xml = $"<character><settings>{SettingsId}</settings></character>";
+            var context = reads.TryCreateContext(xml)!;
+            string expected = System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(context));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(context)));
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            byte[] changed = original.ToArray();
+            int newline = Array.IndexOf(changed, (byte)'\n');
+            Assert.IsTrue(newline >= 0);
+            changed[newline] = (byte)' ';
+            File.WriteAllBytes(path, changed);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            // Exercise a held context as well as the request-scope admission path.
+            Assert.IsFalse(context.TryResolveCreationLoadoutAuthority(out _));
+            Assert.IsNull(reads.TryCreateContext(xml));
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationLoadoutAuthority(out _));
+            Assert.IsNull(reads.TryCreateContext(xml), "Observed drift cannot revive after A-B-A.");
+            using var fresh = resolver.CreateValidatedReadScope();
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(fresh.TryCreateContext(xml)!)));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Retained_loadout_projection_warm_hit_does_not_bypass_operation_exit_source_fence()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml",
+                "weapons.xml", "armor.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, false);
+            using var reads = resolver.CreateValidatedReadScope();
+            string xml = $"<character><settings>{SettingsId}</settings></character>";
+            var operation = reads.CreateOperationScope();
+            try
+            {
+                var context = operation.TryCreateContext(xml)!;
+                _ = ReadRetainedLoadout(context);
+                _ = ReadRetainedLoadout(context);
+                Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.LoadoutProjectionCount);
+                // An input first captured by the projection is removed after a warm hit.
+                File.Delete(Path.Combine(root, "data", "armor.xml"));
+                bool refused = false;
+                try { operation.Dispose(); }
+                catch (IOException) { refused = true; }
+                Assert.IsTrue(refused, "The operation must refuse publication after source drift.");
+                Assert.IsNull(reads.TryCreateContext(xml));
+            }
+            finally { operation.Dispose(); }
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public async Task Retained_loadout_projection_parallel_warm_readers_receive_independent_catalogs()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        using var reads = resolver.CreateValidatedReadScope();
+        var context = reads.TryCreateContext($"<character><settings>{SettingsId}</settings></character>")!;
+        string expected = System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(context));
+        var calls = Enumerable.Range(0, 3).Select(_ => Task.Run(() => ReadRetainedLoadout(context))).ToArray();
+        var results = await Task.WhenAll(calls);
+        PoisonRetainedLoadout(results[0]);
+        foreach (var result in results.Skip(1))
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(result));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(ReadRetainedLoadout(context)));
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.LoadoutProjectionCount);
+    }
+
+    private static CharacterCreationLoadoutAuthority ReadRetainedLoadout(ICharacterSourceDataContext context)
+    {
+        Assert.IsTrue(context.TryResolveCreationLoadoutAuthority(out var authority));
+        Assert.IsTrue(authority.IsAuthoritative);
+        return authority;
+    }
+
+    private static void PoisonRetainedLoadout(CharacterCreationLoadoutAuthority authority)
+    {
+        static void Poison(IReadOnlyList<string> values)
+        {
+            if (values is System.Collections.IList { IsReadOnly: false, Count: > 0 } mutable)
+                mutable[0] = "caller-poison";
+        }
+        Poison(authority.SourceAnchorIds);
+        Poison(authority.Blockers);
+        foreach (var option in authority.Options)
+        {
+            Poison(option.Blockers);
+            Poison(option.SourceAnchorIds);
+        }
+        ((System.Collections.IList)authority.Options)[0] = authority.Options[0] with { UnitCost = -1m };
+    }
+
 
     private static object ReadCompletionProjection(ICharacterSourceDataContext context, string kind)
     {
@@ -4360,6 +5628,459 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.AreEqual(1, disposals);
         }
         finally { scope?.Dispose(); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public async Task Admission220_read_scope_revalidates_across_await_without_rebuilding_private_projections()
+    {
+        string coreRoot = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+        using var scope = resolver.CreateValidatedReadScope();
+        string xml = CharacterXml();
+        var first = scope.TryCreateContext(xml);
+        Assert.IsNotNull(first);
+        Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var before));
+        Assert.IsTrue(before.IsAuthoritative, string.Join(",", before.Blockers));
+        Assert.IsTrue(first.TryResolveCreationMetatypeCatalog(out _));
+        Assert.IsTrue(first.TryResolveCreationQualitiesAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationMagicResonanceAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationSkillsAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationResourcesAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationGearAuthority(out _));
+        string expected = System.Text.Json.JsonSerializer.Serialize(before);
+        // A caller cannot corrupt the private projection reused by later reads.
+        ((string[])before.PriorityArray)[0] = "caller-mutation";
+        var captured = resolver.LastSourceInputSnapshotDiagnostics!;
+
+        await Task.Yield();
+        var current = scope.TryCreateContext(new string(xml.ToCharArray()));
+        Assert.AreSame(first, current);
+        Assert.IsTrue(current!.TryResolveCreationPrerequisiteAuthority(out var after));
+        Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(after));
+        var reused = resolver.LastSourceInputSnapshotDiagnostics!;
+        Assert.AreEqual(captured.PhysicalReadCount, reused.PhysicalReadCount);
+        Assert.AreEqual(captured.PhysicalXmlParseCount, reused.PhysicalXmlParseCount);
+        Assert.AreEqual(captured.PrerequisiteProjectionCount, reused.PrerequisiteProjectionCount);
+        Assert.IsTrue(reused.ValidationReadCount > captured.ValidationReadCount);
+        Assert.IsTrue(reused.ValidationBytesRead > captured.ValidationBytesRead);
+        // This base-only catalog reads named files, not overlay inventories.
+        // The overlay fixture below proves live directory revalidation.
+        Assert.AreEqual(0, captured.DirectoryValidationCount);
+        Assert.AreEqual(captured.DirectoryValidationCount, reused.DirectoryValidationCount);
+
+        using var next = resolver.CreateValidatedReadScope();
+        Assert.AreNotSame(first, next.TryCreateContext(xml));
+        scope.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => scope.TryCreateContext(xml));
+        Assert.IsNotNull(next.TryCreateContext(xml));
+    }
+
+    [TestMethod]
+    [DataRow("source")]
+    [DataRow("profile")]
+    [DataRow("delete")]
+    public async Task Admission220_read_scope_rejects_post_await_byte_changes_and_observed_ABA(string change)
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            string path = Path.Combine(root, "data", change == "profile" ? "settings.xml" : "priorities.xml");
+            byte[] original = File.ReadAllBytes(path);
+            DateTime time = File.GetLastWriteTimeUtc(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, useStrongChangeIdentity: false);
+            using var scope = resolver.CreateValidatedReadScope();
+            var first = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(first);
+            Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative);
+            await Task.Yield();
+            if (change == "delete") File.Delete(path);
+            else
+            {
+                string text = System.Text.Encoding.UTF8.GetString(original);
+                string replacement = change == "profile"
+                    ? text.Replace("<buildpoints>25</buildpoints>", "<buildpoints>26</buildpoints>", StringComparison.Ordinal)
+                    : text.Replace("<attributes>24</attributes>", "<attributes>23</attributes>", StringComparison.Ordinal);
+                Assert.AreNotEqual(text, replacement);
+                File.WriteAllText(path, replacement);
+                Assert.AreEqual(original.Length, File.ReadAllBytes(path).Length);
+                File.SetLastWriteTimeUtc(path, time);
+            }
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.IsFalse(first.TryResolveCreationSourceProfile(out _));
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, time);
+            await Task.Yield();
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            using var fresh = resolver.CreateValidatedReadScope();
+            Assert.IsNotNull(fresh.TryCreateContext(CharacterXml()));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Admission220_read_scope_rejects_post_await_catalog_or_membership_changes(bool membership)
+    {
+        string root = CreateOperationSourceFixture();
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            string data = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(data);
+            var packs = new List<ContentOverlayPack> { new("pack", "Pack", overlayRoot, data,
+                Path.Combine(overlayRoot, "lang"), 1, true, ContentOverlayModes.MergeCatalog, string.Empty) };
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            using var scope = resolver.CreateValidatedReadScope();
+            var first = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(first);
+            Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative);
+            var original = packs[0];
+            string added = Path.Combine(data, "priorities.fragment.xml");
+            int validatedDirectories = resolver.LastSourceInputSnapshotDiagnostics!.DirectoryValidationCount;
+            await Task.Yield();
+            Assert.AreSame(first, scope.TryCreateContext(CharacterXml()));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.DirectoryValidationCount > validatedDirectories);
+            if (membership) File.WriteAllText(added, "<chummer><priorities /></chummer>");
+            else packs[0] = original with { Description = "changed catalog" };
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            if (membership) File.Delete(added);
+            else packs[0] = original;
+            await Task.Yield();
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+        }
+        finally { DeleteTempDirectory(overlayRoot); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Synchronous_read_operation_bounds_scans_but_preserves_explicit_nested_admission()
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var reads = resolver.CreateValidatedReadScope();
+            ICharacterSourceDataResolverOperationScopeFactory factory = reads;
+            var context = reads.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+            Assert.IsTrue(authority.IsAuthoritative);
+            string expected = System.Text.Json.JsonSerializer.Serialize(authority);
+            ((string[])authority.PriorityArray)[0] = "caller-mutation";
+            var before = resolver.LastSourceInputSnapshotDiagnostics!;
+
+            using (var operation = factory.CreateOperationScope())
+            {
+                Assert.AreSame(context, operation.TryCreateContext(CharacterXml()));
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount > before.ValidationReadCount);
+                var admitted = resolver.LastSourceInputSnapshotDiagnostics!;
+                for (int index = 0; index < 20; index++)
+                {
+                    Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out _));
+                    Assert.IsTrue(context.TryResolveCreationSourceProfile(out _));
+                }
+                Assert.AreEqual(admitted.ValidationReadCount, resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount);
+                Assert.AreEqual(admitted.DirectoryValidationCount, resolver.LastSourceInputSnapshotDiagnostics.DirectoryValidationCount);
+                Assert.AreSame(context, operation.TryCreateContext(CharacterXml()));
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > admitted.ValidationReadCount,
+                    "Explicit nested context requests still validate live bytes.");
+                int validations = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+                Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var detached));
+                Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(detached));
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+                    "Explicit projection reuse checks must not be bypassed by the ambient operation.");
+                before = resolver.LastSourceInputSnapshotDiagnostics;
+            }
+            var exited = resolver.LastSourceInputSnapshotDiagnostics!;
+            Assert.IsTrue(exited.ValidationReadCount > before.ValidationReadCount);
+            Assert.AreEqual(before.PhysicalReadCount, exited.PhysicalReadCount);
+            Assert.AreEqual(before.PhysicalXmlParseCount, exited.PhysicalXmlParseCount);
+            Assert.AreEqual(before.PrerequisiteProjectionCount, exited.PrerequisiteProjectionCount);
+            Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out _));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount > exited.ValidationReadCount,
+                "Disposal restores ordinary per-method validation.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public void Synchronous_read_operation_rejects_same_length_restored_mtime_bytes_before_return(
+        bool strongIdentity, bool firstObservedDuringOperation)
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            string path = Path.Combine(root, "data", firstObservedDuringOperation ? "cyberware.xml" : "priorities.xml");
+            string original = File.ReadAllText(path);
+            DateTime time = File.GetLastWriteTimeUtc(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, strongIdentity);
+            using var reads = resolver.CreateValidatedReadScope();
+            Assert.IsNotNull(reads.TryCreateContext(CharacterXml()));
+            ICharacterSourceDataResolverOperationScope? operation = null;
+            bool Evaluate()
+            {
+                using (operation = reads.CreateOperationScope())
+                {
+                    var context = operation.TryCreateContext(CharacterXml());
+                    Assert.IsNotNull(context);
+                    if (firstObservedDuringOperation)
+                    {
+                        Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.ContainsKey(path));
+                        Assert.IsTrue(context.TryResolveCyberwareGradeDeviceRating("Standard", "Cyberware", out _));
+                        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.PhysicalReadsByPath.ContainsKey(path));
+                    }
+                    string changed = firstObservedDuringOperation
+                        ? original.Replace("<devicerating>4</devicerating>", "<devicerating>5</devicerating>", StringComparison.Ordinal)
+                        : original.Replace("<attributes>24</attributes>", "<attributes>23</attributes>", StringComparison.Ordinal);
+                    Assert.AreNotEqual(original, changed);
+                    Assert.AreEqual(original.Length, changed.Length);
+                    File.WriteAllText(path, changed);
+                    File.SetLastWriteTimeUtc(path, time);
+                    return context.TryResolveMaxNuyenDecimals(out _);
+                }
+            }
+            Assert.ThrowsExactly<IOException>(() => Evaluate());
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            operation!.Dispose(); // Exit failure still closes the operation exactly once.
+            Assert.ThrowsExactly<ObjectDisposedException>(() => operation.TryCreateContext(CharacterXml()));
+            File.WriteAllText(path, original);
+            File.SetLastWriteTimeUtc(path, time);
+            Assert.IsNull(reads.TryCreateContext(CharacterXml()), "Exit-observed ABA cannot revive retained inputs.");
+            using (var rejected = reads.CreateOperationScope())
+                Assert.IsNull(rejected.TryCreateContext(CharacterXml()));
+            using var fresh = resolver.CreateValidatedReadScope();
+            using var next = fresh.CreateOperationScope();
+            Assert.IsNotNull(next.TryCreateContext(CharacterXml()));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Synchronous_read_operation_revalidates_next_entry_and_keeps_explicitly_observed_ABA_poisoned()
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            string path = Path.Combine(root, "data", "priorities.xml");
+            string original = File.ReadAllText(path);
+            DateTime time = File.GetLastWriteTimeUtc(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null, useStrongChangeIdentity: false);
+            using var reads = resolver.CreateValidatedReadScope();
+            using (var first = reads.CreateOperationScope())
+                Assert.IsNotNull(first.TryCreateContext(CharacterXml()));
+            File.WriteAllText(path, original.Replace("<attributes>24</attributes>", "<attributes>23</attributes>", StringComparison.Ordinal));
+            File.SetLastWriteTimeUtc(path, time);
+            using (var next = reads.CreateOperationScope())
+                Assert.IsNull(next.TryCreateContext(CharacterXml()), "A new operation must freshly admit retained bytes.");
+            File.WriteAllText(path, original);
+            File.SetLastWriteTimeUtc(path, time);
+            Assert.IsNull(reads.TryCreateContext(CharacterXml()));
+
+            using var fresh = resolver.CreateValidatedReadScope();
+            var operation = fresh.CreateOperationScope();
+            try
+            {
+                var context = operation.TryCreateContext(CharacterXml());
+                Assert.IsNotNull(context);
+                File.WriteAllText(path, original.Replace("<attributes>24</attributes>", "<attributes>23</attributes>", StringComparison.Ordinal));
+                File.SetLastWriteTimeUtc(path, time);
+                Assert.IsNull(operation.TryCreateContext(CharacterXml()));
+                File.WriteAllText(path, original);
+                File.SetLastWriteTimeUtc(path, time);
+                Assert.IsNull(operation.TryCreateContext(CharacterXml()));
+                Assert.IsFalse(context.TryResolveCreationSourceProfile(out _));
+                Assert.ThrowsExactly<IOException>(operation.Dispose);
+            }
+            finally { operation.Dispose(); }
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("catalog")]
+    [DataRow("membership")]
+    [DataRow("absent-file")]
+    public void Synchronous_read_operation_rejects_catalog_and_membership_drift_at_exit(string change)
+    {
+        string root = CreateOperationSourceFixture();
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            string data = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(data);
+            var packs = new List<ContentOverlayPack> { new("pack", "Pack", overlayRoot, data,
+                Path.Combine(overlayRoot, "lang"), 1, true,
+                change == "absent-file" ? ContentOverlayModes.ReplaceFile : ContentOverlayModes.MergeCatalog, string.Empty) };
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            using var reads = resolver.CreateValidatedReadScope();
+            var operation = reads.CreateOperationScope();
+            try
+            {
+                var context = operation.TryCreateContext(CharacterXml());
+                Assert.IsNotNull(context);
+                Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+                Assert.IsTrue(authority.IsAuthoritative);
+                var pack = packs[0];
+                string added = Path.Combine(data, change == "absent-file" ? "priorities.xml" : "priorities.fragment.xml");
+                if (change == "catalog") packs[0] = pack with { Description = "changed catalog" };
+                else File.WriteAllText(added, change == "absent-file"
+                    ? File.ReadAllText(Path.Combine(root, "data", "priorities.xml")) : "<chummer><priorities /></chummer>");
+                Assert.ThrowsExactly<IOException>(operation.Dispose);
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+                if (change == "catalog") packs[0] = pack;
+                else File.Delete(added);
+                Assert.IsNull(reads.TryCreateContext(CharacterXml()));
+            }
+            finally { operation.Dispose(); }
+        }
+        finally { DeleteTempDirectory(overlayRoot); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Synchronous_read_operation_restores_outer_scope_after_body_or_exit_exception(bool exitFailure)
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var reads = resolver.CreateValidatedReadScope();
+            using var outer = reads.CreateOperationScope();
+            var context = outer.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            var catalogs = new OperationCatalog(new FileSystemContentOverlayCatalogService(root, root, null));
+            var otherResolver = new FileSystemCharacterSourceDataResolver(catalogs);
+            using var otherReads = otherResolver.CreateValidatedReadScope();
+            var otherContext = otherReads.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(otherContext);
+            int otherValidations = otherResolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            Assert.IsTrue(otherContext.TryResolveMaxNuyenDecimals(out _));
+            Assert.IsTrue(otherResolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > otherValidations,
+                "One owner's ambient operation must not admit another owner's snapshot.");
+
+            Assert.ThrowsExactly<IOException>(() =>
+            {
+                using var nested = otherReads.CreateOperationScope();
+                Assert.AreSame(otherContext, nested.TryCreateContext(CharacterXml()));
+                if (exitFailure) catalogs.ThrowNext = true;
+                else throw new IOException("Injected evaluation failure.");
+            });
+            int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out _));
+            Assert.AreEqual(validations, resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount,
+                "Nested exceptional exit must restore the enclosing operation.");
+            otherValidations = otherResolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            Assert.IsTrue(otherContext.TryResolveMaxNuyenDecimals(out _));
+            Assert.IsTrue(otherResolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > otherValidations);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public async Task Synchronous_read_operation_does_not_flow_to_tasks_or_disable_post_await_admission()
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var reads = resolver.CreateValidatedReadScope();
+            using (var operation = reads.CreateOperationScope())
+            {
+                var context = operation.TryCreateContext(CharacterXml());
+                Assert.IsNotNull(context);
+                int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+                Assert.IsTrue(Task.Factory.StartNew(() => context.TryResolveMaxNuyenDecimals(out _),
+                    CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).GetAwaiter().GetResult());
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
+                    "ExecutionContext capture must not inherit synchronous validation admission.");
+                validations = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+                Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out _));
+                Assert.AreEqual(validations, resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount);
+            }
+            int exitedValidations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            await Task.Yield();
+            Assert.IsNotNull(reads.TryCreateContext(CharacterXml()));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > exitedValidations);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Synchronous_read_operation_reentrant_disposal_cannot_restore_admission(bool disposeOwner)
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            var catalogs = new OperationCatalog(new FileSystemContentOverlayCatalogService(root, root, null));
+            var resolver = new FileSystemCharacterSourceDataResolver(catalogs);
+            using var reads = resolver.CreateValidatedReadScope();
+            var context = reads.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            var operation = reads.CreateOperationScope();
+            try
+            {
+                Assert.AreSame(context, operation.TryCreateContext(CharacterXml()));
+                catalogs.OnGetCatalog = () =>
+                {
+                    catalogs.OnGetCatalog = null;
+                    if (disposeOwner) reads.Dispose();
+                    else operation.Dispose();
+                };
+                Assert.ThrowsExactly<ObjectDisposedException>(() => operation.TryCreateContext(CharacterXml()));
+                if (disposeOwner) Assert.ThrowsExactly<ObjectDisposedException>(operation.Dispose);
+                else operation.Dispose();
+                int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+                Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out _));
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+                Assert.ThrowsExactly<ObjectDisposedException>(() => operation.TryCreateContext(CharacterXml()));
+            }
+            finally { operation.Dispose(); }
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Synchronous_read_operation_does_not_admit_or_reject_unused_context_inputs()
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var reads = resolver.CreateValidatedReadScope();
+            var unused = reads.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(unused);
+            Assert.IsTrue(unused.TryResolveCyberwareGradeDeviceRating("Standard", "Cyberware", out _));
+            var selected = reads.TryCreateContext(CharacterXml() + "\n");
+            Assert.IsNotNull(selected);
+            File.AppendAllText(Path.Combine(root, "data", "cyberware.xml"), "<!-- changed unused source -->");
+            using (var operation = reads.CreateOperationScope())
+            {
+                Assert.AreSame(selected, operation.TryCreateContext(CharacterXml() + "\n"));
+                Assert.IsTrue(selected.TryResolveCreationSourceProfile(out _));
+                Assert.IsNull(reads.TryCreateContext(CharacterXml()));
+            }
+            Assert.IsNotNull(reads.TryCreateContext(CharacterXml() + "\n"));
+        }
+        finally { DeleteTempDirectory(root); }
     }
 
     private static string CreateOperationSourceFixture()

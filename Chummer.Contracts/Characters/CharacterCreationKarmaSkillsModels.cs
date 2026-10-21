@@ -77,6 +77,11 @@ public sealed record CharacterCreationKarmaSkillsQuote(
     string QuoteDigest,
     CharacterCreationKarmaSkillsBasis Basis)
 {
+    /// <summary>Source-admitted selected quality definitions retained for deterministic replay.
+    /// Null preserves the historical quote payload. This is not fresh source admission.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationQualitySelection>? SkillKarmaQualitySelections { get; init; }
+
     public const string SchemaV1 = "chummer.character_creation_karma_skills_quote.v1";
     public bool CanSelect => Blockers.Count == 0;
 }

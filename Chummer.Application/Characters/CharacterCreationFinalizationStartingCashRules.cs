@@ -5,7 +5,7 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 /// <summary>Explicit starting cash and the exact free fallback lifestyle, separate from creation purchases.</summary>
-public static class CharacterCreationFinalizationStartingCashRules
+public static partial class CharacterCreationFinalizationStartingCashRules
 {
     public static string Digest(CharacterCreationFinalizationStartingCash value) =>
         CharacterCreationFinalizationDigest.Compute(value with { AuthorityDigest = string.Empty });
@@ -62,16 +62,9 @@ public static class CharacterCreationFinalizationStartingCashRules
     {
         amount = 0; lifestyle = null;
         if (!IsValid(value) || !MatchesPurchases(value!, null) || string.IsNullOrWhiteSpace(id.Value)) return false;
-        var source = value!.Source;
-        var option = value.Lifestyles.LifestyleOptions.Single(item => item.SourceId.ToString("D") == source.SourceId);
-        var configuration = new CharacterCreationLifestyleConfiguration(
-            CharacterCreationFinalizationProjector.StableGuid("priority-default-lifestyle:" + id.Value), option.OptionId,
-            option.Name, CharacterCreationLifestyleStyleIds.Standard, option.DefaultIncrementId, 1, 100m, 0,
-            false, false, 0, 0, 0, 0, string.Empty, string.Empty, string.Empty, []);
-        if (!CharacterCreationLifestylesRules.TryProject(configuration, value.Lifestyles, out var projection, out _)
-            || projection.Economics.TotalCost != 0) return false;
-        amount = checked(value.Choice.DiceTotal * source.Multiplier);
-        lifestyle = CharacterCreationLifestylesService.BuildLifestyleElement(projection, null, value.Lifestyles);
+        if (!TryProjectDefaultLifestyle718(id, value!.Source, value.Lifestyles, out _, out lifestyle))
+            return false;
+        amount = checked(value.Choice.DiceTotal * value.Source.Multiplier);
         return true;
     }
 }

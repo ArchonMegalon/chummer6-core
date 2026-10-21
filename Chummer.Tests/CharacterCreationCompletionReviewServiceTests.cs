@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Xml.Linq;
+using Chummer.Infrastructure.Workspaces;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
@@ -9,6 +12,349 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class CharacterCreationCompletionReviewServiceTests
 {
+    [TestMethod]
+    [DataRow(false, false, 18, CharacterCreationBuildMethods.Priority, 0)]
+    [DataRow(true, false, 9, CharacterCreationBuildMethods.Priority, 0)]
+    [DataRow(false, true, 15, CharacterCreationBuildMethods.Priority, 0)]
+    [DataRow(true, true, 6, CharacterCreationBuildMethods.Priority, 0)]
+    [DataRow(true, true, 6, CharacterCreationBuildMethods.SumToTen, 0)]
+    [DataRow(true, true, 6, CharacterCreationBuildMethods.Priority, 2)]
+    [DataRow(true, true, 6, CharacterCreationBuildMethods.SumToTen, 3)]
+    public void Configured_attribute_rules_feed_shared_Finish_budget_deltas_and_cold_selected_replay(
+        bool alternate, bool reverse, int expectedCost, string method, int groupRate)
+    {
+        using var context = ReadyContext.Create(false, metatypeName: "Ork", buildMethod: method, playerChosenAttributeIds: ["AGI"],
+            amendSettings: profile =>
+            {
+                ConfigureAttributeProfile(profile, alternate, reverse);
+                if (groupRate > 0) profile.Element("karmacost")!.SetElementValue("karmacontact", groupRate);
+            });
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var inputs = LoadAttributeConsumers(context, owners);
+        var original = context.Store.Get(context.WorkspaceId).Value!;
+        var pistols = inputs.Skills.Authority.ActiveSkills.Single(row => row.Name == "Pistols");
+        var baseline = BaselineSelections(inputs);
+        int expectedGroupCost = 3 * groupRate;
+        var request = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest,
+            baseline with
+            {
+                AttributeAllocations = [new("BOD", 1, 1)], ChangeableAttributeIds = ["BOD"],
+                Contacts = groupRate == 0 ? baseline.Contacts : baseline.Contacts.Concat([
+                    new CharacterCreationKarmaContactSelection(Guid.NewGuid(),
+                        new CharacterCreationContactIdentity("Configured group", "", "Seattle", "", "", "", "", "", "", "", "", "", GroupName: string.Empty),
+                        2, 1, IsGroup: true)]).ToArray(),
+                SkillKarmaPurchases = [new(pistols.SourceSkillId, CharacterCreationSkillKinds.Active, pistols.SourceNodeDigest, 1)]
+            }) { EffectivePolicyDigest = inputs.EffectivePolicy!.PolicyDigest,
+                PolicyRequirement = CharacterCreationPolicyRequirement.SkillLimits };
+        var result = CharacterCreationCompletionReviewService.Review(inputs, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+        var review = result.Value!;
+        CollectionAssert.AreEqual(new[] { "AGI" }, inputs.Skills.Attributes.PendingDraft!.PlayerChosenAttributeIds!.ToArray());
+        var alteredManual = CharacterCreationCompletionReviewService.Review(inputs, request with
+        {
+            Selections = request.Selections with { AttributeAllocations = [new("BOD", 1, 1), new("AGI", 1, 0)] }
+        });
+        CollectionAssert.Contains(alteredManual.Blockers.ToArray(), CharacterCreationCompletionReviewSchemas.SelectionPreservationConflict);
+        Assert.AreEqual(expectedCost, review.Skills!.Attributes.Attributes.Single(row => row.AttributeId == "BOD").KarmaCost);
+        Assert.AreEqual((int?)(25 - expectedCost), review.Balances.KarmaAfterAttributesAndQualities);
+        Assert.AreEqual((int?)3, review.Balances.SkillsKarmaCost);
+        Assert.AreEqual((int?)expectedGroupCost, review.Balances.ContactsKarmaCost);
+        Assert.AreEqual((int?)(25 - expectedCost - 3 - expectedGroupCost), review.Balances.RemainingCreationKarma);
+        Assert.AreEqual(CharacterCreationCompletionConsumerPolicy.SchemaV3, inputs.EffectivePolicy.Consumers!.Schema);
+        if (groupRate > 0)
+        {
+            Assert.AreEqual(groupRate, inputs.Contacts.Policy.GroupContactKarmaMultiplier);
+            Assert.AreEqual(expectedGroupCost, review.Contacts!.GroupKarma!.BaseGroupKarma);
+            Assert.AreEqual(expectedGroupCost, review.Contacts.GroupKarma.AdditionalKarmaCost);
+        }
+        var coverage = inputs.EffectivePolicy.Consumers!.Coverage.Single(row =>
+            row.Operation == CharacterCreationConsumerPolicyOperation.AttributeHouseRules);
+        Assert.AreEqual(alternate || reverse ? CharacterCreationConsumerPolicyDisposition.Admitted
+            : CharacterCreationConsumerPolicyDisposition.Unsupported, coverage.Disposition);
+        Assert.IsNull(CharacterCreationCompletionReviewService.Review(inputs,
+            request with { PolicyRequirement = CharacterCreationPolicyRequirement.Complete }).Value);
+        var reserved = CharacterCreationCompletionReviewService.Review(inputs,
+            request with { Selections = request.Selections with { KarmaToReserve = 25 - expectedCost } });
+        CollectionAssert.Contains(reserved.Blockers.ToArray(), CharacterCreationCompletionPlanBlockers.KarmaReserveRequired);
+
+        Assert.IsTrue(CharacterCreationCompletionBootstrapSnapshot.TryCapture(
+            context.Resolver.TryCreateContext(original.Document.Content)!, original.Document.Content, out var bootstrap));
+        var captured = CharacterCreationSelectedCompletionEvaluator.Capture(original, bootstrap, inputs, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, captured.Outcome, string.Join(",", captured.Blockers));
+        var witness = captured.Value!;
+        if (alternate || reverse)
+        {
+            Assert.AreEqual(CharacterCreationAttributeHouseRules.SchemaV1, witness.Skills.Attributes.HouseRules!.Schema);
+            Assert.IsFalse(CharacterCreationAttributePolicyAuthority.MatchesHouseRules(inputs.AttributePolicy,
+                witness.Skills.Attributes with { HouseRules = witness.Skills.Attributes.HouseRules! with { Schema = "unknown" } }));
+        }
+        else
+            Assert.IsFalse(JsonSerializer.SerializeToElement(witness.Skills.Attributes).TryGetProperty("HouseRules", out _));
+
+        var service = new OwnerBoundCharacterCreationCompletionService(context.Store, owners, context.Resolver, context.Queries);
+        var stamp = owners.Capture();
+        var cash = service.LoadStartingCash(stamp, context.WorkspaceId, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, cash.Outcome, string.Join(",", cash.Blockers));
+        var final = service.Review(stamp, context.WorkspaceId, request, new(cash.Value!.AuthorityDigest, cash.Value.Dice * 3));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, final.Outcome, string.Join(",", final.Blockers));
+        Assert.AreEqual((decimal)expectedCost, final.Value!.Projection.OrderedDeltas.Single(row =>
+            row.Kind == CharacterCreationFinalizationDeltaKinds.Attribute && row.TargetId == "BOD").KarmaCost);
+        if (groupRate > 0)
+            Assert.AreEqual((decimal)expectedGroupCost, final.Value.Projection.OrderedDeltas.Single(row =>
+                row.DeltaId == "contacts:karma").KarmaCost);
+        Assert.AreEqual(JsonSerializer.Serialize(original), JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+        var command = new CharacterCreationCompletionApplyRequest(final.Value.Projection.Binding, final.Value.Proposal,
+            final.Value.Projection.ReviewDigest, final.Value.Projection.StartingCash.Choice,
+            final.Value.Projection.ProjectionDigest, "configured-attribute-finish", true);
+        var applied = service.Apply(stamp, command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, applied.Outcome, string.Join(",", applied.Blockers));
+        // Current source is now different; committed history must still reproduce its own costs.
+        File.AppendAllText(Path.Combine(context.Directory, "source", "data",
+            CharacterCreationBootstrapProfiles.SettingsSourceFile(inputs.EffectivePolicy.SettingsProfileId)), "\n<!-- later source -->");
+        var cold = new FileWorkspaceStore(context.Directory);
+        var reopened = cold.Get(context.WorkspaceId);
+        Assert.IsTrue(reopened.Success, reopened.Error);
+        Assert.AreEqual(original.ContentRevision + 1, reopened.Value!.ContentRevision);
+        Assert.AreEqual(reopened.Value.ContentRevision, reopened.Value.SavedRevision);
+        Assert.AreEqual(final.Value.Projection.CharacterXml, reopened.Value.Document.Content);
+        var archive = reopened.Value.Document.AuxiliaryState.CharacterCreationFinalizationArchive!;
+        Assert.IsTrue(CharacterCreationCompletionTransaction.IsValidArchive(context.WorkspaceId, archive, applied.Value!));
+        Assert.IsTrue(CharacterCreationCompletionReplayCodec.TryDecode(archive.CompletionAuthority!.SelectedReplay,
+            out var savedBootstrap, out var savedWitness));
+        var replay = CharacterCreationSelectedCompletionEvaluator.Replay(original, savedBootstrap, savedWitness, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, replay.Outcome, string.Join(",", replay.Blockers));
+        Assert.AreEqual(JsonSerializer.Serialize(review.Balances), JsonSerializer.Serialize(replay.Value!.Balances));
+        Assert.AreEqual(JsonSerializer.Serialize(review.Contacts!.GroupKarma), JsonSerializer.Serialize(replay.Value.Contacts.GroupKarma));
+        Assert.AreEqual(CharacterCreationCompletionConsumerPolicy.SchemaV3, savedWitness.EffectivePolicy!.Consumers!.Schema);
+        Assert.AreEqual(JsonSerializer.Serialize(witness), JsonSerializer.Serialize(savedWitness));
+        Assert.IsTrue(CharacterCreationCompletionReplayCodec.TryEncode(savedBootstrap, savedWitness, out var encoded));
+        Assert.AreEqual(JsonSerializer.Serialize(archive.CompletionAuthority.SelectedReplay), JsonSerializer.Serialize(encoded));
+        var repeated = new OwnerBoundCharacterCreationCompletionService(cold, owners, context.Resolver, context.Queries).Apply(stamp, command);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, repeated.Outcome, string.Join(",", repeated.Blockers));
+        Assert.AreEqual(applied.Value!.ReceiptDigest, repeated.Value!.ReceiptDigest);
+        Assert.AreEqual(1, cold.Get(context.WorkspaceId).Value!.Document.AuxiliaryState.CharacterCreationFinalizationReceipts!.Count);
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false, true, true, true, 15, 6)]
+    [DataRow(true, false, true, true, 9, 6)]
+    [DataRow(true, true, false, true, 6, 15)]
+    [DataRow(true, true, true, false, 6, 9)]
+    [DataRow(true, true, false, false, 6, 18)]
+    [DataRow(false, false, true, true, 18, 6)]
+    public void Selected_attribute_rules_reject_consistently_resealed_flags_against_frozen_source(
+        bool sourceAlternate, bool sourceReverse, bool forgedAlternate, bool forgedReverse,
+        int sourceCost, int forgedCost)
+    {
+        using var context = ReadyContext.Create(false, metatypeName: "Ork",
+            amendSettings: profile => ConfigureAttributeProfile(profile, sourceAlternate, sourceReverse));
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var inputs = LoadAttributeConsumers(context, owners);
+        var original = context.Store.Get(context.WorkspaceId).Value!;
+        var baseline = BaselineSelections(inputs);
+        var originalSelections = new CharacterCreationCompletionOriginalSelections(
+            baseline.MagicSelections, baseline.QualityOptionIds, baseline.Gear, baseline.TotalKarmaInvestment,
+            baseline.Contacts, baseline.Lifestyles) { Loadout = baseline.Loadout };
+        string originalInputs = JsonSerializer.Serialize(inputs);
+        Assert.IsTrue(inputs.Skills.Attributes.Attributes.All(row => row.KarmaLevels == 0 && row.KarmaCost == 0));
+        Assert.AreEqual(0m, inputs.Skills.Attributes.CreationKarmaBudget.Used);
+        var request = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest, baseline with
+        {
+            AttributeAllocations = [new("BOD", 1, 1)], ChangeableAttributeIds = ["BOD"], SkillKarmaPurchases = []
+        }) { EffectivePolicyDigest = inputs.EffectivePolicy!.PolicyDigest,
+            PolicyRequirement = CharacterCreationPolicyRequirement.SkillLimits };
+        Assert.IsTrue(CharacterCreationCompletionBootstrapSnapshot.TryCapture(
+            context.Resolver.TryCreateContext(original.Document.Content)!, original.Document.Content, out var bootstrap));
+        string frozenBootstrap = JsonSerializer.Serialize(bootstrap);
+        string originalBytes = JsonSerializer.Serialize(original);
+        var honestReview = CharacterCreationCompletionReviewService.Review(inputs, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, honestReview.Outcome,
+            "Honest pure review: " + string.Join(",", honestReview.Blockers));
+        var capture = CharacterCreationSelectedCompletionEvaluator.Capture(original, bootstrap, inputs, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, capture.Outcome, string.Join(",", capture.Blockers));
+        var witness = capture.Value!;
+        Assert.IsTrue(CharacterCreationEffectivePolicyValidation.IsValidSelected(
+            witness, originalSelections, inputs.Contacts.OriginalEffects), "Honest selected policy must validate against the original baseline.");
+        var honest = CharacterCreationSelectedCompletionEvaluator.Replay(original, bootstrap, witness, request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, honest.Outcome, string.Join(",", honest.Blockers));
+        Assert.AreEqual(sourceCost, honest.Value!.Skills.Attributes.Attributes.Single(row => row.AttributeId == "BOD").KarmaCost);
+
+        // A zero-Karma baseline does not reveal either cost flag. Reseal it and
+        // every dependent identity, including the full and selected consumers.
+        var attributes = inputs.Skills.Attributes with
+        {
+            HouseRules = forgedAlternate || forgedReverse
+                ? new(CharacterCreationAttributeHouseRules.SchemaV1, forgedAlternate, forgedReverse) : null,
+            SnapshotDigest = string.Empty
+        };
+        attributes = attributes with
+        {
+            SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(attributes)
+        };
+        var reprojected = CharacterCreationAttributesService.CreateDraftSession(attributes)!.Preview(
+            attributes.Attributes.Select(row => new CharacterCreationAttributeAllocation(
+                row.AttributeId, row.PriorityPointsSpent, row.KarmaLevels)).ToArray()).Value!;
+        Assert.IsTrue(reprojected.Blockers.All(value => value == CharacterCreationAttributesBlockers.DraftDuplicate));
+        Assert.AreEqual(inputs.Skills.Attributes.CreationKarmaBudget.Used, reprojected.CreationKarmaBudget.Used);
+        attributes = attributes with
+        {
+            Attributes = reprojected.Attributes, NormalPointBudget = reprojected.NormalPointBudget,
+            SpecialPointBudget = reprojected.SpecialPointBudget, CreationKarmaBudget = reprojected.CreationKarmaBudget,
+            SnapshotDigest = string.Empty
+        };
+        attributes = attributes with
+        {
+            SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(attributes)
+        };
+        var skills = inputs.Skills with { Attributes = attributes, SnapshotDigest = string.Empty };
+        skills = skills with { SnapshotDigest = CharacterCreationSkillsDigest.Compute(skills) };
+        // Full review compares the complete Attributes observation in all three
+        // consumers. Reseal the dependent inputs, leaving saved drafts and bindings intact.
+        var magic = inputs.Magic with { Attributes = attributes, SnapshotDigest = string.Empty };
+        magic = magic with { SnapshotDigest = CharacterCreationMagicResonanceDigest.Compute(magic) };
+        var qualities = inputs.Lifestyles.Qualities with { Attributes = attributes, SnapshotDigest = string.Empty };
+        qualities = qualities with { SnapshotDigest = CharacterCreationQualitiesRules.ComputeCompletionInputsDigest(qualities) };
+        var lifestyles = inputs.Lifestyles with { Qualities = qualities };
+        lifestyles = lifestyles with { SnapshotDigest = CharacterCreationLifestylesCompletionRules.ComputeInputsDigest(lifestyles) };
+        var contacts = inputs.Contacts with { Qualities = qualities };
+        // Contact admission also binds the Qualities observation inside its source
+        // digest; reseal that edge before testing the independent bootstrap fence.
+        contacts = contacts with { Binding = contacts.Binding with
+        {
+            SourceDigest = CharacterCreationFinalizationDigest.Compute(new
+            {
+                Schema = CharacterCreationContactsCompletionSchemas.InputsV1,
+                contacts.BootstrapBinding.BindingDigest, qualities.SnapshotDigest,
+                Policy = contacts.Policy.AuthorityDigest, Carryover = contacts.CarryoverPolicy.AuthorityDigest,
+                OriginalEffects = contacts.OriginalEffects, TalentQualitySources = contacts.TalentQualitySources
+            })
+        } };
+        contacts = contacts with { SnapshotDigest = CharacterCreationContactsCompletionRules.ComputeInputsDigest(contacts) };
+        var attributePolicy = inputs.AttributePolicy! with
+        {
+            AlternateMetatypeAttributeKarma = forgedAlternate, ReverseAttributePriorityOrder = forgedReverse
+        };
+        attributePolicy = attributePolicy with
+        {
+            AuthorityDigest = CharacterCreationAttributePolicyAuthority.ComputeDigest(attributePolicy)
+        };
+        var forgedInputs = inputs with
+        {
+            Skills = skills, Magic = magic, Lifestyles = lifestyles, Contacts = contacts, AttributePolicy = attributePolicy
+        };
+        forgedInputs = forgedInputs with
+        {
+            EffectivePolicy = CharacterCreationCompletionConsumerPolicyProjection.Attach(inputs.EffectivePolicy, forgedInputs)
+        };
+        forgedInputs = forgedInputs with
+        {
+            SnapshotDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(forgedInputs)
+        };
+        var forgedRequest = request with
+        {
+            InputsSnapshotDigest = forgedInputs.SnapshotDigest,
+            EffectivePolicyDigest = forgedInputs.EffectivePolicy!.PolicyDigest
+        };
+        // Pure review must admit the complete mutable graph before the independent source check.
+        var forgedReview = CharacterCreationCompletionReviewService.Review(forgedInputs, forgedRequest);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, forgedReview.Outcome,
+            "Resealed pure review: " + string.Join(",", forgedReview.Blockers));
+        Assert.AreEqual(forgedCost, forgedReview.Value!.Skills!.Attributes.Attributes.Single(row => row.AttributeId == "BOD").KarmaCost);
+        Assert.AreNotEqual(sourceCost, forgedCost);
+        // Selected policy observes Magic.OriginalInputsSnapshotDigest independently
+        // of the full-input graph; capture its payload from the resealed Magic inputs.
+        var selectedMagic = CharacterCreationMagicResonanceService.CaptureSelectedMagicAuthority(
+            forgedInputs.Magic, forgedRequest.Selections.MagicSelections);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, selectedMagic.Outcome,
+            "Resealed selected Magic: " + string.Join(",", selectedMagic.Blockers));
+        Assert.AreEqual(forgedInputs.Magic.SnapshotDigest, selectedMagic.Value!.OriginalInputsSnapshotDigest);
+        Assert.AreNotEqual(witness.Magic.OriginalInputsSnapshotDigest, selectedMagic.Value.OriginalInputsSnapshotDigest);
+        var forged = witness with
+        {
+            Skills = skills, Magic = selectedMagic.Value!, AttributePolicy = attributePolicy, EffectivePolicy = forgedInputs.EffectivePolicy,
+            ContactsSourceProvenanceSeed = contacts.Binding.SourceDigest,
+            ProvenanceInputsSnapshotDigest = forgedInputs.SnapshotDigest,
+            ProvenanceReviewDigest = forgedReview.Value.ReviewDigest,
+            ProposedQualityProjectionProvenanceSeed = forgedReview.Value.UpstreamBudget!.Qualities.ProposalDigest,
+            SelectedPolicyInputs = CharacterCreationSelectedPolicyProjection.FromFull(forgedInputs, originalSelections),
+            ProposalDigest = CharacterCreationFinalizationDigest.Compute(forgedRequest)
+        };
+        forged = forged with { WitnessDigest = CharacterCreationSelectedCompletionEvaluator.ComputeWitnessDigest(forged) };
+        Assert.IsTrue(CharacterCreationAttributePolicyAuthority.MatchesHouseRules(attributePolicy, attributes));
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(forged.SelectedPolicyInputs,
+            CharacterCreationSelectedPolicyProjection.FromSelected(forged, originalSelections, inputs.Contacts.OriginalEffects)),
+            "Full and selected policy observations must agree after resealing.");
+        Assert.IsTrue(CharacterCreationEffectivePolicyValidation.IsValidSelected(forged, originalSelections, inputs.Contacts.OriginalEffects),
+            "Resealed selected policy must validate before immutable source rejection.");
+        Assert.AreEqual(CharacterCreationSelectedPolicyInputs.ComputeDigest(forged.SelectedPolicyInputs!), forged.SelectedPolicyInputs!.InputsDigest);
+        Assert.AreEqual(CharacterCreationSelectedCompletionEvaluator.ComputeWitnessDigest(forged), forged.WitnessDigest);
+        Assert.IsTrue(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+            original.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft, original.Id, original.ContentRevision,
+            bootstrap.RawCharacterXmlDigest, bootstrap.Prerequisite));
+        Assert.IsFalse(CharacterCreationAttributePolicyAuthority.MatchesSourceHouseRules(attributePolicy, attributes, bootstrap.Prerequisite));
+
+        var refused = CharacterCreationSelectedCompletionEvaluator.Replay(original, bootstrap, forged, forgedRequest);
+        Assert.IsNull(refused.Value);
+        CollectionAssert.AreEqual(new[] { CharacterCreationSelectedCompletionEvaluator.HistoryMismatch }, refused.Blockers.ToArray());
+        Assert.AreEqual(originalInputs, JsonSerializer.Serialize(inputs));
+        Assert.AreEqual(frozenBootstrap, JsonSerializer.Serialize(bootstrap));
+        Assert.AreEqual(originalBytes, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+        // Null is still the ordinary historical representation for genuine defaults.
+        if (!sourceAlternate && !sourceReverse)
+            Assert.IsFalse(JsonSerializer.SerializeToElement(witness.Skills.Attributes).TryGetProperty("HouseRules", out _));
+    }
+
+    [TestMethod]
+    public void Configured_attribute_review_is_not_authority_to_apply_after_settings_change()
+    {
+        using var context = ReadyContext.Create(false,
+            amendSettings: profile => ConfigureAttributeProfile(profile, true, true));
+        var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
+        var inputs = LoadAttributeConsumers(context, owners);
+        var request = new CharacterCreationCompletionReviewRequest(inputs.SnapshotDigest,
+            BaselineSelections(inputs) with { AttributeAllocations = [new("BOD", 1, 1)],
+                ChangeableAttributeIds = ["BOD"], SkillKarmaPurchases = [] })
+            { EffectivePolicyDigest = inputs.EffectivePolicy!.PolicyDigest };
+        var service = new OwnerBoundCharacterCreationCompletionService(context.Store, owners, context.Resolver, context.Queries);
+        var stamp = owners.Capture();
+        var cash = service.LoadStartingCash(stamp, context.WorkspaceId, request).Value!;
+        var reviewed = service.Review(stamp, context.WorkspaceId, request, new(cash.AuthorityDigest, cash.Dice * 3));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, reviewed.Outcome, string.Join(",", reviewed.Blockers));
+        var final = reviewed.Value!;
+        var before = JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value);
+        string path = Path.Combine(context.Directory, "source", "data",
+            CharacterCreationBootstrapProfiles.SettingsSourceFile(inputs.EffectivePolicy.SettingsProfileId));
+        var settings = XDocument.Load(path);
+        settings.Descendants("setting").Single(row => row.Element("id")?.Value == inputs.EffectivePolicy.SettingsProfileId)
+            .SetElementValue("reverseattributepriorityorder", false);
+        settings.Save(path);
+        var denied = service.Apply(stamp, new(final.Projection.Binding, final.Proposal, final.Projection.ReviewDigest,
+            final.Projection.StartingCash.Choice, final.Projection.ProjectionDigest, "stale-attribute-rules", true));
+        Assert.IsNull(denied.Value);
+        Assert.AreEqual(before, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+        Assert.AreEqual(0, owners.ActiveLeases);
+    }
+
+    private static void ConfigureAttributeProfile(XElement profile, bool alternate, bool reverse)
+    {
+        profile.SetElementValue("alternatemetatypeattributekarma", alternate);
+        profile.SetElementValue("reverseattributepriorityorder", reverse);
+        profile.Element("karmacost")!.SetElementValue("karmaattribute", 3);
+        profile.Element("karmacost")!.SetElementValue("karmanewactiveskill", 3);
+    }
+
+    private static CharacterCreationCompletionReviewInputs LoadAttributeConsumers(ReadyContext context,
+        CharacterCreationAttributesServiceTests.AllocationOwners owners)
+    {
+        IOwnerBoundCharacterCreationCompletionReader reader = new OwnerBoundCharacterCreationCompletionReader(
+            context.Store, owners, context.Resolver, context.Queries);
+        var result = reader.LoadCompletionInputsWithConsumerPolicy(owners.Capture(),
+            new(context.WorkspaceId) { IncludeKarmaPurchasePolicy = true });
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+        return result.Value!;
+    }
+
     [TestMethod]
     public void Whole_review_before_saved_stages_recomputes_one_shared_karma_budget_without_writing()
     {
@@ -439,11 +785,12 @@ public sealed class CharacterCreationCompletionReviewServiceTests
         };
     }
 
-    internal static CharacterCreationCompletionReviewInputs LoadInputs(ReadyContext context)
+    internal static CharacterCreationCompletionReviewInputs LoadInputs(ReadyContext context, bool includeKarmaPurchasePolicy = false)
     {
         var owners = new CharacterCreationAttributesServiceTests.AllocationOwners();
         var reader = new OwnerBoundCharacterCreationCompletionReader(context.Store, owners, context.Resolver, context.Queries);
-        var result = reader.LoadCompletionInputs(owners.Capture(), new(context.WorkspaceId));
+        var result = reader.LoadCompletionInputs(owners.Capture(), new(context.WorkspaceId)
+            { IncludeKarmaPurchasePolicy = includeKarmaPurchasePolicy });
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
         Assert.IsNotNull(result.Value);
         Assert.AreEqual(result.Value!.SnapshotDigest, CharacterCreationCompletionReviewRules.ComputeInputsDigest(result.Value));
@@ -460,11 +807,12 @@ public sealed class CharacterCreationCompletionReviewServiceTests
             inputs.Contacts.Contacts.ToArray(), inputs.Lifestyles.Lifestyles.ToArray(),
             inputs.Lifestyles.Lifestyles.FirstOrDefault()?.LifestyleId);
 
-    internal static ReadyContext CreateSavedContext(IReadOnlyList<string>? playerChosenAttributeIds = null)
+    internal static ReadyContext CreateSavedContext(IReadOnlyList<string>? playerChosenAttributeIds = null,
+        Action<XElement>? amendSettings = null)
     {
         var context = ReadyContext.Create(includeGearReview: false, includeNonEmptyPurchases: true,
             talentValue: "Mystic Adept", mysticPowerPoints: 1, qualityName: "Guts", includeSkillPurchase: true,
-            playerChosenAttributeIds: playerChosenAttributeIds);
+            playerChosenAttributeIds: playerChosenAttributeIds, amendSettings: amendSettings);
         try
         {
             // A real three-Karma investment gives the preservation tests a

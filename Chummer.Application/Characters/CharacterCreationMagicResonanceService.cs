@@ -1,5 +1,6 @@
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
@@ -13,13 +14,16 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
 {
     private readonly IWorkspaceStore _store;
     private readonly ICharacterSourceDataResolver _resolver;
+    private readonly ICharacterFileQueries? _completionQueries;
 
     public CharacterCreationMagicResonanceService(
         IWorkspaceStore store,
-        ICharacterSourceDataResolver resolver)
+        ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries? completionQueries = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+        _completionQueries = completionQueries;
     }
 
     public CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> Load(
@@ -192,11 +196,13 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
                 }
             }
         };
-        WorkspaceStoreMutationResult mutation = atomic.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
-            workspace.Id,
-            workspace.ContentRevision,
-            workspace.Document.AuxiliaryStateDigest,
-            replacement);
+        WorkspaceStoreMutationResult mutation = workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null
+            ? _store is ICharacterCreationCompositeStageAtomicCommitCapability { SupportsCompositeStageAtomicCommit: true } composite
+                && _completionQueries is not null
+                ? composite.CommitCompositeStage(OwnerScope.LocalSingleUser, replacement, preview, _resolver, _completionQueries)
+                : new(WorkspaceOperationOutcome.Unavailable)
+            : atomic.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                workspace.Id, workspace.ContentRevision, workspace.Document.AuxiliaryStateDigest, replacement);
         if (!mutation.Success || mutation.Entry is not { } entry)
         {
             if (mutation.Outcome == WorkspaceOperationOutcome.Conflict)
@@ -240,6 +246,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
     private PreviewEvaluation Evaluate(CharacterCreationMagicResonancePreviewRequest request,
         CharacterCreationMagicResonanceReReviewBinding? reReview = null)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         WorkspaceStoreReadResult read = _store.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not { } workspace)
             return new(Blocked<CharacterCreationMagicResonancePreview>(
@@ -279,6 +286,21 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
                     CharacterCreationMagicResonanceReReviewSchemas.Stale), null, null);
             blockers.RemoveAll(item => item == CharacterCreationMagicResonanceBlockers.DraftInvalid);
         }
+        CharacterCreationCompletionReview? shared = null;
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+        {
+            var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _resolver, _completionQueries);
+            if (loaded.Value is not { Skills.CompositeBaseline: { } baseline } inputs)
+                blockers.AddRange(loaded.Blockers);
+            else
+            {
+                var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
+                    baseline.Selections with { MagicSelections = NormalizeSelections(request.Selections) },
+                    CharacterCreationCompositeEditStage.Magic);
+                blockers.AddRange(reviewed.Blockers);
+                shared = reviewed.Value;
+            }
+        }
         SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, attributes, request.Selections, blockers);
         CharacterCreationMagicResonanceDraft? draft = blockers.Count == 0
             ? BuildDraft(
@@ -290,7 +312,9 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
                 projected,
                 blockers)
             : null;
-        if (draft is not null && state.PendingDraft is { } current)
+        if (draft is not null && state.PendingDraft is { } current
+            && (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not { } composites
+                || current.BaseContentRevision >= composites[^1].Receipt.ContentRevision))
         {
             if (current.DraftRevision == long.MaxValue)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.DraftConflict);
@@ -316,7 +340,8 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         preview = preview with
         {
             FinalizationContribution = draft?.FinalizationContribution,
-            MysticAdeptPowerPoints = projected.MysticAdeptPowerPoints
+            MysticAdeptPowerPoints = projected.MysticAdeptPowerPoints,
+            CompositeReviewDigest = shared?.ReviewDigest
         };
         preview = preview with
         {
@@ -334,6 +359,8 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
     private CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> BuildState(
         WorkspaceStoredDocument workspace, bool forContinuation = false)
     {
+        if (!forContinuation && workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return BuildCompositeState(workspace);
         MagicSourceInputs source = ReadSourceInputs(workspace);
         var blockers = new List<string>(source.Blockers);
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -512,7 +539,8 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         CharacterCreationMagicResonanceEffectiveAttributes effective = new(0, 0, 0, 0m);
         if (attributes is null
             || !CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
-                talent, attributes, out effective))
+                talent, attributes, out effective, authority.MysticAdeptPowerPointPolicy,
+                CharacterCreationMagicResonanceFinalizationRules.ResolveSeparateMagicAttribute(authority, attributes.MetatypeSourceId)))
         {
             blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
             effective = new(0, 0, 0, 0m);
@@ -550,7 +578,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         int effectiveMagic = effective.Magic;
         if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
                 talent.Kind, effectiveMagic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
-                out var mysticPowerPoints))
+                out var mysticPowerPoints, effective.MagicAdept))
             blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
         if (mysticPowerPoints is not null)
             powerPointTotal = mysticPowerPoints.PowerPoints;
@@ -595,7 +623,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
             if (!talent.AllowsAdeptPowers)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.PowerSelectionNotAllowed);
             if (source is null || allocation.Levels < 1
-                || allocation.Levels > CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(source, effectiveMagic))
+                || allocation.Levels > CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(source, effective.MagicAdept ?? effectiveMagic))
             {
                 blockers.Add(CharacterCreationMagicResonanceBlockers.OptionInvalid);
                 continue;
@@ -675,6 +703,7 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
                 .SelectMany(item => item.SourceAnchorIds)))
             .Concat(talent.SourceAnchorIds)
             .Concat(mysticPowerPoints?.Policy.SourceAnchorIds ?? [])
+            .Concat(effective.MagicAdept is not null ? authority.MysticAdeptPowerPointPolicy!.SourceAnchorIds : [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();

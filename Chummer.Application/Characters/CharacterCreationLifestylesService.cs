@@ -5,6 +5,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 
@@ -69,8 +70,8 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
             context.Projections,
             context.Budget,
             blockers,
-            CanEdit: blockers.Length == 0,
-            SnapshotDigest: string.Empty);
+            CanEdit: blockers.Length == 0 && _workspaceStore is not WorkspaceContinuationReadView,
+            SnapshotDigest: string.Empty) { AuthorityReview = context.AuthorityReview };
         CharacterCreationLifestylesState state = candidate with
         {
             SnapshotDigest = CharacterCreationLifestylesRules.ComputeStateDigest(candidate)
@@ -203,8 +204,13 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
                 }
             }
         };
-        WorkspaceStoreMutationResult committed =
-            atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        WorkspaceStoreMutationResult committed = preview.WritePlan.AuthorityTransition is not null
+            ? ((ICharacterCreationLifestyleAuthorityReviewCommitCapability)_workspaceStore)
+                .CommitLifestyleAuthorityReview(OwnerScope.LocalSingleUser, replacement, preview, _sourceData)
+            : preview.WritePlan.CompositeReviewDigest is not null
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)_workspaceStore)
+                .CommitCompositeStage(OwnerScope.LocalSingleUser, replacement, preview, _sourceData, _completionQueries!)
+            : atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
                 workspace.ContentRevision,
                 workspace.Document.AuxiliaryStateDigest,
@@ -279,11 +285,30 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
                 []);
     }
 
+    // No read view claims persistence authority: the real typed store supplies
+    // its leased snapshot, and ordinary evaluation repeats every current check.
+    internal bool AdmitsCompositeCommit(WorkspaceStoredDocument workspace, CharacterCreationLifestylePreview preview)
+    {
+        var mutation = new CharacterCreationLifestyleMutation(preview.MutationKind, preview.WritePlan.LifestyleId,
+            preview.After?.Configuration);
+        var evaluated = EvaluatePreview(new(preview.Binding, mutation), workspace);
+        return evaluated.Result.Value is { CanConfirm: true, Blockers.Count: 0 } current
+            && current.WritePlan.CompositeReviewDigest is not null
+            && evaluated.ReplacementContent == workspace.Document.Content
+            && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(current, preview);
+    }
+
     private PreviewEvaluation EvaluatePreview(CharacterCreationLifestylePreviewRequest request)
     {
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return new PreviewEvaluation(ReadFailure<CharacterCreationLifestylePreview>(read), null, null);
+        return EvaluatePreview(request, workspace);
+    }
+
+    private PreviewEvaluation EvaluatePreview(CharacterCreationLifestylePreviewRequest request,
+        WorkspaceStoredDocument workspace)
+    {
         AuthorityContext context = BuildContext(workspace);
         string? bindingBlocker = CompareBinding(context.Binding, request.Binding);
         if (bindingBlocker is not null)
@@ -296,6 +321,11 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
                 null);
         }
 
+        if (request.Mutation.MutationKind == CharacterCreationLifestyleMutationKinds.ReReviewAuthority)
+            return EvaluateAuthorityReview(request, workspace, context);
+        if (request.Mutation.AuthorityReview is not null)
+            return new(Blocked<CharacterCreationLifestylePreview>(CharacterCreationLifestyleOutcomes.Invalid,
+                CharacterCreationLifestylesBlockers.InvalidMutation), workspace, null);
         var blockers = new List<string>(context.Blockers);
         blockers.AddRange(context.Budget.Blockers);
         CharacterCreationLifestyleMutation mutation = request.Mutation;
@@ -407,6 +437,20 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
             replacementContent = workspace.Document.Content;
             contentAfter = context.Binding.ContentDigest;
         }
+        CharacterCreationCompletionReview? sharedReview = null;
+        if (context.CompositeInputs is { Skills.CompositeBaseline: { } baseline } inputs && pendingDraft is not null)
+        {
+            var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
+                baseline.Selections with
+                {
+                    Lifestyles = pendingDraft.Lifestyles,
+                    StartingLifestyleId = CharacterCreationCompositeBaselineReader.ResolveStartingLifestyle(
+                        baseline.Selections.StartingLifestyleId, pendingDraft.Lifestyles)
+                }, CharacterCreationCompositeEditStage.Lifestyles);
+            blockers.AddRange(reviewed.Blockers);
+            sharedReview = reviewed.Value;
+            if (sharedReview is null) blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+        }
         var operation = new CharacterCreationLifestyleWriteOperation(
             1,
             mutation.MutationKind,
@@ -430,7 +474,7 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
             nestedAfter,
             siblingsPreserved,
             nestedPreserved,
-            PlanDigest: string.Empty) { PendingDraft = pendingDraft };
+            PlanDigest: string.Empty) { PendingDraft = pendingDraft, CompositeReviewDigest = sharedReview?.ReviewDigest };
         CharacterCreationLifestyleAtomicWritePlan plan = planCandidate with
         {
             PlanDigest = CharacterCreationLifestylesRules.ComputePlanDigest(planCandidate)
@@ -529,16 +573,56 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
         if (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null
             && CharacterCreationLoadoutCompletionService.LoadFromObservation(workspace, _sourceData, true).Value is null)
             blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+        CharacterCreationLifestyleAuthorityReviewState? authorityReview = null;
         CharacterCreationLifestylesDraft? pending = null;
         WorkspaceDocument? projected = null;
         CharacterCreationLifestylesAuthority pendingAuthority = CharacterCreationLifestylesAuthority.Unavailable;
-        if (workspace.Document.AuxiliaryState.CharacterCreationBootstrapBinding is not null)
+        CharacterCreationCompletionReviewInputs? compositeInputs = null;
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+        {
+            if (_workspaceStore is not ICharacterCreationCompositeStageAtomicCommitCapability
+                { SupportsCompositeStageAtomicCommit: true })
+                blockers.Add(CharacterCreationLifestylesBlockers.PersistenceAuthorityRequired);
+            var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _completionQueries);
+            blockers.AddRange(loaded.Blockers);
+            if (loaded.Value is { Skills.CompositeBaseline: { } baseline } inputs)
+            {
+                compositeInputs = inputs;
+                var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(
+                    workspace, inputs, baseline.Selections, CharacterCreationCompositeEditStage.None);
+                blockers.AddRange(reviewed.Blockers);
+                if (reviewed.Value?.Lifestyles is { } lifestyles)
+                {
+                    pendingAuthority = lifestyles.Authority;
+                    var contacts = CharacterCreationContactsDraftRules.Create(workspace,
+                        inputs.Contacts.Policy, inputs.Contacts.CarryoverPolicy, []);
+                    if (contacts is not null)
+                        pending = CharacterCreationLifestylesDraftRules.Create(workspace, contacts,
+                            pendingAuthority, baseline.Selections.Lifestyles);
+                    if (pending is null || !CharacterCreationLifestylesDraftRules.TryProjectComposite(workspace, pending,
+                            out projected, out _, out var projectedBudget) || projectedBudget?.Total != lifestyles.Budget.Total)
+                        blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+                }
+                else blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            }
+        }
+        else if (workspace.Document.AuxiliaryState.CharacterCreationBootstrapBinding is not null)
         {
             if (!CharacterCreationLifestylesDraftRules.TryLoad(workspace, _sourceData,
                     out pending, out projected, out pendingAuthority))
             {
-                pending = null; projected = null;
-                blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+                if (CharacterCreationLifestylesDraftRules.TryLoadHistoricalForReview(workspace, _sourceData,
+                        out pending, out projected, out pendingAuthority, out var historicalReceipt, out var reviewAuthority)
+                    && pending is not null && historicalReceipt is not null)
+                {
+                    authorityReview = new(historicalReceipt.ReceiptDigest, pending, reviewAuthority);
+                    blockers.Add(CharacterCreationLifestylesBlockers.AuthorityReReviewRequired);
+                }
+                else
+                {
+                    pending = null; projected = null;
+                    blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+                }
             }
         }
         if (_workspaceStore is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -576,7 +660,8 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
         ICharacterSourceDataContext? source = pending is null ? _sourceData.TryCreateContext(workspace.Document.Content) : null;
         if (pending is null && (source is null
             || !source.TryResolveCreationLifestylesAuthority(out authority)
-            || !CharacterCreationLifestylesRules.IsValidAuthority(authority)))
+             || !CharacterCreationLifestylesRules.IsValidAuthority(authority)
+             || !CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(authority.PurchasedQualityCosts)))
         {
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
@@ -627,7 +712,7 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
             elements,
             budget,
             Normalize(blockers),
-            pending);
+            pending, compositeInputs, authorityReview);
     }
 
     private static List<CharacterCreationLifestyleProjection> Project(
@@ -1165,7 +1250,8 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
         IReadOnlyList<LifestyleElement> Elements,
         CharacterCreationLifestyleBudget Budget,
         IReadOnlyList<string> Blockers,
-        CharacterCreationLifestylesDraft? PendingDraft);
+        CharacterCreationLifestylesDraft? PendingDraft, CharacterCreationCompletionReviewInputs? CompositeInputs = null,
+        CharacterCreationLifestyleAuthorityReviewState? AuthorityReview = null);
 
     private sealed record PreviewEvaluation(
         CharacterCreationLifestyleResult<CharacterCreationLifestylePreview> Result,

@@ -80,6 +80,9 @@ public sealed record CharacterCreationQualityCatalogOption(
     // historical fixed-limit options and their digests remain byte-compatible.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ResolvedArmCount { get; init; }
+    // Explicit source grammar, bound by the option/selection digest; never ambient authority.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceExecutionSchema { get; init; }
 }
 
 /// <summary>
@@ -205,6 +208,9 @@ public sealed record CharacterCreationQualitySelection(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ResolvedArmCount { get; init; }
+    // Explicit source grammar, bound by the option/selection digest; never ambient authority.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceExecutionSchema { get; init; }
 }
 
 public sealed record CharacterCreationQualitiesBudget(
@@ -229,7 +235,11 @@ public sealed record CharacterCreationQualitiesPreview(
     IReadOnlyList<string> Blockers,
     bool RequiresExplicitConfirmation,
     bool CanConfirm,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompositeReviewDigest { get; init; }
+}
 
 public sealed record CharacterCreationQualitiesDraft(
     string Schema,
@@ -868,6 +878,9 @@ public static class CharacterCreationQualitiesRules
     public static string ComputeDraftDigest(CharacterCreationQualitiesDraft draft) =>
         CharacterCreationQualitiesDigest.Compute(draft with { DraftDigest = string.Empty });
 
+    public static string ComputePreviewDigest(CharacterCreationQualitiesPreview preview) =>
+        CharacterCreationQualitiesDigest.Compute(preview with { PreviewDigest = string.Empty });
+
     public static string ComputeStateDigest(CharacterCreationQualitiesState state) =>
         CharacterCreationQualitiesDigest.ComputeState(state);
 
@@ -1001,6 +1014,7 @@ public static class CharacterCreationQualitiesRules
            && !string.IsNullOrWhiteSpace(option.Name)
            && option.Rating > 0
            && (option.ResolvedArmCount is null or (>= 2 and <= 101))
+           && (option.SourceExecutionSchema is null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
            && option.MaximumSelections > 0
            && option.SourceAnchorIds.All(static item => !string.IsNullOrWhiteSpace(item))
            && option.SourceAnchorIds.Distinct(StringComparer.Ordinal).Count()
@@ -1056,7 +1070,8 @@ public static class CharacterCreationQualitiesRules
         option.SourceNodeDigest,
         option.OptionDigest)
     {
-        ResolvedArmCount = option.ResolvedArmCount
+        ResolvedArmCount = option.ResolvedArmCount,
+        SourceExecutionSchema = option.SourceExecutionSchema
     };
 
     private static CharacterCreationQualityCostItem ToCost(CharacterCreationQualitySelection item) => new(
@@ -1262,6 +1277,8 @@ internal static class CharacterCreationQualitiesDigest
             foreach (string anchor in option.SourceAnchorIds) writer.WriteStringValue(anchor);
             writer.WriteEndArray();
         }
+        if (option.SourceExecutionSchema is not null)
+            writer.WriteString(nameof(option.SourceExecutionSchema), option.SourceExecutionSchema);
         writer.WriteString(nameof(option.SourceId), option.SourceId);
         writer.WriteString(nameof(option.SourceNodeDigest), option.SourceNodeDigest);
         writer.WriteString(nameof(option.SourceNodeXml), option.SourceNodeXml);

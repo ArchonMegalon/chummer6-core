@@ -20,6 +20,15 @@ public static class CharacterCreationKarmaFinalizationProjector
         IReadOnlyList<CharacterCreationTalentQualitySource> racialSources,
         CharacterCreationLifestylesAuthority lifestyles,
         out string characterXml, out CharacterCreationFinalizationDelta[] deltas, out string[] blockers)
+        => TryProject(workspace, foundation, finances, racialSources, lifestyles,
+            out characterXml, out deltas, out blockers, sourceExecutionSchema: null);
+
+    public static bool TryProject(WorkspaceStoredDocument workspace, CharacterCreationKarmaMetatypeQuote foundation,
+        CharacterCreationKarmaFinalizationBudgetQuote finances,
+        IReadOnlyList<CharacterCreationTalentQualitySource> racialSources,
+        CharacterCreationLifestylesAuthority lifestyles,
+        out string characterXml, out CharacterCreationFinalizationDelta[] deltas, out string[] blockers,
+        string? sourceExecutionSchema)
     {
         characterXml = string.Empty;
         deltas = [];
@@ -66,6 +75,8 @@ public static class CharacterCreationKarmaFinalizationProjector
                 Change("career-initialization:" + field, CharacterCreationFinalizationDeltaKinds.Lifecycle,
                     field, null, root.Element(field)!.Value, 0, 0, []);
             var metatype = foundation.Metatype;
+            if (metatype.Initiative.DirectDice886 is not null
+                && sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4) return false;
             if (!Guid.TryParseExact(metatype.OptionId, "D", out var metatypeId) || metatypeId == Guid.Empty
                 || metatype.Movement.IsSpecial) return false;
             Set("metatype", metatype.Label);
@@ -83,7 +94,7 @@ public static class CharacterCreationKarmaFinalizationProjector
                 Set(name, value);
                 Set(name + "alt", value);
             }
-            Set("initiativedice", Number(metatype.Initiative.MinimumDiceFallback));
+            Set("initiativedice", Number(metatype.Initiative.DirectDice886 ?? metatype.Initiative.MinimumDiceFallback));
             Change("metatype:selected", CharacterCreationFinalizationDeltaKinds.Metatype, metatype.OptionId,
                 null, metatype.Label, metatype.KarmaCost, 0, metatype.SourceAnchorIds, metatype.Label);
 
@@ -138,9 +149,10 @@ public static class CharacterCreationKarmaFinalizationProjector
                 var selection = new CharacterCreationQualitySelection(option.OptionId, option.SourceId, option.SelectionKey,
                     option.Name, option.Type, option.Rating, option.KarmaCost, option.IsMetagenic, option.CountsAgainstQualityLimit,
                     option.CountsAgainstKarma, false, null, null, option.SourceAnchorIds, option.SourceNodeXml,
-                    option.SourceNodeDigest, option.OptionDigest);
+                    option.SourceNodeDigest, option.OptionDigest)
+                { SourceExecutionSchema = option.SourceExecutionSchema };
                 if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, foundation.QuoteDigest,
-                        out var qualities, out var improvements)) return false;
+                        out var qualities, out var improvements, selection.ResolvedArmCount, sourceExecutionSchema)) return false;
                 root.Element("qualities")!.Add(qualities);
                 root.Element("improvements")!.Add(improvements);
                 decimal cost = option.CountsAgainstKarma ? option.KarmaCost : 0;

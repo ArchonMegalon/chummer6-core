@@ -52,10 +52,12 @@ public static class CharacterCreationGearReceiptLedgerIntegrity
 
         CharacterCreationGearReceipt latest = entries[^1].Receipt;
         return latest.DraftRevision == draft.DraftRevision
+               && latest.PreviousWorkspaceRevision == draft.BaseContentRevision
                && CharacterCreationGearRules.DigestsEqual(latest.DraftDigest, draft.DraftDigest)
                && CharacterCreationGearRules.DigestsEqual(
                    latest.RawCharacterXmlDigest,
                    draft.BaseRawCharacterXmlDigest)
+               && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(latest.CompositePurchase, draft.CompositePurchase)
                && latest.ResourcesDraftRevision == draft.ResourcesDraftRevision
                && CharacterCreationGearRules.DigestsEqual(
                    latest.ResourcesDraftDigest,
@@ -66,6 +68,10 @@ public static class CharacterCreationGearReceiptLedgerIntegrity
                && CharacterCreationGearRules.DigestsEqual(latest.SourceDigest, draft.SourceDigest)
                && CharacterCreationGearRules.DigestsEqual(latest.RulesDigest, draft.RulesDigest)
                && CharacterCreationGearRules.DigestsEqual(latest.RuntimeDigest, draft.RuntimeDigest)
+               && (latest.CompositePurchase is null
+                   ? latest.CompositeAuthority is null && latest.CompositeLines is null
+                   : CharacterCreationGearRules.IsValidSelectedAuthority(latest.CompositeAuthority)
+                       && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(latest.CompositeLines, draft.Lines))
                && latest.LineCount == draft.Lines.Count
                && latest.BasketCost == draft.Budget.BasketCost
                && latest.RemainingNuyen == draft.Budget.RemainingNuyen
@@ -127,8 +133,10 @@ public static class CharacterCreationGearReceiptLedgerIntegrity
         && draft.BaseContentRevision > 0
         && draft.BaseContentRevision < currentContentRevision
         && CharacterCreationGearRules.IsCanonicalDigest(draft.BaseRawCharacterXmlDigest)
-        && draft.ResourcesDraftRevision > 0
-        && CharacterCreationGearRules.IsCanonicalDigest(draft.ResourcesDraftDigest)
+        && (draft.ResourcesDraftRevision > 0 && CharacterCreationGearRules.IsCanonicalDigest(draft.ResourcesDraftDigest)
+            || draft.ResourcesDraftRevision == 0 && draft.ResourcesDraftDigest == string.Empty && draft.CompositePurchase is not null)
+        && (draft.CompositePurchase is null || CharacterCreationCompositePurchaseEdit.IsValid(draft.CompositePurchase)
+            && draft.CompositePurchase.TotalStartingNuyen == draft.Budget.TotalStartingNuyen)
         && CharacterCreationGearRules.IsCanonicalDigest(draft.AuthorityDigest)
         && CharacterCreationGearRules.IsCanonicalDigest(draft.SourceDigest)
         && CharacterCreationGearRules.IsCanonicalDigest(draft.RulesDigest)
@@ -221,8 +229,9 @@ public static class CharacterCreationGearReceiptLedgerIntegrity
             || !CharacterCreationGearRules.DigestsEqual(entry.IdempotencyKeyDigest, receipt.IdempotencyKeyDigest)
             || !CharacterCreationGearRules.DigestsEqual(entry.CommandDigest, receipt.CommandDigest)
             || !CharacterCreationGearRules.IsCanonicalDigest(receipt.RawCharacterXmlDigest)
-            || receipt.ResourcesDraftRevision <= 0
-            || !CharacterCreationGearRules.IsCanonicalDigest(receipt.ResourcesDraftDigest)
+            || !(receipt.ResourcesDraftRevision > 0 && CharacterCreationGearRules.IsCanonicalDigest(receipt.ResourcesDraftDigest)
+                || receipt.ResourcesDraftRevision == 0 && receipt.ResourcesDraftDigest == string.Empty && receipt.CompositePurchase is not null)
+            || receipt.CompositePurchase is not null && !CharacterCreationCompositePurchaseEdit.IsValid(receipt.CompositePurchase)
             || !CharacterCreationGearRules.IsCanonicalDigest(receipt.AuthorityDigest)
             || !CharacterCreationGearRules.IsCanonicalDigest(receipt.SourceDigest)
             || !CharacterCreationGearRules.IsCanonicalDigest(receipt.RulesDigest)

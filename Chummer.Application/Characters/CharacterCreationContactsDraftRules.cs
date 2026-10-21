@@ -78,6 +78,19 @@ public static class CharacterCreationContactsDraftRules
         IReadOnlyList<CharacterCreationKarmaContactSelection> contacts)
     {
         var state = workspace.Document.AuxiliaryState;
+        if (state.CharacterCreationCompletionDrafts is { Count: > 0 } composites)
+        {
+            var origin = composites[^1];
+            if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite) || composite is null
+                || state.CharacterCreationPrerequisiteDraft is not { } prerequisiteDraft
+                || !CharacterCreationKarmaContactsRules.TryFreeze(contacts, out var selected)) return null;
+            var candidate = new CharacterCreationContactsDraft(CharacterCreationContactsSchemas.DraftV1,
+                workspace.Id, workspace.ContentRevision, RawDigest(workspace.Document), prerequisiteDraft.DraftDigest,
+                state.CharacterCreationAttributesDraft?.DraftDigest ?? origin.Baseline.BaselineDigest,
+                state.CharacterCreationQualitiesDraft?.DraftDigest ?? origin.Baseline.BaselineDigest,
+                policy, carryover, selected, string.Empty);
+            return candidate with { DraftDigest = Digest(candidate) };
+        }
         if (state.CharacterCreationPrerequisiteDraft is not { } prerequisite
             || state.CharacterCreationAttributesDraft is not { } attributes
             || state.CharacterCreationQualitiesDraft is not { } qualities
@@ -92,6 +105,8 @@ public static class CharacterCreationContactsDraftRules
         out WorkspaceDocument? projected)
     {
         projected = null;
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return TryProjectComposite(workspace, draft, out projected);
         try
         {
             var state = workspace.Document.AuxiliaryState;
@@ -138,6 +153,61 @@ public static class CharacterCreationContactsDraftRules
         catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
             or IOException or OverflowException) { return false; }
     }
+
+    // Historical projection for the existing XML operation validator. Live callers
+    // must separately admit current sources and the entire shared completion review.
+    internal static bool TryProjectComposite(WorkspaceStoredDocument workspace, CharacterCreationContactsDraft draft,
+        out WorkspaceDocument? projected)
+    {
+        projected = null;
+        try
+        {
+            if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite) || composite is null
+                || draft.WorkspaceId != workspace.Id || draft.RawCharacterXmlDigest != RawDigest(workspace.Document)
+                || draft.DraftDigest != Digest(draft)) return false;
+            var state = workspace.Document.AuxiliaryState;
+            var entry = state.CharacterCreationCompletionDrafts![^1];
+            var review = entry.Baseline.Review.Review;
+            var attributes = state.CharacterCreationAttributesDraft is { } attributeDraft
+                && attributeDraft.BaseContentRevision >= entry.Receipt.ContentRevision
+                ? attributeDraft.Attributes : review.Contacts!.Upstream.Attributes.Attributes;
+            var qualities = state.CharacterCreationQualitiesDraft is { } qualityDraft
+                && qualityDraft.BaseContentRevision >= entry.Receipt.ContentRevision
+                ? qualityDraft.Selections : review.Contacts!.Upstream.Qualities.Selections;
+            if (!CharacterCreationKarmaContactsRules.TryContactPoints(draft.Policy,
+                    attributes.ToDictionary(row => row.AttributeId, row => row.Current), out int allowance)
+                || !CharacterCreationKarmaContactsRules.TryFreeze(draft.Contacts, out var contacts)) return false;
+            var root = XDocument.Parse(workspace.Document.Content).Root!;
+            root.Element("attributes")?.Remove();
+            root.Add(new XElement("attributes", attributes.Select(row => new XElement("attribute",
+                new XElement("name", row.AttributeId), new XElement("totalvalue", row.Current)))));
+            root.SetElementValue("contactpoints", allowance.ToString(CultureInfo.InvariantCulture));
+            root.Element("contacts")?.Remove();
+            root.Add(new XElement("contacts", contacts.Select(CharacterCreationKarmaContactsRules.BuildContactElement)));
+            var improvements = root.Element("improvements");
+            if (improvements is null) { improvements = new XElement("improvements"); root.Add(improvements); }
+            foreach (var quality in qualities)
+            {
+                if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(quality, composite.BaselineDigest,
+                    out _, out var effects)) return false;
+                improvements.Add(effects);
+            }
+            root.SetElementValue(InputMarker, composite.BaselineDigest);
+            projected = new WorkspaceDocument(root.ToString(SaveOptions.DisableFormatting), workspace.Document.RulesetId);
+            return true;
+        }
+        catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
+            or OverflowException) { return false; }
+    }
+
+    internal static bool AdmitsRetainedCompletionHistory(WorkspaceStoredDocument workspace,
+        CharacterCreationContactsDraft draft, CharacterCreationKarmaContactsPolicy policy,
+        CharacterCreationKarmaCarryoverPolicy carryover)
+        => CharacterCreationCompositeBaselineReader.RetainsContacts(workspace, draft)
+            && IsValidShape(workspace.Id, workspace.ContentRevision, draft)
+            && draft.RawCharacterXmlDigest == RawDigest(workspace.Document)
+            && draft.PrerequisiteDraftDigest == workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft?.DraftDigest
+            && Equal(draft.Policy, policy) && Equal(draft.CarryoverPolicy, carryover);
 
     internal static bool InputsMatch(CharacterCreationContactsDraft left, CharacterCreationContactsDraft right)
         => left.WorkspaceId == right.WorkspaceId && left.RawCharacterXmlDigest == right.RawCharacterXmlDigest

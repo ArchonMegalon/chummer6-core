@@ -7,7 +7,8 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 /// <summary>Manual, bounded weapon/armor purchases. XML stays unchanged until finalization.</summary>
-public sealed class CharacterCreationLoadoutService(IWorkspaceStore store, ICharacterSourceDataResolver resolver)
+public sealed partial class CharacterCreationLoadoutService(IWorkspaceStore store, ICharacterSourceDataResolver resolver,
+    ICharacterFileQueries? completionQueries = null)
     : ICharacterCreationLoadoutService
 {
     public CharacterCreationFoundationResult<CharacterCreationLoadoutState> Prepare(CharacterWorkspaceId workspaceId,
@@ -15,15 +16,18 @@ public sealed class CharacterCreationLoadoutService(IWorkspaceStore store, IChar
     {
         cancellationToken.ThrowIfCancellationRequested();
         var read = store.Get(workspaceId);
-        var result = read.Success && read.Value is { } workspace ? PrepareObservation(store, workspace, resolver)
+        var result = read.Success && read.Value is { } workspace ? PrepareObservation(store, workspace, resolver, completionQueries)
             : Reject<CharacterCreationLoadoutState>(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
         cancellationToken.ThrowIfCancellationRequested();
         return result;
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationLoadoutState> PrepareObservation(
-        IWorkspaceStore store, WorkspaceStoredDocument workspace, ICharacterSourceDataResolver resolver)
+        IWorkspaceStore store, WorkspaceStoredDocument workspace, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries? queries = null)
     {
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return PrepareComposite(workspace, resolver, queries);
         if (workspace.Document.AuxiliaryState.CharacterCreationFinalizationArchive is not null
             || workspace.Document.AuxiliaryState.CharacterCreationLoadoutReceipts?.Count >= CharacterCreationLoadoutReceiptLedgerIntegrity.MaximumEntries)
             return Reject<CharacterCreationLoadoutState>(CharacterCreationLoadoutCompletionSchemas.RequestInvalid);
@@ -51,15 +55,18 @@ public sealed class CharacterCreationLoadoutService(IWorkspaceStore store, IChar
         request = Freeze(request);
         if (request?.Binding is null) return Reject<CharacterCreationLoadoutPreview>(CharacterCreationLoadoutCompletionSchemas.RequestInvalid);
         var read = store.Get(request.Binding.WorkspaceId);
-        var result = read.Success && read.Value is { } workspace ? PreviewObservation(store, workspace, resolver, request)
+        var result = read.Success && read.Value is { } workspace ? PreviewObservation(store, workspace, resolver, request, completionQueries)
             : Reject<CharacterCreationLoadoutPreview>(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
         cancellationToken.ThrowIfCancellationRequested();
         return result;
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationLoadoutPreview> PreviewObservation(IWorkspaceStore store,
-        WorkspaceStoredDocument workspace, ICharacterSourceDataResolver resolver, CharacterCreationLoadoutPreviewRequest request)
+        WorkspaceStoredDocument workspace, ICharacterSourceDataResolver resolver, CharacterCreationLoadoutPreviewRequest request,
+        ICharacterFileQueries? queries = null)
     {
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return PreviewComposite(workspace, resolver, queries, request);
         var prepared = PrepareObservation(store, workspace, resolver);
         if (prepared.Value is not { } state) return new(prepared.Outcome, null, prepared.Blockers);
         if (request.Binding != state.Inputs.Binding || request.SnapshotDigest != state.Inputs.SnapshotDigest)
@@ -84,7 +91,9 @@ public sealed class CharacterCreationLoadoutService(IWorkspaceStore store, IChar
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsConfirmed(request)) return Reject<CharacterCreationLoadoutReceipt>(CharacterCreationFinalizationBlockers.ExplicitConfirmationRequired);
         return store is ICharacterCreationLoadoutAtomicCommitCapability commit
-            ? commit.CommitLoadout(OwnerScope.LocalSingleUser, Freeze(request), resolver, cancellationToken)
+            ? completionQueries is null
+                ? commit.CommitLoadout(OwnerScope.LocalSingleUser, Freeze(request), resolver, cancellationToken)
+                : commit.CommitLoadout(OwnerScope.LocalSingleUser, Freeze(request), resolver, completionQueries, cancellationToken)
             : Reject<CharacterCreationLoadoutReceipt>(CharacterCreationFinalizationBlockers.AtomicPersistenceRejected);
     }
 
@@ -118,24 +127,26 @@ public sealed class CharacterCreationLoadoutService(IWorkspaceStore store, IChar
     // The dedicated store operation repeats this evaluation immediately before atomic rename.
     public static bool TryBuild(IWorkspaceStore store, WorkspaceStoredDocument saved, ICharacterSourceDataResolver resolver,
         CharacterCreationLoadoutConfirmRequest request, CancellationToken cancellationToken,
-        out WorkspaceDocument? replacement, out CharacterCreationLoadoutReceipt? receipt)
+        out WorkspaceDocument? replacement, out CharacterCreationLoadoutReceipt? receipt,
+        ICharacterFileQueries? completionQueries = null)
     {
         replacement = null; receipt = null;
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsConfirmed(request) || saved.ContentRevision == long.MaxValue) return false;
-        var evaluated = PreviewObservation(store, saved, resolver, request.Request);
+        var evaluated = PreviewObservation(store, saved, resolver, request.Request, completionQueries);
         if (evaluated.Value is not { } preview || preview.PreviewDigest != request.PreviewDigest) return false;
         var state = saved.Document.AuxiliaryState;
         var observed = CharacterCreationLoadoutCompletionService.LoadFromObservation(saved, resolver, true);
+        var funding = state.CharacterCreationResourcesDraft;
         if (observed.Value is not { } inputs || inputs.SnapshotDigest != request.Request.SnapshotDigest
-            || state.CharacterCreationResourcesDraft is not { } funding
+            || funding is null && preview.CompositePurchase is null
             || !CharacterCreationLoadoutRules.TryCaptureSelectedAuthority(inputs.Authority, inputs.OriginalSelections,
                 request.Request.Selections, out var selected)) return false;
         var draft = new CharacterCreationLoadoutDraft(CharacterCreationLoadoutDraft.SchemaV1, saved.Id,
             (state.CharacterCreationLoadoutDraft?.DraftRevision ?? 0) + 1, saved.ContentRevision,
-            inputs.Binding.RawCharacterXmlDigest, funding.DraftRevision, funding.DraftDigest, selected!, request.Request.Selections,
+            inputs.Binding.RawCharacterXmlDigest, funding?.DraftRevision ?? 0, funding?.DraftDigest ?? string.Empty, selected!, request.Request.Selections,
             preview.Projection.Lines, CharacterCreationLoadoutReceiptLedgerIntegrity.CreateInstances(saved.Id, saved.ContentRevision,
-                preview.Projection.Lines, state.CharacterCreationLoadoutDraft?.Instances), preview.Projection.PurchaseCost, string.Empty);
+                preview.Projection.Lines, state.CharacterCreationLoadoutDraft?.Instances), preview.Projection.PurchaseCost, string.Empty) { CompositePurchase = preview.CompositePurchase };
         draft = draft with { DraftDigest = CharacterCreationLoadoutDraftRules.DraftDigest(draft) };
         var history = state.CharacterCreationLoadoutReceipts ?? [];
         receipt = new(CharacterCreationLoadoutReceipt.SchemaV1, saved.Id, saved.ContentRevision, saved.ContentRevision + 1,

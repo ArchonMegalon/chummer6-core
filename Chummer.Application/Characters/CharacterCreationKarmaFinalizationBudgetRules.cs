@@ -16,6 +16,21 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
     public const string ResourceRoundingAnchor = "Chummer/Forms/Character Forms/CharacterCreate.cs#CalculateBPandRefreshBPDisplays";
     public const string StartingCashAnchor = "Chummer/Forms/Selection Forms/SelectLifestyleStartingNuyen.cs#GetStartingNuyenAsync";
 
+    // Shared by full/selected candidate balances and pre-admission source accounting.
+    // Resources already includes attributes, qualities, Mystic PP and investment.
+    internal static int RemainingCreationKarma995(int resources, int skills, int contacts)
+    {
+        if (skills < 0 || contacts < 0) throw new OverflowException();
+        return checked(resources - skills - contacts);
+    }
+
+    // The exact Finish calculation, also executable before Complete admission.
+    internal static int CarryCreationKarma995(int remaining, CharacterCreationKarmaCarryoverPolicy policy)
+    {
+        if (remaining < 0 || !IsValidPolicy(policy)) throw new InvalidDataException("Invalid carryover budget.");
+        return checked((int)Math.Min(remaining, policy.MaximumKarma));
+    }
+
     public static string PolicyDigest(CharacterCreationKarmaCarryoverPolicy policy)
         => Hash(policy with { AuthorityDigest = string.Empty });
 

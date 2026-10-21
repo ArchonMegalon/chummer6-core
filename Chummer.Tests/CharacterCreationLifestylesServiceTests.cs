@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -18,6 +19,220 @@ public sealed class CharacterCreationLifestylesServiceTests
     private static readonly Guid LowSourceId = Guid.Parse("451eef87-d18e-4bee-a972-1ee165b08522");
     private static readonly Guid HighSourceId = Guid.Parse("4a37d519-c9be-4ecc-97bb-e9d78708c374");
     private static readonly Guid QualitySourceId = Guid.Parse("22222222-3333-4444-8555-666666666666");
+
+    [TestMethod]
+    [DataRow("10", "20", "standard", false)]
+    [DataRow("-10", "10", "standard", false)]
+    [DataRow("-20", "-10", "standard", false)]
+    [DataRow("-100", "10", "standard", false)]
+    [DataRow("-10", "10", "standard", true)]
+    [DataRow("-10", "10", "advanced", true)]
+    [DataRow("-10", "10", "safehouse", true)]
+    [DataRow("-10", "10", "bolt-hole", true)]
+    public void Purchased_quality_costs_follow_legacy_layers_without_premature_rounding(
+        string bonus, string firstLevelBonus, string style, bool basic)
+    {
+        var basis = Authority(includeQuality: true);
+        var template = basis.QualityOptions[0];
+        var outing = template with { Category = "Entertainment", QualityType = CharacterCreationLifestyleQualityTypes.Entertainment,
+            FlatCost = 100m, CostMultiplierPercent = 10m };
+        outing = outing with { OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(outing) };
+        var contract = template with { SourceId = HighSourceId, OptionId = $"lifestyle-quality:{HighSourceId:D}",
+            Category = "Contracts", QualityType = CharacterCreationLifestyleQualityTypes.Contracts, FlatCost = 200m };
+        contract = contract with { OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(contract) };
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts(
+            [QualityCostSelection($"<lifestylecost>{bonus}</lifestylecost>" + (basic ? "<basiclifestylecost>20</basiclifestylecost>" : ""),
+                $"<lifestylecost>{firstLevelBonus}</lifestylecost>" + (basic ? "<basiclifestylecost>-25</basiclifestylecost>" : ""))], out var costs));
+        var authority = basis with { MetatypeCostPercent = 20m, PurchasedQualityCosts = costs,
+            TrustFundLevel = 2, QualityOptions = [outing, contract] };
+        authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+        var config = Configuration(LifestyleId) with { StyleId = style, Roommates = 6, SplitCostWithRoommates = true,
+            Percentage = 50m, Increments = 3, Qualities = [new(Guid.NewGuid(), outing.OptionId, "", false, false, false),
+                new(Guid.NewGuid(), contract.OptionId, "", false, false, false)] };
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(config, authority, out var row, out var blockers), string.Join(',', blockers));
+        decimal expected = 2000m * 1.6m / 7m;
+        expected *= 1.2m; // Racial sum is its own multiplier.
+        decimal multiplier = (1m + decimal.Parse(bonus, CultureInfo.InvariantCulture) / 100m)
+            * (1m + decimal.Parse(firstLevelBonus, CultureInfo.InvariantCulture) / 100m);
+        if (bonus == "-10") Assert.AreEqual(0.99m, multiplier);
+        if (basic && style == CharacterCreationLifestyleStyleIds.Standard) multiplier = multiplier * 1.2m * 0.75m;
+        expected *= multiplier; // Ordinary quality occurrences multiply, not add.
+        expected = (expected * 1.1m + 100m) * 50m / 100m + 200m;
+        Assert.AreEqual(expected, row.Economics.CostPerIncrement);
+        Assert.AreEqual(expected * 3m, row.Economics.TotalCost);
+        if (bonus == "-100") Assert.AreEqual(250m, expected, "A zero base must preserve subsequent outings and contracts.");
+        else Assert.AreNotEqual(decimal.Round(expected, 2), expected);
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(config with
+            { Roommates = 0, SplitCostWithRoommates = false, TrustFund = true }, authority, out var covered, out blockers));
+        Assert.AreEqual(250m, covered.Economics.CostPerIncrement);
+        Assert.IsFalse(JsonSerializer.Serialize(basis).Contains(nameof(authority.PurchasedQualityCosts), StringComparison.Ordinal));
+        var overflow = authority with { PurchasedQualityCosts = costs! with
+            { Occurrences = costs.Occurrences.Select(effect => effect with { Percentage = decimal.MaxValue }).ToArray() } };
+        overflow = overflow with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(overflow) };
+        Assert.IsFalse(CharacterCreationLifestylesRules.TryProject(config, overflow, out _, out blockers));
+        CollectionAssert.Contains(blockers.ToArray(), CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+    }
+
+    [TestMethod]
+    public void Purchased_quality_cost_confirm_cold_reopen_and_replay_preserve_source_price()
+    {
+        WithService((store, _, id, directory) =>
+        {
+            Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts([QualityCostSelection()], out var costs));
+            var authority = Authority() with { PurchasedQualityCosts = costs };
+            authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+            var service = new CharacterCreationLifestylesService(store, new FakeResolver(authority));
+            var state = Load(service, id);
+            var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create, LifestyleId, Configuration(LifestyleId));
+            var preview = Preview(service, state.Binding, mutation);
+            Assert.AreEqual(2200m, preview.BudgetAfter.Used);
+            var command = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation, preview.PreviewDigest, "quality-lifestyle-255", true);
+            Assert.IsTrue(service.Confirm(command).Success);
+            var saved = store.Get(id).Value!;
+            Assert.AreEqual("2000", Lifestyle(XDocument.Parse(saved.Document.Content), LifestyleId).Element("cost")!.Value);
+            var coldStore = new FileWorkspaceStore(directory);
+            var cold = new CharacterCreationLifestylesService(coldStore, new FakeResolver(authority));
+            Assert.AreEqual(2200m, Load(cold, id).Budget.Used);
+            Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed, cold.Confirm(command).Outcome);
+            Assert.AreEqual(saved.ContentRevision, coldStore.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(saved.Document.Content, coldStore.Get(id).Value!.Document.Content);
+        });
+    }
+
+    [TestMethod]
+    [DataRow("10", "lifestylecost")]
+    [DataRow("-10", "lifestylecost")]
+    [DataRow("10", "basiclifestylecost")]
+    [DataRow("-10", "basiclifestylecost")]
+    public void Purchased_quality_costs_reject_forged_occurrences_and_orphaned_or_unsupported_saved_effects(string literal, string effectName)
+    {
+        var selection = QualityCostSelection($"<{effectName}>{literal}</{effectName}>");
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts([selection], out var costs));
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(costs));
+        foreach (var forged in new[] { costs!.Occurrences[0] with { Percentage = 20m },
+            costs.Occurrences[0] with { Percentage = -costs.Occurrences[0].Percentage },
+            costs.Occurrences[0] with { Position = 1 }, costs.Occurrences[0] with { SourceId = HighSourceId },
+            costs.Occurrences[0] with { EffectType = effectName == "lifestylecost"
+                ? CharacterCreationLifestyleCostEffectType.BasicLifestyleCost : CharacterCreationLifestyleCostEffectType.LifestyleCost },
+            costs.Occurrences[0] with { EffectType = (CharacterCreationLifestyleCostEffectType)42 } })
+            Assert.IsFalse(CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(costs with { Occurrences = [forged] }));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts(
+            [selection with { SourceNodeDigest = CharacterCreationLifestylesRules.ComputeIdempotencyKeyDigest("different-source") }], out _));
+        var method = typeof(CharacterCreationLegacySourceProjector).GetMethod("TryBuildQualityGraph",
+            BindingFlags.NonPublic | BindingFlags.Static, null,
+            [typeof(CharacterCreationQualitySelection), typeof(string), typeof(XElement[]).MakeByRefType(), typeof(XElement[]).MakeByRefType()], null)!;
+        object?[] arguments = [selection, selection.SourceNodeDigest, null, null];
+        Assert.AreEqual(true, method.Invoke(null, arguments));
+        var qualities = (XElement[])arguments[2]!;
+        var effects = (XElement[])arguments[3]!;
+        CharacterCreationLifestyleQualityInstance[] instances = [new(qualities.Single(), 1, selection)];
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts(effects, instances, 0,
+            out _, out _, out var savedCosts, out var blockers), string.Join(',', blockers));
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(costs, savedCosts));
+        foreach (var change in new (string Name, string Value)[] { ("val", "20"),
+            ("val", (-decimal.Parse(literal, CultureInfo.InvariantCulture)).ToString(CultureInfo.InvariantCulture)),
+            ("sourcename", Guid.NewGuid().ToString("D")),
+            ("condition", "once"), ("improvedname", "Low"), ("unique", "named"), ("enabled", "0"),
+            ("improvementsource", "Metatype"),
+            ("improvementttype", effectName == "lifestylecost" ? "BasicLifestyleCost" : "LifestyleCost") })
+        {
+            var altered = new XElement(effects.Single());
+            altered.SetElementValue(change.Name, change.Value);
+            Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts([altered], instances, 0,
+                out _, out _, out _, out blockers), change.Name);
+            CollectionAssert.Contains(blockers, CharacterCreationLifestylesBlockers.UnsupportedSemantics);
+        }
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts([], instances, 0, out _, out _, out _, out _));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts(effects.Concat(effects), instances, 0, out _, out _, out _, out _));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts(effects, [], 0, out _, out _, out _, out _));
+        var hidden = new XElement(effects.Single());
+        hidden.AddFirst(new XElement("improvementttype", "Unrelated"));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts([hidden], [], 0,
+            out _, out _, out _, out blockers));
+        CollectionAssert.Contains(blockers, CharacterCreationLifestylesBlockers.UnsupportedSemantics);
+    }
+
+    [TestMethod]
+    [DataRow("-100.0001", "lifestylecost")]
+    [DataRow("-101", "lifestylecost")]
+    [DataRow("-100.0001", "basiclifestylecost")]
+    [DataRow("-101", "basiclifestylecost")]
+    public void Purchased_quality_discounts_below_minus100_are_rejected_without_clamping(string literal, string effectName)
+    {
+        var selection = QualityCostSelection($"<{effectName}>{literal}</{effectName}>");
+        Assert.IsFalse(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(selection.SourceNodeXml));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts([selection], out var rejected));
+        Assert.IsNull(rejected);
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts(
+            [QualityCostSelection($"<{effectName}>-100</{effectName}>")], out var boundary));
+        Assert.AreEqual(-100m, boundary!.Occurrences.Single().Percentage);
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts(
+            [boundary.Sources.Single() with { IsFreeOrGranted = true }], out _));
+        var forged = boundary with
+        {
+            Occurrences = [boundary.Occurrences.Single() with { Percentage = decimal.Parse(literal, CultureInfo.InvariantCulture) }]
+        };
+        Assert.IsFalse(CharacterCreationLifestylesRules.IsValidPurchasedQualityCostShape(forged));
+        var authority = Authority() with { PurchasedQualityCosts = forged };
+        authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+        Assert.IsFalse(CharacterCreationLifestylesRules.TryProject(Configuration(LifestyleId), authority, out _, out _));
+    }
+
+    [TestMethod]
+    [DataRow("<basiclifestylecost>-100.000000000000000000000000000001</basiclifestylecost>")]
+    [DataRow("<basiclifestylecost>-000100.000000000000000000000000000001</basiclifestylecost>")]
+    [DataRow("<basiclifestylecost>Rating * 10</basiclifestylecost>")]
+    [DataRow("<basiclifestylecost lifestyle='Low'>10</basiclifestylecost>")]
+    [DataRow("<basiclifestylecost condition='create'>10</basiclifestylecost>")]
+    [DataRow("<basiclifestylecost><val>10</val></basiclifestylecost>")]
+    [DataRow("<basiclifestylecost>10</basiclifestylecost><basiclifestylecost>10</basiclifestylecost>")]
+    [DataRow("<basiclifestylecost xmlns='urn:foreign'>10</basiclifestylecost>")]
+    public void Basic_cost_source_grammar_rejects_ambiguity_and_precision_floor_escape(string bonus)
+    {
+        var selection = QualityCostSelection(bonus);
+        Assert.IsFalse(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(selection.SourceNodeXml));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts([selection], out _));
+    }
+
+    [TestMethod]
+    [DataRow("10")]
+    [DataRow("-10")]
+    public void Ordinary_cost_occurrences_keep_historical_json_and_enclosing_authority_digest(string literal)
+    {
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryProjectPurchasedQualityCosts(
+            [QualityCostSelection($"<lifestylecost>{literal}</lifestylecost>")], out var costs));
+        var effect = costs!.Occurrences.Single();
+        var historical = new { effect.OptionId, effect.SourceId, effect.SourceNodeDigest, effect.Level,
+            effect.Container, effect.Position, effect.Percentage, effect.SourceAnchorIds };
+        Assert.AreEqual(JsonSerializer.Serialize(historical), JsonSerializer.Serialize(effect));
+        var historicalCosts = new { costs.Sources, Occurrences = new[] { historical } };
+        Assert.AreEqual(JsonSerializer.Serialize(historicalCosts), JsonSerializer.Serialize(costs));
+        var authority = Authority() with { PurchasedQualityCosts = costs, AuthorityDigest = string.Empty };
+        var historicalAuthority = new
+        {
+            authority.Schema, authority.RulesetId, authority.SettingsProfileId, authority.LifestyleOptions,
+            authority.QualityOptions, authority.TrustFundLevel, authority.FreeGridsEnabled, authority.SourceAnchorIds,
+            authority.Blockers, authority.IsAuthoritative, authority.SourceDigest, authority.ProfileDigest,
+            authority.GmPolicyDigest, authority.RuntimeDigest, authority.AuthorityDigest, PurchasedQualityCosts = historicalCosts
+        };
+        Assert.AreEqual(CharacterCreationFinalizationDigest.Compute(historicalAuthority),
+            CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority));
+        var roundTrip = JsonSerializer.Deserialize<CharacterCreationLifestylePurchasedQualityCosts>(JsonSerializer.Serialize(historicalCosts));
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(roundTrip));
+        Assert.AreEqual(CharacterCreationLifestyleCostEffectType.LifestyleCost, roundTrip!.Occurrences.Single().EffectType);
+        var invalid = costs with { Occurrences = [effect with { EffectType = (CharacterCreationLifestyleCostEffectType)42 }] };
+        Assert.IsFalse(CharacterCreationLifestylesRules.IsValidPurchasedQualityCostShape(invalid));
+    }
+
+    private static CharacterCreationQualitySelection QualityCostSelection(string bonus = "<lifestylecost>10</lifestylecost>",
+        string firstLevelBonus = "")
+    {
+        string first = firstLevelBonus.Length == 0 ? "" : $"<firstlevelbonus>{firstLevelBonus}</firstlevelbonus>";
+        string xml = $"<quality><id>{QualitySourceId:D}</id><name>Cost fixture</name><karma>-10</karma><category>Negative</category><bonus>{bonus}</bonus>{first}<source>RF</source><page>157</page></quality>";
+        return new($"quality:{QualitySourceId:D}:1", QualitySourceId, QualitySourceId.ToString("D"), "Cost fixture",
+            CharacterCreationQualityType.Negative, 1, -10, false, true, true, false, null, null,
+            [$"qualities.xml#quality:{QualitySourceId:D}"], xml, CharacterCreationQualitiesRules.ComputeSourceNodeDigest(xml), CharacterCreationLifestylesRules.ComputeIdempotencyKeyDigest("cost-fixture-option"));
+    }
 
     [TestMethod]
     [DataRow(20, 2400)]

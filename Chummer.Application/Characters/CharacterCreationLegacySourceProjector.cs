@@ -51,6 +51,9 @@ public static partial class CharacterCreationLegacySourceProjector
     /// active limb effects; absent anatomy never means two arms.
     /// </summary>
     public static bool IsQualitySourceProjectable(string sourceNodeXml, int? armCount)
+        => IsQualitySourceProjectable(sourceNodeXml, armCount, null);
+
+    public static bool IsQualitySourceProjectable(string sourceNodeXml, int? armCount, string? sourceExecutionSchema)
     {
         if (sourceNodeXml is not
             { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength })
@@ -59,7 +62,9 @@ public static partial class CharacterCreationLegacySourceProjector
             sourceNodeXml,
             "quality",
             s_QualitySourceChildren);
-        return source is not null && TryReadQualityDefinition(source, out _, armCount);
+        return source is not null && TryReadQualityDefinition(source, out var definition, armCount, sourceExecutionSchema)
+            // Ordinary creation has no selected-quality point/wallet consumer.
+            && !definition.BonusEffects.Concat(definition.FirstLevelEffects).Any(IsKnowledgeCategoryEffect);
     }
 
     public static bool IsGearSourceProjectable(string sourceNodeXml)
@@ -83,11 +88,12 @@ public static partial class CharacterCreationLegacySourceProjector
         string draftDigest,
         out XElement[] qualities,
         out XElement[] improvements,
-        int? armCount)
+        int? armCount, string? sourceExecutionSchema = null)
     {
         qualities = [];
         improvements = [];
-        if (!CharacterCreationQualitiesRules.IsCanonicalDigest(draftDigest)
+        if (selection?.SourceExecutionSchema is not null && selection.SourceExecutionSchema != sourceExecutionSchema
+            || !CharacterCreationQualitiesRules.IsCanonicalDigest(draftDigest)
             || !TryReadSelectedQualityDefinition(selection, armCount,
                 out XElement source, out QualityDefinition definition))
             return false;
@@ -258,7 +264,7 @@ public static partial class CharacterCreationLegacySourceProjector
     private static bool TryReadQualityDefinition(
         XElement source,
         out QualityDefinition definition,
-        int? armCount = null)
+        int? armCount = null, string? sourceExecutionSchema = null)
     {
         definition = null!;
         if (!TryReadGuid(source, "id", out Guid sourceId)
@@ -279,10 +285,10 @@ public static partial class CharacterCreationLegacySourceProjector
             || !TryReadBoolean(source, "print", true, out bool print)
             || !TryReadBooleanAlias(source, "metagenic", "metagenetic", out bool metagenic)
             || !TryReadMaximumRating(source, out int maximumRating, armCount)
-            || !TryReadEffectContainer(source.Element("bonus"), out CompiledEffect[] bonusEffects)
+            || !TryReadEffectContainer(source.Element("bonus"), out CompiledEffect[] bonusEffects, sourceExecutionSchema)
             || !TryReadEffectContainer(
                 source.Element("firstlevelbonus"),
-                out CompiledEffect[] firstLevelEffects)
+                out CompiledEffect[] firstLevelEffects, sourceExecutionSchema)
             || source.Element("naturalweapons") is XElement naturalWeapons
                && (naturalWeapons.HasAttributes
                    || naturalWeapons.Elements().Any()
@@ -416,7 +422,7 @@ public static partial class CharacterCreationLegacySourceProjector
 
     private static bool TryReadEffectContainer(
         XElement? container,
-        out CompiledEffect[] effects)
+        out CompiledEffect[] effects, string? sourceExecutionSchema = null)
     {
         effects = [];
         if (container is null)
@@ -427,10 +433,42 @@ public static partial class CharacterCreationLegacySourceProjector
         var compiled = new List<CompiledEffect>();
         foreach (XElement effect in container.Elements())
         {
+            if (IsPhysicalInitiativeEffect886(effect.Name.LocalName))
+            {
+                if (sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                    || !TryReadPhysicalInitiativeEffect886(effect, out var initiative)) return false;
+                compiled.Add(initiative);
+                continue;
+            }
             if (effect.Name.NamespaceName.Length != 0
-                || effect.HasAttributes
-                || effect.Elements().Any())
+                || effect.HasAttributes)
                 return false;
+            if (IsKnowledgeCategoryElement(effect.Name.LocalName))
+            {
+                if (container.Elements(effect.Name).Count(other => XElement.DeepEquals(other, effect)) != 1
+                    || !TryReadKnowledgeCategoryEffect(effect, out var structured)) return false;
+                compiled.Add(structured);
+                continue;
+            }
+            if (effect.Elements().Any()) return false;
+            if (effect.Name.LocalName is "lifestylecost" or "basiclifestylecost")
+            {
+                // One literal, unconditional purchased-quality adjustment of each type per
+                // source container. Keep expressions, named/conditional effects,
+                // reductions below -100 and ambiguous duplicate rows outside this consumer.
+                string literal = effect.Value.Trim();
+                if (container.Elements(effect.Name).Count() != 1
+                    || !decimal.TryParse(literal,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture, out decimal percentage)
+                    || percentage < -100m
+                    // Decimal parsing can round an over-precise value below -100 up to -100.
+                    || percentage == -100m && literal.TrimStart('-', '0').StartsWith("100.", StringComparison.Ordinal)
+                        && literal[(literal.IndexOf('.') + 1)..].Any(digit => digit != '0')) return false;
+                compiled.Add(new CompiledEffect(effect.Name.LocalName == "basiclifestylecost"
+                    ? "BasicLifestyleCost" : "LifestyleCost", string.Empty, percentage));
+                continue;
+            }
             if (effect.Name.LocalName == "trustfund")
             {
                 if (!int.TryParse(effect.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
@@ -569,17 +607,18 @@ public static partial class CharacterCreationLegacySourceProjector
         string sourceName,
         string notesColor) => new(
         "improvement",
+        effect.Unique886 is null ? null : new XElement("unique", effect.Unique886),
         new XElement("target", string.Empty),
         new XElement("improvedname", effect.ImprovedName),
         new XElement("sourcename", sourceName),
-        new XElement("min", "0"),
-        new XElement("max", "0"),
+        new XElement("min", effect.Minimum.ToString(CultureInfo.InvariantCulture)),
+        new XElement("max", effect.Maximum.ToString(CultureInfo.InvariantCulture)),
         new XElement("aug", "0"),
         new XElement("augmax", "0"),
         new XElement("val", effect.Value.ToString(CultureInfo.InvariantCulture)),
         new XElement("rating", "1"),
         new XElement("exclude", string.Empty),
-        new XElement("condition", string.Empty),
+        new XElement("condition", NativeCondition(effect)),
         new XElement("improvementttype", effect.ImprovementType),
         new XElement("improvementsource", "Quality"),
         new XElement("custom", "False"),
@@ -773,7 +812,7 @@ public static partial class CharacterCreationLegacySourceProjector
     private sealed record CompiledEffect(
         string ImprovementType,
         string ImprovedName,
-        decimal Value);
+        decimal Value, int Minimum = 0, int Maximum = 0, string Condition = "", string? Unique886 = null);
 
     private sealed record GearDefinition(
         Guid SourceId,

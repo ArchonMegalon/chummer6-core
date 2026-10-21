@@ -676,9 +676,97 @@ public sealed partial class CharacterCreationSkillsServiceTests
         return (path, oldCommand, receipt);
     }
 
+    [TestMethod]
+    [DataRow("2147483645", true)]
+    [DataRow("2147483646", false)]
+    public void Knowledge986_initial_skills_load_preserves_contribution_overflow_blocker(string expression, bool canEdit)
+    {
+        // This existing stub fixture supplies two source-bound contribution points.
+        // It tests load failure propagation, not private source execution evidence.
+        WithReadySkillsContext((store, _, id, authority, prerequisite, _) =>
+        {
+            var before = store.Get(id).Value!;
+            Assert.AreEqual(2, authority.KnowledgePointContributions.Sum(item => item.Points));
+            var source = CreateResolver(prerequisite, Reseal(authority with { KnowledgePointsExpression = expression }));
+            var loaded = new CharacterCreationSkillsService(store, source).Load(new(id));
+            Assert.IsNotNull(loaded.Value);
+            Assert.IsNull(loaded.Value.PendingDraft);
+            Assert.AreEqual(canEdit, loaded.Value.CanEdit, string.Join(",", loaded.Blockers));
+            Assert.AreEqual(!canEdit, loaded.Blockers.Contains(CharacterCreationSkillsBlockers.AllocationInvalid));
+            Assert.AreEqual(canEdit, CharacterCreationSkillsService.CreateDraftSession(loaded.Value) is not null);
+            var after = store.Get(id).Value!;
+            Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("{Unknown971} * 2")]
+    [DataRow("({INTUnaug} +")]
+    [DataRow("{INTBase} + 1")]
+    [DataRow("2147483648")]
+    [DataRow("2147483647.1")]
+    [DataRow("79228162514264337593543950335 * 2")]
+    [DataRow("1 div 0")]
+    [DataRow("-1")]
+    [DataRow("1..2")]
+    [DataRow("depth")]
+    [DataRow("length")]
+    public void Knowledge982_invalid_unknown_overflow_and_expression_limits_block_canonical_skills(string expression)
+    {
+        expression = expression switch
+        {
+            "depth" => new string('(', 33) + "1" + new string(')', 33),
+            "length" => "1+" + new string(' ', 2046) + "0",
+            _ => expression
+        };
+        WithRealTalentSkills("Mundane", (_, store, _, service, id) =>
+        {
+            var before = store.Get(id).Value!;
+            var loaded = service.Load(new(id));
+            Assert.IsTrue(loaded.Blockers.Contains(CharacterCreationSkillsBlockers.AuthorityUnavailable));
+            Assert.IsTrue(loaded.Value?.CanEdit != true);
+            var completion = ((CharacterCreationSkillsService)service).LoadCompletionInputs(new(id));
+            if (expression.Length is > 0 and <= 2048)
+                Assert.IsNotNull(completion.Value, "Structurally admitted source must reach canonical expression evaluation.");
+            if (completion.Value is { } inputs)
+            {
+                Assert.AreEqual(expression, inputs.Authority.KnowledgePointsExpression);
+                var native = inputs.Authority.KnowledgeSkills.First(item => item.CanBeNativeLanguage);
+                var actual = CharacterCreationSkillsService.PreviewWithProposedAttributes(inputs, [],
+                    [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)], []);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, actual.Outcome);
+                Assert.IsTrue(actual.Blockers.Contains(CharacterCreationSkillsBlockers.AuthorityUnavailable));
+            }
+            else Assert.IsTrue(completion.Blockers.Contains(CharacterCreationSkillsBlockers.AuthorityUnavailable));
+            var after = store.Get(id).Value!;
+            Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+        }, amendSettings: profile => profile.SetElementValue("knowledgepointsexpression", expression));
+    }
+
+    [TestMethod]
+    [DataRow("depth")]
+    [DataRow("length")]
+    public void Knowledge982_expression_limits_accept_the_existing_boundaries(string boundary)
+    {
+        string expression = boundary == "depth"
+            ? new string('(', 32) + "1" + new string(')', 32)
+            : "1+" + new string(' ', 2045) + "0";
+        WithRealTalentSkills("Mundane", (_, _, _, service, id) =>
+        {
+            var state = Load(service, id);
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            Assert.AreEqual(1m, state.KnowledgeSkillPointBudget.Total);
+            Assert.IsNotNull(CharacterCreationSkillsService.CreateDraftSession(state));
+        }, amendSettings: profile => profile.SetElementValue("knowledgepointsexpression", expression));
+    }
+
     private static void WithRealTalentSkills(string talentValue,
         Action<string, FileWorkspaceStore, ICharacterSourceDataResolver,
-            ICharacterCreationSkillsService, CharacterWorkspaceId> action)
+            ICharacterCreationSkillsService, CharacterWorkspaceId> action,
+        Action<System.Xml.Linq.XElement>? amendSettings = null)
     {
         string directory = Path.Combine(Path.GetTempPath(), $"chummer-real-talent-skills-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -688,8 +776,25 @@ public sealed partial class CharacterCreationSkillsServiceTests
             while (core is not null && !File.Exists(Path.Combine(core.FullName, "Chummer", "data", "priorities.xml")))
                 core = core.Parent;
             Assert.IsNotNull(core);
+            string coreRoot = core.FullName;
+            if (amendSettings is not null)
+            {
+                string sourceData = Path.Combine(coreRoot, "Chummer", "data");
+                coreRoot = Path.Combine(directory, "source");
+                string destination = Path.Combine(coreRoot, "data");
+                Directory.CreateDirectory(destination);
+                foreach (string sourceFile in Directory.EnumerateFiles(sourceData, "*.xml"))
+                    File.Copy(sourceFile, Path.Combine(destination, Path.GetFileName(sourceFile)));
+                string settingsPath = Path.Combine(destination,
+                    CharacterCreationBootstrapProfiles.SettingsSourceFile(CharacterCreationBootstrapProfiles.PrioritySettingsProfileId));
+                var settings = System.Xml.Linq.XDocument.Load(settingsPath);
+                var profile = settings.Root!.Element("settings")!.Elements("setting").Single(item =>
+                    item.Element("id")!.Value == CharacterCreationBootstrapProfiles.PrioritySettingsProfileId);
+                amendSettings(profile);
+                settings.Save(settingsPath);
+            }
             ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
-                new FileSystemContentOverlayCatalogService(core.FullName, core.FullName, null));
+                new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
             ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
             var store = new FileWorkspaceStore(directory);
             var codec = new Sr5WorkspaceCodec(queries,

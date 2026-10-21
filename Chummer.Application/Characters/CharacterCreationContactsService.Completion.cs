@@ -13,7 +13,10 @@ public sealed partial class CharacterCreationContactsService
 {
     /// <summary>Read original source and history, including before any Attributes draft exists.</summary>
     public CharacterCreationContactResult<CharacterCreationContactsCompletionInputs> LoadCompletionInputs(
-        CharacterCreationContactsLoadRequest request)
+        CharacterCreationContactsLoadRequest request) => LoadCompletionInputs(request, false);
+
+    internal CharacterCreationContactResult<CharacterCreationContactsCompletionInputs> LoadCompletionInputs(
+        CharacterCreationContactsLoadRequest request, bool knowledgeModifiers)
     {
         ArgumentNullException.ThrowIfNull(request);
         var read = _workspaceStore.Get(request.WorkspaceId);
@@ -51,8 +54,8 @@ public sealed partial class CharacterCreationContactsService
 
             var qualitiesResult = new CharacterCreationQualitiesService(_workspaceStore, source,
                 new CharacterCreationPrerequisiteService(_workspaceStore, _characterQueries, source),
-                new CharacterCreationAttributesService(_workspaceStore, source))
-                .LoadCompletionInputs(new(workspace.Id));
+                new CharacterCreationAttributesService(_workspaceStore, source), _characterQueries)
+                .LoadCompletionInputs(new(workspace.Id), knowledgeModifiers);
             if (qualitiesResult.Value is not { } qualities)
                 return new(CharacterCreationContactOutcomes.Blocked, null, qualitiesResult.Blockers);
             IReadOnlyList<CharacterCreationTalentQualitySource> talentSources = [];
@@ -79,11 +82,12 @@ public sealed partial class CharacterCreationContactsService
             var pending = state.CharacterCreationContactsDraft;
             if (pending is not null || receipts.Count != 0)
             {
-                // Retained choices still pass ordinary current-source/full saved
-                // graph admission. The projection receives only the real draft.
-                if (pending is null || !CharacterCreationContactsDraftRules.TryLoad(workspace, source,
-                        out var admitted, out _) || admitted is null
-                    || !CharacterCreationContactsDraftRules.InputsMatch(pending, admitted))
+                // Immutable history has its original input identity. A composite
+                // edit admits today's effects below; it never reseals this draft.
+                if (pending is null || !(CharacterCreationContactsDraftRules.AdmitsRetainedCompletionHistory(
+                        workspace, pending, policy, carryover)
+                    || CharacterCreationContactsDraftRules.TryLoad(workspace, source, out var admitted, out _)
+                        && admitted is not null && CharacterCreationContactsDraftRules.InputsMatch(pending, admitted)))
                     return Blocked<CharacterCreationContactsCompletionInputs>(CharacterCreationContactOutcomes.Blocked,
                         CharacterCreationContactsBlockers.BudgetAuthorityRequired);
             }
@@ -112,6 +116,17 @@ public sealed partial class CharacterCreationContactsService
                         out _, out var afterTalent) || !CompletionEqual(talentSources, afterTalent.GrantedQualitySources)))
                 return Blocked<CharacterCreationContactsCompletionInputs>(CharacterCreationContactOutcomes.Blocked,
                     CharacterCreationContactsBlockers.StaleSourceDigest);
+            if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite))
+                return Blocked<CharacterCreationContactsCompletionInputs>(CharacterCreationContactOutcomes.Blocked,
+                    CharacterCreationCompositeBaselineReader.Invalid);
+            if (composite is not null)
+            {
+                var selected = composite.Selections;
+                var current = PreviewCompletion(inputs, selected.AttributeAllocations,
+                    selected.QualityOptionIds, selected.Contacts);
+                if (current.Blockers.Count != 0)
+                    return new(CharacterCreationContactOutcomes.Blocked, null, current.Blockers);
+            }
             return new(CharacterCreationContactOutcomes.Available, DetachCompletion(inputs), []);
         }
         catch (Exception error) when (error is XmlException or ArgumentException or InvalidOperationException
@@ -156,12 +171,16 @@ public sealed partial class CharacterCreationContactsService
         var pricing = PriceSelectedCompletion(new(inputs.Policy, inputs.Qualities.PrerequisiteDraft,
             inputs.TalentQualitySources, inputs.OriginalEffects, inputs.Contacts,
             upstream.Attributes.Attributes, upstream.Qualities.Selections, frozen,
-            inputs.Binding.SourceDigest, upstream.Blockers), cancellationToken);
+            inputs.Binding.SourceDigest, upstream.Blockers,
+            inputs.Qualities.Authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+            inputs.Qualities.Authority.QualityKarmaLimit,
+            inputs.Qualities.Authority.MayExceedPositiveQualityLimit), cancellationToken);
         if (pricing.Value is not { } priced)
             return new(pricing.Outcome, null, pricing.Blockers);
         var result = new CharacterCreationContactsCompletionProjection(CharacterCreationContactsCompletionSchemas.ProjectionV1,
             inputs.Binding, inputs.SnapshotDigest, upstream, priced.Contacts, priced.ContactBudget,
-            priced.HighPlacesBudget, priced.AdditionalKarmaCost, priced.Blockers, string.Empty);
+            priced.HighPlacesBudget, priced.AdditionalKarmaCost, priced.Blockers, string.Empty)
+            { GroupKarma = priced.GroupKarma };
         result = result with { ProposalDigest = CharacterCreationContactsCompletionRules.ComputeProjectionDigest(result) };
         cancellationToken.ThrowIfCancellationRequested();
         return new(pricing.Outcome, DetachCompletion(result), priced.Blockers);
@@ -202,7 +221,9 @@ public sealed partial class CharacterCreationContactsService
         // The source compiler fails closed for unsupported effects (including
         // attribute modifiers). Supported effects are shared with finalization,
         // not inferred from quality names or caller-provided allowance scalars.
-        CharacterContactRuleEffect[] effects = inputs.OriginalEffects.Concat(qualityEffects.Select(effect =>
+        CharacterContactRuleEffect[] effects = inputs.OriginalEffects.Concat(qualityEffects
+            .Where(effect => !CharacterCreationSkillKarmaModifierRules.IsSupportedType(effect.ImprovementType))
+            .Select(effect =>
             new CharacterContactRuleEffect(effect.ImprovementType, effect.ImprovedName,
                 effect.Value.ToString(CultureInfo.InvariantCulture), string.Empty, false, 1, string.Empty))).ToArray();
         var attributes = inputs.Attributes.ToDictionary(attribute => attribute.AttributeId,
@@ -251,8 +272,6 @@ public sealed partial class CharacterCreationContactsService
         blockers.AddRange(authority.ContactBudget.Blockers);
         blockers.AddRange(authority.HighPlacesBudget.Blockers);
         bool paidGroup = semanticsById.Values.Any(semantics => semantics.IsGroup && !semantics.Free);
-        if (paidGroup)
-            blockers.Add(CharacterCreationContactsCompletionSchemas.KarmaContributionUnavailable);
         if (authority.Contacts.Any(contact => contact.ContactPointCost > 7 && !contact.CountsAgainstHighPlacesBudget))
             blockers.Add(CharacterCreationKarmaContactsRules.ContactLimitExceeded);
         var projections = new List<CharacterCreationContactProjection>();
@@ -270,10 +289,32 @@ public sealed partial class CharacterCreationContactsService
                 ContactDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(projection)
             });
         }
+        CharacterCreationContactGroupKarmaEvaluation? groupKarma = null;
+        int? additionalKarma = authority.AuthorityBlockers.Count == 0 ? 0 : null;
+        if (paidGroup)
+        {
+            additionalKarma = null;
+            if (authority.AuthorityBlockers.Count == 0 && authority.ContactBudget.IsExact
+                && authority.HighPlacesBudget.IsExact && projections.Count == frozen.Length
+                && !blockers.Contains(CharacterCreationContactsBlockers.ContactInvalid)
+                && !blockers.Contains(CharacterCreationContactsBlockers.FieldNotEditable)
+                && CharacterCreationKarmaContactsRules.TryPriceGroups(inputs.Policy, inputs.QualityCostPolicy,
+                    inputs.QualityKarmaLimit, inputs.QualitySelections.Select(item => new CharacterCreationQualityCostItem(
+                        item.KarmaCost, item.CountsAgainstQualityLimit, item.CountsAgainstKarma, item.IsMetagenic)).ToArray(),
+                    projections.Where(contact => contact.IsGroup && !contact.Free).Select(contact => contact.ContactPointCost),
+                    out groupKarma))
+            {
+                additionalKarma = groupKarma!.AdditionalKarmaCost;
+                if (groupKarma.WithGroups.PositiveLimitKarma > inputs.QualityKarmaLimit
+                    && !inputs.MayExceedPositiveQualityLimit)
+                    blockers.Add(CharacterCreationQualitiesBlockers.PositiveLimitExceeded);
+            }
+            if (groupKarma is null)
+                blockers.Add(CharacterCreationContactsCompletionSchemas.KarmaContributionUnavailable);
+        }
         string[] normalized = NormalizeCompletion(blockers);
         var result = new SelectedCompletionContactsPrice(projections, authority.ContactBudget,
-            authority.HighPlacesBudget, paidGroup || authority.AuthorityBlockers.Count != 0 ? null : 0,
-            normalized);
+            authority.HighPlacesBudget, additionalKarma, normalized) { GroupKarma = groupKarma };
         cancellationToken.ThrowIfCancellationRequested();
         return new(normalized.Length == 0 ? CharacterCreationContactOutcomes.Available : CharacterCreationContactOutcomes.Blocked,
             result, normalized);
@@ -317,8 +358,10 @@ public sealed partial class CharacterCreationContactsService
             && CharacterCreationContactsDraftRules.IsValidShape(binding.WorkspaceId, binding.ContentRevision, pending)
             && pending.RawCharacterXmlDigest == binding.ContentDigest
             && pending.PrerequisiteDraftDigest == inputs.Qualities.PrerequisiteDraft.DraftDigest
-            && pending.AttributesDraftDigest == inputs.Qualities.Attributes.PendingDraft?.DraftDigest
-            && pending.QualitiesDraftDigest == inputs.Qualities.SavedQualitiesState?.PendingDraft?.DraftDigest
+            // PendingDraft/Receipts describe historical inputs. Qualities holds
+            // current inputs; PreviewCompletion re-evaluates the exact contacts
+            // with their current effects. Only the source-bound loader may admit
+            // a changed binding, against a semantically replayed composite origin.
             && CompletionEqual(pending.Policy, inputs.Policy) && CompletionEqual(pending.CarryoverPolicy, inputs.CarryoverPolicy)
             && CompletionEqual(pending.Contacts, contacts);
     }

@@ -700,7 +700,9 @@ public sealed partial class FileWorkspaceStore :
         CharacterWorkspaceId id,
         long expectedContentRevision,
         string expectedAuxiliaryStateDigest,
-        WorkspaceDocument document)
+        WorkspaceDocument document,
+        Action<WorkspaceStoredDocument>? admitCurrentSources = null,
+        bool admitsLifestyleAuthorityReview = false)
     {
         ArgumentNullException.ThrowIfNull(document);
         if (!IsSha256(expectedAuxiliaryStateDigest))
@@ -746,6 +748,8 @@ public sealed partial class FileWorkspaceStore :
                 return UnavailableMutation("Workspace content revision is exhausted.");
             }
 
+            using var recovery = OpenSavedRuleSources(owner, id, path, current);
+            using var historyValidation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
             long nextContentRevision = current.ContentRevision + 1;
             if (!IsValidAuxiliaryStateTransition(
                     id,
@@ -755,11 +759,21 @@ public sealed partial class FileWorkspaceStore :
                     current.Document.AuxiliaryState,
                     document.AuxiliaryState,
                     current.Document,
-                    document))
+                    document, recovery))
             {
                 return UnavailableMutation("Workspace auxiliary state is invalid.");
             }
 
+            if (admitCurrentSources is null
+                && CharacterCreationCompositeStageCommitAdmission.RequiresTypedSourceAdmission(
+                    current.Document.AuxiliaryState, document.AuxiliaryState))
+                return UnavailableMutation("Composite stage edits require typed final source admission.");
+
+            if (!admitsLifestyleAuthorityReview
+                && CharacterCreationLifestyleReceiptLedgerIntegrity.RequiresAuthorityReviewSourceAdmission(
+                    current.Document.AuxiliaryState, document.AuxiliaryState))
+                return UnavailableMutation("Lifestyle authority review requires typed final source admission.");
+            admitCurrentSources?.Invoke(current);
             PersistedWorkspaceRecord record = BuildPersistedRecord(
                 document,
                 nextContentRevision,
@@ -770,7 +784,8 @@ public sealed partial class FileWorkspaceStore :
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
-                WorkspaceWriteDisposition.ReplaceExisting);
+                WorkspaceWriteDisposition.ReplaceExisting,
+                beforeTargetReplace: admitCurrentSources is null ? null : () => admitCurrentSources(current));
             return SuccessfulMutation(
                 id,
                 committedAtUtc,
@@ -875,7 +890,23 @@ public sealed partial class FileWorkspaceStore :
     {
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace target");
+        record = PreserveRetainedRuleSources(normalizedPath, record, disposition);
+        using var recovery = OpenWriteRuleSources(normalizedPath, record);
+        bool campaignTagged = record.AuxiliaryState?.CharacterCreationFinalizationArchive?.CompletionAuthority?.Proposal.CampaignAuthority is not null;
+        ICharacterCreationRuleSourceRecovery? authorityRecovery = recovery;
+        // Historical validation always uses the private committed observation.
+        // Live Apply authority is checked by the caller's precommit callback.
+        using var historyValidation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
+        if (!TryMaterializeRecord(record, out var candidate, out var candidateRevision, out _, out _)
+            || !CharacterCreationCompletionTransaction.IsValidCurrentDocument(candidate, candidateRevision, authorityRecovery)
+            || !CharacterCreationCompletionDraftTransaction.IsValidCurrentDocument(candidate, candidateRevision)
+            || (recovery is not null || campaignTagged) && !WorkspaceAuxiliaryStateIntegrity.IsValidShape(
+                record.RetainedRuleSources is { } manifest ? new CharacterWorkspaceId(manifest.WorkspaceId)
+                    : candidate.AuxiliaryState.CharacterCreationFinalizationReceipts!.Single().Receipt.WorkspaceId, candidateRevision, candidate.AuxiliaryState, authorityRecovery))
+            throw new IOException("Completion result does not match its archived identity.");
         byte[] serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(record));
+        if (record.RetainedRuleSources is not null && serialized.Length > MaximumRetainedWorkspaceRecordBytes)
+            throw RetainedRuleSourceRejected();
         string tempPath = Path.GetFullPath($"{normalizedPath}{TempFileMarker}{Guid.NewGuid():N}");
         EnsurePathContained(_stateDirectory, tempPath, "workspace temporary file");
         if (!PathComparer.Equals(Path.GetDirectoryName(normalizedPath), Path.GetDirectoryName(tempPath)))
@@ -913,6 +944,7 @@ public sealed partial class FileWorkspaceStore :
             ThrowIfLinkOrReparsePoint(normalizedPath, "workspace target");
             // Private owner-supplied final fence. Never a serialized command or
             // a caller-provided replacement-document authorization callback.
+            if (recovery is not null && !recovery.ValidateRetainedRuleSources()) throw RetainedRuleSourceRejected();
             beforeTargetReplace?.Invoke();
             if (disposition == WorkspaceWriteDisposition.ReplaceExisting)
             {
@@ -937,6 +969,8 @@ public sealed partial class FileWorkspaceStore :
                 // into a reported failure and induce an unsafe caller retry.
             }
 
+            if (record.RetainedRuleSources is not null)
+                _ = FlushRetainedDirectoryChain(Path.GetDirectoryName(normalizedPath)!);
             // Flush(true) above persists the file contents before the atomic same-directory rename.
             // System.IO does not expose a safely portable directory fsync primitive; persistence of
             // the renamed directory entry across sudden power loss remains platform-dependent.
@@ -1262,6 +1296,8 @@ public sealed partial class FileWorkspaceStore :
                 FileShare.Read,
                 FileBufferSize,
                 FileOptions.SequentialScan);
+            if (_retainedRuleSourcesEnabled && stream.Length > MaximumRetainedWorkspaceRecordBytes)
+                return CorruptRead();
             record = continuationRead
                 ? ReadExactContinuationRecord(stream)
                 : reuseReadValidation && !localAdoptionRead
@@ -1291,16 +1327,6 @@ public sealed partial class FileWorkspaceStore :
             return CorruptRead();
         }
 
-        ReadValidationKey? validationKey = recordDigest is not null && !requiresLegacyMigration
-            ? new(owner.NormalizedValue, id, recordDigest)
-            : null;
-        if (!HasReadValidation(validationKey)
-            && (!IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState)
-                || !Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision)))
-        {
-            return CorruptRead();
-        }
-
         // Version 3 made local provenance mandatory. Version 4 additionally
         // preserves portable GM execution segments so an older binary cannot
         // silently flatten history while writing a version-3 record.
@@ -1315,6 +1341,32 @@ public sealed partial class FileWorkspaceStore :
             if (localHistory is not null)
                 return CorruptRead();
             localHistory = CreateLocalHistory();
+        }
+
+        // Reference-bearing variants cannot be exported, adopted or restored
+        // until an authorized private-byte copy protocol exists. Legacy paths keep working.
+        if ((continuationRead || localAdoptionRead) && record.RetainedRuleSources is not null)
+            return UnavailableRead();
+        RetainedRuleSourceWorkspace? recovered;
+        try { recovered = OpenRecordRuleSources(owner, id, record); }
+        catch (Exception error) when (IsRetainedRuleSourceFailure(error)) { return CorruptRead(); }
+        using var recovery = recovered;
+        bool campaignTagged = document.AuxiliaryState.CharacterCreationFinalizationArchive?.CompletionAuthority?.Proposal.CampaignAuthority is not null;
+        ICharacterCreationRuleSourceRecovery? authorityRecovery = recovery;
+        using var historyValidation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
+        ReadValidationKey? validationKey = recordDigest is not null && !requiresLegacyMigration
+            ? new(owner.NormalizedValue, id, recordDigest)
+            : null;
+        // A reference-bearing read must also seed the current operation's exact
+        // draft-prefix memo for nested ordinary readers. The record-only cache
+        // has no replay inputs and cannot stand in for that validation.
+        if ((campaignTagged || recovery is not null || !HasReadValidation(validationKey))
+            && (!IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState, authorityRecovery)
+                || !Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision)
+                || !CharacterCreationCompletionTransaction.IsValidCurrentDocument(document, contentRevision, authorityRecovery)
+                || !CharacterCreationCompletionDraftTransaction.IsValidCurrentDocument(document, contentRevision)))
+        {
+            return CorruptRead();
         }
 
         if (localHistory.LocalAdoption is { } adoption)
@@ -1385,7 +1437,8 @@ public sealed partial class FileWorkspaceStore :
                 lastUpdatedUtc)
             {
                 LocalHistory = localHistory,
-                DelegatedGmHistorySegmentStarts = segmentStarts
+                DelegatedGmHistorySegmentStarts = segmentStarts,
+                HasDelegatedGmHistory = delegatedEditLedger.Count > 0
             });
     }
 
@@ -1397,7 +1450,7 @@ public sealed partial class FileWorkspaceStore :
         out bool requiresLegacyMigration)
     {
         if (record.RecordSchemaVersion is int recordSchemaVersion
-            && (recordSchemaVersion < 1 || recordSchemaVersion > CurrentWorkspaceRecordSchemaVersion))
+            && (recordSchemaVersion < 1 || recordSchemaVersion > RetainedWorkspaceRecordSchemaVersion))
         {
             document = null!;
             contentRevision = 0;
@@ -1485,6 +1538,8 @@ public sealed partial class FileWorkspaceStore :
     {
         if (!Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision))
             throw new IOException("SR6 finalized character state is inconsistent.");
+        // Completion validation runs in WriteRecordAtomically after private references
+        // have been preserved and independently restored from the leased record.
         if (localHistory is null || !localHistory.IsValid(contentRevision))
             throw new InvalidOperationException("Workspace local history is invalid.");
         segmentStarts ??= [];
@@ -1623,8 +1678,9 @@ public sealed partial class FileWorkspaceStore :
     private static bool IsValidAuxiliaryState(
         CharacterWorkspaceId workspaceId,
         long currentContentRevision,
-        WorkspaceDocumentAuxiliaryState state)
-        => WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspaceId, currentContentRevision, state);
+        WorkspaceDocumentAuxiliaryState state,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
+        => WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspaceId, currentContentRevision, state, recovery);
 
     private static bool IsValidAuxiliaryStateTransition(
         CharacterWorkspaceId workspaceId,
@@ -1634,13 +1690,19 @@ public sealed partial class FileWorkspaceStore :
         WorkspaceDocumentAuxiliaryState currentState,
         WorkspaceDocumentAuxiliaryState replacementState,
         WorkspaceDocument currentDocument,
-        WorkspaceDocument replacementDocument)
+        WorkspaceDocument replacementDocument,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
     {
-        if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
+        if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState, recovery))
         {
             return false;
         }
 
+        // Composite commands may be issued only by CommitCompletionDraft.
+        // Generic mutations must retain every historical composite receipt.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationCompletionDrafts),
+                JsonSerializer.Serialize(replacementState.CharacterCreationCompletionDrafts), StringComparison.Ordinal))
+            return false;
         // SR6 choices have their own source-validated transaction. No generic
         // writer, including an unrelated lane, can replace or discard them.
         if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFinalizationArchive),
@@ -3216,6 +3278,9 @@ public sealed partial class FileWorkspaceStore :
         public int? RecordSchemaVersion { get; init; }
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public RetainedRuleSourceManifest? RetainedRuleSources { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public WorkspaceLocalHistory? LocalHistory { get; init; }
 
         // Required even when empty in schema 4; null distinguishes legacy data.
@@ -3304,7 +3369,11 @@ internal enum FileWorkspaceStoreFaultStage
     AfterTempFileFlushed,
     AfterTargetReplaced,
     AfterLocalAdoptionClaimed,
-    AfterLocalAdoptionMoved
+    AfterLocalAdoptionMoved,
+    AfterCreationReservationPrepared,
+    AfterCreationRecordCommitted,
+    AfterCreationReservationCommitted,
+    BeforeCompletionDraftRead
 }
 
 internal interface IFileWorkspaceStoreFaultInjector
