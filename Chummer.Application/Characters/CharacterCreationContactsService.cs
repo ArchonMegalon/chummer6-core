@@ -176,6 +176,16 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
             || evaluation.Workspace is not WorkspaceStoredDocument workspace
             || evaluation.ReplacementContent is null)
         {
+            // A lease-confined store exposes scoped capability through its local-shaped
+            // evaluator API. Preserve validation precedence, but classify an otherwise
+            // valid request's missing atomic capability as unavailable, not blocked.
+            if (evaluation.Result.Outcome == CharacterCreationContactOutcomes.Blocked
+                && evaluation.Result.Blockers.Count == 1
+                && evaluation.Result.Blockers[0] == CharacterCreationContactsBlockers.PersistenceAuthorityRequired
+                && !SupportsAtomicCommit(owner))
+                return Blocked<CharacterCreationContactReceipt>(
+                    CharacterCreationContactOutcomes.Unavailable,
+                    CharacterCreationContactsBlockers.PersistenceAuthorityRequired);
             return new CharacterCreationContactResult<CharacterCreationContactReceipt>(
                 evaluation.Result.Outcome,
                 null,
