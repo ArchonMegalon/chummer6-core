@@ -29,7 +29,7 @@ internal sealed record CharacterCreationPrerequisiteProjectionContext(
     bool? AlternateMetatypeAttributeKarma,
     bool? ReverseAttributePriorityOrder,
     IReadOnlyList<string> SourceAnchorIds,
-    IReadOnlyList<string> Blockers);
+    IReadOnlyList<string> Blockers, string? SourceExecutionSchema = null);
 
 /// <summary>
 /// Strict source projection of the bounded SelectMetatypePriority prerequisites.
@@ -70,7 +70,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         ArgumentNullException.ThrowIfNull(metatypesDocument);
         ArgumentNullException.ThrowIfNull(skillsDocument);
         ArgumentNullException.ThrowIfNull(context);
-        using var sourceWriter = new SourceXmlWriter();
+        using var sourceWriter = new SourceXmlWriter(context.SourceExecutionSchema);
         var blockers = new List<string>(context.Blockers);
         TalentSkillCatalog? talentSkillCatalog = TryProjectTalentSkillCatalog(
             skillsDocument,
@@ -1245,7 +1245,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             || sourceNode?.HasAttributes == true
             || sourceNode?.Elements().Any(element => element.Name.NamespaceName.Length != 0
                                                      || !s_HeritageSourceFields.Contains(
-                                                         element.Name.LocalName)) == true
+                                                         element.Name.LocalName)
+                                                         && !(sourceWriter.SourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 && element.Name == "initiativedice")) == true
             || sourceNode?.Elements("qualities").Any() == true
             || sourceNode?.Elements("bonus").Any(element => element.HasAttributes || element.Nodes().Any()) == true)
         {
@@ -1303,7 +1304,13 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                      && sourceId != Guid.Empty
                      && TryReadAttributes(node, out attributes)
                      && TryReadEmptyMarker(node, "halveattributepoints", out halves)
-                     && TryReadMovement(node, out movement);
+                     && TryReadMovement(node, out movement)
+                     && (writer.SourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                         || !node.Elements("initiativedice").Any()
+                         || node.Elements("initiativedice").ToArray() is [var dice]
+                         && !dice.HasAttributes && !dice.HasElements
+                         && !dice.Nodes().OfType<XProcessingInstruction>().Any()
+                         && int.TryParse(dice.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _));
         return new(digest, sourceId, valid, attributes, halves, movement);
     }
 
@@ -1806,8 +1813,11 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         private readonly StringWriter _text = new(CultureInfo.InvariantCulture);
         private readonly XmlWriter _writer;
 
-        public SourceXmlWriter()
+        internal string? SourceExecutionSchema { get; }
+
+        public SourceXmlWriter(string? sourceExecutionSchema = null)
         {
+            SourceExecutionSchema = sourceExecutionSchema;
             _writer = XmlWriter.Create(_text, new XmlWriterSettings
             {
                 OmitXmlDeclaration = true,

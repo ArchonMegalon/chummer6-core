@@ -204,7 +204,8 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
             SampleUsingParentId = (ref ActivityCreationOptions<string> _) => ActivitySamplingResult.AllData,
             ActivityStarted = activity =>
             {
-                Assert.AreEqual("Review", activity.OperationName);
+                // The same source also emits archive metrics; count only full reviews.
+                if (activity.OperationName != "Review") return;
                 Assert.IsFalse(activity.TagObjects.Any(), "Review diagnostics must not contain character or source data.");
                 onReview();
             }
@@ -232,6 +233,11 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
             string.Join(",", projected.Blockers));
         Assert.IsNotNull(projected.Value);
         var projection = projected.Value;
+        Assert.AreEqual(CharacterCreationCompletionFinalizationSchemas.ProjectionV2, projection.Schema);
+        Assert.IsNull(projection.SkillGroupOrderAuthority);
+        Assert.IsNull(fixture.Inputs.Skills.KarmaCompensationSourceOrder);
+        Assert.IsFalse(JsonSerializer.SerializeToElement(projection).TryGetProperty("SkillGroupOrderAuthority", out _));
+        Assert.IsFalse(JsonSerializer.SerializeToElement(fixture.Inputs.Skills).TryGetProperty("KarmaCompensationSourceOrder", out _));
         Assert.AreEqual(JsonSerializer.Serialize(projection), JsonSerializer.Serialize(fullEnvelope.Value.Projection));
         var authority = new CharacterCreationCompletionAuthority(CharacterCreationCompletionAuthority.SchemaV2,
             fixture.Original.Document.Content, JsonSerializer.SerializeToElement(fixture.Bootstrap), fixture.Inputs,
@@ -259,6 +265,41 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
             string.Join(",", captured.Blockers));
         Assert.IsNotNull(captured.Value);
         Assert.IsTrue(CharacterCreationCompletionReplayCodec.TryEncode(fixture.Bootstrap, captured.Value, out var replay));
+        var selectedAuthority = cold with { Schema = CharacterCreationCompletionAuthority.SchemaV3,
+            Inputs = null, BootstrapSourceSnapshot = null, SelectedReplay = replay };
+        selectedAuthority = selectedAuthority with { AuthorityDigest = CharacterCreationCompletionTransaction.AuthorityDigest(selectedAuthority) };
+        var selectedReceipt = Receipt(fixture, projection, selectedAuthority);
+        Assert.IsTrue(CharacterCreationCompletionTransaction.IsValidArchive(fixture.Original.Id,
+            archive with { CompletionAuthority = selectedAuthority }, selectedReceipt));
+        var selectedProjection = CharacterCreationCompletionTransaction.ProjectSelected(fixture.Original,
+            fixture.Bootstrap, captured.Value, fixture.Review.Request, fixture.Cash, projection.StartingCash.Choice);
+        Assert.AreEqual(JsonSerializer.Serialize(projection), JsonSerializer.Serialize(selectedProjection.Value));
+        // Historical no-order envelopes keep both their old byte shape and later
+        // revision admission. Do not retrofit the V4 native identity requirement.
+        foreach (var historical in new[] { (Authority: cold, Receipt: receipt),
+                     (Authority: selectedAuthority, Receipt: selectedReceipt) })
+        {
+            var state = new WorkspaceDocumentAuxiliaryState(
+                CharacterCreationFinalizationReceipts: [new(historical.Receipt.IdempotencyKeyDigest,
+                    historical.Receipt.CommandDigest, historical.Receipt)],
+                CharacterCreationFinalizationArchive: archive with { CompletionAuthority = historical.Authority });
+            var native = new WorkspaceDocument(projection.CharacterXml, "sr5");
+            native = native with { State = native.State with { AuxiliaryState = state } };
+            Assert.IsTrue(CharacterCreationCompletionTransaction.IsValidCurrentDocument(native, historical.Receipt.ContentRevision));
+            var edited = XDocument.Parse(native.Content);
+            foreach (var id in edited.Root!.Element("newskills")!.Descendants()
+                         .Where(row => row.Name == "guid" || row.Name == "id"))
+                id.Value = Guid.NewGuid().ToString("D");
+            var later = native with { State = native.State with { Payload = edited.ToString(SaveOptions.DisableFormatting) } };
+            Assert.IsFalse(CharacterCreationCompletionTransaction.IsValidCurrentDocument(later, historical.Receipt.ContentRevision));
+            Assert.IsTrue(CharacterCreationCompletionTransaction.IsValidCurrentDocument(later, historical.Receipt.ContentRevision + 1));
+            Assert.AreEqual(JsonSerializer.Serialize(state), JsonSerializer.Serialize(later.AuxiliaryState));
+        }
+        // V4 cannot reinterpret genuine no-order history under new result IDs.
+        var missingOrder = selectedAuthority with { Schema = CharacterCreationCompletionAuthority.SchemaV4 };
+        missingOrder = missingOrder with { AuthorityDigest = CharacterCreationCompletionTransaction.AuthorityDigest(missingOrder) };
+        Assert.IsFalse(CharacterCreationCompletionTransaction.IsValidArchive(fixture.Original.Id,
+            archive with { CompletionAuthority = missingOrder }, Receipt(fixture, projection, missingOrder)));
         foreach (var mixed in new[]
         {
             cold with { SelectedReplay = replay },
@@ -338,6 +379,121 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
             fixture.Original, fixture.Bootstrap, fixture.Inputs, fixture.Review, fixture.Cash,
             new(fixture.Cash.AuthorityDigest, fixture.Cash.Dice * 3), canceled.Token));
         AssertFiles(context, files);
+    }
+
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Complete373_Selected_graph_matches_canonical_effects_without_cash_save_or_career(bool savedChoices)
+    {
+        using var context = savedChoices
+            ? CharacterCreationCompletionReviewServiceTests.CreateSavedContext()
+            : ReadyContext.Create(true);
+        var fixture = Capture(context);
+        var files = Files(context);
+        string original = JsonSerializer.Serialize(fixture.Original);
+        var finalized = Project(fixture);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, finalized.Outcome,
+            string.Join(",", finalized.Blockers));
+        var projection = finalized.Value!;
+        var expected = XDocument.Parse(projection.CharacterXml).Root!;
+        Assert.IsTrue(CharacterCreationSkillsService.TryCaptureCompletionGroupOrderAuthority(
+            fixture.Inputs.Skills, out var groupOrder));
+        var graph = SelectedGraph373(fixture,
+            groupOrder is null ? fixture.Review.ReviewDigest : projection.Binding.AuthorityDigest);
+        var document = XDocument.Parse(fixture.Original.Document.Content);
+        var before = new XDocument(document);
+        var deltas = new List<CharacterCreationFinalizationDelta>();
+        int order = 0;
+        Assert.IsNull(CharacterCreationCompletionFinalizationProjector.CompileSelectedGraph(
+            document, graph, deltas, ref order));
+        Assert.IsFalse(bool.Parse(document.Root!.Element("created")!.Value));
+        foreach (string name in new[] { "karma", "nuyen", "startingnuyen", CharacterCreationBootstrapXml.MarkerElement })
+            Assert.IsTrue(XNode.DeepEquals(before.Root!.Element(name), document.Root.Element(name)), name);
+        foreach (string name in new[] { "attributes", "skills", "qualities", "gears",
+                     "contacts", "spells", "powers", "improvements" })
+            Assert.IsTrue(XNode.DeepEquals(expected.Element(name), document.Root.Element(name)), name);
+        if (savedChoices)
+        {
+            Assert.IsTrue(document.Root.Element("lifestyles")!.HasElements);
+            Assert.IsTrue(XNode.DeepEquals(expected.Element("lifestyles"), document.Root.Element("lifestyles")));
+        }
+        else
+            Assert.IsFalse(document.Root.Element("lifestyles")?.HasElements == true,
+                "Assessment must not invent the finalization-only starting-cash lifestyle.");
+        Assert.IsTrue(deltas.Count > 0);
+        Assert.AreEqual(deltas.Count, order);
+        foreach (var delta in deltas)
+        {
+            Assert.AreNotEqual(CharacterCreationFinalizationDeltaKinds.Lifecycle, delta.Kind);
+            Assert.IsFalse(delta.DeltaId.StartsWith("starting-cash:", StringComparison.Ordinal));
+            Assert.IsFalse(delta.DeltaId.StartsWith("carryover:", StringComparison.Ordinal));
+            var canonical = projection.OrderedDeltas.Single(row => row.DeltaId == delta.DeltaId);
+            Assert.AreEqual(JsonSerializer.Serialize(canonical),
+                JsonSerializer.Serialize(delta with { Order = canonical.Order }), delta.DeltaId);
+        }
+        Assert.AreEqual(original, JsonSerializer.Serialize(context.Store.Get(context.WorkspaceId).Value));
+        AssertFiles(context, files);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Complete373_Selected_graph_rejects_created_or_precanceled_input_without_mutation(bool cancel)
+    {
+        using var context = ReadyContext.Create(true);
+        var fixture = Capture(context);
+        var files = Files(context);
+        var document = XDocument.Parse(fixture.Original.Document.Content);
+        if (!cancel) document.Root!.SetElementValue("created", "True");
+        string before = document.ToString(SaveOptions.DisableFormatting);
+        var graph = SelectedGraph373(fixture, fixture.Review.ReviewDigest);
+        var deltas = new List<CharacterCreationFinalizationDelta>();
+        int order = 0;
+        if (cancel)
+        {
+            using var canceled = new CancellationTokenSource();
+            canceled.Cancel();
+            Assert.Throws<OperationCanceledException>(() =>
+                CharacterCreationCompletionFinalizationProjector.CompileSelectedGraph(
+                    document, graph, deltas, ref order, canceled.Token));
+        }
+        else
+            Assert.AreEqual(CharacterCreationFinalizationBlockers.CharacterAlreadyCreated,
+                CharacterCreationCompletionFinalizationProjector.CompileSelectedGraph(
+                    document, graph, deltas, ref order));
+        Assert.AreEqual(before, document.ToString(SaveOptions.DisableFormatting));
+        Assert.AreEqual(0, deltas.Count);
+        Assert.AreEqual(0, order);
+        AssertFiles(context, files);
+    }
+
+    private static CharacterCreationCompletionFinalizationProjector.SelectedGraphInputs SelectedGraph373(
+        Fixture fixture, string instanceSeed)
+    {
+        var inputs = fixture.Inputs;
+        var review = fixture.Review;
+        var lifestyles = review.Lifestyles!;
+        var gear = lifestyles.Gear;
+        var qualities = review.UpstreamBudget!.Qualities.Qualities;
+        return new(inputs.Skills.PrerequisiteDraft, review.Skills!,
+            inputs.Skills.SelectedActiveSkillPoints, inputs.Skills.SelectedSkillGroupPoints,
+            new(qualities.Selections, qualities.KarmaRemaining, qualities.SourceAnchorIds),
+            new(gear.Lines, gear.Budget, gear.SourceAnchorIds),
+            new(lifestyles.Authority, lifestyles.Lifestyles, lifestyles.StartingLifestyleId, lifestyles.SourceAnchorIds),
+            new(inputs.Contacts.Policy, review.Request.Selections.Contacts,
+                inputs.Contacts.Qualities.Authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+                inputs.Contacts.Qualities.Authority.QualityKarmaLimit,
+                inputs.Contacts.Qualities.Authority.MayExceedPositiveQualityLimit, review.Contacts!.GroupKarma),
+            new CharacterCreationCompletionFinalizationProjector.FullAwakenedGraphInputs(
+                inputs.Magic, review.UpstreamBudget.Magic),
+            review.ReviewDigest, instanceSeed)
+        {
+            Loadout = review.Loadout,
+            AmmunitionAssignments = review.Request.Selections.AmmunitionAssignments,
+            OriginalLoadoutInstances = fixture.Original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances
+        };
     }
 
     private sealed record Fixture(WorkspaceStoredDocument Original, CharacterCreationCompletionBootstrapSnapshot Bootstrap,
@@ -457,7 +613,10 @@ public sealed class CharacterCreationCompletionFinalizationProjectorTests
             new(evaluated.Gear, evaluated.GearBudget, evaluated.GearSourceAnchorIds),
             new(evaluated.Lifestyles.Authority, evaluated.Lifestyles.Lifestyles,
                 evaluated.Lifestyles.StartingLifestyleId, evaluated.Lifestyles.SourceAnchorIds),
-            new(witness.ContactsPolicy, proposal.Selections.Contacts), witness.CarryoverPolicy,
+            new(witness.ContactsPolicy, proposal.Selections.Contacts,
+                witness.Qualities.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+                witness.Qualities.QualityKarmaLimit, witness.Qualities.MayExceedPositiveQualityLimit,
+                evaluated.Contacts.GroupKarma), witness.CarryoverPolicy,
             evaluated.Balances.RemainingCreationKarma.Value, evaluated.Balances.RemainingNuyen.Value,
             new CharacterCreationCompletionFinalizationProjector.SelectedAwakenedGraphInputs(
                 witness.Magic, witness.Skills.Attributes.Attributes, evaluated.Magic.Proposed.SourceAnchorIds));

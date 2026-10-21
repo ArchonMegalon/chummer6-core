@@ -13,7 +13,7 @@ namespace Chummer.Application.Characters;
 /// Persistence-boundary proof for the append-only creation-lifestyle receipt lane.
 /// It validates the exact create/edit/delete XML delta without consulting UI state.
 /// </summary>
-public static class CharacterCreationLifestyleReceiptLedgerIntegrity
+public static partial class CharacterCreationLifestyleReceiptLedgerIntegrity
 {
     public const int MaximumEntries = 4096;
 
@@ -51,14 +51,17 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var ids = new HashSet<string>(StringComparer.Ordinal);
         long previousRevision = 0;
+        CharacterCreationLifestyleReceipt? predecessor = null;
         foreach (CharacterCreationLifestyleReceiptLedgerEntry? entry in entries)
         {
             if (!IsValidPersistedEntry(workspaceId, currentContentRevision, entry)
                 || !keys.Add(entry!.IdempotencyKeyDigest)
                 || !ids.Add(entry.Receipt.ReceiptId)
-                || entry.Receipt.ContentRevision < previousRevision)
+                || entry.Receipt.ContentRevision < previousRevision
+                || !HasAuthorityReviewPredecessor(entry.Receipt, predecessor))
                 return false;
             previousRevision = entry.Receipt.ContentRevision;
+            predecessor = entry.Receipt;
         }
         return true;
     }
@@ -205,13 +208,18 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
         {
             var workspace = new WorkspaceStoredDocument(receipt.WorkspaceId, current,
                 receipt.PreviousContentRevision, receipt.PreviousSavedRevision, DateTimeOffset.UnixEpoch);
+            if (plan.AuthorityTransition is not null)
+                return HasValidAuthorityReviewTransition(entry, workspace, replacement);
             var old = current.AuxiliaryState.CharacterCreationLifestylesDraft;
-            if (old is not null && !CharacterCreationLifestylesDraftRules.InputsMatch(old, draft)) return false;
-            var before = draft with { Lifestyles = old?.Lifestyles ?? [], DraftDigest = string.Empty };
+            if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite)) return false;
+            if (composite is not null && !CharacterCreationFinalizationDigest.IsCanonical(plan.CompositeReviewDigest))
+                return false;
+            if (composite is null && old is not null && !CharacterCreationLifestylesDraftRules.InputsMatch(old, draft)) return false;
+            var before = draft with { Lifestyles = composite?.Selections.Lifestyles ?? old?.Lifestyles ?? [], DraftDigest = string.Empty };
             before = before with { DraftDigest = CharacterCreationLifestylesDraftRules.Digest(before) };
             // The after projection basis must also retain all previously
             // selected qualities. Dropping one cannot alter an untouched row.
-            if (old is not null) before = before with { ProjectionAuthority = old.ProjectionAuthority };
+            if (composite is null && old is not null) before = before with { ProjectionAuthority = old.ProjectionAuthority };
             before = before with { DraftDigest = CharacterCreationLifestylesDraftRules.Digest(before) };
             if (!CharacterCreationLifestylesDraftRules.TryProject(workspace, before, out var logicalBefore, out _, out var budgetBefore)
                 || !CharacterCreationLifestylesDraftRules.TryProject(workspace, draft, out var logicalAfter, out _, out var budgetAfter)
@@ -269,7 +277,7 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
             || !string.Equals(receipt.Schema, CharacterCreationLifestylesSchemas.ReceiptV1, StringComparison.Ordinal)
             || !string.Equals(receipt.StepId, CharacterCreationWizardStepIds.ContactsLifestyles, StringComparison.Ordinal)
             || !CharacterCreationLifestyleMutationKinds.All.Contains(receipt.MutationKind)
-            || receipt.LifestyleId == Guid.Empty
+            || (receipt.LifestyleId == Guid.Empty) != (receipt.MutationKind == CharacterCreationLifestyleMutationKinds.ReReviewAuthority)
             || string.IsNullOrWhiteSpace(receipt.ReceiptId)
             || receipt.ReceiptId.Length != 43
             || !receipt.ReceiptId.StartsWith("creation-lifestyle-", StringComparison.Ordinal)
@@ -309,6 +317,8 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
             || plan.PendingDraft is { } draft &&
                 (!CharacterCreationLifestylesDraftRules.IsValidShape(receipt.WorkspaceId, receipt.ContentRevision, draft)
                  || draft.BaseContentRevision != receipt.PreviousContentRevision)
+            || plan.CompositeReviewDigest is not null
+                && !CharacterCreationFinalizationDigest.IsCanonical(plan.CompositeReviewDigest)
             || !string.Equals(plan.StepId, CharacterCreationWizardStepIds.ContactsLifestyles, StringComparison.Ordinal)
             || !string.Equals(plan.MutationKind, receipt.MutationKind, StringComparison.Ordinal)
             || plan.LifestyleId != receipt.LifestyleId
@@ -329,6 +339,7 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
             || !FixedEquals(plan.NestedStateDigestBefore, plan.NestedStateDigestAfter)
             || !plan.PreservesUntouchedSiblingState
             || !plan.PreservesNestedState
+            || !IsValidAuthorityTransitionPlan(plan, receipt)
             || !HasPlanPresence(plan)
             || plan.Before is not null && !IsValidProjection(plan.Before)
             || plan.After is not null && !IsValidProjection(plan.After)
@@ -343,6 +354,8 @@ public static class CharacterCreationLifestyleReceiptLedgerIntegrity
     private static bool HasPlanPresence(CharacterCreationLifestyleAtomicWritePlan plan) =>
         plan.MutationKind switch
         {
+            CharacterCreationLifestyleMutationKinds.ReReviewAuthority => plan.Before is null
+                && plan.After is null && plan.AuthorityTransition is not null && plan.PendingDraft is not null,
             CharacterCreationLifestyleMutationKinds.Create => plan.Before is null
                 && plan.After?.Configuration.LifestyleId == plan.LifestyleId,
             CharacterCreationLifestyleMutationKinds.Edit => plan.Before?.Configuration.LifestyleId == plan.LifestyleId

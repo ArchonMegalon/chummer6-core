@@ -32,6 +32,21 @@ public sealed record CharacterCreationSkillsCompletionInputs(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationSkillsState? SavedSkillsState { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public CharacterCreationCompositeBaseline? CompositeBaseline => Attributes.CompositeBaseline;
+
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationKarmaSkillsPolicy? KarmaPurchasePolicy { get; init; }
+
+    /// <summary>Effective source order determines the single enabled member that
+    /// receives the legacy group compensation. Captured from the validated catalog,
+    /// never inferred from localized names, purchase order, or sorted source IDs.
+    /// Null retains historical inputs that did not capture this authority.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? KarmaCompensationSourceOrder { get; init; }
+
+    /// <summary>Freshly admitted composite quality sources. Null preserves historical
+    /// bytes; a composite with selected qualities may never substitute an empty list.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationQualitySelection>? SkillKarmaQualitySelections { get; init; }
 }

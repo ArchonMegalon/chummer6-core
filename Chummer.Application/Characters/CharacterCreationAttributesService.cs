@@ -28,6 +28,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
     public CharacterCreationFoundationResult<CharacterCreationAttributesState> Load(
         CharacterCreationAttributesLoadRequest request)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         return read.Success && read.Value is WorkspaceStoredDocument workspace
@@ -42,6 +43,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
     public CharacterCreationFoundationResult<CharacterCreationAttributesPreview> Preview(
         CharacterCreationAttributesPreviewRequest request)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         return EvaluatePreview(request).Result;
     }
@@ -49,6 +51,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
     public CharacterCreationFoundationResult<CharacterCreationAttributesReceipt> Confirm(
         CharacterCreationAttributesConfirmRequest request)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         if (!request.ExplicitlyConfirmed)
         {
@@ -96,6 +99,17 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 CharacterCreationAttributesBlockers.PersistenceAuthorityRequired);
         }
 
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+        {
+            // A read projection has no ordinary page history. The real edit
+            // advances the actual persisted Attributes draft exactly once.
+            long previous = workspace.Document.AuxiliaryState.CharacterCreationAttributesDraft?.DraftRevision ?? 0;
+            if (previous == long.MaxValue)
+                return Blocked<CharacterCreationAttributesReceipt>(CharacterCreationFoundationOutcomes.Conflict,
+                    CharacterCreationAttributesBlockers.DraftConflict);
+            draft = draft with { DraftRevision = previous + 1, DraftDigest = string.Empty };
+            draft = draft with { DraftDigest = CharacterCreationAttributesDraftIntegrity.ComputeDigest(draft) };
+        }
         WorkspaceDocument replacement = workspace.Document with
         {
             State = workspace.Document.State with
@@ -188,8 +202,36 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 null);
         }
 
+        // A later real Skills receipt is bound to this exact Attributes draft.
+        // Do not accept an edit that would strand that receipt before full
+        // dependent-stage re-admission is implemented.
+        if (state.CompositeBaseline is { } composite
+            && workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft is { } skills
+            && skills.BaseContentRevision >= composite.ContentRevision)
+            return new(Blocked<CharacterCreationAttributesPreview>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationCompositeBaselineReader.RebaseRequired), null, null);
         var prepared = EvaluatePreparedState(state, request.Allocations, request.PlayerChosenAttributeIds);
         return new(prepared.Result, workspace, prepared.Draft);
+    }
+
+    // Historical rows must still be the result of their recorded allocations.
+    // This only recognizes history under the same source-bound prerequisite;
+    // it does not replace the current Attributes draft or authorize a write.
+    internal bool IsValidHistoricalSnapshot(WorkspaceStoredDocument workspace,
+        CharacterCreationAttributesDraft snapshot, long originalContentRevision)
+    {
+        var loaded = BuildState(workspace);
+        if (loaded.Value is not { CanEdit: true, CompositeBaseline: null } state
+            || state.Blockers.Count != 0 || state.PrerequisiteDraft is not { } prerequisite
+            || snapshot.Allocations is null || snapshot.Allocations.Any(row => row is null)
+            || snapshot.Attributes is null || snapshot.Attributes.Any(row => row is null)
+            || !CharacterCreationAttributesDraftIntegrity.IsStructurallyValidPending(snapshot,
+                workspace.Id, originalContentRevision, state.Binding.RawCharacterXmlDigest, prerequisite))
+            return false;
+        var evaluated = EvaluatePreparedState(state with { PendingDraft = null },
+            snapshot.Allocations, snapshot.PlayerChosenAttributeIds, validatePlayerChoiceChanges: false);
+        return evaluated.Result.Blockers.Count == 0 && evaluated.Draft is { } expected
+            && CharacterCreationAttributesDraftIntegrity.HasSameLogicalPayload(snapshot, expected);
     }
 
     private static (CharacterCreationFoundationResult<CharacterCreationAttributesPreview> Result,
@@ -205,7 +247,14 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             state.MaxNumberMaxAttributesCreate,
             state.KarmaAttribute,
             allocations,
-            blockers);
+            blockers,
+            state.HouseRules,
+            state.SeparateMagicPolicy);
+        if (validatePlayerChoiceChanges && state.CompositeBaseline is not null
+            && (projected.KarmaBudget.Used != state.CreationKarmaBudget.Used
+                || projected.Attributes.Any(row => (row.AttributeId is "CHA" or "INT" or "LOG" or "MAG" or "MAGAdept" or "RES")
+                    && row.UnaugmentedCurrent != state.Attributes.Single(old => old.AttributeId == row.AttributeId).UnaugmentedCurrent)))
+            blockers.Add(CharacterCreationCompositeBaselineReader.RebaseRequired);
         string[]? chosenIds = NormalizePlayerChoiceIntent(
             state, projected.Attributes, playerChosenAttributeIds, validatePlayerChoiceChanges, blockers);
         CharacterCreationAttributesDraft? draft = null;
@@ -335,7 +384,28 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             prerequisite = null;
         }
 
+        CharacterCreationAttributeHouseRules? houseRules =
+            authority.AlternateMetatypeAttributeKarma == true || authority.ReverseAttributePriorityOrder == true
+                ? new(CharacterCreationAttributeHouseRules.SchemaV1,
+                    authority.AlternateMetatypeAttributeKarma == true, authority.ReverseAttributePriorityOrder == true)
+                : null;
         int maxAtMaximum = authority.MaxNumberMaxAttributesCreate.GetValueOrDefault();
+        CharacterCreationMysticAdeptPowerPointPolicy? separateMagicPolicy = null;
+        if (prerequisite?.TalentSelection?.Value == "Mystic Adept"
+            && sourceContext is not null
+            && sourceContext.TryResolveCreationMagicResonanceAuthority(out var magicAuthority)
+            && magicAuthority.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true)
+        {
+            if (!CharacterCreationMagicResonanceDraftIntegrity.IsValidAuthority(magicAuthority)
+                || magicAuthority.PrerequisiteAuthorityDigest != authority.AuthorityDigest
+                || magicAuthority.SettingsProfileId != authority.SettingsProfileId
+                || magicAuthority.MysticAdeptPowerPointPolicy is { } policy
+                    && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(policy)
+                        || policy.SettingsProfileId != authority.SettingsProfileId))
+                blockers.Add(CharacterCreationAttributesBlockers.AuthorityUnavailable);
+            else
+                separateMagicPolicy = magicAuthority.MysticAdeptPowerPointPolicy;
+        }
         if (prerequisite is not null)
         {
             ValidatePrerequisiteAttributeAuthority(prerequisite, authority, blockers);
@@ -369,7 +439,9 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                     maxAtMaximum,
                     authority.KarmaAttribute.GetValueOrDefault(),
                     persisted.Allocations,
-                    persistedBlockers);
+                    persistedBlockers,
+                    houseRules,
+                    separateMagicPolicy);
                 if (persistedBlockers.Count != 0
                     || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                         persisted.Attributes,
@@ -403,7 +475,9 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 maxAtMaximum,
                 authority.KarmaAttribute.GetValueOrDefault(),
                 pending?.Allocations ?? [],
-                new List<string>());
+                new List<string>(),
+                houseRules,
+                separateMagicPolicy);
         string[] normalized = blockers.Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
@@ -421,8 +495,21 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             CanEdit: prerequisite is not null && normalized.Length == 0,
             SnapshotDigest: string.Empty)
         {
-            KarmaAttribute = authority.KarmaAttribute.GetValueOrDefault()
+            KarmaAttribute = authority.KarmaAttribute.GetValueOrDefault(),
+            HouseRules = houseRules,
+            SeparateMagicPolicy = separateMagicPolicy
         };
+        if (!CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite))
+            return Blocked<CharacterCreationAttributesState>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationCompositeBaselineReader.Invalid);
+        if (composite is not null)
+        {
+            var projected = ProjectCompositeAttributes(state, composite, workspace.Document.AuxiliaryState.CharacterCreationAttributesDraft);
+            if (projected is null)
+                return Blocked<CharacterCreationAttributesState>(CharacterCreationFoundationOutcomes.Blocked,
+                    CharacterCreationCompositeBaselineReader.Invalid);
+            state = projected;
+        }
         state = state with
         {
             SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -469,10 +556,10 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
         {
             blockers.Add(CharacterCreationAttributesBlockers.AuthorityUnavailable);
         }
-        if (authority.AlternateMetatypeAttributeKarma != false
-            || authority.ReverseAttributePriorityOrder != false)
+        if (authority.AlternateMetatypeAttributeKarma is null
+            || authority.ReverseAttributePriorityOrder is null)
         {
-            blockers.Add(CharacterCreationAttributesBlockers.HouseRuleUnsupported);
+            blockers.Add(CharacterCreationAttributesBlockers.AuthorityUnavailable);
         }
     }
 
@@ -502,8 +589,17 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
         int maxAtMaximum,
         int karmaAttribute,
         IReadOnlyList<CharacterCreationAttributeAllocation>? requested,
-        ICollection<string> blockers)
+        ICollection<string> blockers,
+        CharacterCreationAttributeHouseRules? houseRules,
+        CharacterCreationMysticAdeptPowerPointPolicy? separateMagicPolicy = null)
     {
+        if (houseRules is { IsValid: false })
+            blockers.Add(CharacterCreationAttributesBlockers.AuthorityUnavailable);
+        bool separateMagic = separateMagicPolicy is not null;
+        if (separateMagic && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(separateMagicPolicy)
+            || !separateMagicPolicy!.UsesSeparateMagicAttribute
+            || prerequisite.TalentSelection?.Value != "Mystic Adept"))
+            blockers.Add(CharacterCreationAttributesBlockers.AuthorityUnavailable);
         requested ??= [];
         var allocationMap = new Dictionary<string, CharacterCreationAttributeAllocation>(StringComparer.Ordinal);
         foreach (CharacterCreationAttributeAllocation? allocation in requested)
@@ -511,7 +607,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             if (allocation is null
                 || !s_NormalAttributeIds.Concat(s_SpecialAttributeIds).Contains(
                     allocation.AttributeId,
-                    StringComparer.Ordinal)
+                    StringComparer.Ordinal) && !(separateMagic && allocation.AttributeId == "MAGAdept")
                 || allocation.PriorityPoints < 0
                 || allocation.KarmaLevels < 0)
             {
@@ -529,15 +625,27 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
         int normalUsed = 0;
         int specialUsed = 0;
         int karmaUsed = prerequisite.CreationKarmaUsed;
-        foreach (CharacterCreationMetatypeAttributeProjection range in heritage.Attributes)
+        // AttributeSection.Create assigns MAGAdept the metatype's magmin/max/aug.
+        // SelectMetatypePriority replaces only MAG with the talent grant.
+        var ranges = heritage.Attributes.AsEnumerable();
+        if (separateMagic)
+        {
+            var magicRanges = heritage.Attributes.Where(row => row.AttributeId == "MAG").Take(2).ToArray();
+            if (magicRanges.Length != 1)
+                blockers.Add(CharacterCreationAttributesBlockers.MetatypeAuthorityIncomplete);
+            else
+                ranges = ranges.Append(magicRanges[0] with { AttributeId = "MAGAdept" });
+        }
+        foreach (CharacterCreationMetatypeAttributeProjection range in ranges)
         {
             bool normal = s_NormalAttributeIds.Contains(range.AttributeId, StringComparer.Ordinal);
             bool edge = string.Equals(range.AttributeId, "EDG", StringComparison.Ordinal);
             bool essence = string.Equals(range.AttributeId, "ESS", StringComparison.Ordinal);
             bool magic = range.AttributeId == "MAG" && supportedTalent && talent!.Magic > 0;
+            bool magicAdept = range.AttributeId == "MAGAdept" && separateMagic && supportedTalent;
             bool resonance = range.AttributeId == "RES" && supportedTalent && talent!.Resonance > 0;
             bool awakened = magic || resonance;
-            bool enabled = normal || edge || awakened;
+            bool enabled = normal || edge || awakened || magicAdept;
             string category = normal
                 ? CharacterCreationAttributeCategories.Normal
                 : CharacterCreationAttributeCategories.Special;
@@ -565,18 +673,11 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             int karmaCost = 0;
             if (enabled)
             {
-                try
-                {
-                    current = checked(minimum + allocation.PriorityPoints + allocation.KarmaLevels);
-                    int totalBase = checked(minimum + allocation.PriorityPoints);
-                    if (!CharacterCreationAttributeCostRules.TryCalculate(
-                            totalBase, allocation.KarmaLevels, karmaAttribute, out karmaCost))
-                        blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
-                }
-                catch (OverflowException)
-                {
+                if (!CharacterCreationAttributeCostRules.TryCalculateAllocation(
+                        minimum, allocation.PriorityPoints, allocation.KarmaLevels, karmaAttribute,
+                        houseRules?.AlternateMetatypeAttributeKarma == true,
+                        houseRules?.ReverseAttributePriorityOrder == true, out current, out karmaCost))
                     blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
-                }
             }
             if (current > maximum)
                 blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
@@ -612,8 +713,10 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 enabled,
                 disableReasons,
                 heritage.SourceAnchorIds
-                    .Concat([$"metatypes.xml#metatype:{heritage.MetatypeSourceId}:attribute:{range.AttributeId}"])
+                    .Concat([$"metatypes.xml#metatype:{heritage.MetatypeSourceId}:attribute:{(magicAdept ? "MAG" : range.AttributeId)}"])
                     .Concat(awakened ? talent!.SourceAnchorIds : [])
+                    .Concat(magicAdept ? separateMagicPolicy!.SourceAnchorIds : [])
+                    .Concat(houseRules is null ? [] : prerequisite.SourceAnchorIds)
                     .Distinct(StringComparer.Ordinal)
                     .ToArray()));
         }
@@ -696,6 +799,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             evaluation.Attributes,
             prerequisite.SourceAnchorIds
                 .Concat(heritage.SourceAnchorIds)
+                .Concat(state.SeparateMagicPolicy?.SourceAnchorIds ?? [])
                 .Concat(prerequisite.TalentSelection?.Magic > 0 || prerequisite.TalentSelection?.Resonance > 0
                     ? prerequisite.TalentSelection.SourceAnchorIds : [])
                 .Distinct(StringComparer.Ordinal)

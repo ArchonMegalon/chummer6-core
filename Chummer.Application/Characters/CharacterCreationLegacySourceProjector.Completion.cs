@@ -75,6 +75,12 @@ public static partial class CharacterCreationLegacySourceProjector
                     if (effect.Elements().Any(child => child.Name.LocalName is not ("name" or "bonus" or "condition" or "applytorating")
                         || child.HasAttributes || child.HasElements)) return false;
                     break;
+                case "limitspelldescriptor":
+                    // Match the canonical compiler's literal grammar. This proves
+                    // pricing independence only; Complete must still execute the
+                    // generated spell constraint against the actual selections.
+                    if (!CharacterCreationAwakenedLegacyProjector.IsLiteralSpellDescriptorLimit(effect)) return false;
+                    break;
                 case "addgear": // Exact source-to-gear references were checked by IsValidSource.
                 case "unlockskills": // Only the SpecialSkills improvement is emitted by this compiler branch.
                 case "blockspelldescriptor":
@@ -114,6 +120,7 @@ public static partial class CharacterCreationLegacySourceProjector
         foreach (CharacterCreationQualitySelection selection in sourceAdmittedSelections)
         {
             if (selection is null
+                || selection.SourceExecutionSchema is not (null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
                 || !TryReadSelectedQualityDefinition(selection, selection.ResolvedArmCount,
                     out _, out QualityDefinition definition))
                 return false;
@@ -122,13 +129,17 @@ public static partial class CharacterCreationLegacySourceProjector
             // effects exactly once. Never silently discard unsupported effects.
             for (int level = 1; level <= selection.Rating; level++)
             {
-                foreach (CompiledEffect effect in definition.BonusEffects)
-                    projected.Add(new(effect.ImprovementType, effect.ImprovedName, effect.Value));
+                for (int position = 0; position < definition.BonusEffects.Count; position++)
+                    Add(definition.BonusEffects[position], "bonus", position);
                 if (level == 1)
-                {
-                    foreach (CompiledEffect effect in definition.FirstLevelEffects)
-                        projected.Add(new(effect.ImprovementType, effect.ImprovedName, effect.Value));
-                }
+                    for (int position = 0; position < definition.FirstLevelEffects.Count; position++)
+                        Add(definition.FirstLevelEffects[position], "firstlevelbonus", position);
+
+                void Add(CompiledEffect effect, string container, int position)
+                    => projected.Add(new(effect.ImprovementType, effect.ImprovedName, effect.Value,
+                        effect.Minimum, effect.Maximum, effect.Condition, selection.SourceId,
+                        selection.SourceNodeDigest, selection.OptionId, level, container, position,
+                        selection.SourceAnchorIds));
             }
         }
 
@@ -136,12 +147,13 @@ public static partial class CharacterCreationLegacySourceProjector
         return true;
     }
 
-    // BuildImprovement serializes these effects as unconditional, enabled,
-    // non-custom Quality improvements with no unique-name override.
+    // Same order, bounds, lifecycle and multiplicity as the native saved graph.
     internal sealed record SourceQualityEffect(
         string ImprovementType,
         string ImprovedName,
-        decimal Value);
+        decimal Value, int Minimum, int Maximum, string Condition, Guid SourceId,
+        string SourceNodeDigest, string OptionId, int Level, string Container, int Position,
+        IReadOnlyList<string> SourceAnchorIds);
 
     private static bool TryReadSelectedQualityDefinition(
         CharacterCreationQualitySelection selection,
@@ -152,6 +164,7 @@ public static partial class CharacterCreationLegacySourceProjector
         source = null!;
         definition = null!;
         if (selection is null
+            || selection.SourceExecutionSchema is not (null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
             || selection.SourceNodeXml is not
                 { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength }
             || !CharacterCreationQualitiesRules.DigestsEqual(
@@ -164,7 +177,7 @@ public static partial class CharacterCreationLegacySourceProjector
             "quality",
             s_QualitySourceChildren);
         if (parsedSource is null
-            || !TryReadQualityDefinition(parsedSource, out QualityDefinition parsedDefinition, armCount)
+            || !TryReadQualityDefinition(parsedSource, out QualityDefinition parsedDefinition, armCount, selection.SourceExecutionSchema)
             || parsedDefinition.SourceId != selection.SourceId
             || !string.Equals(parsedDefinition.Name, selection.Name, StringComparison.Ordinal)
             || parsedDefinition.Type != selection.Type

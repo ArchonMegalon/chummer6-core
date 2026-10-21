@@ -9,6 +9,16 @@ public sealed partial class FileWorkspaceStore : ICharacterCreationLoadoutAtomic
     public CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(OwnerScope owner,
         CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver,
         CancellationToken cancellationToken = default)
+        => CommitLoadoutCore(owner, request, resolver, null, cancellationToken);
+
+    public CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(OwnerScope owner,
+        CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+        => CommitLoadoutCore(owner, request, resolver, queries, cancellationToken);
+
+    private CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadoutCore(OwnerScope owner,
+        CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries? queries, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!owner.IsLocalSingleUser && IsInvalidScopedOwner(owner) || !CharacterCreationLoadoutService.IsConfirmed(request))
@@ -29,7 +39,7 @@ public sealed partial class FileWorkspaceStore : ICharacterCreationLoadoutAtomic
                 return CharacterCreationLoadoutService.Reject<CharacterCreationLoadoutReceipt>(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
             var replay = CharacterCreationLoadoutService.Lookup(saved, request.IdempotencyKey, commandDigest);
             if (replay is not null) return replay;
-            if (!CharacterCreationLoadoutService.TryBuild(this, saved, resolver, request, cancellationToken, out var replacement, out var receipt))
+            if (!CharacterCreationLoadoutService.TryBuild(this, saved, resolver, request, cancellationToken, out var replacement, out var receipt, queries))
                 return CharacterCreationLoadoutService.Reject<CharacterCreationLoadoutReceipt>(CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
             var record = BuildPersistedRecord(replacement!, receipt!.ContentRevision, receipt.SavedRevision,
                 saved.LocalHistory!, delegatedLedger, saved.DelegatedGmHistorySegmentStarts);
@@ -37,7 +47,7 @@ public sealed partial class FileWorkspaceStore : ICharacterCreationLoadoutAtomic
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!CharacterCreationLoadoutService.TryBuild(this, saved, resolver, request, cancellationToken,
-                        out var current, out var currentReceipt)
+                        out var current, out var currentReceipt, queries)
                     || currentReceipt!.ReceiptDigest != receipt.ReceiptDigest
                     || current!.Content != replacement!.Content || current.AuxiliaryStateDigest != replacement.AuxiliaryStateDigest)
                     throw new IOException("Manual loadout source changed before commit.");

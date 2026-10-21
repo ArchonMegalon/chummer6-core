@@ -12,7 +12,8 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerBoundCharacterCreationMagicResonanceService(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
-    ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationMagicResonanceService,
+    ICharacterSourceDataResolver sourceResolver,
+    ICharacterFileQueries? characterQueries = null) : IOwnerBoundCharacterCreationMagicResonanceService,
     IOwnerBoundCharacterCreationMagicResonanceReReviewService,
     IOwnerBoundCharacterCreationMagicResonanceCompletionReader
 {
@@ -27,6 +28,9 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
 
         using (lease)
         {
+            // Bound pure historical replay to this one synchronous owner operation.
+            // Every lookup still hashes actual prefix bytes; live admission is never memoized.
+            using var history = CharacterCreationCompletionDraftTransaction.BeginValidationOperation();
             using ICharacterSourceDataResolverOperationScope? sourceScope =
                 (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
             ICharacterSourceDataResolver operationResolver = sourceScope ?? sourceResolver;
@@ -34,7 +38,7 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
             // Attributes and Magic inputs. Nothing survives the synchronous call.
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner,
                 request.WorkspaceId, reuseReadObservation: true);
-            return new CharacterCreationMagicResonanceService(view, operationResolver).LoadCompletionInputs(request);
+            return new CharacterCreationMagicResonanceService(view, operationResolver, characterQueries).LoadCompletionInputs(request);
         }
     }
 
@@ -99,6 +103,9 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
 
         using (lease)
         {
+            // Bound pure historical replay to this one synchronous owner operation.
+            // Every lookup still hashes actual prefix bytes; live admission is never memoized.
+            using var history = CharacterCreationCompletionDraftTransaction.BeginValidationOperation();
             // Magic and its nested Attributes load share source construction only
             // inside this admitted synchronous operation. Each lookup still
             // admits live source inputs; no context survives the owner lease.
@@ -106,7 +113,7 @@ public sealed class OwnerBoundCharacterCreationMagicResonanceService(
                 (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
             // No ambient fallback, duplicated rules, or lease carried across await.
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId, reuseReadObservation);
-            return action(new CharacterCreationMagicResonanceService(view, sourceScope ?? sourceResolver));
+            return action(new CharacterCreationMagicResonanceService(view, sourceScope ?? sourceResolver, characterQueries));
         }
     }
 }

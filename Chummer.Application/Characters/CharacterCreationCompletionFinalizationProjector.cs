@@ -25,7 +25,9 @@ public static class CharacterCreationCompletionFinalizationProjector
         CharacterCreationCompletionReview review,
         CharacterCreationStartingNuyenSource startingCashSource,
         CharacterCreationStartingCashChoice? cashChoice,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CharacterCreationRuleSourceExecutionContext? ruleSources = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(bootstrap);
@@ -33,7 +35,7 @@ public static class CharacterCreationCompletionFinalizationProjector
         ArgumentNullException.ThrowIfNull(review);
         ArgumentNullException.ThrowIfNull(startingCashSource);
         var evaluated = EvaluateAndProject(original, bootstrap, inputs, review.Request,
-            _ => startingCashSource, cashChoice, review, captureWitness: false, cancellationToken);
+            _ => startingCashSource, cashChoice, review, captureWitness: false, cancellationToken, ruleSources, campaign);
         return new(evaluated.Outcome, evaluated.Value?.Projection, evaluated.Blockers);
     }
 
@@ -49,9 +51,11 @@ public static class CharacterCreationCompletionFinalizationProjector
         CharacterCreationCompletionReviewRequest proposal,
         Func<Guid?, CharacterCreationStartingNuyenSource?> resolveStartingCash,
         CharacterCreationStartingCashChoice? cashChoice,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CharacterCreationRuleSourceExecutionContext? ruleSources = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
         => EvaluateAndProject(original, bootstrap, inputs, proposal, resolveStartingCash,
-            cashChoice, null, captureWitness: false, cancellationToken);
+            cashChoice, null, captureWitness: false, cancellationToken, ruleSources, campaign);
 
     // Live admission alone captures the selected witness from this call's full
     // evaluation. Older full-envelope archives retain their original replay path.
@@ -62,9 +66,11 @@ public static class CharacterCreationCompletionFinalizationProjector
         CharacterCreationCompletionReviewRequest proposal,
         Func<Guid?, CharacterCreationStartingNuyenSource?> resolveStartingCash,
         CharacterCreationStartingCashChoice? cashChoice,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CharacterCreationRuleSourceExecutionContext? ruleSources = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
         => EvaluateAndProject(original, bootstrap, inputs, proposal, resolveStartingCash,
-            cashChoice, null, captureWitness: true, cancellationToken);
+            cashChoice, null, captureWitness: true, cancellationToken, ruleSources, campaign);
 
     // Only detached snapshots and the independently replayed witness leave this
     // call. The full evaluation is never an input to another operation.
@@ -101,8 +107,18 @@ public static class CharacterCreationCompletionFinalizationProjector
         decimal RemainingNuyen,
         AwakenedGraphInputs Awakened)
     {
+        internal CharacterCreationSkillGroupOrderAuthority? SkillGroupOrderAuthority { get; init; }
+        internal string? RuleSourceExecutionSchema { get; init; }
+        internal CharacterCreationPhysicalInitiativeAuthority? PhysicalInitiative886 { get; init; }
         internal CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
+        internal IReadOnlyList<CharacterCreationAmmunitionAssignment>? AmmunitionAssignments { get; init; }
+        internal ReputationHandoff? Reputation { get; init; }
     }
+
+    // In-process execution only. Never accepted from a review DTO or persisted as
+    // proof of later evaluation; cold replay must reconstruct it from retained inputs.
+    internal sealed record ReputationHandoff(CharacterCreationReputationEffectsExecution Execution,
+        CharacterCreationCompletionBootstrapSnapshot Bootstrap, CharacterCreationCompletionReviewRequest Request);
 
     internal sealed record EvaluatedQualities(
         IReadOnlyList<CharacterCreationQualitySelection> Selections,
@@ -126,7 +142,11 @@ public static class CharacterCreationCompletionFinalizationProjector
 
     internal sealed record EvaluatedContacts(
         CharacterCreationKarmaContactsPolicy Policy,
-        IReadOnlyList<CharacterCreationKarmaContactSelection> Selections);
+        IReadOnlyList<CharacterCreationKarmaContactSelection> Selections,
+        CharacterCreationQualityCostPolicy QualityCostPolicy,
+        int QualityKarmaLimit,
+        bool MayExceedPositiveQualityLimit,
+        CharacterCreationContactGroupKarmaEvaluation? GroupKarma);
 
     internal abstract record AwakenedGraphInputs(IReadOnlyList<string> SourceAnchorIds);
 
@@ -150,7 +170,8 @@ public static class CharacterCreationCompletionFinalizationProjector
         CharacterCreationStartingCashChoice? cashChoice,
         CharacterCreationCompletionReview? suppliedReview,
         bool captureWitness,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CharacterCreationRuleSourceExecutionContext? ruleSources, CharacterCreationCampaignExecutionContext? campaign)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(bootstrap);
@@ -158,6 +179,9 @@ public static class CharacterCreationCompletionFinalizationProjector
         ArgumentNullException.ThrowIfNull(proposal);
         ArgumentNullException.ThrowIfNull(resolveStartingCash);
         cancellationToken.ThrowIfCancellationRequested();
+        if (inputs.OriginalCharacter is { } originalInput
+            && !CharacterCreationOriginalCharacterSource.HasBoundedXml(originalInput.RawCharacterXml))
+            return Refused(CharacterCreationCompletionReviewSchemas.SnapshotConflict);
         try
         {
             inputs = Detach(inputs);
@@ -172,7 +196,7 @@ public static class CharacterCreationCompletionFinalizationProjector
                 State = original.Document.State with { AuxiliaryState = Detach(original.Document.AuxiliaryState) }
             } };
             var replay = CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.Evaluate(
-                inputs, proposal, cancellationToken);
+                inputs, proposal, cancellationToken, ruleSources, campaign);
             if (replay.Outcome != CharacterCreationFoundationOutcomes.Success || replay.Value is null)
                 return new(replay.Outcome, null, replay.Blockers);
             var review = replay.Value.ReviewSnapshot;
@@ -193,11 +217,26 @@ public static class CharacterCreationCompletionFinalizationProjector
                 return Refused(CharacterCreationFinalizationBlockers.StartingCashUnavailable);
             var startingCashSource = Detach(resolvedStartingCash);
 
+            ReputationHandoff? reputation = null;
+            if (ruleSources is not null)
+            {
+                var authority = CharacterCreationCompleteAssessmentService.FromFullAuthority(inputs, review.Request,
+                    ruleSources.Resolve(inputs, review.Request, cancellationToken));
+                var effects = CharacterCreationSelectedEffectsConsumer.FromFull(inputs, review, authority, cancellationToken);
+                if (effects is null
+                    || !CharacterCreationOriginalCharacterSource.TryFromFull(inputs, out var originalSource, cancellationToken)
+                    || !ruleSources.TryEvaluateReputation(original, bootstrap, review.Request, originalSource!, authority,
+                        effects, out var execution, out _, cancellationToken, campaign))
+                    return Refused(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+                reputation = new(execution!, bootstrap, review.Request);
+            }
             var prerequisite = inputs.Skills.PrerequisiteDraft;
             var lifestyles = review.Lifestyles;
             var gear = lifestyles.Gear;
             var resources = gear.Resources;
             var qualities = review.UpstreamBudget.Qualities.Qualities;
+            if (!CharacterCreationSkillsService.TryCaptureCompletionGroupOrderAuthority(inputs.Skills, out var groupOrder))
+                return Refused(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
             var graph = new EvaluatedGraphInputs(original, inputs.SnapshotDigest, review.ReviewDigest,
                 bootstrap.SnapshotDigest, prerequisite, review.Skills,
                 inputs.Skills.SelectedActiveSkillPoints, inputs.Skills.SelectedSkillGroupPoints,
@@ -206,10 +245,16 @@ public static class CharacterCreationCompletionFinalizationProjector
                 new(resources.SelectedOption, resources.Budget),
                 new(gear.Lines, gear.Budget, gear.SourceAnchorIds),
                 new(lifestyles.Authority, lifestyles.Lifestyles, lifestyles.StartingLifestyleId, lifestyles.SourceAnchorIds),
-                new(inputs.Contacts.Policy, review.Request.Selections.Contacts), inputs.Contacts.CarryoverPolicy,
+                new(inputs.Contacts.Policy, review.Request.Selections.Contacts,
+                    inputs.Contacts.Qualities.Authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+                    inputs.Contacts.Qualities.Authority.QualityKarmaLimit,
+                    inputs.Contacts.Qualities.Authority.MayExceedPositiveQualityLimit, review.Contacts.GroupKarma),
+                inputs.Contacts.CarryoverPolicy,
                 review.Balances.RemainingCreationKarma.Value, review.Balances.RemainingNuyen.Value,
                 new FullAwakenedGraphInputs(inputs.Magic, review.UpstreamBudget.Magic))
-                { Loadout = review.Loadout };
+                { RuleSourceExecutionSchema = review.Request.RuleSourceExecutionSchema, PhysicalInitiative886 = inputs.PhysicalInitiative886,
+                Loadout = review.Loadout, AmmunitionAssignments = review.Request.Selections.AmmunitionAssignments,
+                    SkillGroupOrderAuthority = groupOrder, Reputation = reputation };
             var projected = ProjectEvaluated(graph, startingCashSource, cashChoice, cancellationToken);
             CharacterCreationSelectedCompletionWitness? witness = null;
             if (captureWitness && projected.Outcome == CharacterCreationFoundationOutcomes.Success
@@ -282,11 +327,40 @@ public static class CharacterCreationCompletionFinalizationProjector
                 RemainingPoints(skills.SkillGroupPointBudget),
                 RemainingPoints(skills.KnowledgeSkillPointBudget));
             int karmaBefore = graph.RemainingCreationKarma;
-            int karmaAfter = checked((int)Math.Min(karmaBefore, carryover.MaximumKarma));
+            int karmaAfter = CharacterCreationKarmaFinalizationBudgetRules.CarryCreationKarma995(karmaBefore, carryover);
             decimal nuyenBefore = graph.RemainingNuyen;
             decimal carriedNuyen = Math.Min(nuyenBefore, carryover.MaximumNuyen);
             decimal cash = checked(cashChoice.DiceTotal * startingCashSource.Multiplier);
             decimal careerNuyen = checked(carriedNuyen + cash);
+
+            string projectionSchema = graph.SkillGroupOrderAuthority is null
+                ? CharacterCreationCompletionFinalizationSchemas.ProjectionV2
+                : CharacterCreationCompletionFinalizationSchemas.ProjectionV3;
+            // Keep the historical anonymous object's shape byte-for-byte. The new
+            // version binds exact ordered authority, not only the resulting prices.
+            string authorityDigest = graph.SkillGroupOrderAuthority is null
+                ? CharacterCreationFinalizationDigest.Compute(new
+                {
+                    Schema = CharacterCreationCompletionFinalizationSchemas.ProjectionV2,
+                    InputsSnapshotDigest = graph.InputsSnapshotDigest,
+                    ReviewDigest = graph.OriginalReviewDigest,
+                    BootstrapSourceSnapshotDigest = graph.BootstrapSourceSnapshotDigest,
+                    CarryoverPolicyDigest = carryover.AuthorityDigest,
+                    StartingCashAuthorityDigest = cashAuthority.AuthorityDigest
+                })
+                : CharacterCreationFinalizationDigest.Compute(new
+                {
+                    Schema = CharacterCreationCompletionFinalizationSchemas.ProjectionV3,
+                    InputsSnapshotDigest = graph.InputsSnapshotDigest,
+                    ReviewDigest = graph.OriginalReviewDigest,
+                    BootstrapSourceSnapshotDigest = graph.BootstrapSourceSnapshotDigest,
+                    CarryoverPolicyDigest = carryover.AuthorityDigest,
+                    StartingCashAuthorityDigest = cashAuthority.AuthorityDigest,
+                    SkillGroupOrderAuthority = graph.SkillGroupOrderAuthority
+                });
+            // Re-sealing mutable transport/receipt layers cannot preserve native
+            // instance IDs after an order change, even when all prices are equal.
+            string instanceSeed = graph.SkillGroupOrderAuthority is null ? graph.OriginalReviewDigest : authorityDigest;
 
             XDocument document = XDocument.Parse(original.Document.Content, LoadOptions.None);
             XElement root = document.Root ?? throw new InvalidDataException("Missing character root.");
@@ -337,66 +411,28 @@ public static class CharacterCreationCompletionFinalizationProjector
             }
             SetDirect(root, "prioritytalent", prerequisite.TalentSelection!.Value);
             SetDirect(root, "sumtoten", Number(prerequisite.SumToTenTarget.GetValueOrDefault()));
-            ReplaceDirect(root, BuildAttributes(attributes.Attributes, deltas, ref order));
-            ReplaceDirect(root, BuildSkills(skills.Skills, skills.SkillGroups,
-                graph.SelectedActiveSkillPoints, graph.SelectedSkillGroupPoints,
-                graph.OriginalReviewDigest, deltas, ref order));
-            foreach (string flag in new[] { "magenabled", "resenabled", "depenabled", "adept", "magician", "technomancer", "ai" })
-                SetDirect(root, flag, "False");
-            BuildQualityAndEffectGraph(root, qualities.Selections,
-                checked((int)attributes.CreationKarmaBudget.Total), checked((int)attributes.CreationKarmaBudget.Used),
-                qualities.KarmaRemaining, qualities.SourceAnchorIds, graph.OriginalReviewDigest, deltas, ref order);
-            if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order))
-                return RefusedProjection(CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable);
-            ReplaceDirect(root, BuildGearGraph(gear.Lines, graph.OriginalReviewDigest, deltas, ref order));
-            if (graph.Loadout is { } loadout)
-            {
-                if (loadout.Blockers.Count != 0
-                    || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)
-                    || !CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines,
-                        graph.OriginalReviewDigest, out var weapons, out var armor, loadout.RetainedInstances)
-                    || !Same(loadout.RetainedInstances, original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances))
-                    return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-                ReplaceDirect(root, new XElement("weapons", weapons));
-                ReplaceDirect(root, new XElement("armors", armor));
-                foreach (var line in loadout.Lines)
-                    AddDelta(deltas, ref order, $"{line.Kind}:{line.OptionId}", line.Kind,
-                        line.OptionId, null, Number(line.Quantity), 0, line.TotalCost,
-                        line.SourceAnchorIds, line.Name);
-            }
-            if (!TryApplyAwakened(root, graph, deltas, ref order))
-                return RefusedProjection(CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable);
+            // Retain saved-state validation before replacing owned containers.
+            // A temporary selection graph cannot assert original reputation or
+            // expense authority; its compiled improvements are checked below.
             CharacterCareerReputationProjector.ValidateSavedInputShape(root);
-
-            if (!CharacterCreationKarmaContactsRules.TryContactPoints(graph.Contacts.Policy,
-                    attributes.Attributes.ToDictionary(value => value.AttributeId, value => value.Current), out int contactPoints))
-                return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-            SetDirect(root, "contactpoints", Number(contactPoints));
-            ReplaceDirect(root, new XElement("contacts", graph.Contacts.Selections
-                .Select(CharacterCreationKarmaContactsRules.BuildContactElement)));
-            // Validate the actual projected graph, including the newly applied
-            // quality/talent contact effects, not only its proposal budgets.
-            if (CharacterCreationContactsDraftRules.ValidatePointOnlySelection(
-                    new WorkspaceDocument(document.ToString(SaveOptions.DisableFormatting), RulesetDefaults.Sr5)).Length != 0)
-                return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-            foreach (var contact in graph.Contacts.Selections)
-                AddDelta(deltas, ref order, $"contact:{contact.ContactId:D}", "contact", contact.ContactId.ToString("D"),
-                    null, contact.Identity.Name, 0, 0, graph.Contacts.Policy.SourceAnchorIds, contact.Identity.Name);
+            var selectedGraph = new SelectedGraphInputs(prerequisite, skills,
+                graph.SelectedActiveSkillPoints, graph.SelectedSkillGroupPoints,
+                qualities, gear, lifestyles, graph.Contacts, graph.Awakened, graph.OriginalReviewDigest, instanceSeed)
+            {
+                RuleSourceExecutionSchema = graph.RuleSourceExecutionSchema,
+                PhysicalInitiative886 = graph.PhysicalInitiative886,
+                Loadout = graph.Loadout,
+                AmmunitionAssignments = graph.AmmunitionAssignments,
+                OriginalLoadoutInstances = original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances
+            };
+            if (CompileSelectedGraph(document, selectedGraph, deltas, ref order, cancellationToken) is { } graphBlocker)
+                return RefusedProjection(graphBlocker);
             if (lifestyles.Lifestyles.Count == 0)
             {
                 if (!CharacterCreationFinalizationStartingCashRules.TryProject(original.Id, cashAuthority, out decimal fallbackCash,
                         out var fallback) || fallbackCash != cash || fallback is null)
                     return RefusedProjection(CharacterCreationFinalizationBlockers.StartingCashChoiceInvalid);
                 ReplaceDirect(root, new XElement("lifestyles", fallback));
-            }
-            else
-            {
-                ReplaceDirect(root, new XElement("lifestyles", lifestyles.Lifestyles.Select(value =>
-                    CharacterCreationLifestylesService.BuildLifestyleElement(value, null, lifestyles.Authority))));
-                foreach (var row in lifestyles.Lifestyles)
-                    AddDelta(deltas, ref order, $"lifestyle:{row.Configuration.LifestyleId:D}", "lifestyle",
-                        row.Configuration.LifestyleId.ToString("D"), null, Number(row.Configuration.Increments),
-                        0, row.Economics.TotalCost, row.SourceAnchorIds, row.Configuration.Name);
             }
             SetDirect(root, "karma", Number(karmaAfter));
             SetDirect(root, "nuyen", Number(careerNuyen));
@@ -424,21 +460,17 @@ public static class CharacterCreationCompletionFinalizationProjector
             AddDelta(deltas, ref order, "starting-cash:nuyen", CharacterCreationFinalizationDeltaKinds.Resources,
                 "nuyen", Number(carriedNuyen), Number(careerNuyen), 0, 0, startingCashSource.SourceAnchorIds);
 
-            string authorityDigest = CharacterCreationFinalizationDigest.Compute(new
-            {
-                Schema = CharacterCreationCompletionFinalizationSchemas.ProjectionV2,
-                InputsSnapshotDigest = graph.InputsSnapshotDigest,
-                ReviewDigest = graph.OriginalReviewDigest,
-                BootstrapSourceSnapshotDigest = graph.BootstrapSourceSnapshotDigest,
-                CarryoverPolicyDigest = carryover.AuthorityDigest,
-                StartingCashAuthorityDigest = cashAuthority.AuthorityDigest
-            });
+            if (graph.Reputation is { } reputation
+                && !reputation.Execution.TryEvaluateFinalGraph(original, reputation.Bootstrap,
+                    reputation.Request, root, deltas, out _, out _, cancellationToken))
+                return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+
             string xml = document.ToString(SaveOptions.DisableFormatting);
             var binding = new CharacterCreationFinalizationBinding(original.Id, original.ContentRevision,
                 original.SavedRevision, ComputeRawCharacterXmlDigest(original.Document.Content),
                 original.Document.AuxiliaryStateDigest, prerequisite.BuildMethod, authorityDigest);
             var projection = new CharacterCreationCompletionFinalizationProjection(
-                CharacterCreationCompletionFinalizationSchemas.ProjectionV2, binding, graph.InputsSnapshotDigest,
+                projectionSchema, binding, graph.InputsSnapshotDigest,
                 graph.OriginalReviewDigest, graph.BootstrapSourceSnapshotDigest, carryover, cashAuthority, xml,
                 ComputeRawCharacterXmlDigest(xml), deltas.ToArray(), deltas.SelectMany(value => value.SourceAnchorIds)
                     .Concat(prerequisite.SourceAnchorIds)
@@ -453,7 +485,10 @@ public static class CharacterCreationCompletionFinalizationProjector
                     .Concat(carryover.SourceAnchorIds)
                     .Concat(startingCashSource.SourceAnchorIds)
                     .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
-                karmaBefore, karmaAfter, nuyenBefore, carriedNuyen, cash, careerNuyen, unused, string.Empty);
+                karmaBefore, karmaAfter, nuyenBefore, carriedNuyen, cash, careerNuyen, unused, string.Empty)
+                { SkillGroupOrderAuthority = graph.SkillGroupOrderAuthority,
+                    PhysicalInitiative886 = graph.PhysicalInitiative886 is null ? null
+                        : CharacterCreationPhysicalInitiative886.Evaluate(root, graph.PhysicalInitiative886) };
             projection = projection with { ProjectionDigest = CharacterCreationCompletionFinalizationRules.ComputeProjectionDigest(projection) };
             cancellationToken.ThrowIfCancellationRequested();
             return new(CharacterCreationFoundationOutcomes.Success, projection, []);
@@ -465,7 +500,178 @@ public static class CharacterCreationCompletionFinalizationProjector
         }
     }
 
-    private static bool TryApplyAwakened(XElement root, EvaluatedGraphInputs graph,
+    /// <summary>Already evaluated selections for the ordinary graph compiler.
+    /// This carries no cash choice, lifecycle transition, persistence or approval authority.</summary>
+    internal sealed record SelectedGraphInputs(
+        CharacterCreationPrerequisiteDraft Prerequisite,
+        CharacterCreationAttributeSkillsPreview Skills,
+        int SelectedActiveSkillPoints,
+        int SelectedSkillGroupPoints,
+        EvaluatedQualities Qualities,
+        EvaluatedGear Gear,
+        EvaluatedLifestyles Lifestyles,
+        EvaluatedContacts Contacts,
+        AwakenedGraphInputs Awakened,
+        string OriginalReviewDigest,
+        string SkillInstanceSeed)
+    {
+        internal string? RuleSourceExecutionSchema { get; init; }
+        internal CharacterCreationPhysicalInitiativeAuthority? PhysicalInitiative886 { get; init; }
+        internal CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
+        internal IReadOnlyList<CharacterCreationAmmunitionAssignment>? AmmunitionAssignments { get; init; }
+        internal IReadOnlyList<CharacterCreationLoadoutInstance>? OriginalLoadoutInstances { get; init; }
+    }
+
+    /// <summary>
+    /// Runs the same selected rules/effect compilers for a disposable uncreated
+    /// graph, without cash, carryover or finalization. The caller must admit its
+    /// sources and discard this graph after any failure; execution alone is not
+    /// Complete coverage or permission to save. Historical instance seeds and
+    /// delta order are supplied unchanged by the finalization caller.
+    /// </summary>
+    internal static string? CompileSelectedGraph(XDocument document, SelectedGraphInputs graph,
+        ICollection<CharacterCreationFinalizationDelta> deltas, ref int order,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        XElement root = document.Root ?? throw new InvalidDataException("Missing character root.");
+        if (root.Name != "character" || !bool.TryParse(ReadDirect(root, "created"), out bool created) || created)
+            return CharacterCreationFinalizationBlockers.CharacterAlreadyCreated;
+        var prerequisite = graph.Prerequisite;
+        if (prerequisite.HeritageSelection is not { } heritage)
+            return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
+        if (graph.RuleSourceExecutionSchema is (CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV3 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4))
+            CharacterCreationHeritageGraph832.ApplyMovement(root, heritage);
+        var skills = graph.Skills;
+        var attributes = skills.Attributes;
+        var qualities = graph.Qualities;
+        if (qualities.Selections.Any(selection => selection.SourceExecutionSchema is not null
+            && selection.SourceExecutionSchema != graph.RuleSourceExecutionSchema))
+            return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
+        var gear = graph.Gear;
+        ReplaceDirect(root, BuildAttributes(attributes.Attributes, deltas, ref order));
+        ReplaceDirect(root, BuildSkills(skills.Skills, skills.SkillGroups,
+            graph.SelectedActiveSkillPoints, graph.SelectedSkillGroupPoints,
+            graph.SkillInstanceSeed, deltas, ref order));
+        foreach (string flag in new[] { "magenabled", "resenabled", "depenabled", "adept", "magician", "technomancer", "ai" })
+            SetDirect(root, flag, "False");
+        BuildQualityAndEffectGraph(root, qualities.Selections,
+            checked((int)attributes.CreationKarmaBudget.Total), checked((int)attributes.CreationKarmaBudget.Used),
+            qualities.KarmaRemaining, qualities.SourceAnchorIds, graph.OriginalReviewDigest, deltas, ref order, graph.RuleSourceExecutionSchema);
+        if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order))
+            return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
+        ReplaceDirect(root, BuildGearGraph(gear.Lines, graph.OriginalReviewDigest, deltas, ref order));
+        if (graph.Loadout is { } loadout)
+        {
+            if (loadout.Blockers.Count != 0
+                || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)
+                || !CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines,
+                    graph.OriginalReviewDigest, out var weapons, out var armor, loadout.RetainedInstances)
+                || !Same(loadout.RetainedInstances, graph.OriginalLoadoutInstances))
+                return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
+            ReplaceDirect(root, new XElement("weapons", weapons));
+            ReplaceDirect(root, new XElement("armors", armor));
+            foreach (var line in loadout.Lines)
+                AddDelta(deltas, ref order, $"{line.Kind}:{line.OptionId}", line.Kind,
+                    line.OptionId, null, Number(line.Quantity), 0, line.TotalCost,
+                    line.SourceAnchorIds, line.Name);
+        }
+        if (!CharacterCreationAmmunitionCompletionConsumer.TryProjectAssignments(root,
+                graph.AmmunitionAssignments, gear.Lines, graph.Loadout?.Lines ?? [], graph.OriginalReviewDigest))
+            return CharacterCreationAmmunitionCompletionBlockers.AssignmentInvalid;
+        foreach (var assignment in graph.AmmunitionAssignments ?? [])
+        {
+            var ammunitionLine = gear.Lines.Single(row => row.OptionId == assignment.GearOptionId);
+            var weaponLine = graph.Loadout!.Lines.Single(row => row.OptionId == assignment.Weapon.OptionId);
+            var saved = root.Element("gears")!.Elements("gear")
+                .Single(row => row.Element("sourceid")?.Value == ammunitionLine.SourceId.ToString("D"));
+            AddDelta(deltas, ref order, $"ammunition-assignment:{assignment.GearOptionId}", "ammunition-assignment",
+                assignment.GearOptionId, null, saved.Element("ammunitionassignment")!.Element("weaponinstanceid")!.Value,
+                0, 0m, ammunitionLine.SourceAnchorIds.Concat(weaponLine.SourceAnchorIds)
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), assignment.Weapon.AmmoCategory);
+        }
+        if (!TryApplyAwakened(root, graph, deltas, ref order))
+            return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
+        IReadOnlyList<CharacterCreationTalentQualitySource> selectedTalentSources = graph.Awakened switch
+        {
+            FullAwakenedGraphInputs full => full.Inputs.SelectedTalent.GrantedQualitySources ?? [],
+            SelectedAwakenedGraphInputs selected => selected.Authority.Talent.GrantedQualitySources ?? [],
+            _ => throw new InvalidDataException("Missing selected talent authority.")
+        };
+        if (!CharacterCreationSelectedPrerequisiteConsumer.TryCheckFinalGraph(root, prerequisite,
+            selectedTalentSources, attributes.Attributes, out _))
+            return CharacterCreationSelectedPrerequisiteConsumer.Blocker;
+        CharacterCareerReputationProjector.ValidateSelectedImprovementsShape(root);
+
+        if (!CharacterCreationKarmaContactsRules.TryContactPoints(graph.Contacts.Policy,
+                attributes.Attributes.ToDictionary(value => value.AttributeId, value => value.Current), out int contactPoints))
+            return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
+        SetDirect(root, "contactpoints", Number(contactPoints));
+        ReplaceDirect(root, new XElement("contacts", graph.Contacts.Selections
+            .Select(CharacterCreationKarmaContactsRules.BuildContactElement)));
+        // Validate the actual projected graph, including the newly applied
+        // quality/talent contact effects, not only its proposal budgets.
+        if (!ValidateContactGraph(new WorkspaceDocument(document.ToString(SaveOptions.DisableFormatting), RulesetDefaults.Sr5),
+                graph.Contacts, qualities.Selections))
+            return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
+        foreach (var contact in graph.Contacts.Selections)
+            AddDelta(deltas, ref order, $"contact:{contact.ContactId:D}", "contact", contact.ContactId.ToString("D"),
+                null, contact.Identity.Name, 0, 0, graph.Contacts.Policy.SourceAnchorIds, contact.Identity.Name);
+        // The cap/excess adjustment belongs to the basket. Individual contact
+        // rows keep zero cost so the expense deltas count the marginal charge once.
+        if (graph.Contacts.GroupKarma is { } groupKarma)
+            AddDelta(deltas, ref order, "contacts:karma", CharacterCreationFinalizationDeltaKinds.Build,
+                "contacts-karma", "0", Number(groupKarma.AdditionalKarmaCost), groupKarma.AdditionalKarmaCost, 0,
+                graph.Contacts.Policy.SourceAnchorIds.Concat(qualities.SourceAnchorIds)
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray());
+        // Selected homes are ordinary rule-bearing choices. An empty selection
+        // must not manufacture the starting-cash lifestyle used only at finalization.
+        var lifestyles = graph.Lifestyles;
+        if (lifestyles.Lifestyles.Count != 0)
+        {
+            ReplaceDirect(root, new XElement("lifestyles", lifestyles.Lifestyles.Select(value =>
+                CharacterCreationLifestylesService.BuildLifestyleElement(value, null, lifestyles.Authority))));
+            foreach (var row in lifestyles.Lifestyles)
+                AddDelta(deltas, ref order, $"lifestyle:{row.Configuration.LifestyleId:D}", "lifestyle",
+                    row.Configuration.LifestyleId.ToString("D"), null, Number(row.Configuration.Increments),
+                    0, row.Economics.TotalCost, row.SourceAnchorIds, row.Configuration.Name);
+        }
+        if (graph.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
+        {
+            if (!CharacterCreationPhysicalInitiative886.TryInitialize(root, prerequisite, graph.PhysicalInitiative886))
+                return CharacterCreationPhysicalInitiative886.Blocker;
+            _ = CharacterCreationPhysicalInitiative886.Evaluate(root, graph.PhysicalInitiative886!);
+        }
+        else if (graph.PhysicalInitiative886 is not null) return CharacterCreationPhysicalInitiative886.Blocker;
+        cancellationToken.ThrowIfCancellationRequested();
+        return null;
+    }
+
+    private static bool ValidateContactGraph(WorkspaceDocument document, EvaluatedContacts expected,
+        IReadOnlyList<CharacterCreationQualitySelection> qualities)
+    {
+        // Keep historical no-group projection bytes and validation on their old path.
+        if (expected.GroupKarma is null)
+            return CharacterCreationContactsDraftRules.ValidatePointOnlySelection(document).Length == 0;
+        var root = XDocument.Parse(document.Content).Root!;
+        if (!CharacterCreationContactsDraftRules.TryReadSelections(root, out var selections)
+            || !CharacterCreationKarmaContactsRules.TryFreeze(expected.Selections, out var frozen)
+            || !Same(selections, frozen) || !selections.Any(row => row.IsGroup && !row.Free)) return false;
+        var authority = CharacterCreationContactsAuthorityEvaluator.Evaluate(document);
+        if (authority.AuthorityBlockers.Count != 0 || !authority.ContactBudget.IsExact || !authority.HighPlacesBudget.IsExact
+            || authority.ContactBudget.Blockers.Count != 0 || authority.HighPlacesBudget.Blockers.Count != 0
+            || authority.Contacts.Count != selections.Length
+            || authority.Contacts.Any(row => row.ContactPointCost > 7 && !row.CountsAgainstHighPlacesBudget)) return false;
+        var paid = selections.Where(row => row.IsGroup && !row.Free).Select(row => row.ContactId).ToHashSet();
+        return CharacterCreationKarmaContactsRules.TryPriceGroups(expected.Policy, expected.QualityCostPolicy,
+                expected.QualityKarmaLimit, qualities.Select(row => new CharacterCreationQualityCostItem(row.KarmaCost,
+                    row.CountsAgainstQualityLimit, row.CountsAgainstKarma, row.IsMetagenic)).ToArray(),
+                authority.Contacts.Where(row => paid.Contains(row.ContactId)).Select(row => row.ContactPointCost), out var price)
+            && Same(price, expected.GroupKarma)
+            && (price!.WithGroups.PositiveLimitKarma <= expected.QualityKarmaLimit || expected.MayExceedPositiveQualityLimit);
+    }
+
+    private static bool TryApplyAwakened(XElement root, SelectedGraphInputs graph,
         ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
         => graph.Awakened switch
         {
@@ -494,7 +700,7 @@ public static class CharacterCreationCompletionFinalizationProjector
         return true;
     }
 
-    private static bool MatchesOriginal(WorkspaceStoredDocument original,
+    internal static bool MatchesOriginal(WorkspaceStoredDocument original,
         CharacterCreationCompletionBootstrapSnapshot bootstrap, CharacterCreationCompletionReviewInputs inputs)
     {
         var auxiliary = original.Document.AuxiliaryState;
@@ -517,10 +723,23 @@ public static class CharacterCreationCompletionFinalizationProjector
             || !Same(auxiliary.CharacterCreationPrerequisiteDraft, inputs.Skills.PrerequisiteDraft)
             || !CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(auxiliary.CharacterCreationPrerequisiteDraft,
                 original.Id, original.ContentRevision, rawDigest, bootstrap.Prerequisite)) return false;
+        // Composite inputs keep paid targets separate from point-only Skills
+        // drafts. Reconstruct the observation as selected replay does, rather
+        // than interpreting a null SavedSkillsState as absence of real history.
+        if (!CharacterCreationCompositeBaselineReader.TryRead(original, out var composite)
+            || !Same(composite, inputs.Skills.CompositeBaseline)) return false;
+        var ordinaryAttributes = auxiliary.CharacterCreationAttributesDraft;
+        var expectedAttributes = composite is null ? ordinaryAttributes
+            : CharacterCreationAttributesService.ProjectCompositeAttributes(
+                inputs.Skills.Attributes, composite, ordinaryAttributes)?.PendingDraft;
+        if (composite is not null && (expectedAttributes is null || inputs.Skills.SavedSkillsState is not null
+                || !CharacterCreationSkillsService.ValidateCompositePending(original, inputs.Skills)))
+            return false;
         var gear = inputs.Lifestyles.Gear;
         var resources = gear.Resources;
-        return Same(auxiliary.CharacterCreationAttributesDraft, inputs.Skills.Attributes.PendingDraft)
-            && Same(auxiliary.CharacterCreationSkillsDraft, inputs.Skills.SavedSkillsState?.PendingDraft)
+        return Same(expectedAttributes, inputs.Skills.Attributes.PendingDraft)
+            && (composite is not null
+                || Same(auxiliary.CharacterCreationSkillsDraft, inputs.Skills.SavedSkillsState?.PendingDraft))
             && Same(auxiliary.CharacterCreationMagicResonanceDraft, inputs.Magic.SavedMagicState?.PendingDraft)
             && Same(auxiliary.CharacterCreationQualitiesDraft, inputs.Lifestyles.Qualities.SavedQualitiesState?.PendingDraft)
             && Same(auxiliary.CharacterCreationResourcesDraft, resources.PendingDraft)

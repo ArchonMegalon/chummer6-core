@@ -47,7 +47,11 @@ public sealed record CharacterCreationMetatypeInitiativeProjection(
     int Minimum,
     int Maximum,
     int AugmentedMaximum,
-    int MinimumDiceFallback);
+    int MinimumDiceFallback)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DirectDice886 { get; init; }
+}
 
 public sealed record CharacterCreationMetatypeMovementRate(
     decimal Ground,

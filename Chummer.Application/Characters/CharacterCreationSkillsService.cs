@@ -18,6 +18,7 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
     public CharacterCreationFoundationResult<CharacterCreationSkillsState> Load(
         CharacterCreationSkillsLoadRequest request)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         WorkspaceStoreReadResult read = _store.Get(request.WorkspaceId);
         return read.Success && read.Value is { } workspace
@@ -58,6 +59,7 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         CharacterCreationSkillsConfirmRequest request,
         CharacterCreationSkillsReReviewBinding? reReview)
     {
+        using var historyValidation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         if (!request.ExplicitlyConfirmed)
             return Blocked<CharacterCreationSkillsReceipt>(CharacterCreationFoundationOutcomes.Invalid,
@@ -156,7 +158,10 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             (int)preview.KnowledgeSkillPointBudget.Remaining,
             preview.KnowledgePointOverflowToActive,
             CharacterDocumentChanged: false,
-            ReceiptDigest: string.Empty);
+            ReceiptDigest: string.Empty)
+        {
+            AttributesSnapshot = evaluation.AttributesSnapshot
+        };
         receipt = receipt with { ReceiptDigest = CharacterCreationSkillsDigest.ComputeReceipt(receipt) };
         CharacterCreationSkillsReceipt[] replacementLedger = [.. ledger ?? [], receipt];
         WorkspaceDocument replacement = workspace.Document with
@@ -219,6 +224,7 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
     private PreviewEvaluation Evaluate(CharacterCreationSkillsPreviewRequest request,
         CharacterCreationSkillsReReviewBinding? reReview = null)
     {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         WorkspaceStoreReadResult read = _store.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not { } workspace)
             return new(Blocked<CharacterCreationSkillsPreview>(CharacterCreationFoundationOutcomes.Missing,
@@ -254,7 +260,14 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         }
         var prepared = EvaluatePreparedState(state, request, blockers,
             workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft);
-        return new(prepared.Result, workspace, prepared.Draft);
+        return new(prepared.Result, workspace, prepared.Draft)
+        {
+            // Composite history already retains/replays its actual baseline. The
+            // ordinary default-expression legacy recognizer needs no new evidence.
+            AttributesSnapshot = state.CompositeInputs is null
+                && state.Authority.KnowledgePointsExpression != CharacterCreationStandardPrioritySkillsRules.KnowledgePointsExpression
+                ? attributes : null
+        };
     }
 
     private static (CharacterCreationFoundationResult<CharacterCreationSkillsPreview> Result,
@@ -262,13 +275,14 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         CharacterCreationSkillsPreviewRequest request, List<string> blockers,
         CharacterCreationSkillsDraft? persistedDraft = null)
     {
+        if (state.CompositeInputs is not null)
+            return EvaluateCompositeSkills(state, request, blockers, persistedDraft);
         SkillEvaluation projected = EvaluateAllocations(
             state.Authority,
             state.PrerequisiteDraft,
             state.SelectedActiveSkillPoints,
             state.SelectedSkillGroupPoints,
-            state.IntuitionUnaugmented,
-            state.LogicUnaugmented,
+            state.AttributesDraft?.Attributes ?? [],
             state.MovementCapability,
             request.Allocations,
             request.GroupAllocations,
@@ -328,6 +342,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         CharacterCreationSkillsAuthority authority = source.Authority;
         CharacterCreationPrerequisiteDraft? prerequisite = source.Prerequisite;
         catalogAuthority = source.CatalogAuthority;
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return LoadCompositeSkills(workspace);
         CharacterCreationAttributesState? attributeState =
             new CharacterCreationAttributesService(_store, _resolver)
                 .Load(new CharacterCreationAttributesLoadRequest(workspace.Id)).Value;
@@ -380,12 +396,15 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             prerequisite,
             activeTotal,
             groupTotal,
-            intuition,
-            logic,
+            attributes?.Attributes ?? [],
             movementCapability,
             pending?.Allocations ?? [],
             pending?.GroupAllocations ?? [],
             pendingBlockers);
+        if (pendingBlockers.Contains(CharacterCreationSkillsBlockers.AuthorityUnavailable))
+            blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+        if (pending is null && pendingBlockers.Contains(CharacterCreationSkillsBlockers.AllocationInvalid))
+            blockers.Add(CharacterCreationSkillsBlockers.AllocationInvalid);
         if (pendingBlockers.Contains(CharacterCreationSkillsBlockers.TalentAccessRequired))
             blockers.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
         if (pending is not null
@@ -474,15 +493,21 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         CharacterCreationPrerequisiteDraft? prerequisite,
         int activeTotal,
         int groupTotal,
-        int intuition,
-        int logic,
+        IReadOnlyList<CharacterCreationAttributeProjection> attributes,
         CharacterCreationMovementCapability movementCapability,
         IReadOnlyList<CharacterCreationSkillAllocation>? requested,
         IReadOnlyList<CharacterCreationSkillGroupAllocation>? requestedGroups,
         ICollection<string> blockers,
         SkillsEvaluationSemantics semantics = SkillsEvaluationSemantics.CurrentSourceBound,
-        int? recordedKnowledgePointTotal = null)
+        int? recordedKnowledgePointTotal = null,
+        bool projectGroupMembers = false,
+        IReadOnlyDictionary<(string Kind, string Id), int>? personalKarmaLevels = null,
+        IReadOnlySet<(string Kind, string Id)>? karmaSpecializations = null,
+        bool allowPointBuySpecializationsOnKarmaSkills = false,
+        IReadOnlyList<CharacterCreationKnowledgeCategoryEffect>? knowledgeEffects = null,
+        CompleteSkillTrace? completeTrace = null)
     {
+        completeTrace?.Begin();
         requested ??= [];
         requestedGroups ??= [];
         if (!CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out var grants))
@@ -516,11 +541,15 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         var groups = new List<CharacterCreationSkillGroupProjection>();
         // Omitting a talent-granted row never deletes the free rating. Requests
         // describe the desired total rating; only increases consume points.
-        foreach (var grant in grants.Skills)
-            allocationMap.TryAdd((CharacterCreationSkillKinds.Active, grant.Key),
-                new(grant.Key, CharacterCreationSkillKinds.Active, grant.Value.BaseRating, null, false));
         foreach (var grant in grants.Groups)
             groupMap.TryAdd(grant.Key, new(grant.Key, grant.Value.BaseRating));
+        foreach (var grant in grants.Skills)
+        {
+            int groupRating = authority.SkillGroups.Where(group => group.MemberSkillSourceIds.Contains(grant.Key, StringComparer.Ordinal))
+                .Select(group => groupMap.GetValueOrDefault(group.GroupId)?.Rating ?? 0).SingleOrDefault();
+            allocationMap.TryAdd((CharacterCreationSkillKinds.Active, grant.Key),
+                new(grant.Key, CharacterCreationSkillKinds.Active, SafeAdd(grant.Value.BaseRating, groupRating, blockers), null, false));
+        }
         int groupUsed = 0;
         foreach (CharacterCreationSkillGroupAllocation allocation in groupMap.Values
                      .OrderBy(item => item.GroupId, StringComparer.Ordinal))
@@ -542,12 +571,11 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                 || allocation.Rating < grantedRating
                 || allocation.Rating > authority.MaxSkillGroupRatingCreate)
                 local.Add(CharacterCreationSkillsBlockers.GroupInvalid);
+            else completeTrace?.Checked(CharacterCreationEffectivePolicyContext.GroupLimit,
+                allocation.GroupId, allocation.Rating, authority.MaxSkillGroupRatingCreate);
             if (source is not null && semantics == SkillsEvaluationSemantics.CurrentSourceBound
                 && !CharacterCreationSkillsAccessRules.IsGroupAvailable(authority, source.GroupId))
                 local.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
-            if (source is not null && availableMemberIds.Any(id =>
-                    allocationMap.ContainsKey((CharacterCreationSkillKinds.Active, id))))
-                local.Add(CharacterCreationSkillsBlockers.GroupBroken);
             AddAll(blockers, local);
             if (source is not null)
                 groupUsed = SafeAdd(groupUsed, Math.Max(0, allocation.Rating - grantedRating), blockers);
@@ -561,6 +589,19 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                 Normalize(local),
                 CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [], grant?.SourceAnchorIds))
                 { GrantedRating = grantedRating });
+            foreach (string id in availableMemberIds)
+            {
+                if (projectGroupMembers)
+                    allocationMap.TryAdd((CharacterCreationSkillKinds.Active, id),
+                        new(id, CharacterCreationSkillKinds.Active, allocation.Rating, null, false));
+                else if (completeTrace is not null
+                    && !allocationMap.ContainsKey((CharacterCreationSkillKinds.Active, id)))
+                    // An implicit member has only the validated group rating, with
+                    // no personal points or specialization to break the group.
+                    // Retain its skill identity even when the projection is sparse;
+                    // explicit members are checked in the allocation loop below.
+                    completeTrace.CheckedGroupPolicy(id, allocation.Rating, false);
+            }
         }
 
         var skills = new List<CharacterCreationSkillProjection>();
@@ -580,6 +621,13 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             var grant = allocation.Kind == CharacterCreationSkillKinds.Active
                 ? grants.Skills.GetValueOrDefault(allocation.SourceSkillId) : null;
             int grantedRating = grant?.BaseRating ?? 0;
+            var fundedGroup = allocation.Kind == CharacterCreationSkillKinds.Active
+                ? groups.SingleOrDefault(group => group.MemberSkillSourceIds.Contains(allocation.SourceSkillId, StringComparer.Ordinal))
+                : null;
+            int groupRating = fundedGroup?.Rating ?? 0;
+            var key = (allocation.Kind, allocation.SourceSkillId);
+            int karmaLevels = personalKarmaLevels?.GetValueOrDefault(key) ?? 0;
+            long personalBase = (long)allocation.Rating.GetValueOrDefault() - grantedRating - groupRating - karmaLevels;
             int max = allocation.Kind == CharacterCreationSkillKinds.Active
                 ? authority.MaxActiveSkillRatingCreate
                 : authority.MaxKnowledgeSkillRatingCreate;
@@ -601,8 +649,11 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                     || allocation.SpecializationOptionId is not null)
                     local.Add(CharacterCreationSkillsBlockers.NativeLanguageInvalid);
             }
-            else if (allocation.Rating is not int rating || rating < 1 || rating < grantedRating || rating > max)
+            else if (allocation.Rating is not int rating || rating < 1 || personalBase < 0 || rating > max)
                 local.Add(CharacterCreationSkillsBlockers.RatingInvalid);
+            else completeTrace?.Checked(allocation.Kind == CharacterCreationSkillKinds.Active
+                    ? CharacterCreationEffectivePolicyContext.ActiveLimit : CharacterCreationEffectivePolicyContext.KnowledgeLimit,
+                allocation.SourceSkillId, rating, max);
 
             CharacterCreationSkillSpecializationOption? specialization =
                 allocation.SpecializationOptionId is null
@@ -611,18 +662,35 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                         item.OptionId == allocation.SpecializationOptionId);
             if (allocation.SpecializationOptionId is not null && specialization is null)
                 local.Add(CharacterCreationSkillsBlockers.SpecializationInvalid);
-            if (source?.SkillGroup is not null
-                // Chummer5 ignores disabled skills when deciding whether a
-                // group is broken, while retaining the canonical membership.
-                && IsMovementAvailable(source, movementCapability)
-                && groups.Any(group => group.MemberSkillSourceIds.Contains(
-                    source.SourceSkillId,
-                    StringComparer.Ordinal)))
+            completeTrace?.CheckedGroupPolicy(allocation.SourceSkillId, groupRating,
+                specialization is not null && karmaSpecializations?.Contains(key) != true);
+            // BaseUnlocked and KarmaUnlocked are different legacy rules. Free
+            // personal base remains a grant; group base is never refunded/split.
+            if (groupRating > 0 && (personalBase < 0 || authority.StrictSkillGroupsInCreateMode
+                    && (personalBase > 0 || grantedRating > 0 || karmaLevels > 0 || specialization is not null)
+                || !authority.UsePointsOnBrokenGroups && personalBase > 0))
                 local.Add(CharacterCreationSkillsBlockers.GroupBroken);
+            if (specialization is not null && karmaSpecializations?.Contains(key) != true
+                && (groupRating > 0 && authority.SpecializationsBreakSkillGroups
+                    || karmaLevels > 0 && personalBase + grantedRating == 0 && !allowPointBuySpecializationsOnKarmaSkills))
+                local.Add(CharacterCreationSkillsBlockers.SpecializationInvalid);
 
             int cost = allocation.IsNativeLanguage
                 ? 0
-                : Math.Max(0, allocation.Rating.GetValueOrDefault() - grantedRating) + (specialization is null ? 0 : 1);
+                : SafeAdd((int)Math.Clamp(personalBase, 0L, int.MaxValue),
+                    specialization is null || karmaSpecializations?.Contains(key) == true ? 0 : 1, blockers);
+            CharacterCreationKnowledgeCategoryPrice? knowledgePrice = null;
+            if (allocation.Kind == CharacterCreationSkillKinds.Knowledge && !allocation.IsNativeLanguage
+                && source is not null && knowledgeEffects is { Count: > 0 })
+            {
+                int lower = allocation.Rating.GetValueOrDefault() - karmaLevels;
+                if (!CharacterCreationKnowledgeCategoryRules.TryPrice(source.Category, lower, lower,
+                        (int)Math.Clamp(personalBase, 0L, int.MaxValue),
+                        specialization is null || karmaSpecializations?.Contains(key) == true ? 0 : 1,
+                        0, 0, 0, 0, knowledgeEffects, out knowledgePrice))
+                    local.Add(CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
+                else cost = knowledgePrice!.PointCost;
+            }
             if (allocation.Kind == CharacterCreationSkillKinds.Active)
                 activeUsed = SafeAdd(activeUsed, cost, blockers);
             else
@@ -645,8 +713,15 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                 allocation.IsNativeLanguage,
                 local.Count == 0,
                 Normalize(local),
-                CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [], grant?.SourceAnchorIds))
-                { GrantedRating = grantedRating });
+                CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [],
+                    (grant?.SourceAnchorIds ?? []).Concat(fundedGroup?.SourceAnchorIds ?? [])
+                        .Concat(knowledgePrice?.Effects.SelectMany(effect => effect.SourceAnchorIds) ?? []).ToArray()))
+                {
+                    GrantedRating = grantedRating, GroupRating = groupRating,
+                    // Even a zero-width Karma interval can carry a bounded additive charge.
+                    // A purchase replaces this with its full aggregate quote in PreviewPurchases.
+                    KarmaCost = knowledgePrice?.KarmaCost ?? 0, KnowledgeCategoryPrice = knowledgePrice
+                });
         }
         if (nativeCount > authority.BaseNativeLanguageLimit)
             blockers.Add(CharacterCreationSkillsBlockers.NativeLanguageLimitExceeded);
@@ -662,15 +737,23 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                 blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
             contributionPoints = SafeAdd(contributionPoints, contribution.Points, blockers);
         }
-        // The private history recognizer may replay a receipt-bound recorded
-        // budget. Ordinary and re-review previews always use actual current INT
-        // and LOG; no request or public contract can override this calculation.
-        int knowledgeTotal = recordedKnowledgePointTotal ?? Math.Max(
-            0,
-            SafeAdd(
-                SafeMultiply(SafeAdd(intuition, logic, blockers), 2, blockers),
-                contributionPoints,
-                blockers));
+        // Legacy history without retained rows has only a recorded budget; its
+        // INT/LOG recognizer is valid only for the default expression. Retained
+        // rows and current proposals both use the canonical knowledge math.
+        int knowledgeTotal;
+        if (recordedKnowledgePointTotal is { } recorded)
+        {
+            if (authority.KnowledgePointsExpression != CharacterCreationStandardPrioritySkillsRules.KnowledgePointsExpression)
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            knowledgeTotal = recorded;
+        }
+        else
+        {
+            if (!CharacterCreationKarmaSkillsRules.TryKnowledgePoints(authority.KnowledgePointsExpression,
+                    attributes, out int attributePoints))
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            knowledgeTotal = Math.Max(0, SafeAdd(attributePoints, contributionPoints, blockers));
+        }
         int knowledgeUsed = Math.Min(knowledgeCost, knowledgeTotal);
         int overflow = Math.Max(0, knowledgeCost - knowledgeTotal);
         activeUsed = SafeAdd(activeUsed, overflow, blockers);
@@ -679,6 +762,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         if (groupUsed > groupTotal)
             blockers.Add(CharacterCreationSkillsBlockers.GroupBudgetExceeded);
 
+        if (blockers.Count == 0 && semantics == SkillsEvaluationSemantics.CurrentSourceBound)
+            completeTrace?.Finish(authority, skills, groups);
         return new(
             skills,
             groups,
@@ -863,7 +948,10 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
     private sealed record PreviewEvaluation(
         CharacterCreationFoundationResult<CharacterCreationSkillsPreview> Result,
         WorkspaceStoredDocument? Workspace,
-        CharacterCreationSkillsDraft? Draft);
+        CharacterCreationSkillsDraft? Draft)
+    {
+        public CharacterCreationAttributesDraft? AttributesSnapshot { get; init; }
+    }
 
     private sealed record SkillEvaluation(
         IReadOnlyList<CharacterCreationSkillProjection> Skills,

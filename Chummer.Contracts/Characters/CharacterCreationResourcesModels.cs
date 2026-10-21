@@ -244,7 +244,11 @@ public sealed record CharacterCreationResourcesPreview(
     IReadOnlyList<string> Blockers,
     bool RequiresExplicitConfirmation,
     bool CanConfirm,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompositeReviewDigest { get; init; }
+}
 
 public sealed record CharacterCreationResourcesReceipt(
     string Schema,

@@ -288,6 +288,9 @@ public sealed record CharacterCreationContactAtomicWritePlan(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationContactsDraft? PendingDraft { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompositeReviewDigest { get; init; }
+
 }
 
 public sealed record CharacterCreationContactsState(

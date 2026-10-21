@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Workspaces;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -25,13 +26,16 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterSourceDataResolver _sourceData;
+    private readonly ICharacterFileQueries? _completionQueries;
 
     public CharacterCreationResourcesService(
         IWorkspaceStore workspaceStore,
-        ICharacterSourceDataResolver sourceData)
+        ICharacterSourceDataResolver sourceData,
+        ICharacterFileQueries? completionQueries = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _sourceData = sourceData ?? throw new ArgumentNullException(nameof(sourceData));
+        _completionQueries = completionQueries;
     }
 
     public CharacterCreationResourcesResult<CharacterCreationResourcesState> Load(
@@ -42,6 +46,8 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationResourcesState>(read);
 
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return LoadComposite(workspace);
         AuthorityContext context = BuildContext(workspace);
         string[] blockers = Normalize(context.Blockers.Concat(context.Budget.Blockers));
         var candidate = new CharacterCreationResourcesState(
@@ -54,7 +60,7 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
             context.Options,
             context.Budget,
             blockers,
-            CanEdit: blockers.Length == 0,
+            CanEdit: blockers.Length == 0 && _workspaceStore is not WorkspaceContinuationReadView,
             SnapshotDigest: string.Empty);
         CharacterCreationResourcesState state = candidate with
         {
@@ -100,6 +106,8 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
                 CharacterCreationResourcesBlockers.NoChange
                 or CharacterCreationResourcesBlockers.PersistenceAuthorityRequired
                 or CharacterCreationResourcesBlockers.CareerModeRejected))
+            .Where(blocker => !(blocker == CharacterCreationResourcesBlockers.InsufficientNuyen
+                && CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite) && composite is not null))
             .ToList();
         if (evaluation.Result.Value is not CharacterCreationResourcesPreview preview
             || preview.SelectedOption is not CharacterCreationResourceAllocationOption option)
@@ -263,8 +271,12 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
                 }
             }
         };
-        WorkspaceStoreMutationResult committed =
-            atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        WorkspaceStoreMutationResult committed = workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null
+            ? _workspaceStore is ICharacterCreationCompositeStageAtomicCommitCapability { SupportsCompositeStageAtomicCommit: true } composite
+                && _completionQueries is not null
+                ? composite.CommitCompositeStage(OwnerScope.LocalSingleUser, replacement, preview, _sourceData, _completionQueries)
+                : new(WorkspaceOperationOutcome.Unavailable)
+            : atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
                 workspace.ContentRevision,
                 workspace.Document.AuxiliaryStateDigest,
@@ -345,13 +357,14 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return new PreviewEvaluation(ReadFailure<CharacterCreationResourcesPreview>(read), null);
-        return EvaluatePreview(BuildContext(workspace), request);
+        return workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null
+            ? EvaluateCompositePreview(workspace, request) : EvaluatePreview(BuildContext(workspace), request);
     }
 
     private static PreviewEvaluation EvaluatePreview(
         AuthorityContext context,
         CharacterCreationResourcesPreviewRequest request,
-        bool advanceDraftRevision = true)
+        bool advanceDraftRevision = true, int? effectiveKarmaInvestment = null)
     {
         WorkspaceStoredDocument workspace = context.Workspace;
         string? bindingBlocker = CompareBinding(context.Binding, request.Binding);
@@ -366,20 +379,18 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
 
         var blockers = new List<string>(context.Blockers);
         blockers.AddRange(context.Budget.Blockers);
-        CharacterCreationResourceAllocationOption? option = context.Options.SingleOrDefault(item =>
-            string.Equals(item.OptionId, request.OptionId, StringComparison.Ordinal));
+        CharacterCreationResourceAllocationOption? option = FindAllocationOption(
+            context.Authority, context.PriorityOption, context.AvailableKarma, request.OptionId);
         if (option is null)
             blockers.Add(CharacterCreationResourcesBlockers.InvalidOption);
         else if (!option.IsEnabled)
             blockers.AddRange(option.Blockers.Count == 0
                 ? [CharacterCreationResourcesBlockers.InvalidOption]
                 : option.Blockers);
-        if (context.PendingDraft is not null
-            && option is not null
-            && string.Equals(
-                context.PendingDraft.SelectedOptionId,
-                option.OptionId,
-                StringComparison.Ordinal))
+        if (option is not null && (effectiveKarmaInvestment is int currentInvestment
+                ? option.KarmaInvestment == currentInvestment
+                : context.PendingDraft is not null && string.Equals(
+                    context.PendingDraft.SelectedOptionId, option.OptionId, StringComparison.Ordinal)))
             blockers.Add(CharacterCreationResourcesBlockers.NoChange);
 
         CharacterCreationResourcesBudget budgetAfter = option is null
@@ -593,13 +604,10 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
         CharacterCreationResourceAllocationOption[] options = BuildOptions(
             authority,
             priorityOption,
-            availableKarma);
-        CharacterCreationResourceAllocationOption? selected = pending is null
-            ? options.SingleOrDefault(option => option.KarmaInvestment == 0)
-            : options.SingleOrDefault(option => string.Equals(
-                option.OptionId,
-                pending.SelectedOptionId,
-                StringComparison.Ordinal));
+            availableKarma,
+            prerequisite?.CreationKarmaTotal);
+        CharacterCreationResourceAllocationOption? selected = FindAllocationOption(
+            authority, priorityOption, availableKarma, pending?.SelectedOptionId ?? "karma:0");
         if (pending is not null && selected is null)
             blockers.Add(CharacterCreationResourcesBlockers.InvalidOption);
         CharacterCreationResourcesBudget budget = selected is null
@@ -633,6 +641,7 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
             pending,
             authority,
             priorityOption,
+            availableKarma,
             options,
             budget,
             purchaseAuthorityExact,
@@ -668,46 +677,75 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
     private static CharacterCreationResourceAllocationOption[] BuildOptions(
         CharacterCreationResourcesAuthority authority,
         CharacterCreationResourcePriorityOption? priority,
-        int availableKarma)
+        int availableKarma,
+        int? creationKarmaTotal = null,
+        CancellationToken cancellationToken = default)
     {
-        if (!CharacterCreationResourcesRules.IsValidAuthority(authority) || priority is null)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CharacterCreationResourcesRules.IsValidAuthority(authority)
+            || !CharacterCreationResourcesRules.IsValidPriorityOption(priority) || availableKarma < 0)
             return [];
+        // The profile ceiling is not a wallet. Keep the ordinary disabled choices
+        // within the original creation budget, and every currently affordable choice
+        // (including quality gains above that budget), without enumerating an
+        // arbitrarily large profile ceiling. Direct lookups still explain choices
+        // outside this display domain using the same canonical option constructor.
+        int maximum = Math.Min(authority.MaximumKarmaInvestment,
+            Math.Max(availableKarma, creationKarmaTotal.GetValueOrDefault()));
         var result = new List<CharacterCreationResourceAllocationOption>();
-        for (int investment = 0; investment <= authority.MaximumKarmaInvestment; investment++)
+        // Widen the cursor so even an Int32.MaxValue endpoint cannot wrap.
+        for (long investment = 0; investment <= maximum; investment++)
         {
-            decimal converted;
-            decimal total;
-            try
-            {
-                converted = checked(investment * authority.KarmaToNuyenRate);
-                total = checked(priority.BasePriorityNuyen + converted);
-            }
-            catch (OverflowException)
-            {
-                break;
-            }
-            string[] blockers = investment <= availableKarma
-                ? []
-                : [CharacterCreationResourcesBlockers.InsufficientCreationKarma];
-            var candidate = new CharacterCreationResourceAllocationOption(
-                $"karma:{investment.ToString(CultureInfo.InvariantCulture)}",
-                investment,
-                converted,
-                total,
-                IsEnabled: blockers.Length == 0,
-                Blockers: blockers,
-                SourceAnchorIds: priority.SourceAnchorIds
-                    .Concat(CharacterCreationResourcesSourceAnchors.All)
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(anchor => anchor, StringComparer.Ordinal)
-                    .ToArray(),
-                OptionDigest: string.Empty);
-            result.Add(candidate with
-            {
-                OptionDigest = CharacterCreationResourcesRules.ComputeAllocationOptionDigest(candidate)
-            });
+            cancellationToken.ThrowIfCancellationRequested();
+            var option = CreateAllocationOption(authority, priority!, availableKarma, (int)investment);
+            if (option is null) break; // Positive rate and nonnegative principal: later values overflow too.
+            result.Add(option);
         }
+        cancellationToken.ThrowIfCancellationRequested();
         return result.ToArray();
+    }
+
+    private static CharacterCreationResourceAllocationOption? FindAllocationOption(
+        CharacterCreationResourcesAuthority authority, CharacterCreationResourcePriorityOption? priority,
+        int availableKarma, string? optionId)
+    {
+        if (!CharacterCreationResourcesRules.IsValidAuthority(authority)
+            || !CharacterCreationResourcesRules.IsValidPriorityOption(priority) || availableKarma < 0
+            || optionId is null || !optionId.StartsWith("karma:", StringComparison.Ordinal)
+            || !int.TryParse(optionId.AsSpan(6), NumberStyles.None, CultureInfo.InvariantCulture, out int investment))
+            return null;
+        var option = CreateAllocationOption(authority, priority!, availableKarma, investment);
+        return option?.OptionId == optionId ? option : null;
+    }
+
+    // The only funding-option arithmetic, shared by catalogues and single-choice
+    // pricing. A ceiling/overflow failure is not a free or truncated investment.
+    private static CharacterCreationResourceAllocationOption? CreateAllocationOption(
+        CharacterCreationResourcesAuthority authority, CharacterCreationResourcePriorityOption priority,
+        int availableKarma, int investment)
+    {
+        if (investment < 0 || investment > authority.MaximumKarmaInvestment) return null;
+        decimal converted;
+        decimal total;
+        try
+        {
+            converted = checked(investment * authority.KarmaToNuyenRate);
+            total = checked(priority.BasePriorityNuyen + converted);
+        }
+        catch (OverflowException) { return null; }
+        string[] blockers = investment <= availableKarma
+            ? [] : [CharacterCreationResourcesBlockers.InsufficientCreationKarma];
+        var candidate = new CharacterCreationResourceAllocationOption(
+            $"karma:{investment.ToString(CultureInfo.InvariantCulture)}",
+            investment, converted, total, IsEnabled: blockers.Length == 0,
+            Blockers: blockers,
+            SourceAnchorIds: priority.SourceAnchorIds
+                .Concat(CharacterCreationResourcesSourceAnchors.All)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(anchor => anchor, StringComparer.Ordinal)
+                .ToArray(),
+            OptionDigest: string.Empty);
+        return candidate with { OptionDigest = CharacterCreationResourcesRules.ComputeAllocationOptionDigest(candidate) };
     }
 
     private static CharacterCreationResourcesBudget BuildBudget(
@@ -920,6 +958,7 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
         CharacterCreationResourcesDraft? PendingDraft,
         CharacterCreationResourcesAuthority Authority,
         CharacterCreationResourcePriorityOption? PriorityOption,
+        int AvailableKarma,
         IReadOnlyList<CharacterCreationResourceAllocationOption> Options,
         CharacterCreationResourcesBudget Budget,
         bool PurchaseAuthorityExact,

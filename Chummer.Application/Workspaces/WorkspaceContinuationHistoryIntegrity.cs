@@ -24,7 +24,8 @@ internal static class WorkspaceContinuationHistoryIntegrity
         Converters = { new NonNullStringMapConverter() }
     };
 
-    internal static bool TryValidate(OwnerScope expectedOwner, WorkspaceContinuationSnapshot? candidate)
+    internal static bool TryValidate(OwnerScope expectedOwner, WorkspaceContinuationSnapshot? candidate,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
     {
         try
         {
@@ -53,7 +54,7 @@ internal static class WorkspaceContinuationHistoryIntegrity
             JsonElement shape = JsonSerializer.SerializeToElement(candidate, ShapeOptions);
             if (!HasNonNullCollectionElements(shape)
                 || !WorkspaceAuxiliaryStateIntegrity.IsValidShape(
-                    workspace.Id, workspace.ContentRevision, state.AuxiliaryState)
+                    workspace.Id, workspace.ContentRevision, state.AuxiliaryState, recovery)
                 || !IsConsistentGraph(workspace.Id, workspace.ContentRevision, workspace.SavedRevision,
                     CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(state.Payload),
                     state.AuxiliaryState, archived: false))

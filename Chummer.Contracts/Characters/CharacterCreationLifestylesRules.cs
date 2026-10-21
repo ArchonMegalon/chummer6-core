@@ -11,7 +11,7 @@ namespace Chummer.Contracts.Characters;
 public static class CharacterCreationLifestylesRules
 {
     private const int MaximumSelections = 4096;
-    private const int MaximumTextLength = 32_767;
+    internal const int MaximumTextLength = 32_767;
     private const int MaximumIncrements = 10_000;
     private const int MaximumRoommates = 100;
     private const int MaximumAspectIncrease = 100;
@@ -77,6 +77,11 @@ public static class CharacterCreationLifestylesRules
             || authority.QualityOptions is not { Count: <= 65_536 }
             || authority.TrustFundLevel is < 0 or > 4
             || authority.MetatypeCostPercent < 0m
+            || !IsValidPurchasedQualityCostShape(authority.PurchasedQualityCosts)
+            || !CharacterCreationLifestyleLocationRules.IsValidCatalog(authority.LocationCatalog)
+            || !CharacterCreationLifestyleLocationRules.IsValidCategories(authority.Categories)
+            || authority.Categories is not null && authority.QualityOptions.Any(option =>
+                !authority.Categories.Any(category => category.Name == option.Category && category.QualityType == option.QualityType))
             || authority.SourceAnchorIds is not { Count: > 0 }
             || authority.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
             || authority.SourceAnchorIds.Distinct(StringComparer.Ordinal).Count()
@@ -103,6 +108,40 @@ public static class CharacterCreationLifestylesRules
         return CharacterCreationLifestylesDigest.EqualsFixedTime(
             authority.AuthorityDigest,
             ComputeAuthorityDigest(authority));
+    }
+
+    // Source admission/recompilation belongs to the application boundary. This
+    // contract check binds every occurrence to its owner and rejects bad shapes.
+    public static bool IsValidPurchasedQualityCostShape(CharacterCreationLifestylePurchasedQualityCosts? costs)
+    {
+        if (costs is null) return true;
+        if (costs.Sources is not { Count: > 0 and <= 4096 }
+            || costs.Occurrences is not { Count: > 0 and <= 65_536 }
+            || costs.Sources.Any(source => source is null || source.SourceId == Guid.Empty
+                || string.IsNullOrWhiteSpace(source.OptionId) || source.Rating is < 1 or > 100
+                || source.IsFreeOrGranted || source.Name is null || source.Name.Contains("Dependent", StringComparison.Ordinal)
+                || source.SourceNodeXml is not { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength }
+                || !CharacterCreationQualitiesRules.DigestsEqual(source.SourceNodeDigest,
+                    CharacterCreationQualitiesRules.ComputeSourceNodeDigest(source.SourceNodeXml))
+                || source.SourceAnchorIds is not { Count: > 0 } || source.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
+            || costs.Sources.Select(source => source.OptionId).Distinct(StringComparer.Ordinal).Count() != costs.Sources.Count
+            || costs.Sources.Select(source => source.SourceId).Distinct().Count() != costs.Sources.Count)
+            return false;
+        var owners = costs.Sources.ToDictionary(source => source.OptionId, StringComparer.Ordinal);
+        var identities = new HashSet<(string, int, string, int)>();
+        foreach (var effect in costs.Occurrences)
+        {
+            if (effect is null || effect.OptionId is null || !owners.TryGetValue(effect.OptionId, out var owner)
+                || effect.SourceId != owner.SourceId || effect.SourceNodeDigest != owner.SourceNodeDigest
+                || effect.Level < 1 || effect.Level > owner.Rating || effect.Position < 0
+                || effect.Container is not ("bonus" or "firstlevelbonus")
+                || effect.Container == "firstlevelbonus" && effect.Level != 1 || effect.Percentage < -100m
+                || effect.EffectType is not (CharacterCreationLifestyleCostEffectType.LifestyleCost
+                    or CharacterCreationLifestyleCostEffectType.BasicLifestyleCost)
+                || effect.SourceAnchorIds is null || !effect.SourceAnchorIds.SequenceEqual(owner.SourceAnchorIds, StringComparer.Ordinal)
+                || !identities.Add((effect.OptionId, effect.Level, effect.Container, effect.Position))) return false;
+        }
+        return costs.Sources.All(source => costs.Occurrences.Any(effect => effect.OptionId == source.OptionId));
     }
 
     public static bool TryProject(
@@ -145,6 +184,11 @@ public static class CharacterCreationLifestylesRules
             findings.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
         if (!string.Equals(requested.IncrementId, baseOption.DefaultIncrementId, StringComparison.Ordinal))
             findings.Add(CharacterCreationLifestylesBlockers.InvalidMutation);
+
+        CharacterCreationLifestyleLocationSelection? location = null;
+        if (authority.LocationCatalog is { } catalogue
+            && !CharacterCreationLifestyleLocationRules.TrySelect(requested, catalogue, out location))
+            findings.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
 
         CharacterCreationLifestyleConfiguration configuration = AddBuiltInQualities(
             requested,
@@ -190,6 +234,13 @@ public static class CharacterCreationLifestylesRules
             if (!selection.IsBuiltIn && !option.EligibilityIsExact)
             {
                 findings.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
+                continue;
+            }
+            if (option.SelectionSemantics is { } semantics
+                && (semantics.RequiresText && string.IsNullOrWhiteSpace(selection.Extra)
+                    || !semantics.AllowMultiple && configuration.Qualities.Count(item => item.OptionId == selection.OptionId) > 1))
+            {
+                findings.Add(CharacterCreationLifestylesBlockers.InvalidMutation);
                 continue;
             }
             bool canBeFreeByLifestyle = IsAllowedFreeLifestyle(option, baseOption.Name);
@@ -242,6 +293,7 @@ public static class CharacterCreationLifestylesRules
             configuration,
             selected,
             authority.MetatypeCostPercent,
+            authority.PurchasedQualityCosts,
             findings);
         decimal totalCost;
         try
@@ -266,6 +318,7 @@ public static class CharacterCreationLifestylesRules
             normalized);
         string[] anchors = baseOption.SourceAnchorIds
             .Concat(selected.SelectMany(item => item.Option.SourceAnchorIds))
+            .Concat(authority.PurchasedQualityCosts?.Occurrences.SelectMany(effect => effect.SourceAnchorIds) ?? [])
             .Concat(CharacterCreationLifestyleSourceAnchors.All)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
@@ -278,7 +331,7 @@ public static class CharacterCreationLifestylesRules
             baseOption.Page,
             economics,
             anchors,
-            string.Empty);
+            string.Empty) { Location = location };
         projection = candidate with { LifestyleDigest = ComputeProjectionDigest(candidate) };
         blockers = normalized;
         return normalized.Length == 0;
@@ -316,6 +369,7 @@ public static class CharacterCreationLifestylesRules
         CharacterCreationLifestyleConfiguration configuration,
         IReadOnlyList<SelectedQuality> selected,
         decimal metatypeCostPercent,
+        CharacterCreationLifestylePurchasedQualityCosts? purchasedQualityCosts,
         List<string> blockers)
     {
         try
@@ -354,9 +408,16 @@ public static class CharacterCreationLifestylesRules
                 result = checked(result / (configuration.Roommates + 1m));
             }
 
-            // Character-based metatype costs follow the roommate split and
-            // precede Outings/Services and Contracts (legacy GetTotalMonthlyCost).
+            // Legacy GetTotalMonthlyCost: roommate split, racial sum, then the
+            // product of ordinary quality occurrences, then Standard-only Basic
+            // occurrences, before Outings/Services. Keep the native type order.
             result = checked(result * (1m + metatypeCostPercent / 100m));
+            result = checked(result * ProductMultiplier(
+                purchasedQualityCosts?.Occurrences
+                    .Where(effect => effect.EffectType == CharacterCreationLifestyleCostEffectType.LifestyleCost
+                        || configuration.StyleId == CharacterCreationLifestyleStyleIds.Standard)
+                    .OrderBy(effect => effect.EffectType)
+                    .Select(effect => effect.Percentage) ?? [], blockers));
 
             SelectedQuality[] outingsAndServices = selected.Where(item =>
                 !item.Selection.IsBuiltIn

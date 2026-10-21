@@ -2,6 +2,8 @@ using Chummer.Contracts.Characters;
 
 namespace Chummer.Application.Characters;
 
+internal enum CharacterCreationCompositeEditStage { None, Magic, Qualities, Resources, Gear, Loadout, Contacts, Lifestyles }
+
 /// <summary>
 /// Protects the player's original selections while reviewing additions. This is
 /// not source admission, budget validation or a capability to mutate a runner.
@@ -12,7 +14,19 @@ public static class CharacterCreationCompletionPreservationRules
     public static IReadOnlyList<string> Check(
         CharacterCreationCompletionReviewInputs inputs,
         CharacterCreationCompletionSelections proposed)
+        => Check(inputs, proposed, CancellationToken.None);
+
+    public static IReadOnlyList<string> Check(
+        CharacterCreationCompletionReviewInputs inputs,
+        CharacterCreationCompletionSelections proposed,
+        CancellationToken cancellationToken)
+        => CheckForCompositeEdit(inputs, proposed, CharacterCreationCompositeEditStage.None, cancellationToken);
+
+    internal static IReadOnlyList<string> CheckForCompositeEdit(
+        CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionSelections proposed,
+        CharacterCreationCompositeEditStage stage, CancellationToken cancellationToken, bool attributesReplacement = false)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(proposed);
         if (inputs.Skills?.Attributes?.Attributes is null || inputs.Skills.Authority is null
@@ -27,19 +41,27 @@ public static class CharacterCreationCompletionPreservationRules
             || proposed.AttributeAllocations.Any(value => value is null)
             || proposed.GroupAllocations.Any(value => value is null))
             return [CharacterCreationCompletionReviewSchemas.RequestInvalid];
-        var original = new CharacterCreationCompletionOriginalSelections(inputs.Magic.Selections,
+        var original = SnapshotOriginal(inputs);
+        return Check(inputs.Skills, original, proposed, cancellationToken, stage, attributesReplacement);
+    }
+
+    // Reuse the canonical preservation origin for assessment; replay reads its
+    // own equivalent origin from the real archive.
+    internal static CharacterCreationCompletionOriginalSelections SnapshotOriginal(
+        CharacterCreationCompletionReviewInputs inputs)
+        => new CharacterCreationCompletionOriginalSelections(inputs.Magic.Selections,
             inputs.Lifestyles.Qualities.SelectedOptionIds,
             inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(value =>
                 new CharacterCreationGearSelection(value.OptionId, value.Quantity)).ToArray() ?? [],
             inputs.Lifestyles.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0,
             inputs.Contacts.Contacts, inputs.Lifestyles.Lifestyles) { Loadout = inputs.Loadout?.OriginalSelections };
-        return Check(inputs.Skills, original, proposed);
-    }
 
     internal static IReadOnlyList<string> Check(CharacterCreationSkillsCompletionInputs skills,
         CharacterCreationCompletionOriginalSelections originalSelections,
-        CharacterCreationCompletionSelections proposed)
+        CharacterCreationCompletionSelections proposed, CancellationToken cancellationToken = default,
+        CharacterCreationCompositeEditStage stage = CharacterCreationCompositeEditStage.None, bool? attributesReplacement = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (skills?.Attributes?.Attributes is null || skills.Authority is null
             || skills.Allocations is null || skills.GroupAllocations is null
             || originalSelections is null || originalSelections.Magic is null
@@ -50,20 +72,23 @@ public static class CharacterCreationCompletionPreservationRules
             || proposed.AttributeAllocations.Any(value => value is null)
             || proposed.GroupAllocations.Any(value => value is null))
             return [CharacterCreationCompletionReviewSchemas.RequestInvalid];
+        if (!CharacterCreationSkillCompletionPermissionRules.TrySnapshotAuthorityCatalogs(skills.Authority,
+                out var authority, cancellationToken))
+            return [CharacterCreationCompletionReviewSchemas.InvalidChangePermissions];
+        skills = skills with { Authority = authority };
         var attributes = skills.Attributes.Attributes;
         if (proposed.ChangeableAttributeIds is null || proposed.ChangeableSkillTargets is null
             || proposed.ChangeableAttributeIds.Count > 13
-            || proposed.ChangeableSkillTargets.Count > CharacterCreationSkillCompletionPlanner.MaximumTargets
             || proposed.ChangeableAttributeIds.Any(id => string.IsNullOrWhiteSpace(id)
                 || !attributes.Any(value => value.AttributeId == id && value.IsEnabled))
             || proposed.ChangeableAttributeIds.Distinct(StringComparer.Ordinal).Count()
                 != proposed.ChangeableAttributeIds.Count
-            || proposed.ChangeableSkillTargets.Any(target => target is null || !KnownTarget(skills.Authority, target))
-            || proposed.ChangeableSkillTargets.Distinct().Count() != proposed.ChangeableSkillTargets.Count)
+            || !CharacterCreationSkillCompletionPermissionRules.TrySnapshot(skills.Authority,
+                proposed.ChangeableSkillTargets, out var skillPermissions, cancellationToken))
             return [CharacterCreationCompletionReviewSchemas.InvalidChangePermissions];
 
         var mutableAttributes = proposed.ChangeableAttributeIds.ToHashSet(StringComparer.Ordinal);
-        var mutableSkills = proposed.ChangeableSkillTargets.ToHashSet();
+        var mutableSkills = skillPermissions.ToHashSet();
         var originalAttributes = attributes.Select(value => new CharacterCreationAttributeAllocation(
             value.AttributeId, value.PriorityPointsSpent, value.KarmaLevels)).ToArray();
         // Missing zero rows are semantically zero, not a way to unlock them.
@@ -72,10 +97,27 @@ public static class CharacterCreationCompletionPreservationRules
             if (!proposedAttributes.Any(value => value.AttributeId == original.AttributeId))
                 proposedAttributes.Add(new(original.AttributeId, 0, 0));
 
-        bool preserved = Retains(originalAttributes, proposedAttributes, value => value.AttributeId,
+        if (skills.CompositeBaseline is { } composite)
+        {
+            var selected = composite.Selections;
+            originalSelections = new(selected.MagicSelections, selected.QualityOptionIds, selected.Gear,
+                selected.TotalKarmaInvestment, selected.Contacts, selected.Lifestyles)
+                { Loadout = selected.Loadout ?? originalSelections.Loadout };
+        }
+        // Only the synchronous owner-bound workflow or transaction-admitted replay
+        // can reach this exception. Public Check and ordinary Finish retain old rules.
+        bool replacing = attributesReplacement != false
+            && CharacterCreationAttributesReplacementExecution.AuthorizesPreservation(skills, proposed);
+        if (attributesReplacement == true && !replacing)
+            return [CharacterCreationAttributesReplacementIntent.Invalid];
+        bool preserved = replacing || Retains(originalAttributes, proposedAttributes, value => value.AttributeId,
             (before, after) => mutableAttributes.Contains(before.AttributeId)
                 ? after.PriorityPoints >= before.PriorityPoints && after.KarmaLevels >= before.KarmaLevels
                 : after == before);
+
+        if (!replacing)
+            preserved &= CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                skills.CompositeBaseline?.Selections.PlayerChosenAttributeIds, proposed.PlayerChosenAttributeIds);
 
         preserved &= Retains(skills.Allocations, proposed.SkillAllocations,
             value => new CharacterCreationSkillCompletionTarget(value.Kind, value.SourceSkillId),
@@ -84,6 +126,12 @@ public static class CharacterCreationCompletionPreservationRules
                     && before.SpecializationOptionId == after.SpecializationOptionId
                     && (before.Rating is int rating ? after.Rating >= rating : after.Rating is null)
                 : before == after);
+        if (skills.CompositeBaseline?.Selections.SkillKarmaPurchases is { } paid)
+            preserved &= proposed.SkillKarmaPurchases is { } purchases
+                && Retains(paid, purchases, value => (value.Kind, value.SourceSkillId),
+                    (before, after) => before.SourceNodeDigest == after.SourceNodeDigest
+                        && after.Rating >= before.Rating
+                        && (before.SpecializationOptionId is null || before.SpecializationOptionId == after.SpecializationOptionId));
         preserved &= Retains(skills.GroupAllocations, proposed.GroupAllocations, value => value.GroupId,
             (before, after) => mutableSkills.Contains(new(CharacterCreationSkillCompletionKinds.Group, before.GroupId))
                 ? after.Rating >= before.Rating : after == before);
@@ -101,7 +149,10 @@ public static class CharacterCreationCompletionPreservationRules
                 preserved = false;
         }
 
-        var magic = originalSelections.Magic;
+        // Only the internal ordinary route may replace its one owned stage.
+        // This permission is never serialized or accepted by public Finish APIs.
+        var magic = stage == CharacterCreationCompositeEditStage.Magic
+            ? proposed.MagicSelections : originalSelections.Magic;
         var nextMagic = proposed.MagicSelections;
         preserved &= (magic.Tradition is null || magic.Tradition == nextMagic.Tradition)
             && (magic.Stream is null || magic.Stream == nextMagic.Stream)
@@ -110,10 +161,11 @@ public static class CharacterCreationCompletionPreservationRules
             && Retains(magic.Spells, nextMagic.Spells, value => value, (before, after) => before == after)
             && Retains(magic.ComplexForms, nextMagic.ComplexForms, value => value, (before, after) => before == after);
 
-        preserved &= Retains(originalSelections.QualityOptionIds, proposed.QualityOptionIds,
+        preserved &= Retains(stage == CharacterCreationCompositeEditStage.Qualities
+                ? proposed.QualityOptionIds : originalSelections.QualityOptionIds, proposed.QualityOptionIds,
             value => value, (before, after) => before == after);
-        preserved &= Retains(originalSelections.Gear, proposed.Gear, value => value.OptionId, (before, after) => before == after);
-        preserved &= originalSelections.Loadout is null ? proposed.Loadout is null
+        preserved &= Retains(stage == CharacterCreationCompositeEditStage.Gear ? proposed.Gear : originalSelections.Gear, proposed.Gear, value => value.OptionId, (before, after) => before == after);
+        preserved &= stage == CharacterCreationCompositeEditStage.Loadout || (originalSelections.Loadout is null ? proposed.Loadout is null
             : proposed.Loadout is not null
                 && (originalSelections.Loadout.Weapons.Count == 0
                     || originalSelections.Loadout.Weapons.Count == proposed.Loadout.Weapons.Count)
@@ -122,23 +174,14 @@ public static class CharacterCreationCompletionPreservationRules
                 && Retains(originalSelections.Loadout.Weapons, proposed.Loadout.Weapons, value => value.OptionId,
                     (before, after) => before == after)
                 && Retains(originalSelections.Loadout.Armor, proposed.Loadout.Armor, value => value.OptionId,
-                    (before, after) => before == after);
-        preserved &= proposed.TotalKarmaInvestment >= originalSelections.KarmaInvestment;
-        preserved &= Retains(originalSelections.Contacts, proposed.Contacts, value => value.ContactId,
+                    (before, after) => before == after));
+        preserved &= stage == CharacterCreationCompositeEditStage.Resources || proposed.TotalKarmaInvestment >= originalSelections.KarmaInvestment;
+        preserved &= Retains(stage == CharacterCreationCompositeEditStage.Contacts ? proposed.Contacts : originalSelections.Contacts, proposed.Contacts, value => value.ContactId,
             (before, after) => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(before, after));
-        preserved &= Retains(originalSelections.Lifestyles, proposed.Lifestyles, value => value.LifestyleId,
+        preserved &= Retains(stage == CharacterCreationCompositeEditStage.Lifestyles ? proposed.Lifestyles : originalSelections.Lifestyles, proposed.Lifestyles, value => value.LifestyleId,
             (before, after) => CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(before, after));
 
         return preserved ? [] : [CharacterCreationCompletionReviewSchemas.SelectionPreservationConflict];
-    }
-
-    private static bool KnownTarget(CharacterCreationSkillsAuthority authority, CharacterCreationSkillCompletionTarget target)
-    {
-        if (string.IsNullOrWhiteSpace(target.SourceId)) return false;
-        return target.Kind == CharacterCreationSkillCompletionKinds.Group
-            ? authority.SkillGroups.Any(value => value.GroupId == target.SourceId)
-            : authority.ActiveSkills.Concat(authority.KnowledgeSkills).Any(value =>
-                value.Kind == target.Kind && value.SourceSkillId == target.SourceId);
     }
 
     private static bool Retains<T, TKey>(IReadOnlyList<T> original, IReadOnlyList<T> proposed,

@@ -47,7 +47,8 @@ public static class CharacterCreationKarmaSkillsRules
         CharacterCreationKarmaSkillsPolicy policy, CharacterCreationKarmaTalentCatalog talents,
         CharacterCreationMetatypeOptionProjection metatype, string talentId,
         CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
-        CharacterCreationKarmaSkillsSelection selection)
+        CharacterCreationKarmaSkillsSelection selection,
+        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null)
     {
         // Access evaluation admits the complete catalog (including unselected
         // rows) before projecting permissions. Do not hash every source row a
@@ -71,9 +72,12 @@ public static class CharacterCreationKarmaSkillsRules
             ActiveSkillSourceOrder = catalog.ActiveSkillSourceOrder.Where(activeIds.Contains).ToArray()
         };
         subset = subset with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(subset) };
+        // Literal targets must resolve even when unpurchased; retain this catalog for cold replay.
+        if (modifierSelections is not null) subset = catalog;
         var selectedTalents = talents with { Options = talents.Options.Where(item => item.OptionId == talentId).ToArray() };
         selectedTalents = selectedTalents with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(selectedTalents) };
-        return EvaluateCore(subset, policy, selectedTalents, metatype, talentId, attributes, karmaAvailable, frozen, catalog.CatalogDigest);
+        return EvaluateCore(subset, policy, selectedTalents, metatype, talentId, attributes, karmaAvailable, frozen, catalog.CatalogDigest,
+            modifierSelections);
     }
 
     public static bool IsValid(CharacterCreationKarmaSkillsQuote? quote,
@@ -86,7 +90,7 @@ public static class CharacterCreationKarmaSkillsRules
             || talent is null || attributes is null || selection is null
             || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(talent, quote.Basis.Talents.Options[0])) return false;
         var expected = EvaluateCore(quote.Basis.Catalog, quote.Policy, quote.Basis.Talents, metatype, talent.OptionId,
-            attributes, quote.KarmaAvailable, selection, quote.CatalogDigest);
+            attributes, quote.KarmaAvailable, selection, quote.CatalogDigest, quote.SkillKarmaQualitySelections);
         return expected is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected, quote);
     }
 
@@ -94,7 +98,8 @@ public static class CharacterCreationKarmaSkillsRules
         CharacterCreationKarmaSkillsPolicy policy, CharacterCreationKarmaTalentCatalog talents,
         CharacterCreationMetatypeOptionProjection metatype, string talentId,
         CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
-        CharacterCreationKarmaSkillsSelection selection, string fullCatalogDigest)
+        CharacterCreationKarmaSkillsSelection selection, string fullCatalogDigest,
+        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null)
     {
         if (catalog is null || !TryFreeze(selection, out var frozen) || karmaAvailable < 0 || !IsPolicyValid(policy)
             || !CharacterCreationSkillsDigest.IsCanonical(fullCatalogDigest)
@@ -107,6 +112,14 @@ public static class CharacterCreationKarmaSkillsRules
         // Access covers this retained subset, not the complete picker catalog.
         // Keep its subset identity; the quote binds the full catalog separately.
         var blockers = new HashSet<string>(access.Blockers, StringComparer.Ordinal);
+        IReadOnlyList<CharacterCreationSkillKarmaEffect> effects = [];
+        if (modifierSelections is not null)
+        {
+            modifierSelections = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationQualitySelection[]>(
+                System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(modifierSelections))!;
+            if (!CharacterCreationLegacySourceProjector.TrySkillKarmaModifiers(modifierSelections,
+                    catalog.ActiveSkills, catalog.KnowledgeSkills, catalog.SkillGroups, out effects)) return null;
+        }
         if (!TryKnowledgePoints(policy.KnowledgePointsExpression, attributes, out int knowledgeTotal))
             blockers.Add(KnowledgeExpressionUnresolved);
         var sourceSkills = catalog.ActiveSkills.Concat(catalog.KnowledgeSkills)
@@ -152,6 +165,8 @@ public static class CharacterCreationKarmaSkillsRules
                     if (!CharacterCreationSkillCostRules.TryGroup(upper - ranks, upper,
                         policy.KarmaNewSkillGroup, policy.KarmaImproveSkillGroup, out groupCost))
                         local.Add(CharacterCreationSkillsBlockers.AllocationInvalid);
+                    else if (!TryPriceGroup(group, group.MemberSkillSourceIds.Select(id => activeById[id]).ToArray(), upper - ranks, upper,
+                        groupCost, effects, out groupCost)) local.Add(CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
                 }
                 bool broken = enabled.Length > 1 && (enabled.Select(Rating).Distinct().Count() > 1
                     || policy.SpecializationsBreakSkillGroups && enabled.Any(HasSpec));
@@ -218,6 +233,29 @@ public static class CharacterCreationKarmaSkillsRules
                     if (!CharacterCreationSkillCostRules.TryKnowledge(allocation.KnowledgePointLevels, rating,
                         policy.KarmaNewKnowledgeSkill, policy.KarmaImproveKnowledgeSkill, out cost))
                         local.Add(CharacterCreationSkillsBlockers.AllocationInvalid);
+                    else if (effects.Count > 0 && !allocation.IsNativeLanguage)
+                    {
+                        var target = CharacterCreationLegacySourceProjector.Target(source);
+                        if (!CharacterCreationSkillKarmaModifierRules.TryPrice(target, allocation.KnowledgePointLevels, rating,
+                                cost, 0, allocation.SpecializationPayment == CharacterCreationKarmaSpecializationPayments.Karma ? 1 : 0,
+                                policy.KarmaKnowledgeSpecialization, effects, out var price))
+                            local.Add(CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
+                        else
+                        {
+                            // Keep the specialization breakdown; never add it twice
+                            // or separately round the knowledge aggregate.
+                            specCost = price!.SpecializationCost;
+                            cost = checked(price.KarmaCost - specCost);
+                        }
+                        decimal pointMultiplier = 1;
+                        foreach (var effect in effects.Where(e => e.ImprovementType == "SkillCategoryPointCostMultiplier"
+                            && e.Targets.Contains(target) && e.Minimum <= allocation.KnowledgePointLevels))
+                        {
+                            CharacterCreationKnowledgeCategoryRules.TryLowerNativeCondition(effect.Condition, out var condition);
+                            if (condition != "career") pointMultiplier = checked(pointMultiplier * effect.Value / 100m);
+                        }
+                        points = Math.Max(0, CharacterCreationSkillKarmaModifierRules.Round(checked(points * pointMultiplier)));
+                    }
                 }
                 else if (rating > 0)
                 {
@@ -230,19 +268,28 @@ public static class CharacterCreationKarmaSkillsRules
                     int? otherMinimum = enabledMembers.Where(id => id != source.SourceSkillId).Select(id => (int?)Rating(id)).Min();
                     if (groupLevel == 0)
                     {
-                        if (!TryActiveInterval(0, rating, policy, compensate, otherMinimum, enabledMembers.Length, out cost))
+                        if (!TryPriceActive(source, 0, rating, policy, compensate, otherMinimum, enabledMembers.Length, 0, effects, out var price))
                             local.Add(CharacterCreationSkillsBlockers.AllocationInvalid);
+                        else cost = price!.IntervalCost;
                     }
                     else
                     {
                         // Skill.CurrentKarmaCost uses all canonical members for
                         // this split, whereas SkillGroup uses enabled members.
                         int groupUpper = members.Min(Rating);
-                        if (!TryActiveInterval(0, groupUpper - groupLevel, policy, compensate, otherMinimum, enabledMembers.Length, out int below)
-                            || !TryActiveInterval(groupUpper, rating, policy, compensate, otherMinimum, enabledMembers.Length, out int above))
+                        if (!TryPriceActive(source, 0, groupUpper - groupLevel, policy, compensate, otherMinimum, enabledMembers.Length, 0, effects, out var below)
+                            || !TryPriceActive(source, groupUpper, rating, policy, compensate, otherMinimum, enabledMembers.Length, 0, effects, out var above))
                             local.Add(CharacterCreationSkillsBlockers.AllocationInvalid);
-                        else cost = checked(below + above);
+                        else cost = checked(below!.IntervalCost + above!.IntervalCost);
                     }
+                }
+                if (!knowledge && allocation.SpecializationPayment == CharacterCreationKarmaSpecializationPayments.Karma
+                    && !source.IsExotic && effects.Count > 0)
+                {
+                    if (!CharacterCreationSkillKarmaModifierRules.TryPrice(CharacterCreationLegacySourceProjector.Target(source),
+                        rating, rating, 0, 0, 1, policy.KarmaSpecialization, effects, out var specPrice))
+                        local.Add(CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported);
+                    else specCost = specPrice!.SpecializationCost;
                 }
                 cost = Math.Max(0, checked(cost + specCost));
                 knowledgeUsed += points;
@@ -260,7 +307,8 @@ public static class CharacterCreationKarmaSkillsRules
         var quote = new CharacterCreationKarmaSkillsQuote(CharacterCreationKarmaSkillsQuote.SchemaV1,
             policy, fullCatalogDigest, attributes.QuoteDigest, access, frozen,
             projectedSkills.ToArray(), projectedGroups.OrderBy(group => group.Allocation.GroupId, StringComparer.Ordinal).ToArray(),
-            knowledgeTotal, knowledgeUsed, natives, karmaAvailable, used, Ordered(blockers), string.Empty, new(catalog, talents));
+            knowledgeTotal, knowledgeUsed, natives, karmaAvailable, used, Ordered(blockers), string.Empty, new(catalog, talents))
+            { SkillKarmaQualitySelections = modifierSelections };
         return quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
     }
 
@@ -279,6 +327,18 @@ public static class CharacterCreationKarmaSkillsRules
 
     private static bool TryKnowledgePoints(string expression, CharacterCreationKarmaAttributesQuote attributes, out int points)
         => TryKnowledgePoints(expression, attributes.Attributes.ToDictionary(item => item.AttributeId, item => item.Current), out points);
+
+    internal static bool TryKnowledgePoints(string expression,
+        IReadOnlyList<CharacterCreationAttributeProjection> attributes, out int points)
+    {
+        points = 0;
+        if (attributes.Count is < 1 or > 32
+            || attributes.Any(item => item is null || string.IsNullOrWhiteSpace(item.AttributeId) || item.UnaugmentedCurrent < 0)
+            || attributes.Select(item => item.AttributeId).Distinct(StringComparer.Ordinal).Count() != attributes.Count)
+            return false;
+        return TryKnowledgePoints(expression,
+            attributes.ToDictionary(item => item.AttributeId, item => item.UnaugmentedCurrent, StringComparer.Ordinal), out points);
+    }
 
     internal static bool TryKnowledgePoints(string expression, IReadOnlyDictionary<string, int> attributes, out int points)
     {
@@ -307,8 +367,20 @@ public static class CharacterCreationKarmaSkillsRules
 
     internal static bool TryActiveInterval(int lower, int upper, CharacterCreationKarmaSkillsPolicy policy,
         bool compensate, int? otherMinimum, int memberCount, out int cost)
+        => TryActiveInterval(lower, upper, policy, compensate, otherMinimum, memberCount, out cost, out _);
+
+    internal static bool TryActiveInterval(int lower, int upper, CharacterCreationKarmaSkillsPolicy policy,
+        bool compensate, int? otherMinimum, int memberCount, out int cost, out int compensationFloor)
+        => TryActiveInterval(lower, upper, policy, compensate, otherMinimum, memberCount,
+            out cost, out compensationFloor, out _, captureExecution: false);
+
+    private static bool TryActiveInterval(int lower, int upper, CharacterCreationKarmaSkillsPolicy policy,
+        bool compensate, int? otherMinimum, int memberCount, out int cost, out int compensationFloor,
+        out CharacterCreationSkillGroupCompensationExecution? execution, bool captureExecution)
     {
+        execution = null;
         cost = 0;
+        compensationFloor = 0;
         if (lower >= upper) return true;
         if (!CharacterCreationSkillCostRules.TryActive(lower, upper, policy.KarmaNewActiveSkill,
             policy.KarmaImproveActiveSkill, out cost)) return false;
@@ -320,11 +392,89 @@ public static class CharacterCreationKarmaSkillsRules
             // replacement of all individual ranks with a new group purchase.
             long levels = lower == 0 ? (ceiling - 1) * ceiling / 2
                 : (ceiling * (ceiling + 1) - (long)lower * (lower + 1L)) / 2;
-            long group = checked(levels * policy.KarmaImproveSkillGroup + (lower == 0 ? policy.KarmaNewSkillGroup : 0));
+            // Retain the terms of this exact execution; do not reconstruct use from the total.
+            long improveGroup = checked(levels * policy.KarmaImproveSkillGroup);
+            long newGroup = lower == 0 ? policy.KarmaNewSkillGroup : 0;
+            long group = checked(improveGroup + newGroup);
             long individual = checked(levels * policy.KarmaImproveActiveSkill + (lower == 0 ? policy.KarmaNewActiveSkill : 0));
-            cost = checked((int)(cost + group - checked(memberCount * individual)));
+            compensationFloor = checked((int)(group - checked(memberCount * individual)));
+            cost = checked(cost + compensationFloor);
+            if (captureExecution)
+                execution = new((int)ceiling,
+                    lower == 0 ? new(1, policy.KarmaNewSkillGroup, newGroup) : null,
+                    new(levels, policy.KarmaImproveSkillGroup, improveGroup), group, individual);
             return true;
         }
         catch (OverflowException) { cost = 0; return false; }
+    }
+
+    internal static bool TryPriceActive(CharacterCreationSkillCatalogEntry source, int lower, int upper,
+        CharacterCreationKarmaSkillsPolicy policy, bool compensate, int? otherMinimum, int memberCount,
+        int specializationCount, IReadOnlyList<CharacterCreationSkillKarmaEffect> effects,
+        out CharacterCreationSkillKarmaPrice? price, bool captureExecution = false)
+    {
+        price = null;
+        if (!TryActiveInterval(lower, upper, policy, compensate, otherMinimum, memberCount,
+                out int raw, out int floor, out var groupExecution, captureExecution)) return false;
+        if (effects.Count == 0)
+        {
+            try
+            {
+                int spec = checked(specializationCount * policy.KarmaSpecialization);
+                price = new(CharacterCreationLegacySourceProjector.Target(source), lower, upper, raw, floor,
+                    1, 0, 1, 0, raw, spec, Math.Max(0, checked(raw + spec)), []);
+            }
+            catch (OverflowException) { return false; }
+        }
+        else if (!CharacterCreationSkillKarmaModifierRules.TryPrice(CharacterCreationLegacySourceProjector.Target(source),
+                lower, upper, raw, floor, specializationCount, policy.KarmaSpecialization, effects, out price)) return false;
+        if (captureExecution)
+        {
+            var target = CharacterCreationLegacySourceProjector.Target(source);
+            // Bind all actual pricing arguments, including the policy and modifier inputs.
+            // The containing price is the very object whose KarmaCost the caller pays.
+            string inputDigest = CharacterCreationSkillsDigest.Compute(new
+            {
+                Target = target, Lower = lower, Upper = upper, Policy = policy,
+                Compensate = compensate, OtherMinimum = otherMinimum, MemberCount = memberCount,
+                SpecializationCount = specializationCount, Effects = effects
+            });
+            price = price! with { Execution = new(CharacterCreationActiveSkillKarmaExecution.SchemaV1,
+                CharacterCreationSkillKarmaOperation.ActiveSkillPurchase, target, policy.AuthorityDigest,
+                inputDigest, lower, upper, compensate, otherMinimum, memberCount, specializationCount,
+                groupExecution, price!.KarmaCost) };
+        }
+        return true;
+    }
+
+    // Verification requires independent canonical arguments. A seal supplied with the
+    // evidence is never authority; replay the same engine and compare the whole price.
+    internal static bool IsActiveExecutionValid(CharacterCreationSkillKarmaPrice? price,
+        CharacterCreationSkillCatalogEntry source, int lower, int upper,
+        CharacterCreationKarmaSkillsPolicy policy, bool compensate, int? otherMinimum, int memberCount,
+        int specializationCount, IReadOnlyList<CharacterCreationSkillKarmaEffect> effects)
+        => price?.Execution is not null
+            && TryPriceActive(source, lower, upper, policy, compensate, otherMinimum, memberCount,
+                specializationCount, effects, out var expected, captureExecution: true)
+            && CharacterCreationSkillsDigest.EqualsFixedTime(CharacterCreationSkillsDigest.Compute(price),
+                CharacterCreationSkillsDigest.Compute(expected));
+
+    internal static bool TryPriceGroup(CharacterCreationSkillGroupCatalogEntry group,
+        IReadOnlyList<CharacterCreationSkillCatalogEntry> groupMembers, int lower, int upper, int raw,
+        IReadOnlyList<CharacterCreationSkillKarmaEffect> effects, out int cost)
+    {
+        cost = 0;
+        if (effects.Count == 0) { cost = raw; return true; }
+        var target = new CharacterCreationSkillKarmaTarget("group", group.GroupId, group.GroupDigest);
+        var members = groupMembers.Select(CharacterCreationLegacySourceProjector.Target).ToHashSet();
+        if (!CharacterCreationSkillKarmaModifierRules.IsValid(effects)
+            || effects.SelectMany(e => e.Targets).Any(t => members.Append(target).Any(current =>
+                current.Kind == t.Kind && current.SourceId == t.SourceId && current.SourceNodeDigest != t.SourceNodeDigest))) return false;
+        var relevant = effects.Where(e => e.Targets.Contains(target)
+            || e.ImprovementType.StartsWith("SkillGroupCategory", StringComparison.Ordinal) && e.Targets.Any(members.Contains))
+            .Select(e => e with { Targets = [target] }).ToArray();
+        if (!CharacterCreationSkillKarmaModifierRules.TryPrice(target, lower, upper, raw, 0, 0, 0, relevant, out var price)) return false;
+        cost = price!.KarmaCost;
+        return true;
     }
 }

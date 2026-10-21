@@ -360,6 +360,60 @@ public sealed class ResourcesCompletionTests
         AssertWorkspaceUnchanged(cold, saved, files);
     }
 
+    [TestMethod]
+    public void FundingBounds1007_combined_wallet_keeps_prior_purchases_and_nonzero_investment_at_maximum_profile_ceiling()
+    {
+        using ReadyContext context = ReadyContext.Create(false, talentValue: "Mystic Adept",
+            amendSettings: profile =>
+            {
+                profile.SetElementValue("nuyenmaxbp", int.MaxValue);
+                profile.SetElementValue("chargenkarmatonuyenexpression", "{Karma} * 2500.5 + {PriorityNuyen}");
+            });
+        var resources = new CharacterCreationResourcesService(context.Store, context.Resolver);
+        var state = resources.Load(new(context.WorkspaceId)).Value!;
+        var savedPreview = resources.Preview(new(state.Binding, "karma:3")).Value!;
+        var receipt = resources.Confirm(new(savedPreview.Binding, "karma:3", savedPreview.PreviewDigest,
+            "funding1007-prior-investment", true));
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Applied, receipt.Outcome, string.Join(',', receipt.Blockers));
+        var gear = new CharacterCreationGearService(context.Store, context.Resolver);
+        var gearState = gear.Load(new(context.WorkspaceId)).Value!;
+        var item = gearState.Authority.Options.Where(row => row.IsSelectable && row.PackageQuantity == 1
+                && row.PackageCost > 0 && row.PackageCost < gearState.Budget.TotalStartingNuyen)
+            .OrderBy(row => row.PackageCost).ThenBy(row => row.OptionId, StringComparer.Ordinal).First();
+        CharacterCreationGearSelection[] basket = [new(item.OptionId, 1)];
+        var gearPreview = gear.Preview(new(gearState.Binding, basket)).Value!;
+        var gearReceipt = gear.Confirm(new(gearPreview.Binding, basket, gearPreview.PreviewDigest,
+            "funding1007-prior-purchase", true));
+        Assert.AreEqual(CharacterCreationGearOutcomes.Applied, gearReceipt.Outcome, string.Join(',', gearReceipt.Blockers));
+
+        using ReadyContext cold = context.Restart();
+        var before = cold.Store.Get(cold.WorkspaceId).Value!;
+        var files = CaptureFiles(cold);
+        var inputs = LoadInputs(cold);
+        var choices = MagicResonanceCompletionTests.CompleteSelections(inputs.Magic,
+            inputs.Magic.SelectedTalent.Magic + 1, mysticPowerPoints: 1);
+        var preview = Preview(inputs, [new("MAG", 1, 0)], choices, [GutsOptionId(inputs.Qualities)], 5);
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Available, preview.Outcome, string.Join(',', preview.Blockers));
+        var funding = preview.Value!;
+        Assert.AreEqual((int?)10, funding.UpstreamBudget.AvailableKarmaBeforeResources);
+        Assert.AreEqual(5, funding.RemainingCreationKarma);
+        Assert.AreEqual(12502.5m, funding.Budget.NuyenFromKarma);
+        Assert.AreEqual(item.PackageCost, funding.Budget.KnownPurchaseCost);
+        Assert.AreEqual(inputs.Resources.PriorityOption.BasePriorityNuyen + 12502.5m - item.PackageCost,
+            funding.Budget.RemainingNuyen);
+        Assert.IsTrue(funding.Budget.RemainingNuyen > 0m);
+        Assert.AreEqual(3, inputs.Resources.PendingDraft!.KarmaInvestment);
+        Assert.AreEqual(receipt.Value!.ReceiptDigest, inputs.Resources.Receipts.Last().Receipt.ReceiptDigest);
+        var selected = CharacterCreationResourcesServiceTests.PriceFunding1007(inputs.Resources.Authority,
+            inputs.Resources.PriorityOption, 10, 5, item.PackageCost, inputs.Resources.PrerequisiteDraft.CreationKarmaTotal);
+        Assert.AreEqual(CharacterCreationResourcesOutcomes.Available, selected.GetProperty("Outcome").GetString());
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(funding.Options),
+            selected.GetProperty("Value").GetProperty("Options").GetRawText());
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(funding.Budget),
+            selected.GetProperty("Value").GetProperty("Budget").GetRawText());
+        AssertWorkspaceUnchanged(cold, before, files);
+    }
+
     private static CompletionInputs LoadInputs(ReadyContext context)
     {
         var resources = new CharacterCreationResourcesService(context.Store, context.Resolver)

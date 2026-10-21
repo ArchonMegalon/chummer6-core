@@ -17,6 +17,111 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationAttributesServiceTests
 {
     [TestMethod]
+    [DataRow(false, false, 18)]
+    [DataRow(true, false, 9)]
+    [DataRow(false, true, 15)]
+    [DataRow(true, true, 6)]
+    public void Configured_attribute_rules_execute_for_real_Ork_source_and_preserve_saved_manual_choices(
+        bool alternate, bool reverse, int expectedCost)
+    {
+        using var context = CharacterCreationFinalizationServiceTests.ReadyContext.Create(false,
+            metatypeName: "Ork", playerChosenAttributeIds: [], amendSettings: profile =>
+            {
+                profile.SetElementValue("alternatemetatypeattributekarma", alternate);
+                profile.SetElementValue("reverseattributepriorityorder", reverse);
+                profile.Element("karmacost")!.SetElementValue("karmaattribute", 3);
+            });
+        var service = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        var initial = Load(service, context.WorkspaceId);
+        var source = context.Resolver.TryCreateContext(context.Store.Get(context.WorkspaceId).Value!.Document.Content)!;
+        Assert.IsTrue(source.TryResolveCreationAttributePolicy(out var policy));
+        Assert.AreEqual(alternate, policy!.AlternateMetatypeAttributeKarma);
+        Assert.AreEqual(reverse, policy.ReverseAttributePriorityOrder);
+        Assert.AreEqual(alternate || reverse, initial.HouseRules is not null);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        CharacterCreationAttributeAllocation[] allocations = [new("BOD", 1, 1), new("AGI", 0, 0)];
+        string[] chosen = ["AGI", "BOD"];
+        var preview = service.Preview(new(initial.Binding, allocations) { PlayerChosenAttributeIds = chosen });
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preview.Outcome, string.Join(",", preview.Blockers));
+        var body = preview.Value!.Attributes.Single(row => row.AttributeId == "BOD");
+        Assert.AreEqual(4, body.Minimum);
+        Assert.AreEqual(6, body.Current);
+        Assert.AreEqual(expectedCost, body.KarmaCost);
+        Assert.AreEqual((decimal)(initial.PrerequisiteDraft!.CreationKarmaUsed + expectedCost), preview.Value.CreationKarmaBudget.Used);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, service.Confirm(new(initial.Binding,
+            allocations, preview.Value.PreviewDigest, true) { PlayerChosenAttributeIds = chosen }).Outcome);
+        var coldStore = new FileWorkspaceStore(context.Directory);
+        var coldService = new CharacterCreationAttributesService(coldStore, context.Resolver);
+        var reopened = Load(coldService, context.WorkspaceId);
+        Assert.AreEqual(before.Document.Content, coldStore.Get(context.WorkspaceId).Value!.Document.Content);
+        CollectionAssert.AreEqual(chosen, reopened.PendingDraft!.PlayerChosenAttributeIds!.ToArray());
+        Assert.AreEqual(expectedCost, reopened.Attributes.Single(row => row.AttributeId == "BOD").KarmaCost);
+        Assert.AreEqual(JsonSerializer.Serialize(initial.HouseRules), JsonSerializer.Serialize(reopened.HouseRules));
+        var baseline = JsonSerializer.Serialize(coldStore.Get(context.WorkspaceId).Value);
+        var plan = CharacterCreationAttributeCompletionPlanner.Plan(reopened,
+            new(reopened.Binding, reopened.SnapshotDigest, ["BOD"]) { Targets = [new("BOD", 7)] });
+        Assert.IsNotNull(plan.Value);
+        Assert.AreEqual(reverse, plan.Value!.HasChanges,
+            "Only reversed ordering can add priority without repricing the retained Karma level.");
+        Assert.AreEqual(1, plan.Value.Allocations.Single(row => row.AttributeId == "BOD").KarmaLevels);
+        Assert.AreEqual(0, plan.Value.Allocations.Single(row => row.AttributeId == "AGI").PriorityPoints);
+        Assert.AreEqual(reopened.CreationKarmaBudget.Used, plan.Value.Preview.CreationKarmaBudget.Used);
+        foreach (var invalid in new CharacterCreationAttributeAllocation[][]
+        {
+            [new("BOD", 6, 0)], [new("BOD", -1, 0)], [new("BOD", int.MaxValue, 1)],
+            [new("BOD", 0, 3)], [new("MAG", 1, 0)], [new("RES", 0, 1)],
+            [new("ESS", 1, 0)], [new("DEP", 0, 1)],
+            [new("BOD", 5, 0), new("STR", 5, 0)], [new("EDG", 6, 0)]
+        })
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationAttributesService.CreateDraftSession(reopened)!.Preview(invalid).Outcome);
+        Assert.AreEqual(baseline, JsonSerializer.Serialize(coldStore.Get(context.WorkspaceId).Value));
+        if (!alternate && !reverse)
+        {
+            var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(reopened))!.AsObject();
+            Assert.IsFalse(json.ContainsKey("HouseRules"));
+            Assert.AreEqual(reopened.SnapshotDigest, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                reopened with { SnapshotDigest = string.Empty }));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("Magician", "MAG", false, false, 15)]
+    [DataRow("Magician", "MAG", true, false, 9)]
+    [DataRow("Magician", "MAG", false, true, 12)]
+    [DataRow("Magician", "MAG", true, true, 6)]
+    [DataRow("Technomancer", "RES", true, false, 9)]
+    [DataRow("Technomancer", "RES", false, true, 12)]
+    public void Configured_creation_special_costs_use_talent_minimum_for_rating_and_creation_formula_for_Karma(
+        string talent, string attributeId, bool alternate, bool reverse, int expectedCost)
+    {
+        using var context = CharacterCreationFinalizationServiceTests.ReadyContext.Create(false,
+            talentValue: talent, talentRank: "C", amendSettings: profile =>
+            {
+                profile.SetElementValue("alternatemetatypeattributekarma", alternate);
+                profile.SetElementValue("reverseattributepriorityorder", reverse);
+                profile.Element("karmacost")!.SetElementValue("karmaattribute", 3);
+            }, rankAssignments: CharacterCreationPrerequisiteServiceTests.Assign("E", "C", "A", "B", "D"));
+        var service = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        var state = Load(service, context.WorkspaceId);
+        var preview = service.Preview(new(state.Binding, [new(attributeId, 1, 1)]));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preview.Outcome, string.Join(",", preview.Blockers));
+        var special = preview.Value!.Attributes.Single(row => row.AttributeId == attributeId);
+        Assert.AreEqual(3, special.Minimum);
+        Assert.AreEqual(5, special.Current);
+        Assert.AreEqual(expectedCost, special.KarmaCost);
+        Assert.AreEqual(1m, preview.Value.SpecialPointBudget.Used);
+        Assert.AreEqual(0m, preview.Value.NormalPointBudget.Used);
+        foreach (var invalid in new CharacterCreationAttributeAllocation[][]
+        {
+            [new(attributeId, 3, 1)],
+            [new(attributeId, 1, 0), new("EDG", 1, 0)],
+            [new(attributeId == "MAG" ? "RES" : "MAG", 0, 1)]
+        })
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, service.Preview(new(state.Binding, invalid)).Outcome);
+    }
+
+    [TestMethod]
     public void Completion_plan_balanced_fill_meets_floors_then_spreads_all_remaining_points()
     {
         WithConfirmedPrerequisite((store, service, id, _) =>
@@ -1466,6 +1571,41 @@ public sealed class CharacterCreationAttributesServiceTests
                 service.Confirm(new(preview.Binding, [], preview.PreviewDigest, true)).Outcome);
             Assert.AreEqual(revision, store.Get(id).Value!.ContentRevision);
         }, WithTalent(kind, attributeId, grant), "awakened");
+    }
+
+    [TestMethod]
+    public void Separate_magic_saved_projection_cannot_be_forged_by_rehashing_its_limits()
+    {
+        using var context = MagicResonanceCompletionTests.SeparateMagicContext.Create(2, true);
+        var service = new CharacterCreationAttributesService(context.Store, context.Resolver);
+        var state = Load(service, context.WorkspaceId);
+        var preview = service.Preview(new(state.Binding, [])).Value!;
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+            service.Confirm(new(state.Binding, [], preview.PreviewDigest, true)).Outcome);
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        var draft = saved.Document.AuxiliaryState.CharacterCreationAttributesDraft!;
+        var forged = draft with
+        {
+            BaseContentRevision = saved.ContentRevision,
+            DraftRevision = draft.DraftRevision + 1,
+            Attributes = draft.Attributes.Select(row => row.AttributeId == "MAGAdept"
+                ? row with { Current = row.Current + 1, Minimum = row.Minimum + 1, Maximum = row.Maximum + 1 } : row).ToArray()
+        };
+        forged = forged with { DraftDigest = CharacterCreationAttributesDraftIntegrity.ComputeDigest(forged) };
+        var replacement = saved.Document with
+        {
+            State = saved.Document.State with
+            {
+                AuxiliaryState = saved.Document.AuxiliaryState with { CharacterCreationAttributesDraft = forged }
+            }
+        };
+        Assert.IsTrue(context.Store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(context.WorkspaceId,
+            saved.ContentRevision, saved.Document.AuxiliaryStateDigest, replacement).Success);
+        var reopened = new CharacterCreationAttributesService(new FileWorkspaceStore(context.Directory), context.Resolver)
+            .Load(new(context.WorkspaceId)).Value!;
+        Assert.IsNull(reopened.PendingDraft);
+        CollectionAssert.Contains(reopened.Blockers.ToArray(), CharacterCreationAttributesBlockers.DraftInvalid);
     }
 
     private static CharacterCreationAttributesState Load(

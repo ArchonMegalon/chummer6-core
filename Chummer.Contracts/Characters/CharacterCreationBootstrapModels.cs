@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Chummer.Contracts.Rulesets;
@@ -37,6 +39,21 @@ public static class CharacterCreationBootstrapRevisions
 /// </summary>
 public static class CharacterCreationBootstrapProfiles
 {
+    /// <summary>Existing resolver identity framing; this binds inputs, not their semantics.</summary>
+    public static string BindSettingsInputsDigest(string rawInputsDigest, string settingsProfileId)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> length = stackalloc byte[sizeof(long)];
+        foreach (string value in new[] { rawInputsDigest, settingsProfileId.Trim() })
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            BinaryPrimitives.WriteInt64LittleEndian(length, bytes.LongLength);
+            hash.AppendData(length);
+            hash.AppendData(bytes);
+        }
+        return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
     // Keep the original two-argument APIs SR5-only for existing callers.
     public static bool TryResolveCanonicalSettingsProfileId(
         string rulesetId, string? buildMethod, out string settingsProfileId)
@@ -76,6 +93,8 @@ public static class CharacterCreationBootstrapProfiles
     public static bool HasExactCanonicalSourceAnchors(string rulesetId, string buildMethod,
         string settingsProfileId, IReadOnlyList<string>? sourceAnchorIds)
     {
+        if (rulesetId == RulesetDefaults.Sr5)
+            return HasExactCanonicalSourceAnchors(buildMethod, settingsProfileId, sourceAnchorIds);
         string[] expected = ExpectedSourceAnchorIds(rulesetId, buildMethod, settingsProfileId);
         return expected.Length > 0 && sourceAnchorIds is not null
             && sourceAnchorIds.Count == expected.Length
@@ -166,11 +185,56 @@ public static class CharacterCreationBootstrapProfiles
         IReadOnlyList<string>? sourceAnchorIds)
     {
         string[] expected = ExpectedSourceAnchorIds(buildMethod, settingsProfileId);
-        return expected.Length > 0
-               && sourceAnchorIds is not null
-               && sourceAnchorIds.Count == expected.Length
-               && sourceAnchorIds.SequenceEqual(expected, StringComparer.Ordinal);
+        if (expected.Length == 0 || sourceAnchorIds is null
+            || !sourceAnchorIds.SequenceEqual(sourceAnchorIds.Order(StringComparer.Ordinal), StringComparer.Ordinal))
+            return false;
+
+        // This is persisted syntax/integrity validation. Bootstrap must additionally
+        // match the complete set to the current resolver's typed source observation.
+        var remaining = new HashSet<string>(expected, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var directories = new HashSet<string>(StringComparer.Ordinal);
+        var fileDirectories = new List<string>();
+        foreach (string anchor in sourceAnchorIds)
+        {
+            if (anchor is null || !seen.Add(anchor)) return false;
+            if (remaining.Remove(anchor)) continue;
+            if (!TryReadCustomSourceAnchor(anchor, out string directory, out bool isFile)) return false;
+            if (isFile)
+            {
+                if (buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen))
+                    return false;
+                fileDirectories.Add(directory);
+            }
+            else directories.Add(directory);
+        }
+        return remaining.Count == 0 && fileDirectories.All(directories.Contains);
     }
+
+    private static bool TryReadCustomSourceAnchor(string anchor, out string directory, out bool isFile)
+    {
+        directory = string.Empty;
+        isFile = false;
+        const string prefix = "customdata:";
+        if (!anchor.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        string identity = anchor[prefix.Length..];
+        int separator = identity.IndexOf(':');
+        string name = separator < 0 ? identity : identity[..separator];
+        if (!SourcePathSegment(name)) return false;
+        directory = prefix + name;
+        if (separator < 0) return true;
+        string[] path = identity[(separator + 1)..].Split('/');
+        if (path.Any(segment => !SourcePathSegment(segment))) return false;
+        string file = path[^1];
+        if (!file.StartsWith("amend_", StringComparison.OrdinalIgnoreCase)
+            || !file.EndsWith("_priorities.xml", StringComparison.OrdinalIgnoreCase)) return false;
+        isFile = true;
+        return true;
+    }
+
+    private static bool SourcePathSegment(string value)
+        => !string.IsNullOrWhiteSpace(value) && value is not ("." or "..")
+           && !value.Any(character => char.IsControl(character) || character is ':' or '/' or '\\');
 }
 
 public static class CharacterCreationBootstrapXml

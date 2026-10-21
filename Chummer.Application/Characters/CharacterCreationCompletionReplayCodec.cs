@@ -51,14 +51,17 @@ internal static class CharacterCreationCompletionReplayCodec
             if (!BrotliEncoder.TryCompress(serialized, compressed, out int written,
                     CompressionQuality, CompressionWindow) || written <= 0)
                 return false;
-            // Keep legacy V1 witness bytes unchanged. New loadout witnesses use
+            // Keep legacy V1/V2 witness bytes unchanged. Loadout and policy witnesses use
             // unpadded base64url so the enclosing strict JSON serializer need
             // not expand '+' into six-byte escapes. The Brotli bytes, exact
             // uncompressed digest, size limits and retained history are identical.
-            bool urlEncoding = witness.Schema == CharacterCreationSelectedCompletionWitness.SchemaV2;
+            bool urlEncoding = witness.Schema is CharacterCreationSelectedCompletionWitness.SchemaV2
+                or CharacterCreationSelectedCompletionWitness.SchemaV3 or CharacterCreationSelectedCompletionWitness.SchemaV4
+                    or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6;
             string data = Convert.ToBase64String(compressed, 0, written);
             archive = new(SchemaV1, urlEncoding ? LoadoutEncodingName : EncodingName,
                 serialized.Length, Digest(serialized), urlEncoding ? ToBase64Url(data) : data);
+            CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ObserveArchive(witness.Schema, serialized.Length, written);
             return true;
         }
         catch (Exception error) when (IsMalformed(error))
@@ -122,7 +125,9 @@ internal static class CharacterCreationCompletionReplayCodec
             // bytes and concatenated streams; exact output rejects length lies.
             if (!string.Equals(archive.UncompressedDigest, Digest(serialized), StringComparison.Ordinal)
                 || !TryReadPayload(serialized, out var payload)
-                || urlEncoding && payload.Witness.Schema != CharacterCreationSelectedCompletionWitness.SchemaV2)
+                || urlEncoding && payload.Witness.Schema is not (CharacterCreationSelectedCompletionWitness.SchemaV2
+                    or CharacterCreationSelectedCompletionWitness.SchemaV3 or CharacterCreationSelectedCompletionWitness.SchemaV4
+                    or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6))
                 return false;
             bootstrap = payload.Bootstrap;
             witness = payload.Witness;
@@ -146,7 +151,7 @@ internal static class CharacterCreationCompletionReplayCodec
         RejectDuplicateProperties(document.RootElement);
         Payload? decoded = document.RootElement.Deserialize<Payload>(Options);
         if (decoded?.Bootstrap is null || decoded.Witness is null
-            || !HasVersionedShape(decoded.Witness)
+            || !decoded.Witness.HasVersionedShape()
             || !serialized.AsSpan().SequenceEqual(Serialize(decoded)))
             return false;
         // Exact typed reserialization rejects ignored/defaulted fields and
@@ -154,17 +159,6 @@ internal static class CharacterCreationCompletionReplayCodec
         payload = decoded;
         return true;
     }
-
-    // This is only a format boundary, not rules/source admission. Keeping the
-    // optional field absent preserves old V1 bytes; presence requires the new
-    // witness version, so a rehashed mixed envelope cannot borrow old semantics.
-    private static bool HasVersionedShape(CharacterCreationSelectedCompletionWitness witness)
-        => witness.Schema switch
-        {
-            CharacterCreationSelectedCompletionWitness.SchemaV1 => witness.Loadout is null,
-            CharacterCreationSelectedCompletionWitness.SchemaV2 => witness.Loadout is not null,
-            _ => false
-        };
 
     private static byte[] Serialize(Payload payload)
     {

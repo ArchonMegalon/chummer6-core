@@ -19,6 +19,9 @@ public sealed record WorkspaceStoredDocument(
     // An observation from the host's store, not part of the portable snapshot.
     // Legacy/other store implementations have not established this capability.
     public WorkspaceLocalHistory? LocalHistory { get; init; }
+    // Validated durable delegation evidence from this store observation;
+    // independent of portable XML and auxiliary campaign declarations.
+    public bool HasDelegatedGmHistory { get; init; }
 
     // Portable history grouping only. CanReplayReceipt deliberately ignores it.
     public IReadOnlyList<int> DelegatedGmHistorySegmentStarts { get; init; } = [];

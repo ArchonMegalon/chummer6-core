@@ -1,5 +1,6 @@
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
@@ -27,17 +28,20 @@ public sealed partial class CharacterCreationQualitiesService : ICharacterCreati
     private readonly ICharacterSourceDataResolver _resolver;
     private readonly ICharacterCreationPrerequisiteService _prerequisites;
     private readonly ICharacterCreationAttributesService _attributes;
+    private readonly ICharacterFileQueries? _completionQueries;
 
     public CharacterCreationQualitiesService(
         IWorkspaceStore store,
         ICharacterSourceDataResolver resolver,
         ICharacterCreationPrerequisiteService prerequisites,
-        ICharacterCreationAttributesService attributes)
+        ICharacterCreationAttributesService attributes,
+        ICharacterFileQueries? completionQueries = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _prerequisites = prerequisites ?? throw new ArgumentNullException(nameof(prerequisites));
         _attributes = attributes ?? throw new ArgumentNullException(nameof(attributes));
+        _completionQueries = completionQueries;
     }
 
     public CharacterCreationFoundationResult<CharacterCreationQualitiesState> Load(
@@ -73,6 +77,7 @@ public sealed partial class CharacterCreationQualitiesService : ICharacterCreati
             state.Binding,
             state.Authority,
             request.SelectedOptionIds));
+        preview = AdmitCompositePreview(workspace, preview);
         string[] blockers = Normalize(state.Blockers.Concat(preview.Blockers));
         return new(
             blockers.Length == 0
@@ -144,6 +149,7 @@ public sealed partial class CharacterCreationQualitiesService : ICharacterCreati
             state.Binding,
             state.Authority,
             request.SelectedOptionIds));
+        preview = AdmitCompositePreview(workspace, preview);
         IReadOnlyList<string> stateBlockers = state.Blockers;
         if (historicalReceiptDigest is not null)
         {
@@ -257,11 +263,13 @@ public sealed partial class CharacterCreationQualitiesService : ICharacterCreati
                 }
             }
         };
-        WorkspaceStoreMutationResult mutation = atomic.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
-            workspace.Id,
-            workspace.ContentRevision,
-            workspace.Document.AuxiliaryStateDigest,
-            replacement);
+        WorkspaceStoreMutationResult mutation = workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null
+            ? _store is ICharacterCreationCompositeStageAtomicCommitCapability { SupportsCompositeStageAtomicCommit: true } composite
+                && _completionQueries is not null
+                ? composite.CommitCompositeStage(OwnerScope.LocalSingleUser, replacement, preview, _resolver, _completionQueries)
+                : new(WorkspaceOperationOutcome.Unavailable)
+            : atomic.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                workspace.Id, workspace.ContentRevision, workspace.Document.AuxiliaryStateDigest, replacement);
         if (!mutation.Success || mutation.Entry is not { } entry)
         {
             if (mutation.Outcome == WorkspaceOperationOutcome.Conflict)
@@ -303,8 +311,10 @@ public sealed partial class CharacterCreationQualitiesService : ICharacterCreati
     }
 
     private CharacterCreationFoundationResult<CharacterCreationQualitiesState> BuildState(
-        WorkspaceStoredDocument workspace)
+        WorkspaceStoredDocument workspace, bool forCompletion = false)
     {
+        if (!forCompletion && workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return BuildCompositeState(workspace);
         var blockers = new List<string>();
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
             { SupportsWorkspaceAuxiliaryStateAtomicCommit: true })

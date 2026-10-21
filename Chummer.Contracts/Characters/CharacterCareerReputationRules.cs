@@ -89,6 +89,27 @@ public static class CharacterCareerReputationRules
             || !inputs.IsCareer || inputs.BurntStreetCred < 0)
             return false;
 
+        return TryCalculate(inputs, out projection);
+    }
+
+    /// <summary>Creation arithmetic for explicitly uncreated inputs. This grants
+    /// neither career command admission nor permission to finalize a character.</summary>
+    public static bool TryProjectCreation(
+        CharacterCareerReputationInputs inputs,
+        out CharacterCareerReputationProjection? projection)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        projection = null;
+        if (!string.Equals(inputs.RulesetId, "sr5", StringComparison.Ordinal)
+            || inputs.IsCareer || inputs.BurntStreetCred < 0)
+            return false;
+        return TryCalculate(inputs, out projection);
+    }
+
+    private static bool TryCalculate(CharacterCareerReputationInputs inputs,
+        out CharacterCareerReputationProjection? projection)
+    {
+        projection = null;
         try
         {
             int divisor = checked(10 + inputs.StreetCredDivisorAdjustment);
@@ -106,7 +127,7 @@ public static class CharacterCareerReputationRules
             if (inputs.Erased && totalAwareness >= 1) totalAwareness = 1;
 
             projection = new(inputs, streetCred, totalStreetCred, notoriety, totalNotoriety,
-                awareness, totalAwareness, totalStreetCred >= StreetCredBurnCost);
+                awareness, totalAwareness, inputs.IsCareer && totalStreetCred >= StreetCredBurnCost);
             return true;
         }
         catch (OverflowException) { return false; }

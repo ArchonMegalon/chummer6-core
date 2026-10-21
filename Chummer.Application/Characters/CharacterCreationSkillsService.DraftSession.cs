@@ -19,9 +19,11 @@ public sealed partial class CharacterCreationSkillsService
         // private deep snapshot; no caller-owned arrays may enter the cache.
         var detached = JsonSerializer.Deserialize<CharacterCreationSkillsState>(
             JsonSerializer.SerializeToUtf8Bytes(state));
-        if (detached is not { CanEdit: true, Blockers.Count: 0,
-                PrerequisiteDraft: not null, AttributesDraft: not null }
-            || !CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(detached)
+        if (detached is not { PrerequisiteDraft: not null, AttributesDraft: not null }
+            || !CharacterCreationCompletionReadiness.RulesReady(detached.CanEdit, detached.Blockers,
+                CharacterCreationSkillsBlockers.PersistenceAuthorityRequired)
+            || (detached.CompositeInputs is null ? !CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(detached)
+                : !IsValidCompositeSkillsState(detached))
             || !CharacterCreationSkillsDigest.EqualsFixedTime(detached.SnapshotDigest,
                 CharacterCreationSkillsDigest.Compute(detached with { SnapshotDigest = string.Empty }))
             || detached.Binding.ContentRevision <= 0

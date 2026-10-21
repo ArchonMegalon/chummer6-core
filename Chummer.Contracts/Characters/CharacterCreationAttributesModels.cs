@@ -144,6 +144,23 @@ public sealed record CharacterCreationAttributesDraft(
     public IReadOnlyList<string>? PlayerChosenAttributeIds { get; init; }
 }
 
+/// <summary>
+/// Explicit creation-cost semantics for configured non-default Priority/Sum-to-Ten
+/// attributes. Null on a state retains historical priority-first natural-minimum
+/// semantics and its byte shape. This is an input, never spending authority.
+/// </summary>
+public sealed record CharacterCreationAttributeHouseRules(
+    string Schema,
+    bool AlternateMetatypeAttributeKarma,
+    bool ReverseAttributePriorityOrder)
+{
+    public const string SchemaV1 = "chummer.character_creation_attribute_house_rules.v1";
+
+    [JsonIgnore]
+    public bool IsValid => Schema == SchemaV1
+        && (AlternateMetatypeAttributeKarma || ReverseAttributePriorityOrder);
+}
+
 public sealed record CharacterCreationAttributesState(
     string Schema,
     CharacterCreationAttributesBinding Binding,
@@ -158,7 +175,17 @@ public sealed record CharacterCreationAttributesState(
     bool CanEdit,
     string SnapshotDigest)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompositeBaseline? CompositeBaseline { get; init; }
+
     public int KarmaAttribute { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAttributeHouseRules? HouseRules { get; init; }
+
+    /// <summary>Present only for the source-enabled separate Mystic Adept attribute.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointPolicy? SeparateMagicPolicy { get; init; }
 }
 
 public sealed record CharacterCreationAttributesPreview(

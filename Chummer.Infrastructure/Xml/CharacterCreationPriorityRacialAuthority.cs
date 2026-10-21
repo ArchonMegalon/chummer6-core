@@ -16,7 +16,7 @@ internal static class CharacterCreationPriorityRacialAuthority
 
     // Only the enclosing prerequisite projector publishes/digests this graph.
     internal static CharacterCreationPrerequisiteAuthority BindOptions(CharacterCreationPrerequisiteAuthority original,
-        XDocument metatypes, XElement[] qualities, string qualityDigest, IReadOnlyList<string> books)
+        XDocument metatypes, XElement[] qualities, string qualityDigest, IReadOnlyList<string> books, string? sourceExecutionSchema = null)
     {
         if (!original.IsAuthoritative || original.Blockers.Count != 0) return original;
         var sources = new Dictionary<string, CharacterCreationTalentQualitySource[]>(StringComparer.Ordinal);
@@ -26,7 +26,7 @@ internal static class CharacterCreationPriorityRacialAuthority
             var matches = metatypes.Root?.Element("metatypes")?.Elements("metatype")
                 .Where(row => row.Element("name")?.Value == name).Take(2).ToArray() ?? [];
             if (matches.Length != 1 || !CharacterCreationMetatypeCatalogProjector.TryProjectPriorityRacialOption(
-                    matches[0], books, out var metatype)) continue;
+                    matches[0], books, out var metatype, sourceExecutionSchema)) continue;
             var blockers = new List<string>();
             var grants = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
                 metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty)).ToArray(),

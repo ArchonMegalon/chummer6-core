@@ -54,7 +54,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
     public static CharacterCreationMetatypeCatalogAuthority Project(
         XDocument document,
         CharacterCreationMetatypeSourceContextAuthority sourceContext,
-        bool includeKarmaBaseBonuses = false)
+        bool includeKarmaBaseBonuses = false, string? sourceExecutionSchema = null)
     {
         if (!sourceContext.IsAuthoritative
             || sourceContext.MetatypeKarmaMultiplier is not int karmaMultiplier
@@ -105,7 +105,8 @@ internal static class CharacterCreationMetatypeCatalogProjector
                 catalogBlockers.Add(CharacterCreationMetatypeCatalogBlockers.BaseEntryDuplicate);
                 continue;
             }
-            if (matches[0].Elements().Any(element => !SupportedBaseFields.Contains(element.Name.LocalName)))
+            if (matches[0].Elements().Any(element => !SupportedBaseFields.Contains(element.Name.LocalName)
+                && !(sourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 && element.Name == "initiativedice")))
             {
                 catalogBlockers.Add(CharacterCreationMetatypeCatalogBlockers.UnknownSemantics);
                 continue;
@@ -126,7 +127,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
                     initiativeFallback,
                     sourceContext.EnabledSourcebooks,
                     includeKarmaBaseBonuses && expectedId is DwarfId or TrollId,
-                    out CharacterCreationMetatypeOptionProjection? option))
+                    out CharacterCreationMetatypeOptionProjection? option, sourceExecutionSchema))
             {
                 catalogBlockers.Add(CharacterCreationMetatypeCatalogBlockers.BaseEntryInvalid);
                 continue;
@@ -164,7 +165,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
     }
 
     internal static bool TryProjectPriorityRacialOption(XElement entry,
-        IReadOnlyList<string> enabledSourcebooks, out CharacterCreationMetatypeOptionProjection option)
+        IReadOnlyList<string> enabledSourcebooks, out CharacterCreationMetatypeOptionProjection option, string? sourceExecutionSchema = null)
     {
         option = null!;
         string name = Read(entry, "name");
@@ -173,9 +174,10 @@ internal static class CharacterCreationMetatypeCatalogProjector
         // budget/write paths before admission. Share the strict source parser.
         return id.Length != 0
             && !entry.Elements().Any(element => element.Name.Namespace != XNamespace.None
-                || !SupportedBaseFields.Contains(element.Name.LocalName))
+                || !SupportedBaseFields.Contains(element.Name.LocalName)
+                && !(sourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 && element.Name == "initiativedice"))
             && !entry.Elements().GroupBy(element => element.Name).Any(group => group.Count() != 1)
-            && TryProjectOption(entry, id, name, 1, 1, enabledSourcebooks, false, out option)
+            && TryProjectOption(entry, id, name, 1, 1, enabledSourcebooks, false, out option, sourceExecutionSchema)
             && option.IsEnabled && option.Blockers.Count == 0 && option.BaseBonuses is null;
     }
 
@@ -187,7 +189,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
         int initiativeFallback,
         IReadOnlyList<string> enabledSourcebooks,
         bool allowBaseBonuses,
-        out CharacterCreationMetatypeOptionProjection option)
+        out CharacterCreationMetatypeOptionProjection option, string? sourceExecutionSchema = null)
     {
         option = null!;
         var blockers = new List<string>();
@@ -198,11 +200,8 @@ internal static class CharacterCreationMetatypeCatalogProjector
             || !string.Equals(id, expectedId, StringComparison.OrdinalIgnoreCase)
             || !TryReadSingle(entry, "name", out string name)
             || !string.Equals(name, expectedName, StringComparison.Ordinal)
-            || !TryReadSingle(entry, "category", out string category)
-            || !string.Equals(category, "Metahuman", StringComparison.Ordinal)
+            || !TryReadSourceReference999(entry, out string category, out string sourceBook, out int sourcePage)
             || !TryReadNonNegativeInt(entry, "karma", out int baseKarma)
-            || !TryReadSingle(entry, "source", out string sourceBook)
-            || !TryReadPositiveInt(entry, "page", out int sourcePage)
             || !TryReadAttributes(entry, out CharacterCreationMetatypeAttributeProjection[] attributes)
             || !TryReadAttributeRange(entry, "ini", out int initiativeMinimum, out int initiativeMaximum, out int initiativeAugmented)
             || !TryReadMovement(entry, out CharacterCreationMetatypeMovementProjection? movement)
@@ -212,6 +211,15 @@ internal static class CharacterCreationMetatypeCatalogProjector
             return false;
         }
 
+        int? directDice = null;
+        if (entry.Elements("initiativedice").Any())
+        {
+            if (sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                || entry.Elements("initiativedice").DescendantNodes().OfType<XProcessingInstruction>().Any()
+                || !TryReadSingle(entry, "initiativedice", out string rawDice)
+                || !int.TryParse(rawDice, NumberStyles.Integer, CultureInfo.InvariantCulture, out int dice)) return false;
+            directDice = dice;
+        }
         XElement[] bonuses = entry.Elements("bonus").Take(2).ToArray();
         CharacterCreationMetatypeBaseBonuses? baseBonuses = null;
         if (bonuses.Length != 1 || !TryReadBaseBonuses(bonuses[0], allowBaseBonuses, out baseBonuses))
@@ -255,7 +263,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
                 initiativeMinimum,
                 initiativeMaximum,
                 initiativeAugmented,
-                initiativeFallback),
+                initiativeFallback) { DirectDice886 = directDice },
             Movement: movement,
             GrantedQualities: qualities,
             ExcludedMetavariants: excludedMetavariants,
@@ -506,6 +514,20 @@ internal static class CharacterCreationMetatypeCatalogProjector
             Array.Empty<CharacterCreationMetatypeOptionProjection>(),
             [blocker],
             IsAuthoritative: false);
+
+    // The catalogue and Complete source accounting share the same admission
+    // category and citation readers. This does not project a Karma-method cost
+    // or reinterpret the versioned initiative fields for a Priority character.
+    internal static bool TryReadSourceReference999(XElement entry,
+        out string category, out string sourceBook, out int sourcePage)
+    {
+        category = sourceBook = string.Empty;
+        sourcePage = 0;
+        return TryReadSingle(entry, "category", out category)
+            && string.Equals(category, "Metahuman", StringComparison.Ordinal)
+            && TryReadSingle(entry, "source", out sourceBook)
+            && TryReadPositiveInt(entry, "page", out sourcePage);
+    }
 
     private static bool TryReadNonNegativeInt(XElement parent, string field, out int value)
     {

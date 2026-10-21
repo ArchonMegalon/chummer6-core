@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Workspaces;
+using Chummer.Application.Owners;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
@@ -40,6 +41,20 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
         _characterQueries = characterQueries;
     }
 
+    internal CharacterCreationContactResult<T> InvokeOwner<T>(IOwnerContextLease lease, OwnerContextStamp owner,
+        CharacterWorkspaceId workspaceId, Func<CharacterCreationContactsService, CharacterCreationContactResult<T>> action)
+        where T : class
+    {
+        using ICharacterSourceDataResolverOperationScope? scope =
+            (_sourceData as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+        var view = new OwnerBoundCreationWorkspaceStore(_workspaceStore, lease, owner, workspaceId);
+        var result = action(new CharacterCreationContactsService(view, scope ?? _sourceData, _characterQueries));
+        try { if (lease.Stamp == owner) return result; }
+        catch (ObjectDisposedException) { }
+        return Blocked<T>(CharacterCreationContactOutcomes.Conflict,
+            CharacterCreationContactsBlockers.StaleWorkspaceRevision);
+    }
+
     public CharacterCreationContactResult<CharacterCreationContactsState> Load(
         CharacterCreationContactsLoadRequest request)
         => Load(OwnerScope.LocalSingleUser, request);
@@ -70,7 +85,7 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
             context.ContactBudget,
             context.HighPlacesBudget,
             blockers,
-            CanEdit: context.AuthorityBlockers.Count == 0,
+            CanEdit: context.AuthorityBlockers.Count == 0 && _workspaceStore is not WorkspaceContinuationReadView,
             SnapshotDigest: string.Empty)
         {
             NewContactTemplate = context.AuthorityBlockers.Count == 0
@@ -248,7 +263,10 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
             }
         };
 
-        WorkspaceStoreMutationResult committed = owner.IsLocalSingleUser
+        WorkspaceStoreMutationResult committed = preview.WritePlan.CompositeReviewDigest is not null
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)_workspaceStore)
+                .CommitCompositeStage(owner, replacement, preview, _sourceData!, _characterQueries!)
+            : owner.IsLocalSingleUser
             ? ((IWorkspaceAuxiliaryStateAtomicCommitCapability)_workspaceStore)
                 .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
@@ -341,6 +359,24 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
                 []);
     }
 
+    // Only the typed store admission calls this with its already leased observation.
+    // It rederives the ordinary mutation, binding, full shared review and exact plan.
+    internal bool AdmitsCompositeCommit(WorkspaceStoredDocument workspace, CharacterCreationContactPreview preview)
+    {
+        var after = preview.ContactAfter;
+        var edit = preview.WritePlan.ChangeKind == CharacterCreationContactChangeKind.Remove
+            ? new CharacterCreationContactEdit(preview.WritePlan.ContactId)
+                { ChangeKind = CharacterCreationContactChangeKind.Remove }
+            : new CharacterCreationContactEdit(preview.WritePlan.ContactId, after.Identity,
+                after.Connection, after.Loyalty, after.IsGroup, after.Free, after.Family, after.Blackmail)
+                { ChangeKind = preview.WritePlan.ChangeKind };
+        var evaluated = EvaluatePreview(OwnerScope.LocalSingleUser, new(preview.Binding, edit), workspace);
+        return evaluated.Result.Value is { CanConfirm: true, Blockers.Count: 0 } current
+            && current.WritePlan.CompositeReviewDigest is not null
+            && evaluated.ReplacementContent == workspace.Document.Content
+            && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(current, preview);
+    }
+
     private PreviewEvaluation EvaluatePreview(OwnerScope owner, CharacterCreationContactPreviewRequest request)
     {
         WorkspaceStoreReadResult read = Read(owner, request.Binding.WorkspaceId);
@@ -352,6 +388,12 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
                 null);
         }
 
+        return EvaluatePreview(owner, request, workspace);
+    }
+
+    private PreviewEvaluation EvaluatePreview(OwnerScope owner, CharacterCreationContactPreviewRequest request,
+        WorkspaceStoredDocument workspace)
+    {
         AuthorityContext context = BuildContext(owner, workspace);
         string? bindingBlocker = CompareBinding(context.Binding, request.Binding);
         if (bindingBlocker is not null)
@@ -498,7 +540,8 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
         CharacterCreationContactsDraft? pendingDraft = null;
         if (context.PendingDraft is { } pending)
         {
-            blockers.AddRange(CharacterCreationContactsDraftRules.ValidatePointOnlySelection(replacementWorkspaceDocument));
+            if (context.CompositeInputs is null)
+                blockers.AddRange(CharacterCreationContactsDraftRules.ValidatePointOnlySelection(replacementWorkspaceDocument));
             if (!CharacterCreationContactsDraftRules.TryReadSelections(replacementRoot, out var selections)
                 || (pendingDraft = CharacterCreationContactsDraftRules.Create(workspace,
                     pending.Policy, pending.CarryoverPolicy, selections)) is null)
@@ -506,6 +549,15 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
             // Confirm changes the typed auxiliary lane, never bootstrap XML.
             replacementContent = workspace.Document.Content;
             contentAfter = context.Binding.ContentDigest;
+        }
+        CharacterCreationCompletionReview? sharedReview = null;
+        if (context.CompositeInputs is { Skills.CompositeBaseline: { } baseline } inputs && pendingDraft is not null)
+        {
+            var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
+                baseline.Selections with { Contacts = pendingDraft.Contacts }, CharacterCreationCompositeEditStage.Contacts);
+            blockers.AddRange(reviewed.Blockers);
+            sharedReview = reviewed.Value;
+            if (sharedReview is null) blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
         }
         var plan = new CharacterCreationContactAtomicWritePlan(
             pendingDraft is not null ? CharacterCreationContactsSchemas.DraftWritePlanV1
@@ -523,7 +575,8 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
             nestedAfter,
             siblingsPreserved,
             nestedPreserved,
-            PlanDigest: string.Empty) { ChangeKind = kind, PendingDraft = pendingDraft };
+            PlanDigest: string.Empty) { ChangeKind = kind, PendingDraft = pendingDraft,
+                CompositeReviewDigest = sharedReview?.ReviewDigest };
         plan = plan with
         {
             PlanDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -638,7 +691,34 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
         var blockers = new List<string>();
         WorkspaceDocument calculationDocument = workspace.Document;
         CharacterCreationContactsDraft? pending = null;
-        if (CharacterCreationBootstrapAuthority.HasBootstrapState(workspace.Document))
+        CharacterCreationCompletionReviewInputs? compositeInputs = null;
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+        {
+            if (_workspaceStore is not ICharacterCreationCompositeStageAtomicCommitCapability
+                { SupportsCompositeStageAtomicCommit: true })
+                blockers.Add(CharacterCreationContactsBlockers.PersistenceAuthorityRequired);
+            if (_sourceData is null)
+                blockers.Add(CharacterCreationCompositeBaselineReader.RebaseRequired);
+            else
+            {
+                var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _characterQueries);
+                blockers.AddRange(loaded.Blockers);
+                if (loaded.Value is { Skills.CompositeBaseline: { } baseline } inputs)
+                {
+                    compositeInputs = inputs;
+                    var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(
+                        workspace, inputs, baseline.Selections, CharacterCreationCompositeEditStage.None);
+                    blockers.AddRange(reviewed.Blockers);
+                    pending = CharacterCreationContactsDraftRules.Create(workspace, inputs.Contacts.Policy,
+                        inputs.Contacts.CarryoverPolicy, baseline.Selections.Contacts);
+                    if (pending is null || !CharacterCreationContactsDraftRules.TryProjectComposite(workspace, pending, out var projected)
+                        || projected is null)
+                        blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
+                    else calculationDocument = projected;
+                }
+            }
+        }
+        else if (CharacterCreationBootstrapAuthority.HasBootstrapState(workspace.Document))
         {
             if (_sourceData is not null && CharacterCreationContactsDraftRules.TryLoad(workspace, _sourceData,
                     out pending, out var projected) && projected is not null)
@@ -730,7 +810,7 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
             authority.HighPlacesBudget,
             blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal)
-                .ToArray(), pending);
+                .ToArray(), pending, compositeInputs);
     }
 
     private static List<CharacterCreationContactProjection> ProjectContacts(
@@ -1337,7 +1417,7 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
         CharacterCreationContactBudget ContactBudget,
         CharacterCreationContactBudget HighPlacesBudget,
         IReadOnlyList<string> AuthorityBlockers,
-        CharacterCreationContactsDraft? PendingDraft);
+        CharacterCreationContactsDraft? PendingDraft, CharacterCreationCompletionReviewInputs? CompositeInputs = null);
 
     private sealed record PreviewEvaluation(
         CharacterCreationContactResult<CharacterCreationContactPreview> Result,

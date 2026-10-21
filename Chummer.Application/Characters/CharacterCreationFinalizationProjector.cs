@@ -535,12 +535,17 @@ public static class CharacterCreationFinalizationProjector
             groups.Add(new XElement("group",
                 new XElement("karma", 0),
                 new XElement("base", checked(group.Rating - group.GrantedRating)),
+                group.IsBroken is bool broken ? new XElement("isbroken", broken.ToString(CultureInfo.InvariantCulture)) : null,
                 new XElement("id", StableGuid($"group:{group.GroupId}:{instanceSeed}")),
                 new XElement("name", group.Name)));
             AddDelta(deltas, ref order, $"skill-group:{group.GroupId}",
                 CharacterCreationFinalizationDeltaKinds.SkillGroup, group.GroupId,
                 null, group.Rating.ToString(CultureInfo.InvariantCulture),
                 0, 0, group.SourceAnchorIds, group.Name);
+            if (group.IsBroken is bool isBroken)
+                AddDelta(deltas, ref order, $"skill-group-state:{group.GroupId}",
+                    CharacterCreationFinalizationDeltaKinds.SkillGroup, group.GroupId,
+                    null, isBroken ? "broken" : "unbroken", 0, 0, group.SourceAnchorIds, group.Name);
         }
         return new XElement("newskills",
             new XElement("skillptsmax", activePointTotal),
@@ -570,7 +575,7 @@ public static class CharacterCreationFinalizationProjector
         IReadOnlyList<string> sourceAnchorIds,
         string instanceSeed,
         ICollection<CharacterCreationFinalizationDelta> deltas,
-        ref int order)
+        ref int order, string? sourceExecutionSchema = null)
     {
         var qualityContainer = new XElement("qualities");
         var improvements = new List<XElement>();
@@ -582,7 +587,7 @@ public static class CharacterCreationFinalizationProjector
                     selection,
                     instanceSeed,
                     out XElement[] projectedQualities,
-                    out XElement[] projectedImprovements))
+                    out XElement[] projectedImprovements, selection.ResolvedArmCount, sourceExecutionSchema))
                 throw new InvalidDataException("Selected Quality source cannot be projected exactly.");
             qualityContainer.Add(projectedQualities);
             improvements.AddRange(projectedImprovements);
@@ -667,7 +672,8 @@ public static class CharacterCreationFinalizationProjector
             new XElement("isknowledge", skill.Kind == CharacterCreationSkillKinds.Knowledge),
             new XElement("skillcategory", skill.Category),
             new XElement("karma", skill.KarmaLevels),
-            new XElement("base", skill.IsNativeLanguage ? 0 : checked(skill.EffectiveRating.GetValueOrDefault() - skill.GrantedRating - skill.KarmaLevels)),
+            new XElement("base", skill.IsNativeLanguage ? 0 : checked(skill.EffectiveRating.GetValueOrDefault()
+                - skill.GrantedRating - skill.GroupRating - skill.KarmaLevels)),
             new XElement("notes"));
         if (skill.KarmaSpecialization) node.Add(new XElement("buywithkarma", "True"));
         if (skill.SpecializationName is not null)

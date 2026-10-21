@@ -206,7 +206,11 @@ public sealed record CharacterCreationGearDraft(
     string LastIdempotencyKeyDigest,
     string LastPreviewDigest,
     string LastCommandDigest,
-    string DraftDigest);
+    string DraftDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompositePurchaseBinding? CompositePurchase { get; init; }
+}
 
 public sealed record CharacterCreationGearLoadRequest(CharacterWorkspaceId WorkspaceId);
 
@@ -235,7 +239,11 @@ public sealed record CharacterCreationGearState(
     CharacterCreationGearBudget Budget,
     IReadOnlyList<string> Blockers,
     bool CanEdit,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationGearSelection>? CompositeSelections { get; init; }
+}
 
 public sealed record CharacterCreationGearPreview(
     string Schema,
@@ -249,7 +257,15 @@ public sealed record CharacterCreationGearPreview(
     IReadOnlyList<string> Blockers,
     bool RequiresExplicitConfirmation,
     bool CanConfirm,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompositePurchaseBinding? CompositePurchase { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompositeReviewDigest { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSelectedGearAuthority? CompositeAuthority { get; init; }
+}
 
 public sealed record CharacterCreationGearReceipt(
     string Schema,
@@ -276,7 +292,15 @@ public sealed record CharacterCreationGearReceipt(
     string PreviewDigest,
     string PreviousReceiptDigest,
     bool CharacterDocumentChanged,
-    string ReceiptDigest);
+    string ReceiptDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCompositePurchaseBinding? CompositePurchase { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSelectedGearAuthority? CompositeAuthority { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationGearLine>? CompositeLines { get; init; }
+}
 
 public sealed record CharacterCreationGearReceiptLedgerEntry(
     string IdempotencyKeyDigest,
@@ -293,3 +317,6 @@ public sealed record CharacterCreationGearResult<T>(
         or CharacterCreationGearOutcomes.Applied
         or CharacterCreationGearOutcomes.Replayed;
 }
+
+/// <summary>Real ApplyDraft review identity and funding replayed at the purchase revision; never permission.</summary>
+public sealed record CharacterCreationCompositePurchaseBinding(string BaselineDigest, string BaselineReviewDigest, decimal TotalStartingNuyen);

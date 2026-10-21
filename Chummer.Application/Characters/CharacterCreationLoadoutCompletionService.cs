@@ -38,6 +38,10 @@ public static class CharacterCreationLoadoutCompletionService
                 workspace.Document.AuxiliaryStateDigest);
             var state = workspace.Document.AuxiliaryState;
             var draft = state.CharacterCreationLoadoutDraft;
+            if (draft?.CompositePurchase is not null
+                && !CharacterCreationCompositePurchaseEdit.IsHistorical(workspace, draft.BaseContentRevision, draft.CompositePurchase,
+                    draft.ResourcesDraftRevision, draft.ResourcesDraftDigest))
+                return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
             if (!CharacterCreationLoadoutReceiptLedgerIntegrity.HasFunding(draft, state.CharacterCreationResourcesDraft,
                     state.CharacterCreationResourcesReceipts))
                 return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
@@ -69,6 +73,18 @@ public static class CharacterCreationLoadoutCompletionService
                 out var lines, out decimal cost, out var blockers))
             return new(CharacterCreationFoundationOutcomes.Blocked, null, blockers);
         return new(CharacterCreationFoundationOutcomes.Success, BuildProjection(selections, lines, cost, inputs.PendingDraft?.Instances), []);
+    }
+
+    internal static CharacterCreationFoundationResult<CharacterCreationLoadoutCompletionProjection> PreviewCompositeEdit(
+        CharacterCreationLoadoutCompletionInputs inputs, CharacterCreationLoadoutSelections selections)
+    {
+        if (!IsValidInputs(inputs) || !IsValidSelections(selections))
+            return new(CharacterCreationFoundationOutcomes.Blocked, null, [CharacterCreationLoadoutCompletionSchemas.RequestInvalid]);
+        if (!CharacterCreationLoadoutRules.TryProjectBasket(selections, inputs.Authority, out var lines, out var cost, out var blockers))
+            return new(CharacterCreationFoundationOutcomes.Blocked, null, blockers);
+        return new(CharacterCreationFoundationOutcomes.Success, BuildProjection(selections, lines, cost,
+            inputs.PendingDraft?.Instances?.Where(row => lines.Any(line => line.OptionId == row.OptionId))
+                .Select(row => row with { InstanceIds = row.InstanceIds.Take(lines.Single(line => line.OptionId == row.OptionId).Quantity).ToArray() }).ToArray()), []);
     }
 
     internal static CompletionPreviewSession? PrepareCompletionPreview(CharacterCreationLoadoutCompletionInputs inputs)

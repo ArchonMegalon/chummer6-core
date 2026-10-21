@@ -109,7 +109,8 @@ public sealed partial class CharacterCreationMagicResonanceService
             var allocations = attributes.Select(row => new CharacterCreationAttributeAllocation(
                 row.AttributeId, row.PriorityPointsSpent, row.KarmaLevels)).ToArray();
             if (!CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
-                talent, attributes, allocations, out var effective))
+                talent, attributes, allocations, out var effective,
+                witness.MysticAdeptPowerPointPolicy, witness.Metatype.SeparateMagicAttribute))
             {
                 failures.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
                 effective = new(0, 0, 0, 0m);

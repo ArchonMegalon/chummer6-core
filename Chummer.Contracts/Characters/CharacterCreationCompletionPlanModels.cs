@@ -4,6 +4,7 @@ public static class CharacterCreationCompletionPlanBlockers
 {
     public const string RequestInvalid = "creation-completion-plan-request-invalid";
     public const string SnapshotConflict = "creation-completion-plan-snapshot-conflict";
+    public const string PolicyConflict = "creation-completion-plan-policy-conflict";
     public const string ManualMagicMismatch = "creation-completion-plan-manual-magic-mismatch";
     public const string NegativeQualityPermissionRequired = "creation-completion-plan-negative-quality-permission-required";
     public const string KarmaReserveUnavailable = "creation-completion-plan-karma-reserve-unavailable";
@@ -37,6 +38,19 @@ public sealed record CharacterCreationCompletionPlanRequest(
     bool PermitNegativeQualityAdditions = false)
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationCampaignBinding? CampaignAuthority { get; init; }
+
+    /// <summary>The caller's coverage requirement, retained by every candidate
+    /// and review. None preserves legacy behavior; it does not imply coverage.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCreationPolicyRequirement PolicyRequirement { get; init; }
+
+    /// <summary>Exact effective-policy binding, required for V3 inputs even
+    /// when coverage is optional. Null preserves the legacy serialized shape.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? EffectivePolicyDigest { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationSkillKarmaPurchase>? SkillKarmaPurchases { get; init; }
 
     /// <summary>Opt-in bounded attribute Karma allocation after composing all
@@ -48,6 +62,43 @@ public sealed record CharacterCreationCompletionPlanRequest(
     /// False retains legacy behavior and serialized request/digest identity.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool AllocateRemainingAttributeKarma { get; init; }
+
+    /// <summary>Explicit consumption version for the exact observed inputs and
+    /// effective policy. This selects no authority and does not change the coverage
+    /// requirement. Null preserves historical request bytes and plan digests.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PolicyConsumptionSchema { get; init; }
+
+    /// <summary>Explicit assessment version; omitted historical requests retain
+    /// their bytes. This pin cannot supply missing Complete authority.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompleteAssessmentSchema { get; init; }
+
+    // Explicit execution pins, not source capabilities. Omission preserves
+    // historical plan bytes. Every dependent review retains these exact values.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? MaximumAttributesDefaultExecutionSchema { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? OriginalCharacterExecutionSchema { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuleSourceExecutionSchema { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuleSourceCaptureDigest { get; init; }
+
+    // Comparison evidence from the Core reader; execution still requires its
+    // private source context. Null preserves historical planning requests.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationSourcebookSelectionAuthority? SourcebookSelection { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AdditionalConsumerExecutionSchema { get; init; }
+
+    // Explicit profile execution selection, never a private capability.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProfileSettingsExecutionSchema { get; init; }
 }
 
 /// <summary>

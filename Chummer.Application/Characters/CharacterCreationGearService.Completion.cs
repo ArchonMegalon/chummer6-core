@@ -155,6 +155,121 @@ public sealed partial class CharacterCreationGearService
         }
     }
 
+    // The full catalogue and selected archive each execute their own canonical
+    // basket evaluator. The common digest describes that execution; private
+    // custody additionally binds the exact original observation for its route.
+    internal sealed class CompleteCostExecution
+    {
+        private readonly string originalDigest;
+        private readonly string authorityDigest;
+        private readonly string basketDigest;
+        private readonly decimal totalStartingNuyen;
+        private readonly string resultDigest;
+
+        private CompleteCostExecution(object original, IReadOnlyList<CharacterCreationGearSelection> basket,
+            decimal totalStartingNuyen, IReadOnlyList<CharacterCreationGearLine> lines, CharacterCreationGearBudget budget,
+            CharacterCreationCompleteAssessment authority)
+        {
+            originalDigest = CharacterCreationFinalizationDigest.Compute(original);
+            authorityDigest = CharacterCreationFinalizationDigest.Compute(authority);
+            basketDigest = CharacterCreationFinalizationDigest.Compute(basket);
+            this.totalStartingNuyen = totalStartingNuyen;
+            resultDigest = ResultDigest(lines, budget, Anchors(lines));
+            EvaluationDigest = CharacterCreationFinalizationDigest.Compute(new
+            {
+                Basket = basket, TotalStartingNuyen = totalStartingNuyen, Result = resultDigest
+            });
+        }
+
+        internal string EvaluationDigest { get; }
+
+        // Read only private execution state; transport fields cannot construct it.
+        internal decimal EvaluatedStartingNuyen => totalStartingNuyen;
+        internal bool MatchesSourceResult(IReadOnlyList<CharacterCreationGearSelection> basket,
+            IReadOnlyList<CharacterCreationGearLine> lines, CharacterCreationGearBudget budget,
+            CharacterCreationCompleteAssessment authority)
+            => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority)
+                && basketDigest == CharacterCreationFinalizationDigest.Compute(basket)
+                && totalStartingNuyen == budget.TotalStartingNuyen
+                && resultDigest == ResultDigest(lines, budget, Anchors(lines));
+
+        internal static CompleteCostExecution? FromFull(CharacterCreationCompletionReviewInputs inputs,
+            CharacterCreationCompletionReview review, CharacterCreationCompleteAssessment? authority,
+            CancellationToken cancellationToken = default,
+            CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null)
+        {
+            if (!CanExecute(authority) || review.Blockers.Count != 0 || review.Lifestyles?.Gear is not { } actual
+                || review.Request.Selections.Gear is null
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(authority,
+                    CharacterCreationCompleteAssessmentService.FromFullAuthority(inputs, review.Request, ruleSourceExecution))) return null;
+            var original = DetachCompletion(inputs.Lifestyles.Gear);
+            var basket = review.Request.Selections.Gear.ToArray();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsValidCompletionInputs(original)
+                || !CharacterCreationGearRules.TryProjectBasket(basket, original.State.Authority,
+                    actual.Resources.Budget.TotalStartingNuyen, out var lines, out var budget, out var blockers)
+                || blockers.Length != 0) return null;
+            cancellationToken.ThrowIfCancellationRequested();
+            var execution = new CompleteCostExecution(inputs, basket, actual.Resources.Budget.TotalStartingNuyen,
+                lines, budget, authority!);
+            return execution.MatchesFull(inputs, review, authority!) ? execution : null;
+        }
+
+        internal static CompleteCostExecution? FromSelected(CharacterCreationSelectedCompletionWitness witness,
+            CharacterCreationCompletionReviewRequest request, CharacterCreationSelectedCompletionEvaluation result,
+            CharacterCreationCompleteAssessment? authority, CancellationToken cancellationToken = default)
+        {
+            if (!CanExecute(authority) || authority!.InputsSnapshotDigest != witness.ProvenanceInputsSnapshotDigest
+                || authority.RequestDigest != CharacterCreationFinalizationDigest.Compute(request)
+                || request.Selections.Gear is null) return null;
+            var original = DetachCompletion(witness.Gear);
+            var basket = request.Selections.Gear.ToArray();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!CharacterCreationGearRules.TryProjectSelectedBasket(basket, original,
+                    result.Resources.Budget.TotalStartingNuyen, out var lines, out var budget, out var blockers)
+                || blockers.Length != 0) return null;
+            cancellationToken.ThrowIfCancellationRequested();
+            var execution = new CompleteCostExecution(witness, basket, result.Resources.Budget.TotalStartingNuyen,
+                lines, budget, authority!);
+            return execution.MatchesSelected(witness, request, result, authority!) ? execution : null;
+        }
+
+        internal bool MatchesFull(CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReview review,
+            CharacterCreationCompleteAssessment authority)
+            => authority.RequestDigest == CharacterCreationFinalizationDigest.Compute(review.Request)
+                && review.Blockers.Count == 0 && review.Lifestyles?.Gear is { Blockers.Count: 0 } actual
+                && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(actual.Binding, inputs.Lifestyles.Gear.State.Binding)
+                && actual.GearSnapshotDigest == inputs.Lifestyles.Gear.SnapshotDigest
+                && Matches(inputs, review.Request.Selections.Gear, actual.Resources.Budget.TotalStartingNuyen,
+                    actual.Lines, actual.Budget, actual.SourceAnchorIds, authority);
+
+        internal bool MatchesSelected(CharacterCreationSelectedCompletionWitness witness,
+            CharacterCreationCompletionReviewRequest request, CharacterCreationSelectedCompletionEvaluation result,
+            CharacterCreationCompleteAssessment authority)
+            => authority.RequestDigest == CharacterCreationFinalizationDigest.Compute(request)
+                && Matches(witness, request.Selections.Gear, result.Resources.Budget.TotalStartingNuyen,
+                result.Gear, result.GearBudget, result.GearSourceAnchorIds, authority);
+
+        private bool Matches(object original, IReadOnlyList<CharacterCreationGearSelection>? basket, decimal total,
+            IReadOnlyList<CharacterCreationGearLine> lines, CharacterCreationGearBudget budget, IReadOnlyList<string> anchors,
+            CharacterCreationCompleteAssessment authority)
+            => basket is not null && authorityDigest == CharacterCreationFinalizationDigest.Compute(authority)
+                && originalDigest == CharacterCreationFinalizationDigest.Compute(original)
+                && basketDigest == CharacterCreationFinalizationDigest.Compute(basket) && totalStartingNuyen == total
+                && resultDigest == ResultDigest(lines, budget, anchors);
+
+        private static string ResultDigest(IReadOnlyList<CharacterCreationGearLine> lines,
+            CharacterCreationGearBudget budget, IReadOnlyList<string> anchors)
+            => CharacterCreationFinalizationDigest.Compute(new { Lines = lines, Budget = budget, SourceAnchorIds = anchors });
+
+        private static string[] Anchors(IReadOnlyList<CharacterCreationGearLine> lines)
+            => lines.SelectMany(row => row.SourceAnchorIds).Concat(CharacterCreationGearSourceAnchors.All)
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+
+        private static bool CanExecute(CharacterCreationCompleteAssessment? authority)
+            => authority is { Schema: CharacterCreationCompleteAssessment.SchemaV4, Phase: CharacterCreationCompletePhase.Authority };
+    }
+
     private static bool IsValidCompletionInputs(CharacterCreationGearCompletionInputs inputs)
     {
         if (inputs.Schema != CharacterCreationGearCompletionSchemas.InputsV1
@@ -206,8 +321,10 @@ public sealed partial class CharacterCreationGearService
             return false;
         bool initial = state.ResourcesDraft is null && state.PendingDraft is null && inputs.Receipts.Count == 0;
         string[] expectedBlockers = initial ? [CharacterCreationGearBlockers.ResourcesDraftRequired] : [];
+        // A complete read-only observation can price a basket without granting
+        // editor capability. Its history, source, budget and digest still match.
         if (!state.Blockers.SequenceEqual(expectedBlockers, StringComparer.Ordinal)
-            || state.CanEdit != (expectedBlockers.Length == 0)
+            || state.CanEdit && expectedBlockers.Length != 0
             || !CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(binding.WorkspaceId,
                 binding.ContentRevision, state.PendingDraft, inputs.Receipts))
             return false;
@@ -221,7 +338,7 @@ public sealed partial class CharacterCreationGearService
             return initial || state.ResourcesDraft is not null;
         if (pending.Lines is null || pending.Lines.Any(line => line is null || line.SourceAnchorIds is null)
             || pending.Budget?.Blockers is null || pending.FinalizationContribution?.SourceAnchorIds is null
-            || state.ResourcesDraft is null
+            || state.ResourcesDraft is null && pending.CompositePurchase is null
             || !SameCompletionDigest(pending.BaseRawCharacterXmlDigest, binding.RawCharacterXmlDigest)
             || !SameCompletionDigest(pending.AuthorityDigest, authority.AuthorityDigest)
             || !SameCompletionDigest(pending.SourceDigest, authority.SourceDigest)

@@ -79,7 +79,7 @@ public sealed class OwnerBoundCharacterCreationLifestylesService(
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
             using ICharacterSourceDataResolverOperationScope? scope =
                 (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
-            return action(new CharacterCreationLifestylesService(view, scope ?? sourceResolver));
+            return action(new CharacterCreationLifestylesService(view, scope ?? sourceResolver, completionQueries));
         }
     }
 }

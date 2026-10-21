@@ -19,6 +19,50 @@ public sealed class CharacterCreationMagicResonanceServiceTests
     private const string PowerId = "30000000-0000-0000-0000-000000000003";
 
     [TestMethod]
+    public void Separate_magic_disabled_keeps_purchase_exchange_cost_and_historical_payload_bytes()
+    {
+        string digest = CharacterCreationMagicResonanceDigest.ComputeUtf8("settings-fixture");
+        const string xml = "<setting><id>profile</id><priorityspellsasadeptpowers>True</priorityspellsasadeptpowers>"
+            + "<mysadeptsecondmagattribute>False</mysadeptsecondmagattribute><karmacost><karmamysadpp>7</karmamysadpp></karmacost></setting>";
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy("profile", digest, xml, out var policy));
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy,
+            CharacterCreationMagicResonanceKinds.MysticAdept, 4, 2, 4, out var allocation));
+        var legacy = new CharacterCreationMysticAdeptPowerPointAllocation(4, 4, 2, 0, 14, policy!);
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(legacy), System.Text.Json.JsonSerializer.Serialize(allocation));
+        Assert.AreEqual(CharacterCreationMagicResonanceDigest.Compute(legacy), CharacterCreationMagicResonanceDigest.Compute(allocation));
+        Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy,
+            CharacterCreationMagicResonanceKinds.MysticAdept, 4, 2, 5, out _));
+        Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy,
+            CharacterCreationMagicResonanceKinds.MysticAdept, 4, 2, 0, out _, 2));
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy("profile", digest,
+            xml.Replace(">True<", ">False<", StringComparison.Ordinal), out var noExchange));
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(noExchange,
+            CharacterCreationMagicResonanceKinds.MysticAdept, 4, 2, 4, out allocation));
+        Assert.AreEqual(28, allocation!.KarmaCost);
+        Assert.AreEqual(2, allocation.SpellBudget);
+
+        var effective = new CharacterCreationMagicResonanceEffectiveAttributes(4, 0, 0, 0m);
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(new { Magic = 4, Resonance = 0, Depth = 0, AdeptPowerPointBudget = 0m }),
+            System.Text.Json.JsonSerializer.Serialize(effective));
+        var metatype = new CharacterCreationMagicResonanceMetatypeCapability("id", "Human", "Metahuman", [], digest);
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(new { metatype.MetatypeSourceId, metatype.MetatypeName,
+            metatype.MetatypeCategory, metatype.SourceAnchorIds, metatype.SourceNodeDigest }), System.Text.Json.JsonSerializer.Serialize(metatype));
+
+        using var context = MagicResonanceCompletionTests.SeparateMagicContext.Create(2, true, separate: false);
+        var inputs = new CharacterCreationMagicResonanceService(context.Store, context.Resolver)
+            .LoadCompletionInputs(new(context.WorkspaceId)).Value!;
+        Assert.IsNull(inputs.Attributes.SeparateMagicPolicy);
+        Assert.IsFalse(inputs.Attributes.Attributes.Any(row => row.AttributeId == "MAGAdept"));
+        Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(inputs.Attributes).Contains("SeparateMagicPolicy", StringComparison.Ordinal));
+        var choices = MagicResonanceCompletionTests.CompleteSelections(inputs, inputs.SelectedTalent.Magic, 2);
+        var preview = CharacterCreationMagicResonanceService.PreviewCompletion(inputs, [], choices);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preview.Outcome, string.Join(",", preview.Blockers));
+        Assert.AreEqual(2, preview.Value!.MysticAdeptPowerPoints!.ExchangedSpellSlots);
+        Assert.AreEqual(0, preview.Value.MysticAdeptPowerPoints.KarmaCost);
+        Assert.IsNull(preview.Value.EffectiveAttributes.MagicAdept);
+    }
+
+    [TestMethod]
     public void Reused_canonical_payload_does_not_cache_digest_root_or_typed_admission()
     {
         var authority = CreateMagicAuthority(CreatePrerequisiteAuthority());

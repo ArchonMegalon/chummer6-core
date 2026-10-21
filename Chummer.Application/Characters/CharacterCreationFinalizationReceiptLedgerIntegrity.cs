@@ -22,7 +22,8 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
         CharacterWorkspaceId workspaceId,
         long currentContentRevision,
         CharacterCreationFinalizationArchive archive,
-        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? receipts)
+        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? receipts,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
     {
         ArgumentNullException.ThrowIfNull(archive);
         return archive.State is not null
@@ -32,7 +33,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && IsValidLedger(workspaceId, currentContentRevision, receipts)
                && CharacterCreationKarmaFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
                && CharacterCreationLifeModuleFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
-               && CharacterCreationCompletionTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
+               && CharacterCreationCompletionTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt, recovery)
                && IsValidStartingCashArchive(archive, receipts[0].Receipt)
                && string.Equals(archive.State.ComputeDigest(),
                    receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
@@ -63,14 +64,15 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
 
     /// <summary>Read-only receipt recovery. Never use historical drafts to evaluate a new mutation.</summary>
     internal static bool TryReadReceiptHistory(WorkspaceStoredDocument workspace,
-        out WorkspaceDocumentAuxiliaryState history, out long historyRevision)
+        out WorkspaceDocumentAuxiliaryState history, out long historyRevision,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
     {
         history = workspace.Document.AuxiliaryState;
         historyRevision = workspace.ContentRevision;
         if (history.CharacterCreationFinalizationArchive is not { } archive)
             return true;
         if (!IsValidArchive(workspace.Id, workspace.ContentRevision, archive,
-                history.CharacterCreationFinalizationReceipts))
+                history.CharacterCreationFinalizationReceipts, recovery))
             return false;
         historyRevision = history.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision;
         history = archive.State;

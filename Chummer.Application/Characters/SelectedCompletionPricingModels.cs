@@ -53,11 +53,18 @@ internal sealed record SelectedCompletionContactsPricingInput(
     IReadOnlyList<CharacterCreationQualitySelection> QualitySelections,
     IReadOnlyList<CharacterCreationKarmaContactSelection> Contacts,
     string SourceProvenanceSeed,
-    IReadOnlyList<string> UpstreamBlockers);
+    IReadOnlyList<string> UpstreamBlockers,
+    CharacterCreationQualityCostPolicy QualityCostPolicy,
+    int QualityKarmaLimit,
+    bool MayExceedPositiveQualityLimit);
 
 internal sealed record SelectedCompletionContactsPrice(
     IReadOnlyList<CharacterCreationContactProjection> Contacts,
     CharacterCreationContactBudget ContactBudget,
     CharacterCreationContactBudget HighPlacesBudget,
     int? AdditionalKarmaCost,
-    IReadOnlyList<string> Blockers);
+    IReadOnlyList<string> Blockers)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationContactGroupKarmaEvaluation? GroupKarma { get; init; }
+}

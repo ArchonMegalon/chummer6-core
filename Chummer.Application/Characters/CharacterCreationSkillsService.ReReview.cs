@@ -80,7 +80,7 @@ public sealed partial class CharacterCreationSkillsService
         && CharacterCreationSkillsDigest.EqualsFixedTime(binding.ContextDigest,
             CharacterCreationSkillsDigest.Compute(binding with { ContextDigest = string.Empty }));
 
-    private static bool TryPrepareReReview(WorkspaceStoredDocument workspace, CharacterCreationSkillsState state,
+    private bool TryPrepareReReview(WorkspaceStoredDocument workspace, CharacterCreationSkillsState state,
         CharacterCreationSkillsAuthority catalog, out CharacterCreationSkillsReReviewBinding? binding)
     {
         binding = null;
@@ -128,23 +128,44 @@ public sealed partial class CharacterCreationSkillsService
             && historical.AttributesDraftRevision < attributes.DraftRevision
             && CharacterCreationSkillsDigest.IsCanonical(historical.AttributesDraftDigest)
             && !CharacterCreationSkillsDigest.EqualsFixedTime(historical.AttributesDraftDigest, attributes.DraftDigest)
-            && last.ContentRevision <= attributes.BaseContentRevision
-            && HasPlausibleRecordedKnowledgeBudget(historical, state.Authority, attributes);
+            && last.ContentRevision <= attributes.BaseContentRevision;
         if (!prePolicy && !attributesChanged) return false;
+
+        CharacterCreationAttributesDraft? retainedAttributes = null;
+        if (attributesChanged)
+        {
+            if (last.AttributesSnapshot is { } snapshot)
+            {
+                // Reuse exact saved rows, bound through the original Skills draft
+                // and its receipt. A copied or stale snapshot cannot substitute.
+                if (snapshot.DraftRevision != historical.AttributesDraftRevision
+                    || !CharacterCreationSkillsDigest.EqualsFixedTime(snapshot.DraftDigest, historical.AttributesDraftDigest)
+                    || !CharacterCreationAttributesDraftIntegrity.IsStructurallyValidPending(snapshot,
+                        workspace.Id, last.PreviousContentRevision, state.Binding.RawCharacterXmlDigest, prerequisite)
+                    || !new CharacterCreationAttributesService(_store, _resolver).IsValidHistoricalSnapshot(
+                        workspace, snapshot, last.PreviousContentRevision))
+                    return false;
+                retainedAttributes = snapshot;
+            }
+            else if (state.Authority.KnowledgePointsExpression != CharacterCreationStandardPrioritySkillsRules.KnowledgePointsExpression
+                || !HasPlausibleRecordedKnowledgeBudget(historical, state.Authority, attributes))
+                return false;
+        }
 
         var historicalAuthority = prePolicy ? catalog : state.Authority;
         var historicalBlockers = new List<string>();
         var historicalProjection = EvaluateAllocations(historicalAuthority, prerequisite,
-            state.SelectedActiveSkillPoints, state.SelectedSkillGroupPoints, state.IntuitionUnaugmented,
-            state.LogicUnaugmented, state.MovementCapability, historical.Allocations, historical.GroupAllocations,
+            state.SelectedActiveSkillPoints, state.SelectedSkillGroupPoints, (retainedAttributes ?? attributes).Attributes,
+            state.MovementCapability, historical.Allocations, historical.GroupAllocations,
             historicalBlockers, prePolicy ? SkillsEvaluationSemantics.PreTalentAccessHistory : SkillsEvaluationSemantics.CurrentSourceBound,
-            recordedKnowledgePointTotal: attributesChanged ? historical.KnowledgePointTotal : null);
+            recordedKnowledgePointTotal: attributesChanged && retainedAttributes is null ? historical.KnowledgePointTotal : null);
         var expected = BuildDraft(state with
         {
             Authority = historicalAuthority,
+            AttributesDraft = retainedAttributes ?? attributes,
             PendingDraft = workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft
         }, historicalProjection);
-        if (attributesChanged)
+        if (attributesChanged && retainedAttributes is null)
             expected = expected with
             {
                 // Comparison only: old attribute bytes are not retained. The

@@ -21,10 +21,11 @@ public static class CharacterCreationLifestyleMutationKinds
     public const string Create = "create";
     public const string Edit = "edit";
     public const string Delete = "delete";
+    public const string ReReviewAuthority = "re-review-authority";
 
     public static IReadOnlyList<string> All { get; } = Array.AsReadOnly(new[]
     {
-        Create, Edit, Delete
+        Create, Edit, Delete, ReReviewAuthority
     });
 }
 
@@ -63,6 +64,7 @@ public static class CharacterCreationLifestyleQualityTypes
 
 public static class CharacterCreationLifestylesBlockers
 {
+    public const string AuthorityReReviewRequired = "creation-lifestyles-authority-re-review-required";
     public const string AuthorityUnavailable = "creation-lifestyles-authority-unavailable";
     public const string CareerModeRejected = "creation-lifestyles-career-mode-rejected";
     public const string CharacterDocumentInvalid = "creation-lifestyles-character-document-invalid";
@@ -196,7 +198,54 @@ public sealed record CharacterCreationLifestyleQualityCatalogOption(
     bool EligibilityIsExact,
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds,
-    string OptionDigest);
+    string OptionDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleQualitySelectionSemantics? SelectionSemantics { get; init; }
+}
+
+// The native effect type fixes its scope: ordinary costs cover every supported
+// style; Basic costs cover Standard only (not merely the base price).
+public enum CharacterCreationLifestyleCostEffectType
+{
+    LifestyleCost = 0,
+    BasicLifestyleCost = 1
+}
+
+/// <summary>One source-compiled, unconditional purchased-quality cost occurrence.</summary>
+public sealed record CharacterCreationLifestyleQualityCostOccurrence(
+    string OptionId,
+    Guid SourceId,
+    string SourceNodeDigest,
+    int Level,
+    string Container,
+    int Position,
+    decimal Percentage,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    // Preserve the exact historical occurrence JSON and every enclosing digest.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCreationLifestyleCostEffectType EffectType { get; init; }
+}
+
+public sealed record CharacterCreationLifestylePurchasedQualityCosts(
+    IReadOnlyList<CharacterCreationQualitySelection> Sources,
+    IReadOnlyList<CharacterCreationLifestyleQualityCostOccurrence> Occurrences);
+
+public enum CharacterCreationFreeGridsActivationReason
+{
+    Disabled = 0,
+    Setting = 1,
+    Sourcebook = 2
+}
+
+/// <summary>The supplied setting and source inputs, before effective activation is resolved.</summary>
+public sealed record CharacterCreationFreeGridsActivation(
+    string? RawSettingValue,
+    bool SourcebookEnabled,
+    CharacterCreationFreeGridsActivationReason Reason,
+    string SettingsSourceDigest,
+    string LifestylesSourceDigest);
 
 public sealed record CharacterCreationLifestylesAuthority(
     string Schema,
@@ -219,6 +268,19 @@ public sealed record CharacterCreationLifestylesAuthority(
     // canonical JSON/digests when they had no character cost adjustment.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public decimal MetatypeCostPercent { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestylePurchasedQualityCosts? PurchasedQualityCosts { get; init; }
+
+    // Historical authorities must retain their absent-field bytes and enclosing digests.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFreeGridsActivation? FreeGridsActivation { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleLocationCatalog? LocationCatalog { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationLifestyleCategory>? Categories { get; init; }
 
     public static CharacterCreationLifestylesAuthority Unavailable { get; } = new(
         CharacterCreationLifestylesSchemas.AuthorityV1,
@@ -269,7 +331,11 @@ public sealed record CharacterCreationLifestyleConfiguration(
 public sealed record CharacterCreationLifestyleMutation(
     string MutationKind,
     Guid LifestyleId,
-    CharacterCreationLifestyleConfiguration? Configuration);
+    CharacterCreationLifestyleConfiguration? Configuration)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleAuthorityReviewRequest? AuthorityReview { get; init; }
+}
 
 /// <summary>Confirmed Priority/Sum-to-Ten purchases; raw character XML stays unchanged until finalization.</summary>
 public sealed record CharacterCreationLifestylesDraft(
@@ -303,7 +369,11 @@ public sealed record CharacterCreationLifestyleProjection(
     string Page,
     CharacterCreationLifestyleEconomics Economics,
     IReadOnlyList<string> SourceAnchorIds,
-    string LifestyleDigest);
+    string LifestyleDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleLocationSelection? Location { get; init; }
+}
 
 public sealed record CharacterCreationLifestyleBudget(
     decimal Total,
@@ -359,6 +429,11 @@ public sealed record CharacterCreationLifestyleAtomicWritePlan(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifestylesDraft? PendingDraft { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CompositeReviewDigest { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleAuthorityTransition? AuthorityTransition { get; init; }
+
 }
 
 public sealed record CharacterCreationLifestylesState(
@@ -371,7 +446,11 @@ public sealed record CharacterCreationLifestylesState(
     CharacterCreationLifestyleBudget Budget,
     IReadOnlyList<string> Blockers,
     bool CanEdit,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleAuthorityReviewState? AuthorityReview { get; init; }
+}
 
 public sealed record CharacterCreationLifestylePreview(
     string Schema,

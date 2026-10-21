@@ -69,49 +69,15 @@ public static class CharacterCareerReputationProjector
                 error = "reputation_workspace_not_career";
                 return false;
             }
-            // These four scalar fields are emitted by Character.Save, unlike
-            // calculated totals and CareerKarma, which are derived on demand.
-            int streetCred = ReadInteger(root, "streetcred");
-            int notoriety = ReadInteger(root, "notoriety");
-            int awareness = ReadInteger(root, "publicawareness");
-            int burnt = ReadInteger(root, "burntstreetcred");
-            int careerKarma = ReadCareerKarma(root, out var expenses);
-            Improvement[] improvements = ReadImprovements(root);
-            HashSet<int> selected = [];
-            var values = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (string type in Types)
-            {
-                decimal total = SelectAndSum(improvements.Where(row => row.Type == type && row.Applicable), selected);
-                // Erased is a selected-effect presence query, not a numeric
-                // reputation bonus; its decimal value need not fit an integer.
-                if (type != "Erased") values.Add(type, RoundAwayFromZero(total));
-            }
-
-            // Erased reads the legacy contributor list, not ValueOf's decimal.
-            // In the pinned implementation a custom unique contributor is added
-            // to the normal partition's list when that named partition exists;
-            // for a custom-only named partition it is not returned by the cache.
-            // Preserve this observable corner case rather than silently changing
-            // imported characters by using Any(enabled Erased) instead.
-            foreach (Improvement row in improvements.Where(row => row.Type == "Erased" && row.Custom && row.Unique.Length != 0))
-            {
-                if (!improvements.Any(other => other.Type == "Erased" && other.Applicable && !other.Custom && other.Name == row.Name))
-                    selected.Remove(row.Index);
-            }
-
+            var graph = ReadGraph(root, CharacterReputationPhase.Career);
             ICharacterSourceDataContext? context = sourceResolver.TryCreateContext(document.Content);
             error = "reputation_source_unavailable";
             if (context is null
                 || !context.TryResolveCareerReputationSettings(out var settings, out string rawRuleState)
                 || settings is null || string.IsNullOrEmpty(rawRuleState))
                 return false;
-            var inputs = new CharacterCareerReputationInputs("sr5", true, careerKarma,
-                streetCred, notoriety, awareness, burnt,
-                values["StreetCredMultiplier"], values["StreetCred"], values["Notoriety"],
-                values["PublicAwareness"], settings.UseCalculatedPublicAwareness,
-                improvements.Any(row => row.Type == "Erased" && selected.Contains(row.Index)));
             error = "reputation_calculation_invalid";
-            if (!CharacterCareerReputationRules.TryProject(inputs, out var reputation)) return false;
+            if (!TryProjectGraph(graph, settings, out var evaluated)) return false;
 
             // Materialize all bindings before the final drift check; a source
             // context read is not a reservation or permission to save later.
@@ -122,11 +88,8 @@ public static class CharacterCareerReputationProjector
                     document.Format, document.RulesetId, document.SchemaVersion, document.PayloadKind,
                     PayloadDigest = Digest(document.Content)
                 })), document.AuxiliaryStateDigest,
-                Digest("chummer.core.sr5-reputation-rules/v1\0" + JsonSerializer.Serialize(new { settings, rawRuleState })), reputation!,
-                Array.AsReadOnly(expenses), Array.AsReadOnly(improvements.Select(row =>
-                    new CharacterCareerReputationImprovementContribution(row.Index, row.Type,
-                        row.Name, row.Unique, row.Value, row.Custom, row.Applicable,
-                        selected.Contains(row.Index))).ToArray()));
+                Digest("chummer.core.sr5-reputation-rules/v1\0" + JsonSerializer.Serialize(new { settings, rawRuleState })), evaluated!.Reputation,
+                evaluated.Expenses, evaluated.Improvements);
             error = "reputation_source_changed";
             if (!context.TryResolveCareerReputationSettings(out var finalSettings, out string finalRuleState)
                 || settings != finalSettings || !string.Equals(rawRuleState, finalRuleState, StringComparison.Ordinal))
@@ -144,6 +107,110 @@ public static class CharacterCareerReputationProjector
         }
     }
 
+    // Phase is explicit and must agree with the actual graph. This evaluator has
+    // no workspace admission, source lookup, persistence or aggregate coverage.
+    internal enum CharacterReputationPhase { Creation, Career }
+
+    internal sealed record GraphEvaluation(
+        CharacterCareerReputationProjection Reputation,
+        IReadOnlyList<CharacterCareerReputationExpenseContribution> Expenses,
+        IReadOnlyList<CharacterCareerReputationImprovementContribution> Improvements,
+        IReadOnlyList<int> UnhandledImprovementIndexes);
+
+    private sealed record GraphInputs(
+        CharacterCareerReputationInputs Inputs,
+        IReadOnlyList<CharacterCareerReputationExpenseContribution> Expenses,
+        IReadOnlyList<CharacterCareerReputationImprovementContribution> Improvements,
+        IReadOnlyList<int> UnhandledImprovementIndexes);
+
+    internal static bool TryEvaluateGraph(XElement root, CharacterCareerReputationSettings settings,
+        CharacterReputationPhase phase, out GraphEvaluation? evaluation, out string error)
+    {
+        evaluation = null;
+        error = "reputation_input_unresolved";
+        if (root is null || settings is null) return false;
+        try
+        {
+            var graph = ReadGraph(root, phase);
+            error = "reputation_calculation_invalid";
+            if (!TryProjectGraph(graph, settings, out evaluation)) return false;
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException
+            or FormatException or ArgumentException)
+        {
+            error = "reputation_input_unresolved";
+            return false;
+        }
+    }
+
+    private static GraphInputs ReadGraph(XElement root, CharacterReputationPhase phase)
+    {
+        if (phase is not (CharacterReputationPhase.Creation or CharacterReputationPhase.Career)
+            || root.Name != "character" || root.HasAttributes
+            || ReadBoolean(root, "created") != (phase == CharacterReputationPhase.Career)) throw Invalid();
+        // These four scalar fields are emitted by Character.Save, unlike
+        // calculated totals and CareerKarma, which are derived on demand.
+        int streetCred = ReadInteger(root, "streetcred");
+        int notoriety = ReadInteger(root, "notoriety");
+        int awareness = ReadInteger(root, "publicawareness");
+        int burnt = ReadInteger(root, "burntstreetcred");
+        int careerKarma = ReadCareerKarma(root, out var expenses);
+        Improvement[] improvements = ReadImprovements(root, phase);
+        HashSet<int> selected = [];
+        var values = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (string type in Types)
+        {
+            decimal total = SelectAndSum(improvements.Where(row => row.Type == type && row.Applicable), selected);
+            // Erased is a selected-effect presence query, not a numeric
+            // reputation bonus; its decimal value need not fit an integer.
+            if (type != "Erased") values.Add(type, RoundAwayFromZero(total));
+        }
+
+        // Erased reads the legacy contributor list, not ValueOf's decimal.
+        // In the pinned implementation a custom unique contributor is added
+        // to the normal partition's list when that named partition exists;
+        // for a custom-only named partition it is not returned by the cache.
+        // Preserve this observable corner case rather than silently changing
+        // imported characters by using Any(enabled Erased) instead.
+        foreach (Improvement row in improvements.Where(row => row.Type == "Erased" && row.Custom && row.Unique.Length != 0))
+        {
+            if (!improvements.Any(other => other.Type == "Erased" && other.Applicable && !other.Custom && other.Name == row.Name))
+                selected.Remove(row.Index);
+        }
+
+        var inputs = new CharacterCareerReputationInputs("sr5", phase == CharacterReputationPhase.Career,
+            careerKarma, streetCred, notoriety, awareness, burnt,
+            values["StreetCredMultiplier"], values["StreetCred"], values["Notoriety"],
+            values["PublicAwareness"], false,
+            improvements.Any(row => row.Type == "Erased" && selected.Contains(row.Index)));
+        // Skipping an unknown type in reputation arithmetic is not evidence that
+        // it is inactive. Keep its graph position, without exporting private XML.
+        var known = improvements.Select(row => row.Index).ToHashSet();
+        int count = Rows(root, "improvements", "improvement").Length;
+        return new(inputs, Array.AsReadOnly(expenses),
+            Array.AsReadOnly(improvements.Select(row =>
+                new CharacterCareerReputationImprovementContribution(row.Index, row.Type,
+                    row.Name, row.Unique, row.Value, row.Custom, row.Applicable,
+                    selected.Contains(row.Index))).ToArray()),
+            Array.AsReadOnly(Enumerable.Range(0, count).Where(index => !known.Contains(index)).ToArray()));
+    }
+
+    private static bool TryProjectGraph(GraphInputs graph, CharacterCareerReputationSettings settings,
+        out GraphEvaluation? evaluation)
+    {
+        evaluation = null;
+        var inputs = graph.Inputs with { UseCalculatedPublicAwareness = settings.UseCalculatedPublicAwareness };
+        CharacterCareerReputationProjection? reputation;
+        bool projected = inputs.IsCareer
+            ? CharacterCareerReputationRules.TryProject(inputs, out reputation)
+            : CharacterCareerReputationRules.TryProjectCreation(inputs, out reputation);
+        if (!projected) return false;
+        evaluation = new(reputation!, graph.Expenses, graph.Improvements, graph.UnhandledImprovementIndexes);
+        return true;
+    }
+
     // Creation uses the same strict input parsers after materializing its
     // draft graph. Never let finalization turn malformed present data into
     // defaults or certify an unreadable persisted reputation/history shape.
@@ -159,6 +226,12 @@ public static class CharacterCareerReputationProjector
         _ = ReadImprovements(root);
         _ = Rows(root, "contacts", "contact");
     }
+
+    // A disposable selection graph has no original reputation or expense
+    // history. Validate its real compiled improvements without supplying fake
+    // saved values; the finalization caller still validates the original state.
+    internal static void ValidateSelectedImprovementsShape(XElement root)
+        => _ = ReadImprovements(root);
 
     private static int ReadCareerKarma(
         XElement root, out CharacterCareerReputationExpenseContribution[] trace)
@@ -184,17 +257,19 @@ public static class CharacterCareerReputationProjector
         return total;
     }
 
-    private static Improvement[] ReadImprovements(XElement root)
+    private static Improvement[] ReadImprovements(XElement root,
+        CharacterReputationPhase phase = CharacterReputationPhase.Career, IReadOnlyList<string>? types = null)
     {
+        types ??= Types;
         XElement[] rows = Rows(root, "improvements", "improvement");
         var result = new List<Improvement>();
         for (int index = 0; index < rows.Length; index++)
         {
             XElement row = rows[index];
             string type = Scalar(row, "improvementttype");
-            if (!Types.Contains(type, StringComparer.Ordinal))
+            if (!types.Contains(type, StringComparer.Ordinal))
             {
-                if (Types.Contains(type, StringComparer.OrdinalIgnoreCase)) throw Invalid();
+                if (types.Contains(type, StringComparer.OrdinalIgnoreCase)) throw Invalid();
                 continue;
             }
             // Numeric flags are how Improvement.Save serializes these fields.
@@ -206,10 +281,17 @@ public static class CharacterCareerReputationProjector
             result.Add(new(index, type, Scalar(row, "improvedname", "", preserveWhitespace: true),
                 Scalar(row, "unique", "", preserveWhitespace: true),
                 ReadDecimal(row, "val"), ReadBoolean(row, "custom", false),
-                enabled && !addToRating && condition is "" or "career"));
+                enabled && !addToRating && (condition == "" || condition ==
+                    (phase == CharacterReputationPhase.Career ? "career" : "create"))));
         }
         return result.ToArray();
     }
+
+    // The initiative consumer shares the inspected enabled/lifecycle/unique resolver.
+    // The existing reputation callers still supply their original type set and phase.
+    internal static decimal ResolvePhysicalChannel886(XElement root, string type, bool created)
+        => SelectAndSum(ReadImprovements(root, created ? CharacterReputationPhase.Career : CharacterReputationPhase.Creation,
+            new[] { type }).Where(row => row.Applicable), []);
 
     private static decimal SelectAndSum(IEnumerable<Improvement> rows, HashSet<int> selected)
     {

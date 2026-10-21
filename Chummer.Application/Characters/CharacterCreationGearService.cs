@@ -1,6 +1,7 @@
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Workspaces;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -18,13 +19,16 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterSourceDataResolver _sourceData;
+    private readonly ICharacterFileQueries? _completionQueries;
 
     public CharacterCreationGearService(
         IWorkspaceStore workspaceStore,
-        ICharacterSourceDataResolver sourceData)
+        ICharacterSourceDataResolver sourceData,
+        ICharacterFileQueries? completionQueries = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _sourceData = sourceData ?? throw new ArgumentNullException(nameof(sourceData));
+        _completionQueries = completionQueries;
     }
 
     public CharacterCreationGearResult<CharacterCreationGearState> Load(
@@ -35,6 +39,8 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationGearState>(read);
 
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return LoadComposite(workspace);
         AuthorityContext context = BuildContext(workspace);
         CharacterCreationGearState state = CreateState(context);
         return new CharacterCreationGearResult<CharacterCreationGearState>(
@@ -43,7 +49,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             context.Blockers);
     }
 
-    private static CharacterCreationGearState CreateState(AuthorityContext context)
+    private CharacterCreationGearState CreateState(AuthorityContext context)
     {
         var candidate = new CharacterCreationGearState(
             CharacterCreationGearSchemas.StateV1,
@@ -54,7 +60,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             context.PendingDraft,
             context.Budget,
             context.Blockers,
-            CanEdit: context.Blockers.Count == 0,
+            CanEdit: context.Blockers.Count == 0 && _workspaceStore is not WorkspaceContinuationReadView,
             SnapshotDigest: string.Empty);
         return candidate with
         {
@@ -182,6 +188,12 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             previousReceiptDigest,
             CharacterDocumentChanged: false,
             ReceiptDigest: string.Empty);
+        receiptCandidate = receiptCandidate with
+        {
+            CompositePurchase = draft.CompositePurchase,
+            CompositeAuthority = preview.CompositeAuthority,
+            CompositeLines = draft.CompositePurchase is null ? null : draft.Lines
+        };
         CharacterCreationGearReceipt receipt = receiptCandidate with
         {
             ReceiptDigest = CharacterCreationGearRules.ComputeReceiptDigest(receiptCandidate)
@@ -202,8 +214,12 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
                 }
             }
         };
-        WorkspaceStoreMutationResult committed =
-            atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        WorkspaceStoreMutationResult committed = workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null
+            ? _workspaceStore is ICharacterCreationCompositeStageAtomicCommitCapability { SupportsCompositeStageAtomicCommit: true } composite
+                && _completionQueries is not null
+                ? composite.CommitCompositeStage(OwnerScope.LocalSingleUser, replacement, preview, _sourceData, _completionQueries)
+                : new(WorkspaceOperationOutcome.Unavailable)
+            : atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
                 workspace.ContentRevision,
                 workspace.Document.AuxiliaryStateDigest,
@@ -284,7 +300,15 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return new PreviewEvaluation(ReadFailure<CharacterCreationGearPreview>(read), null);
-        AuthorityContext context = BuildContext(workspace);
+        if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
+            return EvaluateCompositePreview(workspace, request);
+        return EvaluatePreview(BuildContext(workspace), workspace, request);
+    }
+
+    private PreviewEvaluation EvaluatePreview(AuthorityContext context, WorkspaceStoredDocument workspace,
+        CharacterCreationGearPreviewRequest request, CharacterCreationCompletionReview? shared = null,
+        CharacterCreationCompositeBaseline? baseline = null)
+    {
         string? bindingBlocker = CompareBinding(context.Binding, request.Binding);
         if (bindingBlocker is not null)
         {
@@ -299,27 +323,32 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         CharacterCreationGearRules.TryProjectBasket(
             request.Basket,
             context.Authority,
-            context.ResourcesDraft?.Budget.TotalStartingNuyen ?? 0m,
+            context.Budget.TotalStartingNuyen,
             out CharacterCreationGearLine[] lines,
             out CharacterCreationGearBudget budgetAfter,
             out string[] projectionBlockers);
         blockers.AddRange(projectionBlockers);
-        if (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null)
+        if (shared is null && (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null
+            || workspace.Document.AuxiliaryState.CharacterCreationLifestylesDraft is not null
+            || workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts is { Count: > 0 }))
         {
-            var shared = new CharacterCreationResourcesService(_workspaceStore, _sourceData)
+            var retainedResources = new CharacterCreationResourcesService(_workspaceStore, _sourceData)
                 .LoadCompletionInputsFromObservation(workspace);
-            if (shared.Value is not { } purchases) blockers.AddRange(shared.Blockers);
+            if (retainedResources.Value is not { } purchases) blockers.AddRange(retainedResources.Blockers);
             else if (purchases.KnownPurchaseCost - (context.PendingDraft?.Budget.BasketCost ?? 0m)
                     + budgetAfter.BasketCost > (context.ResourcesDraft?.Budget.TotalStartingNuyen ?? 0m))
                 blockers.Add(CharacterCreationGearBlockers.InsufficientFunds);
         }
-        if (context.PendingDraft is not null
+        if (baseline is null && context.PendingDraft is not null
                && context.ResourcesDraft is not null
                && HasCurrentResourcesBinding(context.PendingDraft, context.ResourcesDraft)
                && context.PendingDraft.Lines.Select(item => item.LineDigest)
                    .SequenceEqual(lines.Select(item => item.LineDigest), StringComparer.Ordinal))
             blockers.Add(CharacterCreationGearBlockers.NoChange);
 
+        if (shared is not null) blockers.AddRange(shared.Blockers);
+        if (baseline is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(baseline.Selections.Gear, request.Basket))
+            blockers.Add(CharacterCreationGearBlockers.NoChange);
         IReadOnlyList<string> anchors = lines.SelectMany(item => item.SourceAnchorIds)
             .Concat(CharacterCreationGearSourceAnchors.All)
             .Distinct(StringComparer.Ordinal)
@@ -358,7 +387,15 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             LastIdempotencyKeyDigest: string.Empty,
             LastPreviewDigest: string.Empty,
             LastCommandDigest: string.Empty,
-            DraftDigest: string.Empty);
+            DraftDigest: string.Empty)
+        {
+            CompositePurchase = baseline is not null && shared is not null
+                ? CharacterCreationCompositePurchaseEdit.Binding(workspace, baseline, shared) : null
+        };
+        CharacterCreationSelectedGearAuthority? compositeAuthority = null;
+        if (baseline is not null && !CharacterCreationGearRules.TryCaptureSelectedAuthority(
+                context.Authority, [], lines.Select(row => row.OptionId).ToArray(), out compositeAuthority))
+            blockers.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
         string[] normalized = Normalize(blockers);
         var previewCandidate = new CharacterCreationGearPreview(
             CharacterCreationGearSchemas.PreviewV1,
@@ -372,7 +409,9 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             normalized,
             RequiresExplicitConfirmation: true,
             CanConfirm: normalized.Length == 0,
-            PreviewDigest: string.Empty);
+            PreviewDigest: string.Empty)
+        { CompositePurchase = draftCandidate.CompositePurchase, CompositeReviewDigest = shared?.ReviewDigest,
+            CompositeAuthority = compositeAuthority };
         CharacterCreationGearPreview preview = previewCandidate with
         {
             PreviewDigest = CharacterCreationGearRules.ComputePreviewDigest(previewCandidate)
@@ -431,11 +470,16 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             workspace.Document.AuxiliaryState.CharacterCreationResourcesDraft;
         IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> resourcesReceipts =
             workspace.Document.AuxiliaryState.CharacterCreationResourcesReceipts ?? [];
-        if (resourcesDraft is null)
+        bool compositeFunding = CharacterCreationCompositePurchaseEdit.IsHistorical(workspace,
+            workspace.Document.AuxiliaryState.CharacterCreationGearDraft?.BaseContentRevision ?? 0,
+            workspace.Document.AuxiliaryState.CharacterCreationGearDraft?.CompositePurchase,
+            workspace.Document.AuxiliaryState.CharacterCreationGearDraft?.ResourcesDraftRevision ?? 0,
+            workspace.Document.AuxiliaryState.CharacterCreationGearDraft?.ResourcesDraftDigest ?? string.Empty);
+        if (resourcesDraft is null && !compositeFunding)
         {
             blockers.Add(CharacterCreationGearBlockers.ResourcesDraftRequired);
         }
-        else if (!CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
+        else if (resourcesDraft is not null && (!CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
                      workspace.Id,
                      workspace.ContentRevision,
                      resourcesDraft,
@@ -447,7 +491,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
                      resourcesDraft.AuthorityDigest,
                      resourcesAuthority.AuthorityDigest)
                  || !resourcesDraft.Budget.IsExact
-                 || resourcesDraft.Budget.Blockers.Count != 0)
+                 || resourcesDraft.Budget.Blockers.Count != 0))
         {
             blockers.Add(CharacterCreationGearBlockers.ResourcesDraftStale);
         }
@@ -470,7 +514,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         }
         decimal pendingResourcesTotal = 0m;
         if (pending is not null
-            && (resourcesDraft is null
+            && ((!compositeFunding && pending.CompositePurchase is not null)
                 || blockers.Contains(CharacterCreationGearBlockers.ResourcesDraftStale)
                 || !TryResolvePendingResourcesTotal(
                     pending, resourcesDraft, resourcesReceipts, out pendingResourcesTotal)
@@ -493,7 +537,6 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             blockers.Add(CharacterCreationGearBlockers.StaleResourcesDraft);
         }
         else if (pending is not null
-                 && resourcesDraft is not null
                  && !PendingMatchesCurrentAuthority(pending, authority, pendingResourcesTotal))
         {
             blockers.Add(CharacterCreationGearBlockers.StaleSourceDigest);
@@ -539,11 +582,17 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
 
     private static bool TryResolvePendingResourcesTotal(
         CharacterCreationGearDraft pending,
-        CharacterCreationResourcesDraft resourcesDraft,
+        CharacterCreationResourcesDraft? resourcesDraft,
         IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> resourcesReceipts,
         out decimal total)
     {
-        total = resourcesDraft.Budget.TotalStartingNuyen;
+        if (pending.CompositePurchase is { } composite)
+        {
+            total = composite.TotalStartingNuyen;
+            return CharacterCreationCompositePurchaseEdit.IsValid(composite) && total == pending.Budget.TotalStartingNuyen;
+        }
+        total = resourcesDraft?.Budget.TotalStartingNuyen ?? 0m;
+        if (resourcesDraft is null) return false;
         if (HasCurrentResourcesBinding(pending, resourcesDraft))
             return true;
 

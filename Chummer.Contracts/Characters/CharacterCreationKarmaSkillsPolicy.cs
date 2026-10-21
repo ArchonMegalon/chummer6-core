@@ -36,4 +36,8 @@ public sealed record CharacterCreationKarmaSkillsPolicy(
 
     // SR5 groups use the active-skill creation cap, not a separate fixed six.
     public int MaxSkillGroupRatingCreate => MaxActiveSkillRatingCreate;
+    /// <summary>Source-resolved career regroup policy. Null identifies historical
+    /// inputs without allocated-group persistence semantics; never guesses false.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowSkillRegrouping { get; init; }
 }

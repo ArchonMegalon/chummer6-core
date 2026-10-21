@@ -15,8 +15,13 @@ public static class WorkspaceAuxiliaryStateIntegrity
     public static bool IsValidShape(
         CharacterWorkspaceId workspaceId,
         long currentContentRevision,
-        WorkspaceDocumentAuxiliaryState state)
+        WorkspaceDocumentAuxiliaryState state,
+        ICharacterCreationRuleSourceRecovery? recovery = null)
     {
+        using var validation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
+        if (recovery is not null && !recovery.ValidateRetainedRuleSources()) return false;
+        if (!CharacterCreationCompletionDraftTransaction.IsValidLedger(workspaceId, currentContentRevision, state, recovery)) return false;
+        if (!CharacterCreationCompositePurchaseEdit.HasValidHistory(state)) return false;
         if (!Sr6CreationFinalizationIntegrity.IsValidArchive(workspaceId, currentContentRevision, state)) return false;
         // New completion, Karma and Life Modules finalization require
         // reconstruction archives; only older ordinary Priority receipts have
@@ -28,10 +33,10 @@ public static class WorkspaceAuxiliaryStateIntegrity
             return false;
         if (state.CharacterCreationFinalizationArchive is { } archive
             && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
-                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts)
+                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts, recovery)
                 || !IsValidShape(workspaceId,
                     state.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision,
-                    archive.State)))
+                    archive.State, recovery)))
         {
             // IsValidArchive forbids nesting before this single historical
             // validation. Do not weaken active draft/receipt pairing rules.

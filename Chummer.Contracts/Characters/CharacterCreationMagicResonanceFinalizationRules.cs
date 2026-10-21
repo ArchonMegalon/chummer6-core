@@ -118,14 +118,16 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 || attributes.PrerequisiteDraftRevision != prerequisiteDraftRevision
                 || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(attributes.PrerequisiteDraftDigest, prerequisiteDraftDigest)
                 || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(attributes.BaseRawCharacterXmlDigest, expectedRawCharacterXmlDigest)
-                || !TryResolveEffectiveAttributes(talent, attributes, out effective)))
+                || !TryResolveEffectiveAttributes(talent, attributes, out effective,
+                    authority.MysticAdeptPowerPointPolicy,
+                    ResolveSeparateMagicAttribute(authority, attributes.MetatypeSourceId))))
             failures.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
         bool hasEffectiveChange = effective.Magic != talent.Magic
             || effective.Resonance != talent.Resonance || effective.Depth != talent.Depth
-            || effective.AdeptPowerPointBudget != talent.AdeptPowerPointBudget;
+            || effective.AdeptPowerPointBudget != talent.AdeptPowerPointBudget || effective.MagicAdept is not null;
         if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
                 talent.Kind, effective.Magic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
-                out var mysticPowerPoints))
+                out var mysticPowerPoints, effective.MagicAdept))
             failures.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
         decimal availablePowerPoints = mysticPowerPoints?.PowerPoints ?? effective.AdeptPowerPointBudget;
         int availableSpells = mysticPowerPoints?.SpellBudget ?? talent.SpellBudget;
@@ -187,7 +189,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         if (powers.Length != selections.AdeptPowers.Count
             || spells.Length != selections.Spells.Count
             || forms.Length != selections.ComplexForms.Count
-            || powers.Any(item => item.Levels > effective.Magic)
+            || powers.Any(item => item.Levels > (effective.MagicAdept ?? effective.Magic))
             || powers.Select(item => item.Identity).Distinct().Count() != powers.Length
             || spells.Select(item => item.Identity).Distinct().Count() != spells.Length
             || forms.Select(item => item.Identity).Distinct().Count() != forms.Length
@@ -294,7 +296,9 @@ public static class CharacterCreationMagicResonanceFinalizationRules
     public static bool TryResolveEffectiveAttributes(
         CharacterCreationMagicResonanceTalentOption talent,
         CharacterCreationAttributesDraft attributes,
-        out CharacterCreationMagicResonanceEffectiveAttributes effective)
+        out CharacterCreationMagicResonanceEffectiveAttributes effective,
+        CharacterCreationMysticAdeptPowerPointPolicy? policy = null,
+        CharacterCreationMetatypeAttributeProjection? separateMagicRange = null)
     {
         effective = new(talent.Magic, talent.Resonance, talent.Depth, talent.AdeptPowerPointBudget);
         if (attributes.Schema != CharacterCreationAttributesSchemas.DraftV1
@@ -306,7 +310,16 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 CharacterCreationMagicResonanceDigest.Compute(attributes with { DraftDigest = string.Empty })))
             return false;
 
-        return TryResolveEffectiveAttributes(talent, attributes.Attributes, attributes.Allocations, out effective);
+        return TryResolveEffectiveAttributes(talent, attributes.Attributes, attributes.Allocations, out effective,
+            policy, separateMagicRange);
+    }
+
+    public static CharacterCreationMetatypeAttributeProjection? ResolveSeparateMagicAttribute(
+        CharacterCreationMagicResonanceAuthority authority, string metatypeSourceId)
+    {
+        if (authority.Metatypes is null) return null;
+        var matches = authority.Metatypes.Where(item => item is not null && item.MetatypeSourceId == metatypeSourceId).Take(2).ToArray();
+        return matches.Length == 1 ? matches[0].SeparateMagicAttribute : null;
     }
 
     /// <summary>
@@ -318,24 +331,49 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         CharacterCreationMagicResonanceTalentOption talent,
         IReadOnlyList<CharacterCreationAttributeProjection> attributeProjections,
         IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
-        out CharacterCreationMagicResonanceEffectiveAttributes effective)
+        out CharacterCreationMagicResonanceEffectiveAttributes effective,
+        CharacterCreationMysticAdeptPowerPointPolicy? policy = null,
+        CharacterCreationMetatypeAttributeProjection? separateMagicRange = null)
     {
         effective = new(talent.Magic, talent.Resonance, talent.Depth, talent.AdeptPowerPointBudget);
         if (attributeProjections is null || attributeAllocations is null)
             return false;
+        bool separate = talent.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
+            && policy?.UsesSeparateMagicAttribute == true;
+        if (separate && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(policy)
+            || separateMagicRange is not { AttributeId: "MAGAdept", Minimum: >= 0 }
+            || separateMagicRange.Maximum < separateMagicRange.Minimum
+            || separateMagicRange.AugmentedMaximum < separateMagicRange.Maximum))
+            return false;
+        if (!separate && (attributeProjections.Any(row => row?.AttributeId == "MAGAdept")
+            || attributeAllocations.Any(row => row?.AttributeId == "MAGAdept")))
+            return false;
         var values = new List<int>();
-        foreach ((string id, int grant) in new[] { ("MAG", talent.Magic), ("RES", talent.Resonance), ("DEP", talent.Depth) })
+        var grants = new List<(string Id, int Grant)> { ("MAG", talent.Magic), ("RES", talent.Resonance), ("DEP", talent.Depth) };
+        if (separate) grants.Add(("MAGAdept", separateMagicRange!.Minimum));
+        foreach ((string id, int grant) in grants)
         {
             CharacterCreationAttributeProjection[] projections = attributeProjections
                 .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
             CharacterCreationAttributeAllocation[] allocations = attributeAllocations
                 .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
-            if (projections.Length != 1 || allocations.Length != 1)
+            if (projections.Length != 1 || allocations.Length > 1)
                 return false;
             CharacterCreationAttributeProjection projection = projections[0];
-            CharacterCreationAttributeAllocation allocation = allocations[0];
+            bool enabled = id == "MAGAdept" || grant > 0;
+            if (id == "MAGAdept" && (projection.Maximum != separateMagicRange!.Maximum
+                || projection.AugmentedMaximum != separateMagicRange.AugmentedMaximum))
+                return false;
+            // Attributes admits sparse allocations. An omitted special row is
+            // exactly zero only when its source-admitted projection says so;
+            // never infer a nonzero purchase or reseal the bound Attributes draft.
+            if (allocations.Length == 0
+                && (projection.PriorityPointsSpent != 0 || projection.KarmaLevels != 0))
+                return false;
+            CharacterCreationAttributeAllocation allocation = allocations.Length == 0
+                ? new(id, 0, 0) : allocations[0];
             if (projection.Category != CharacterCreationAttributeCategories.Special
-                || projection.IsEnabled != (grant > 0) || projection.Minimum != grant
+                || projection.IsEnabled != enabled || projection.Minimum != grant
                 || projection.Current < grant || projection.Current > projection.Maximum
                 || projection.Maximum > projection.AugmentedMaximum
                 || allocation.PriorityPoints < 0 || allocation.KarmaLevels < 0
@@ -352,7 +390,10 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             values.Add(projection.Current);
         }
         effective = new(values[0], values[1], values[2],
-            talent.Kind == CharacterCreationMagicResonanceKinds.Adept ? values[0] : 0m);
+            separate ? values[3] : talent.Kind == CharacterCreationMagicResonanceKinds.Adept ? values[0] : 0m)
+        {
+            MagicAdept = separate ? values[3] : null
+        };
         return true;
     }
 

@@ -13,9 +13,10 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
     CharacterWorkspaceId workspaceId, bool reuseReadObservation = false) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
-    ICharacterCreationCompletionAtomicCommitCapability, ICharacterCreationLoadoutAtomicCommitCapability,
-    ICharacterCreationFinalizationAtomicCommitCapability,
-    ICharacterCreationLifeModuleFinalizationAtomicCommitCapability
+    ICharacterCreationCompletionAtomicCommitCapability, ICharacterCreationCompletionDraftAtomicCommitCapability, ICharacterCreationLoadoutAtomicCommitCapability,
+    ICharacterCreationFinalizationAtomicCommitCapability, ICharacterCreationCompositeStageAtomicCommitCapability,
+    ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
+    ICharacterCreationCompletionDraftReceiptLookupCapability, ICharacterCreationLifestyleAuthorityReviewCommitCapability
 {
     // Opt-in for a single synchronous Load only. Retain the complete validated
     // store result, not a portable reconstruction; ownership is checked on every
@@ -52,6 +53,17 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
     }
 
     public CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(
+        OwnerScope requestedOwner, CharacterCreationLoadoutConfirmRequest request,
+        ICharacterSourceDataResolver resolver, ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        return IsActive && requestedOwner.IsLocalSingleUser && request.Request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationLoadoutAtomicCommitCapability capability
+            ? capability.CommitLoadout(owner.Owner, request, resolver, queries, cancellationToken)
+            : CharacterCreationLoadoutService.Reject<CharacterCreationLoadoutReceipt>(CharacterCreationFinalizationBlockers.AtomicPersistenceRejected);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(
         OwnerScope requestedOwner, CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver,
         CancellationToken cancellationToken = default)
     {
@@ -63,6 +75,84 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
             ? capability.CommitLoadout(owner.Owner, request, resolver, cancellationToken)
             : CharacterCreationLoadoutService.Reject<CharacterCreationLoadoutReceipt>(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
     }
+
+    public CharacterCreationFoundationResult<CharacterCreationCompletionDraftReceipt> CommitCompletionDraft(
+        OwnerScope requestedOwner, CharacterCreationCompletionDraftApplyRequest request,
+        ICharacterSourceDataResolver resolver, ICharacterFileQueries queries,
+        CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsActive && requestedOwner == owner.Owner && request.Review.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationCompletionDraftAtomicCommitCapability capability
+            ? capability.CommitCompletionDraft(owner.Owner, request, resolver, queries, cancellationToken)
+            : CharacterCreationCompletionDraftTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationCompletionDraftReceipt> CommitCompletionDraft(
+        OwnerScope requestedOwner, CharacterCreationCompletionDraftApplyRequest request,
+        ICharacterSourceDataResolver resolver, ICharacterFileQueries queries,
+        CharacterCreationCampaignExecutionContext campaign, CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsActive && requestedOwner == owner.Owner && request.Review.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationCompletionDraftAtomicCommitCapability capability
+            ? capability.CommitCompletionDraft(owner.Owner, request, resolver, queries, campaign, cancellationToken)
+            : CharacterCreationCompletionDraftTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationCompletionDraftReceipt> LookupCompletionDraftReceipt(
+        OwnerScope requestedOwner, CharacterCreationCompletionDraftReceiptLookup request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsActive || requestedOwner != owner.Owner
+            || !CharacterCreationCompletionDraftTransaction.IsLookup(request) || request.WorkspaceId != workspaceId)
+            return CharacterCreationCompletionDraftTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+
+        CharacterCreationFoundationResult<CharacterCreationCompletionDraftReceipt> result;
+        if (inner is ICharacterCreationCompletionDraftReceiptLookupCapability capability)
+        {
+            // Presence is support. A rejected lookup must never become a second,
+            // less authoritative attempt through Get or an earlier observation.
+            result = capability.LookupCompletionDraftReceipt(owner.Owner, request, cancellationToken);
+        }
+        else
+        {
+            // Preserve the existing path for stores without retained-source lookup.
+            var read = owner.Owner.IsLocalSingleUser ? inner.Get(workspaceId) : inner.Get(owner.Owner, workspaceId);
+            result = read.Success && read.Value is { } workspace
+                ? CharacterCreationCompletionDraftTransaction.Lookup(workspace, request)
+                    ?? CharacterCreationCompletionDraftTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable)
+                : CharacterCreationCompletionDraftTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsActive ? result
+            : CharacterCreationCompletionDraftTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
+        CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CharacterCreationCampaignExecutionContext campaign,
+        CancellationToken cancellationToken = default)
+    {
+        BeginMutation();
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsActive && request.Binding.WorkspaceId == workspaceId
+            // The store first reconciles an exact receipt; it revalidates live
+            // campaign authority itself before any new mutation.
+            && inner is ICharacterCreationCompletionAtomicCommitCapability capability
+                ? capability.CommitCompletion(owner.Owner, request, resolver, queries, campaign, cancellationToken)
+                : CharacterCreationCompletionTransaction.Blocked(CharacterCreationCampaignExecutionContext.Blocker);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
+        OwnerScope requestedOwner, CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CharacterCreationCampaignExecutionContext campaign,
+        CancellationToken cancellationToken = default)
+        => requestedOwner == owner.Owner ? CommitCompletion(request, resolver, queries, campaign, cancellationToken)
+            : CharacterCreationCompletionTransaction.Blocked(CharacterCreationCampaignExecutionContext.Blocker);
 
     public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitCompletion(
         CharacterCreationCompletionApplyRequest request, ICharacterSourceDataResolver resolver,
@@ -136,6 +226,89 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
         OwnerScope requestedOwner, CharacterCreationKarmaFinalizationConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
         => requestedOwner == owner.Owner ? CommitKarmaFinalization(request, sourceResolver)
             : CharacterCreationKarmaFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+
+    public bool SupportsLifestyleAuthorityReviewCommit => IsActive
+        && inner is ICharacterCreationLifestyleAuthorityReviewCommitCapability { SupportsLifestyleAuthorityReviewCommit: true };
+
+    public WorkspaceStoreMutationResult CommitLifestyleAuthorityReview(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationLifestylePreview preview, ICharacterSourceDataResolver resolver)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsLifestyleAuthorityReviewCommit
+            ? ((ICharacterCreationLifestyleAuthorityReviewCommitCapability)inner)
+                .CommitLifestyleAuthorityReview(owner.Owner, replacement, preview, resolver)
+            : UnavailableMutation();
+    }
+
+    public bool SupportsCompositeStageAtomicCommit => IsActive
+        && inner is ICharacterCreationCompositeStageAtomicCommitCapability { SupportsCompositeStageAtomicCommit: true };
+
+    public WorkspaceStoreMutationResult CommitCompositeStage(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationMagicResonancePreview preview, ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsCompositeStageAtomicCommit
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)inner)
+                .CommitCompositeStage(owner.Owner, replacement, preview, resolver, queries)
+            : UnavailableMutation();
+    }
+
+    public WorkspaceStoreMutationResult CommitCompositeStage(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationQualitiesPreview preview, ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsCompositeStageAtomicCommit
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)inner)
+                .CommitCompositeStage(owner.Owner, replacement, preview, resolver, queries)
+            : UnavailableMutation();
+    }
+
+    public WorkspaceStoreMutationResult CommitCompositeStage(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationResourcesPreview preview, ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsCompositeStageAtomicCommit
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)inner)
+                .CommitCompositeStage(owner.Owner, replacement, preview, resolver, queries)
+            : UnavailableMutation();
+    }
+
+    public WorkspaceStoreMutationResult CommitCompositeStage(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationGearPreview preview, ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsCompositeStageAtomicCommit
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)inner)
+                .CommitCompositeStage(owner.Owner, replacement, preview, resolver, queries)
+            : UnavailableMutation();
+    }
+
+    public WorkspaceStoreMutationResult CommitCompositeStage(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationContactPreview preview, ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsCompositeStageAtomicCommit
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)inner)
+                .CommitCompositeStage(owner.Owner, replacement, preview, resolver, queries)
+            : UnavailableMutation();
+    }
+
+    public WorkspaceStoreMutationResult CommitCompositeStage(OwnerScope requestedOwner, WorkspaceDocument replacement,
+        CharacterCreationLifestylePreview preview, ICharacterSourceDataResolver resolver, ICharacterFileQueries queries)
+    {
+        BeginMutation();
+        return requestedOwner.IsLocalSingleUser && preview.Binding.WorkspaceId == workspaceId
+            && SupportsCompositeStageAtomicCommit
+            ? ((ICharacterCreationCompositeStageAtomicCommitCapability)inner)
+                .CommitCompositeStage(owner.Owner, replacement, preview, resolver, queries)
+            : UnavailableMutation();
+    }
 
     public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
     {

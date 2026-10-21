@@ -14,7 +14,9 @@ public sealed partial class CharacterCreationAttributesService
         ArgumentNullException.ThrowIfNull(state);
         var detached = JsonSerializer.Deserialize<CharacterCreationAttributesState>(
             JsonSerializer.SerializeToUtf8Bytes(state));
-        if (detached is not { CanEdit: true, Blockers.Count: 0, PrerequisiteDraft: not null }
+        if (detached is not { PrerequisiteDraft: not null }
+            || !CharacterCreationCompletionReadiness.RulesReady(detached.CanEdit, detached.Blockers,
+                CharacterCreationAttributesBlockers.PersistenceAuthorityRequired)
             || detached.Schema != CharacterCreationAttributesSchemas.SnapshotV1
             || !CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(detached.SnapshotDigest,
                 CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -35,13 +37,19 @@ public sealed partial class CharacterCreationAttributesService
         private readonly CharacterCreationAttributesState _state;
         internal DraftSession(CharacterCreationAttributesState state) => _state = state;
 
+        // The admitted observation keeps its persistence blocker and CanEdit=false.
+        // Only this store-free rule calculation excludes save readiness; it never
+        // changes the observed draft, its identity, or live Preview/Confirm gates.
+        private CharacterCreationAttributesState RulesState => _state.CanEdit ? _state
+            : _state with { Blockers = [] };
+
         public CharacterCreationFoundationResult<CharacterCreationAttributesPreview> Preview(
             IReadOnlyList<CharacterCreationAttributeAllocation> allocations)
         {
             ArgumentNullException.ThrowIfNull(allocations);
             // A numeric probe or completion candidate is not a player choice.
             // Preserve the original intent without classifying its candidate deltas.
-            return Detach(EvaluatePreparedState(_state, allocations.ToArray(),
+            return Detach(EvaluatePreparedState(RulesState, allocations.ToArray(),
                 _state.PendingDraft?.PlayerChosenAttributeIds, validatePlayerChoiceChanges: false).Result);
         }
 
@@ -54,7 +62,7 @@ public sealed partial class CharacterCreationAttributesService
             IReadOnlyList<string>? playerChosenAttributeIds)
         {
             ArgumentNullException.ThrowIfNull(allocations);
-            return Detach(EvaluatePreparedState(_state, allocations.ToArray(),
+            return Detach(EvaluatePreparedState(RulesState, allocations.ToArray(),
                 playerChosenAttributeIds?.ToArray()).Result);
         }
 

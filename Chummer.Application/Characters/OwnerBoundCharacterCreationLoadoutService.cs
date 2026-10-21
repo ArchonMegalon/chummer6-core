@@ -6,7 +6,7 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 public sealed class OwnerBoundCharacterCreationLoadoutService(IWorkspaceStore store, IOwnerContextAccessor owners,
-    ICharacterSourceDataResolver resolver) : IOwnerBoundCharacterCreationLoadoutService
+    ICharacterSourceDataResolver resolver, ICharacterFileQueries? completionQueries = null) : IOwnerBoundCharacterCreationLoadoutService
 {
     public CharacterCreationFoundationResult<CharacterCreationLoadoutState> Prepare(OwnerContextStamp owner,
         CharacterWorkspaceId workspaceId, CancellationToken cancellationToken = default)
@@ -31,6 +31,6 @@ public sealed class OwnerBoundCharacterCreationLoadoutService(IWorkspaceStore st
             || !OwnerContextAdmission.TryAcquire(owners, owner, out var lease))
             return CharacterCreationLoadoutService.Reject<T>(CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
         using (lease)
-            return action(new(new OwnerBoundCreationWorkspaceStore(store, lease, owner, id), resolver));
+            return action(new(new OwnerBoundCreationWorkspaceStore(store, lease, owner, id), resolver, completionQueries));
     }
 }

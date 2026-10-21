@@ -12,15 +12,24 @@ namespace Chummer.Application.Workspaces;
 /// </summary>
 internal sealed class WorkspaceContinuationReadView : IWorkspaceStore
 {
-    private readonly OwnerScope _owner;
+    private readonly OwnerScope? _owner;
     private readonly WorkspaceStoredDocument _candidate;
     private readonly JsonElement _auxiliaryState;
 
     public WorkspaceContinuationReadView(OwnerScope owner, WorkspaceStoredDocument candidate)
+        : this(candidate)
     {
         if (string.IsNullOrWhiteSpace(owner.Value)
             || (owner.UsesLocalSingleUserValue && !owner.IsLocalSingleUser))
             throw new ArgumentException("A concrete owner scope is required.", nameof(owner));
+        _owner = owner;
+    }
+
+    // An already admitted observation may also be evaluated through legacy
+    // domain signatures without inventing an owner value. Explicit owner reads
+    // on this view always fail; the enclosing caller retains its real lease.
+    internal WorkspaceContinuationReadView(WorkspaceStoredDocument candidate)
+    {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(candidate.Document);
         ArgumentNullException.ThrowIfNull(candidate.Document.State);
@@ -28,7 +37,6 @@ internal sealed class WorkspaceContinuationReadView : IWorkspaceStore
         if (string.IsNullOrWhiteSpace(candidate.Id.Value))
             throw new ArgumentException("A concrete candidate workspace ID is required.", nameof(candidate));
 
-        _owner = owner;
         // Freeze the entire auxiliary graph, including archives and histories.
         // Copy only this graph through JSON: reconstructing the document through
         // its constructors could normalize the candidate's envelope fields.

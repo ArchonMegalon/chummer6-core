@@ -13,7 +13,7 @@ namespace Chummer.Application.Characters;
 /// The only persisted mutation is auxiliary wizard state; canonical character
 /// XML and legacy priority fields remain untouched until full finalization.
 /// </summary>
-public sealed class CharacterCreationPrerequisiteService :
+public sealed partial class CharacterCreationPrerequisiteService :
     ICharacterCreationPrerequisiteService
 {
     private static readonly string[] s_AttributeIds =
@@ -247,19 +247,8 @@ public sealed class CharacterCreationPrerequisiteService :
         int totalSpecialAttributePoints = 0;
         if (heritageSelection is not null && talentSelection is not null && baseNormalAttributePoints >= 0)
         {
-            effectiveNormalAttributePoints = heritageSelection.HalvesNormalAttributePoints
-                ? baseNormalAttributePoints / 2
-                : baseNormalAttributePoints;
-            try
-            {
-                totalSpecialAttributePoints = checked(
-                    heritageSelection.SpecialAttributePoints
-                    + talentSelection.SpecialAttributePoints);
-            }
-            catch (OverflowException)
-            {
-                blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
-            }
+            ResolveAttributePointPools718(heritageSelection, talentSelection, baseNormalAttributePoints,
+                blockers, out effectiveNormalAttributePoints, out totalSpecialAttributePoints);
         }
 
         CharacterCreationPrerequisiteDraft? draft = null;

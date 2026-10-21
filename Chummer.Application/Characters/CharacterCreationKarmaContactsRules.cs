@@ -146,12 +146,13 @@ public static class CharacterCreationKarmaContactsRules
                 var cost = authority.Contacts.Single(item => item.ContactId == selection.ContactId);
                 lines.Add(new(selection, cost.ContactPointCost, cost.CountsAgainstHighPlacesBudget));
             }
-            int groupKarma = checked(lines.Where(line => line.Selection.IsGroup && !line.Selection.Free)
-                .Sum(line => line.PointCost) * policy.GroupContactKarmaMultiplier);
-            if (!CharacterCreationQualityCostRules.TryCalculate(qualities.Policy.Costs, qualities.Policy.QualityKarmaLimit,
-                qualities.Selections.Select(item => new CharacterCreationQualityCostItem(item.KarmaCost,
-                    item.CountsAgainstQualityLimit, item.CountsAgainstKarma, item.IsMetagenic)).ToArray(), groupKarma,
-                out var combined)) return null;
+            if (!TryPriceGroups(policy, qualities.Policy.Costs, qualities.Policy.QualityKarmaLimit,
+                    qualities.Selections.Select(item => new CharacterCreationQualityCostItem(item.KarmaCost,
+                        item.CountsAgainstQualityLimit, item.CountsAgainstKarma, item.IsMetagenic)).ToArray(),
+                    lines.Where(line => line.Selection.IsGroup && !line.Selection.Free).Select(line => line.PointCost),
+                    out var groupPrice)) return null;
+            int groupKarma = groupPrice!.BaseGroupKarma;
+            var combined = groupPrice.WithGroups;
             var blockers = new List<string>();
             if (combined.PositiveLimitKarma > qualities.Policy.QualityKarmaLimit && !qualities.Policy.MayExceedPositiveLimit)
                 blockers.Add(CharacterCreationQualitiesBlockers.PositiveLimitExceeded);
@@ -174,6 +175,36 @@ public static class CharacterCreationKarmaContactsRules
         {
             return null;
         }
+    }
+
+    // Shared by Karma creation, full completion, selected replay and final graph
+    // validation. Callers supply evaluated contact points, never source prices of
+    // their own. The group rate is applied once, then the canonical quality cap.
+    internal static bool TryPriceGroups(CharacterCreationKarmaContactsPolicy policy,
+        CharacterCreationQualityCostPolicy qualityPolicy, int qualityLimit,
+        IReadOnlyList<CharacterCreationQualityCostItem> qualities, IEnumerable<int> paidGroupPoints,
+        out CharacterCreationContactGroupKarmaEvaluation? evaluation)
+    {
+        evaluation = null;
+        if (!IsValidPolicy(policy)) return false;
+        try
+        {
+            int points = 0;
+            foreach (int cost in paidGroupPoints)
+            {
+                if (cost < 0) return false;
+                points = checked(points + cost);
+            }
+            int baseKarma = checked(points * policy.GroupContactKarmaMultiplier);
+            if (!CharacterCreationQualityCostRules.TryCalculate(qualityPolicy, qualityLimit, qualities, out var before)
+                || !CharacterCreationQualityCostRules.TryCalculate(qualityPolicy, qualityLimit, qualities, baseKarma,
+                    out var combined)) return false;
+            int additional = checked(combined.NetKarmaSpent - before.NetKarmaSpent);
+            if (additional < 0) return false;
+            evaluation = new(baseKarma, before, combined, additional);
+            return true;
+        }
+        catch (OverflowException) { return false; }
     }
 
     public static CharacterCreationKarmaMetatypeQuote WithoutContacts(CharacterCreationKarmaMetatypeQuote foundation)

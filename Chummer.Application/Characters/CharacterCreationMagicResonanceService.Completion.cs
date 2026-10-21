@@ -7,6 +7,37 @@ namespace Chummer.Application.Characters;
 
 public sealed partial class CharacterCreationMagicResonanceService
 {
+    private CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> BuildCompositeState(
+        WorkspaceStoredDocument workspace)
+    {
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
+        var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _resolver, _completionQueries);
+        if (loaded.Value is not { Skills.CompositeBaseline: { } baseline } inputs)
+            return new(loaded.Outcome, null, loaded.Blockers);
+        var magic = inputs.Magic;
+        var choices = baseline.Selections;
+        var evaluated = PreviewCompletion(magic, choices.AttributeAllocations, choices.MagicSelections);
+        var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(
+            workspace, inputs, choices, CharacterCreationCompositeEditStage.None);
+        if (evaluated.Value is not { } projection)
+            return new(evaluated.Outcome, null, evaluated.Blockers);
+        var blockers = Normalize(evaluated.Blockers.Concat(reviewed.Blockers));
+        if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability { SupportsWorkspaceAuxiliaryStateAtomicCommit: true }
+            || _store is not ICharacterCreationCompositeStageAtomicCommitCapability { SupportsCompositeStageAtomicCommit: true })
+            blockers = Normalize(blockers.Append(CharacterCreationMagicResonanceBlockers.PersistenceAuthorityRequired));
+        var state = new CharacterCreationMagicResonanceState(CharacterCreationMagicResonanceSchemas.SnapshotV1,
+            magic.Binding, magic.Authority, magic.PrerequisiteDraft, magic.Attributes.PendingDraft,
+            magic.SelectedTalent, workspace.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft,
+            projection.TraditionBudget, projection.StreamBudget, projection.AdeptPowerPointBudget,
+            projection.SpellBudget, projection.ComplexFormBudget, blockers, blockers.Length == 0, string.Empty)
+        {
+            CompositeSelections = projection.Selections,
+            MysticAdeptPowerPoints = projection.MysticAdeptPowerPoints
+        };
+        state = state with { SnapshotDigest = CharacterCreationMagicResonanceDigest.Compute(state) };
+        return new(CharacterCreationFoundationOutcomes.Success, state, blockers);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationMagicResonanceCompletionInputs> LoadCompletionInputs(
         CharacterCreationMagicResonanceLoadRequest request)
     {
@@ -49,17 +80,39 @@ public sealed partial class CharacterCreationMagicResonanceService
         if (workspace.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft is not null
             || workspace.Document.AuxiliaryState.CharacterCreationMagicResonanceReceipts is not null)
         {
-            // Existing history still needs ordinary current-source admission. A
-            // stale draft cannot be hidden by projecting different Attributes.
-            var existing = BuildState(workspace);
-            if (existing.Value is not { CanEdit: true, Blockers.Count: 0, PendingDraft: not null } current)
+            CharacterCreationMagicResonanceState? current;
+            IReadOnlyList<string> historyBlockers;
+            // Keep the existing observation shape when ordinary admission still
+            // fits. Recorded replay snapshots must not change merely because a
+            // composite is present.
+            WorkspaceStoredDocument? original = null;
+            var pending = workspace.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft;
+            bool retained = pending is not null
+                && (pending.AttributesDraftRevision != binding.AttributesDraftRevision
+                    || pending.AttributesDraftDigest != binding.AttributesDraftDigest)
+                && CharacterCreationCompositeBaselineReader.TryReadRetainedMagic(workspace, out original);
+            if (retained)
+            {
+                var historical = new CharacterCreationMagicResonanceService(
+                    new WorkspaceContinuationReadView(original!), _resolver).LoadCompletionInputs(new(workspace.Id));
+                current = historical.Value?.SavedMagicState;
+                historyBlockers = historical.Blockers;
+            }
+            else
+            {
+                var existing = BuildState(workspace, forContinuation: true);
+                current = existing.Value;
+                historyBlockers = existing.Blockers;
+            }
+            if (current is not { PendingDraft: not null }
+                || !CharacterCreationCompletionReadiness.RulesReady(current.CanEdit, current.Blockers,
+                    CharacterCreationMagicResonanceBlockers.PersistenceAuthorityRequired))
                 return new(CharacterCreationFoundationOutcomes.Blocked, null,
-                    existing.Blockers.Count == 0
-                        ? [CharacterCreationMagicResonanceBlockers.DraftInvalid] : existing.Blockers);
-            if (current.Binding != binding
+                    historyBlockers.Count == 0
+                        ? [CharacterCreationMagicResonanceBlockers.DraftInvalid] : historyBlockers);
+            if (!retained && (current.Binding != binding || !Same(current.AttributesDraft, attributes.PendingDraft))
                 || !Same(current.Authority, source.Authority)
                 || !Same(current.PrerequisiteDraft, source.Prerequisite)
-                || !Same(current.AttributesDraft, attributes.PendingDraft)
                 || !Same(current.SelectedTalent, talent))
                 return Blocked<CharacterCreationMagicResonanceCompletionInputs>(CharacterCreationFoundationOutcomes.Conflict,
                     CharacterCreationMagicResonanceCompletionSchemas.SnapshotConflict);
@@ -117,7 +170,10 @@ public sealed partial class CharacterCreationMagicResonanceService
         var evaluatedAllocations = attributes.Attributes.Select(attribute => new CharacterCreationAttributeAllocation(
             attribute.AttributeId, attribute.PriorityPointsSpent, attribute.KarmaLevels)).ToArray();
         if (!CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
-                inputs.SelectedTalent, attributes.Attributes, evaluatedAllocations, out var effective))
+                inputs.SelectedTalent, attributes.Attributes, evaluatedAllocations, out var effective,
+                inputs.Authority.MysticAdeptPowerPointPolicy,
+                CharacterCreationMagicResonanceFinalizationRules.ResolveSeparateMagicAttribute(
+                    inputs.Authority, inputs.PrerequisiteDraft.HeritageSelection!.MetatypeSourceId)))
             return Blocked<CharacterCreationMagicResonanceCompletionProjection>(CharacterCreationFoundationOutcomes.Blocked,
                 CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
 
@@ -158,21 +214,39 @@ public sealed partial class CharacterCreationMagicResonanceService
         var talent = ResolveSelectedTalent(inputs.PrerequisiteDraft, inputs.Authority, blockers);
         if (talent is null || blockers.Count != 0 || !Same(talent, inputs.SelectedTalent))
             return false;
+        var separatePolicy = talent.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
+            && inputs.Authority.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true
+                ? inputs.Authority.MysticAdeptPowerPointPolicy : null;
+        if (!Same(inputs.Attributes.SeparateMagicPolicy, separatePolicy)) return false;
         if (inputs.SavedMagicState is not { } saved)
             return Same(inputs.Selections, new CharacterCreationMagicResonanceSelections(null, null, [], [], []));
 
-        if (saved is not { CanEdit: true, Blockers.Count: 0, PendingDraft: not null }
+        if (saved is not { PendingDraft: not null }
+            || !CharacterCreationCompletionReadiness.RulesReady(saved.CanEdit, saved.Blockers,
+                CharacterCreationMagicResonanceBlockers.PersistenceAuthorityRequired)
             || saved.Schema != CharacterCreationMagicResonanceSchemas.SnapshotV1
             || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(saved.SnapshotDigest,
                 CharacterCreationMagicResonanceDigest.Compute(saved with { SnapshotDigest = string.Empty }))
-            || saved.Binding != inputs.Binding || !Same(saved.Authority, inputs.Authority)
+            || saved.Binding.ContentRevision <= 0 || saved.Binding.ContentRevision > inputs.Binding.ContentRevision
+            || saved.Binding.SavedRevision != saved.Binding.ContentRevision
+            || (saved.Binding with
+            {
+                ContentRevision = inputs.Binding.ContentRevision, SavedRevision = inputs.Binding.SavedRevision,
+                AuxiliaryStateDigest = inputs.Binding.AuxiliaryStateDigest,
+                AttributesDraftRevision = inputs.Binding.AttributesDraftRevision,
+                AttributesDraftDigest = inputs.Binding.AttributesDraftDigest
+            }) != inputs.Binding || !Same(saved.Authority, inputs.Authority)
             || !Same(saved.PrerequisiteDraft, inputs.PrerequisiteDraft)
             || !Same(saved.SelectedTalent, talent)
-            || !Same(saved.AttributesDraft, inputs.Attributes.PendingDraft)
             || !Same(saved.PendingDraft.Selections, inputs.Selections)
-            || inputs.Attributes.PendingDraft is not { } attributes
+            || saved.AttributesDraft is not { } attributes
+            || saved.Binding.AttributesDraftRevision != attributes.DraftRevision
+            || saved.Binding.AttributesDraftDigest != attributes.DraftDigest
+            || !CharacterCreationAttributesDraftIntegrity.IsStructurallyValidPending(attributes,
+                saved.Binding.WorkspaceId, saved.Binding.ContentRevision, saved.Binding.RawCharacterXmlDigest,
+                inputs.PrerequisiteDraft)
             || !CharacterCreationMagicResonanceDraftIntegrity.IsStructurallyValidPending(saved.PendingDraft,
-                inputs.Binding.WorkspaceId, inputs.Binding.ContentRevision, inputs.Binding.RawCharacterXmlDigest,
+                saved.Binding.WorkspaceId, saved.Binding.ContentRevision, saved.Binding.RawCharacterXmlDigest,
                 inputs.PrerequisiteDraft, attributes, inputs.Authority))
             return false;
         var projected = EvaluateSelections(inputs.Authority, talent, attributes, inputs.Selections, blockers);

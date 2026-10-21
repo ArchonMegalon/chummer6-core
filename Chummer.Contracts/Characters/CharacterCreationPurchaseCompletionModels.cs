@@ -26,7 +26,57 @@ public static class CharacterCreationPurchaseCompletionTargetOutcomes
     public const string WorkLimit = "work-limit";
 }
 
-/// <summary>Exactly one payload. List order ranks Gear, Weapons, Armor and Lifestyles together.
+public static class CharacterCreationAmmunitionCompletionBlockers
+{
+    public const string AssignmentInvalid = "creation-ammunition-assignment-invalid";
+    public const string AssignmentConflict = "creation-ammunition-assignment-conflict";
+    public const string WeaponNotSelected = "creation-ammunition-weapon-not-selected";
+    public const string WeaponSourceChanged = "creation-ammunition-weapon-source-changed";
+    public const string CaliberMismatch = "creation-ammunition-caliber-mismatch";
+    public const string SourceChanged = "creation-ammunition-source-changed";
+    public const string SourceMismatch = "creation-ammunition-source-mismatch";
+    public const string UnsupportedSemantics = "creation-ammunition-unsupported-semantics";
+}
+
+public static class CharacterCreationAmmunitionCompletionGaps
+{
+    public const string WeaponCompatibility = "creation-ammunition-weapon-compatibility-not-evaluated";
+    public const string LoadedState = "creation-ammunition-loaded-state-not-evaluated";
+    public const string CombatEffects = "creation-ammunition-combat-effects-not-evaluated";
+}
+
+/// <summary>Explicit ownership of cartridges, not packages, weapon capacity or loaded
+/// rounds. Optional assignment requires an exact selected weapon and canonical caliber.
+/// The caller must identify an exact observed source.
+/// Only plain, fixed-price gun ammunition is currently supported.</summary>
+public sealed record CharacterCreationAmmunitionPurchase(string OptionId, int Cartridges, string SourceNodeDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAmmunitionWeaponTarget? Weapon { get; init; }
+}
+
+/// <summary>An explicit zero-based instance within a selected weapon line. AmmoCategory
+/// is the canonical legacy caliber token, not a display name or physical measurement.
+/// The final reviewed graph supplies its actual instance GUID; this is not a clip.</summary>
+public sealed record CharacterCreationAmmunitionWeaponTarget(
+    string OptionId, string SourceNodeDigest, int InstanceOrdinal, string AmmoCategory);
+
+/// <summary>Assigns the entire owned Gear line. It neither splits ownership nor loads rounds.</summary>
+public sealed record CharacterCreationAmmunitionAssignment(
+    string GearOptionId, string GearSourceNodeDigest, CharacterCreationAmmunitionWeaponTarget Weapon);
+
+/// <summary>Evidence from the accepted canonical Gear line. RemainingGaps are
+/// unevaluated mechanics, not permission to load or use a particular weapon.
+/// This receipt neither grants current authority nor asserts Finish Character coverage.</summary>
+public sealed record CharacterCreationAmmunitionAllocation(
+    string OptionId, Guid SourceId, string SourceNodeDigest, int OwnedCartridges,
+    int PackageQuantity, decimal PackageCost, decimal TotalCost, IReadOnlyList<string> RemainingGaps)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAmmunitionWeaponTarget? Weapon { get; init; }
+}
+
+/// <summary>Exactly one payload. List order ranks Gear, Ammunition, Weapons, Armor and Lifestyles together.
 /// Gear Quantity is the complete requested line, not an increment. Existing
 /// lines/configurations cannot be replaced or increased by this planner.</summary>
 public sealed record CharacterCreationPurchaseCompletionTarget(
@@ -37,6 +87,8 @@ public sealed record CharacterCreationPurchaseCompletionTarget(
     public CharacterCreationWeaponSelection? Weapon { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationArmorSelection? Armor { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAmmunitionPurchase? Ammunition { get; init; }
 }
 
 /// <summary>Explicit purchase wishes and limits, not an instruction to spend all
@@ -63,7 +115,11 @@ public sealed record CharacterCreationPurchaseCompletionRequest(
 public sealed record CharacterCreationPurchaseCompletionTargetResult(
     int TargetIndex,
     string Outcome,
-    IReadOnlyList<string> Blockers);
+    IReadOnlyList<string> Blockers)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAmmunitionAllocation? Ammunition { get; init; }
+}
 
 /// <summary>Detached pure proposal only. IsPurchasePlanComplete means that these
 /// explicit purchase wishes were satisfied; it is NOT whole-character readiness
@@ -84,6 +140,8 @@ public sealed record CharacterCreationPurchaseCompletionPlan(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLoadoutSelections? Loadout { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationAmmunitionAssignment>? AmmunitionAssignments { get; init; }
 }
 
 public static class CharacterCreationPurchaseCompletionRules

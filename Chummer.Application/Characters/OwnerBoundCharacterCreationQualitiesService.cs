@@ -75,6 +75,9 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
 
         using (lease)
         {
+            // Bound pure historical replay to this one synchronous owner operation.
+            // Every lookup still hashes actual prefix bytes; live admission is never memoized.
+            using var history = CharacterCreationCompletionDraftTransaction.BeginValidationOperation();
             // Qualities, prerequisites and attributes share source construction
             // only within this synchronous admitted operation. Each lookup still
             // validates live inputs; no source context survives the owner lease.
@@ -86,7 +89,7 @@ public sealed class OwnerBoundCharacterCreationQualitiesService(
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId, reuseReadObservation);
             var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, operationResolver);
             var attributes = new CharacterCreationAttributesService(view, operationResolver);
-            return action(new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes));
+            return action(new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes, characterQueries));
         }
     }
 }

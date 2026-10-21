@@ -72,11 +72,11 @@ public static class CharacterCreationKarmaAttributesRules
                 if (requestedRating > maximum)
                     blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
                 current = (int)Math.Min(requestedRating, int.MaxValue);
-                // Chummer5 TotalKarmaCost uses FreeBase + 1 + MinimumModifiers
-                // for alternate metatype costs. None exist in this foundation;
-                // no Priority points means reverse-order cannot change the base.
-                int costBase = policy.AlternateMetatypeAttributeKarma ? 1 : minimum;
-                if (!CharacterCreationAttributeCostRules.TryCalculate(costBase, levels, policy.KarmaAttribute, out cost))
+                // The same creation-cost evaluator as Priority; no Priority points
+                // means reverse ordering has no effect on this foundation.
+                if (!CharacterCreationAttributeCostRules.TryCalculateAllocation(minimum, 0, levels,
+                        policy.KarmaAttribute, policy.AlternateMetatypeAttributeKarma,
+                        policy.ReverseAttributePriorityOrder, out _, out cost))
                     blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
                 used += cost;
             }

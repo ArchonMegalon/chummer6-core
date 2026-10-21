@@ -23,10 +23,17 @@ public sealed record WorkspaceLocalHistory(
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkspaceLocalAdoptionReceipt? LocalAdoption { get; init; }
 
+    // Store-local only; never exported in a continuation or accepted from import.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Chummer.Contracts.Characters.CharacterCreationReservation? CreationReservation { get; init; }
+
     /// <summary>Structural consistency, never proof that the caller owns the record.</summary>
     public bool IsValid(long currentRevision) => currentRevision > 0
         && Guid.TryParseExact(IncarnationId, "N", out Guid incarnation)
         && incarnation != Guid.Empty && incarnation.ToString("N") == IncarnationId
+        && (CreationReservation is null || Chummer.Contracts.Characters.CharacterCreationReservation.IsValid(CreationReservation)
+            && CreationReservation.IncarnationId == IncarnationId && ImportedThroughRevision == 0
+            && ImportedSnapshotDigest is null && LastRestore is null && LocalAdoption is null)
         && ImportedThroughRevision >= 0 && ImportedThroughRevision <= currentRevision
         && (ImportedThroughRevision == 0
             ? ImportedSnapshotDigest is null

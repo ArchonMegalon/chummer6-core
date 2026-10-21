@@ -167,11 +167,21 @@ public sealed class CharacterCreationBootstrapService :
         }
     }
 
+    internal CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> CreateReserved(
+        OwnerContextStamp owner, CharacterCreationReservedBootstrapRequest request,
+        ICharacterCreationReservationAuthority authority)
+    {
+        var result = CreateCore(owner.Owner, owner, request.Creation, false, request.Reservation,
+            () => { if (!authority.IsCurrent(owner, request.Reservation))
+                throw new UnauthorizedAccessException("Creation owner changed."); });
+        return new(result.Outcome, result.Receipt, result.Blockers);
+    }
+
     private BootstrapCreation CreateCore(
         OwnerScope owner,
         OwnerContextStamp? original,
         CharacterCreationBootstrapRequest request,
-        bool includeActivation)
+        bool includeActivation, CharacterCreationReservation? reservation = null, Action? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         string[] requestBlockers = ValidateRequest(request);
@@ -192,6 +202,8 @@ public sealed class CharacterCreationBootstrapService :
                 { SupportsCharacterCreationBootstrapAtomicCreate: true }
             : _workspaceStore is IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability
                 { SupportsOwnerScopedCharacterCreationBootstrapAtomicCreate: true };
+        if (reservation is not null && _workspaceStore is not IReservedCharacterCreationAtomicCreateCapability)
+            return UnavailableCreation(CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
         if (!canCreate)
             return UnavailableCreation(CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
 
@@ -265,7 +277,7 @@ public sealed class CharacterCreationBootstrapService :
                 CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
         }
 
-        CharacterWorkspaceId workspaceId = new(Guid.NewGuid().ToString("N"));
+        CharacterWorkspaceId workspaceId = reservation?.WorkspaceId ?? new(Guid.NewGuid().ToString("N"));
         WorkspaceDocument document = new(envelope, WorkspaceDocumentFormat.NativeXml);
         CharacterCreationBootstrapSourceSnapshot? sourceSnapshot = null;
         CharacterCreationBootstrapBinding binding;
@@ -314,7 +326,10 @@ public sealed class CharacterCreationBootstrapService :
         if (!CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(workspaceId, boundDocument)
             || !sourceAnchorIds.SequenceEqual(binding.SourceAnchorIds, StringComparer.Ordinal))
             return InvalidCreation(CharacterCreationBootstrapBlockers.BindingInvalid);
-        WorkspaceStoreMutationResult created = owner.IsLocalSingleUser
+        WorkspaceStoreMutationResult created = reservation is not null
+            ? ((IReservedCharacterCreationAtomicCreateCapability)_workspaceStore)
+                .CreateReservedCharacterCreation(owner, boundDocument, reservation, beforeCommit!)
+            : owner.IsLocalSingleUser
             ? ((ICharacterCreationBootstrapAtomicCreateCapability)_workspaceStore)
                 .CreateCharacterCreationBootstrapWorkspaceDocument(workspaceId, boundDocument)
             : ((IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability)_workspaceStore)

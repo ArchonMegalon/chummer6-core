@@ -7,7 +7,7 @@ namespace Chummer.Application.Characters;
 /// No store, generated IDs, refunds, implicit investment or confirmation path.</summary>
 public static class CharacterCreationPurchaseCompletionPlanner
 {
-    public const int MaximumTargets = 64;
+    public const int MaximumTargets = CharacterCreationPurchaseCompletionLimits.MaximumTargets;
     public const int MaximumEvaluations = 64;
 
     public static CharacterCreationFoundationResult<CharacterCreationPurchaseCompletionPlan> Plan(
@@ -34,7 +34,8 @@ public static class CharacterCreationPurchaseCompletionPlanner
         CharacterCreationPurchaseCompletionRequest request,
         bool reusePreparation,
         Action? upstreamBudgetEvaluated,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CharacterCreationCompletionSelections? admittedOriginalSelections = null)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(magicInputs);
@@ -44,6 +45,8 @@ public static class CharacterCreationPurchaseCompletionPlanner
         magicInputs = Detach(magicInputs);
         if (loadoutInputs is not null) loadoutInputs = Detach(loadoutInputs);
         request = Detach(request);
+        if (admittedOriginalSelections is not null)
+            admittedOriginalSelections = Detach(admittedOriginalSelections);
         if (!ValidRequest(request))
             return Reject(CharacterCreationFoundationOutcomes.Invalid, CharacterCreationPurchaseCompletionBlockers.RequestInvalid);
         if (!CharacterCreationSkillsDigest.EqualsFixedTime(inputs.SnapshotDigest, request.LifestylesSnapshotDigest)
@@ -67,13 +70,19 @@ public static class CharacterCreationPurchaseCompletionPlanner
                 || loadoutInputs.Authority.SettingsProfileId != inputs.Authority.SettingsProfileId
                 || loadoutInputs.Authority.ProfileDigest != inputs.Authority.ProfileDigest))
             return Reject(CharacterCreationFoundationOutcomes.Conflict, CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
-        if (request.TotalKarmaInvestment < (inputs.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0))
+        int originalInvestment = admittedOriginalSelections?.TotalKarmaInvestment
+            ?? inputs.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0;
+        if (request.TotalKarmaInvestment < originalInvestment)
             return Reject(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationPurchaseCompletionBlockers.InvestmentDecrease);
 
-        var gear = inputs.Gear.State.PendingDraft?.Lines.Select(line =>
+        // Only the whole-character planner supplies this already-admitted
+        // current baseline. Ordinary purchase callers retain their stage history.
+        // Price the whole retained basket; never refund an applied Finish draft
+        // merely because its purchases have no ordinary PendingDraft record.
+        var gear = admittedOriginalSelections?.Gear.ToList() ?? inputs.Gear.State.PendingDraft?.Lines.Select(line =>
             new CharacterCreationGearSelection(line.OptionId, line.Quantity)).ToList() ?? [];
-        var lifestyles = inputs.Lifestyles.ToList();
-        var loadout = loadoutInputs?.OriginalSelections;
+        var lifestyles = (admittedOriginalSelections?.Lifestyles ?? inputs.Lifestyles).ToList();
+        var loadout = admittedOriginalSelections?.Loadout ?? loadoutInputs?.OriginalSelections;
         CharacterCreationLoadoutCompletionService.CompletionPreviewSession? loadoutSession = null;
         CharacterCreationLifestylesService.CompletionPreviewSession? session = null;
         var original = Evaluate(gear, lifestyles, loadout);
@@ -87,11 +96,29 @@ public static class CharacterCreationPurchaseCompletionPlanner
             return Reject(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationPurchaseCompletionBlockers.ReserveRequired);
 
         var results = new List<CharacterCreationPurchaseCompletionTargetResult>();
+        var assignments = admittedOriginalSelections?.AmmunitionAssignments?.ToList()
+            ?? new List<CharacterCreationAmmunitionAssignment>();
         for (int index = 0; index < request.Targets.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var target = request.Targets[index];
-            var existingGear = target.Gear is { } item
+            CharacterCreationGearSelection? requestedGear = target.Gear;
+            if (target.Ammunition is { } ammunition
+                && !CharacterCreationAmmunitionCompletionConsumer.TrySelect(inputs.Gear.State.Authority,
+                    ammunition, loadoutInputs, loadout, out requestedGear, out var ammunitionBlockers))
+            {
+                results.Add(new(index, CharacterCreationPurchaseCompletionTargetOutcomes.Unavailable, ammunitionBlockers));
+                continue;
+            }
+            var retainedAssignment = assignments.SingleOrDefault(row => row.GearOptionId == requestedGear?.OptionId);
+            if (target.Ammunition?.Weapon is { } requestedWeapon && retainedAssignment is not null
+                && retainedAssignment.Weapon != requestedWeapon)
+            {
+                results.Add(new(index, CharacterCreationPurchaseCompletionTargetOutcomes.ExistingSelectionLocked,
+                    [CharacterCreationAmmunitionCompletionBlockers.AssignmentConflict]));
+                continue;
+            }
+            var existingGear = requestedGear is { } item
                 ? gear.FirstOrDefault(row => row.OptionId == item.OptionId) : null;
             var existingLifestyle = target.Lifestyle is { } home
                 ? lifestyles.FirstOrDefault(row => row.LifestyleId == home.LifestyleId) : null;
@@ -101,13 +128,18 @@ public static class CharacterCreationPurchaseCompletionPlanner
                 ? loadout?.Armor.FirstOrDefault(row => row.OptionId == armor.OptionId) : null;
             if (existingGear is not null || existingLifestyle is not null || existingWeapon is not null || existingArmor is not null)
             {
-                bool same = existingGear is not null ? existingGear == target.Gear
+                bool same = existingGear is not null ? existingGear == requestedGear
                     : existingWeapon is not null ? existingWeapon == target.Weapon
                     : existingArmor is not null ? existingArmor == target.Armor
                     : CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(existingLifestyle, target.Lifestyle);
                 results.Add(new(index, same ? CharacterCreationPurchaseCompletionTargetOutcomes.AlreadyPresent
                     : CharacterCreationPurchaseCompletionTargetOutcomes.ExistingSelectionLocked,
-                    same ? [] : [CharacterCreationPurchaseCompletionBlockers.ExistingSelectionLocked]));
+                    same ? [] : [CharacterCreationPurchaseCompletionBlockers.ExistingSelectionLocked])
+                {
+                    Ammunition = same && target.Ammunition is not null
+                        ? DescribeAssignment(current.Gear.Lines.Single(line => line.OptionId == requestedGear!.OptionId),
+                            target.Ammunition) : null
+                });
                 continue;
             }
             if (target.Weapon is not null && loadoutInputs?.OriginalSelections.Weapons.Count > 0
@@ -124,7 +156,7 @@ public static class CharacterCreationPurchaseCompletionPlanner
                 continue;
             }
 
-            List<CharacterCreationGearSelection> proposedGear = target.Gear is null ? gear : [.. gear, target.Gear];
+            List<CharacterCreationGearSelection> proposedGear = requestedGear is null ? gear : [.. gear, requestedGear];
             List<CharacterCreationLifestyleConfiguration> proposedLifestyles = target.Lifestyle is null
                 ? lifestyles : [.. lifestyles, target.Lifestyle];
             var proposedLoadout = loadout is null ? null : new CharacterCreationLoadoutSelections(
@@ -162,7 +194,12 @@ public static class CharacterCreationPurchaseCompletionPlanner
             lifestyles = proposedLifestyles;
             loadout = proposedLoadout;
             current = preview;
-            results.Add(new(index, CharacterCreationPurchaseCompletionTargetOutcomes.Added, []));
+            results.Add(new(index, CharacterCreationPurchaseCompletionTargetOutcomes.Added, [])
+            {
+                Ammunition = target.Ammunition is not null
+                    ? DescribeAssignment(preview.Gear.Lines.Single(line => line.OptionId == requestedGear!.OptionId),
+                        target.Ammunition) : null
+            });
         }
 
         var blockers = current.Blockers.ToList();
@@ -175,12 +212,24 @@ public static class CharacterCreationPurchaseCompletionPlanner
         var plan = new CharacterCreationPurchaseCompletionPlan(request, gear.ToArray(), lifestyles.ToArray(),
             current.StartingLifestyleId, current, results.ToArray(), current.Gear.Resources.Budget.KnownPurchaseCost - originalCost,
             results.Any(row => row.Outcome == CharacterCreationPurchaseCompletionTargetOutcomes.Added)
-                || request.TotalKarmaInvestment != (inputs.Gear.Resources.PendingDraft?.KarmaInvestment ?? 0),
-            normalized.Length == 0, evaluations, normalized, string.Empty) { Loadout = loadout };
+                || assignments.Count != (admittedOriginalSelections?.AmmunitionAssignments?.Count ?? 0)
+                || request.TotalKarmaInvestment != originalInvestment,
+            normalized.Length == 0, evaluations, normalized, string.Empty)
+            { Loadout = loadout, AmmunitionAssignments = assignments.Count == 0 ? null : assignments.ToArray() };
         plan = plan with { PlanDigest = CharacterCreationPurchaseCompletionRules.ComputePlanDigest(plan) };
         cancellationToken.ThrowIfCancellationRequested();
         return new(plan.IsPurchasePlanComplete ? CharacterCreationFoundationOutcomes.Success
             : CharacterCreationFoundationOutcomes.Blocked, Detach(plan), normalized);
+
+        CharacterCreationAmmunitionAllocation DescribeAssignment(CharacterCreationGearLine line,
+            CharacterCreationAmmunitionPurchase purchase)
+        {
+            var existing = assignments.SingleOrDefault(row => row.GearOptionId == line.OptionId);
+            var weapon = existing?.Weapon ?? purchase.Weapon;
+            if (existing is null && weapon is not null)
+                assignments.Add(new(line.OptionId, line.SourceNodeDigest, weapon));
+            return CharacterCreationAmmunitionCompletionConsumer.Describe(line, weapon);
+        }
 
         CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionProjection> Evaluate(
             IReadOnlyList<CharacterCreationGearSelection> basket, IReadOnlyList<CharacterCreationLifestyleConfiguration> homes,
@@ -243,9 +292,13 @@ public static class CharacterCreationPurchaseCompletionPlanner
             && request.Targets is not null && request.Targets.Count <= MaximumTargets
             && request.Targets.All(target => target is not null
                 && (target.Gear is null ? 0 : 1) + (target.Lifestyle is null ? 0 : 1)
-                    + (target.Weapon is null ? 0 : 1) + (target.Armor is null ? 0 : 1) == 1
+                    + (target.Weapon is null ? 0 : 1) + (target.Armor is null ? 0 : 1)
+                    + (target.Ammunition is null ? 0 : 1) == 1
                 && (target.Gear is null || !string.IsNullOrWhiteSpace(target.Gear.OptionId) && target.Gear.Quantity > 0)
                 && (target.Lifestyle is null || target.Lifestyle.LifestyleId != Guid.Empty)
+                && (target.Ammunition is null || !string.IsNullOrWhiteSpace(target.Ammunition.OptionId)
+                    && target.Ammunition.Cartridges is >= 1 and <= 1_000_000
+                    && CharacterCreationGearRules.IsCanonicalDigest(target.Ammunition.SourceNodeDigest))
                 && (target.Weapon is null || !string.IsNullOrWhiteSpace(target.Weapon.OptionId) && target.Weapon.Quantity is >= 1 and <= 20)
                 && (target.Armor is null || !string.IsNullOrWhiteSpace(target.Armor.OptionId) && target.Armor.Quantity is >= 1 and <= 20))
             && request.NuyenToReserve >= 0m && request.MaximumAdditionalSpend >= 0m

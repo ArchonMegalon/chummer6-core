@@ -11,12 +11,36 @@ public static partial class CharacterCreationCompletionPlanner
         CharacterCreationCompletionReviewInputs inputs,
         CharacterCreationCompletionPlanRequest request,
         CancellationToken cancellationToken = default)
+        => PlanCore(inputs, request, cancellationToken, null);
+
+    /// <summary>Plan against an explicitly restored private source execution.
+    /// The context is not serialized, inferred from hashes or owner/save authority.
+    /// Every original and candidate review independently validates its binding.</summary>
+    public static CharacterCreationFoundationResult<CharacterCreationCompletionPlan> PlanWithExecution(
+        CharacterCreationCompletionReviewInputs inputs,
+        CharacterCreationCompletionPlanRequest request,
+        CharacterCreationRuleSourceExecutionContext? ruleSources,
+        CancellationToken cancellationToken = default, CharacterCreationCampaignExecutionContext? campaign = null)
+        => PlanCore(inputs, request, cancellationToken, ruleSources, campaign);
+
+    private static CharacterCreationFoundationResult<CharacterCreationCompletionPlan> PlanCore(
+        CharacterCreationCompletionReviewInputs inputs,
+        CharacterCreationCompletionPlanRequest request,
+        CancellationToken cancellationToken, CharacterCreationRuleSourceExecutionContext? ruleSources,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
         if (!ValidRequest(request)) return Reject(CharacterCreationFoundationOutcomes.Invalid,
             CharacterCreationCompletionPlanBlockers.RequestInvalid);
+        if (!CharacterCreationSkillCompletionPermissionRules.TrySnapshotAuthorityCatalogs(inputs.Skills?.Authority,
+                out var authority, cancellationToken))
+            return Reject(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationCompletionReviewSchemas.AuthorityUnavailable);
+        inputs = inputs with { Skills = inputs.Skills! with { Authority = authority } };
+        if (!CharacterCreationSkillCompletionPlanner.TrySnapshotRequest(authority, request.Skills, out var skillsRequest, cancellationToken))
+            return Reject(CharacterCreationFoundationOutcomes.Invalid, CharacterCreationSkillCompletionBlockers.RequestInvalid);
+        request = request with { Skills = skillsRequest };
         inputs = Detach(inputs);
         request = Detach(request);
         if (!TryOriginalSelections(inputs, out var original))
@@ -24,21 +48,25 @@ public static partial class CharacterCreationCompletionPlanner
 
         // This reuses whole-graph source/observation admission even when an
         // unfinished original character understandably has readiness blockers.
-        var admission = CharacterCreationCompletionReviewService.Review(inputs,
-            new(request.InputsSnapshotDigest, original), cancellationToken);
+        var originalRequest = ReviewRequest(request, original);
+        var fixedBlockers = CompleteCandidateBlockers(inputs, originalRequest, cancellationToken, campaign, ruleSources);
+        if (fixedBlockers.Count != 0)
+            return new(CharacterCreationFoundationOutcomes.Blocked, null, fixedBlockers);
+        var admission = CharacterCreationCompletionReviewService.Review(inputs, originalRequest, cancellationToken, ruleSources, campaign);
         if (admission.Value is null) return new(admission.Outcome, null, admission.Blockers);
-        return PlanAdmitted(inputs, request, original, cancellationToken);
+        return PlanAdmitted(inputs, request, original, cancellationToken, ruleSources, campaign);
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationCompletionPlan> PlanAdmitted(
         CharacterCreationCompletionReviewInputs inputs,
         CharacterCreationCompletionPlanRequest request,
         CharacterCreationCompletionSelections original,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CharacterCreationRuleSourceExecutionContext? ruleSources,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
         if (!MatchesOriginalRequests(inputs, request))
             return Reject(CharacterCreationFoundationOutcomes.Conflict, CharacterCreationCompletionPlanBlockers.SnapshotConflict);
-        if (!Same(inputs.Magic.Selections, request.Magic.ManualSelections))
+        if (!Same(original.MagicSelections, request.Magic.ManualSelections))
             return Reject(CharacterCreationFoundationOutcomes.Invalid, CharacterCreationCompletionPlanBlockers.ManualMagicMismatch);
 
         var choices = original with
@@ -52,7 +80,7 @@ public static partial class CharacterCreationCompletionPlanner
             SkillKarmaPurchases = request.SkillKarmaPurchases ?? original.SkillKarmaPurchases,
             KarmaToReserve = request.SkillKarmaPurchases is null && original.SkillKarmaPurchases is null ? 0 : request.KarmaToReserve
         };
-        var preservation = CharacterCreationCompletionPreservationRules.Check(inputs, choices);
+        var preservation = CharacterCreationCompletionPreservationRules.Check(inputs, choices, cancellationToken);
         if (preservation.Count != 0) return new(CharacterCreationFoundationOutcomes.Blocked, null, preservation);
         if (!request.PermitNegativeQualityAdditions && request.QualityOptionIds.Except(original.QualityOptionIds)
                 .Any(id => inputs.Lifestyles.Qualities.Authority.Options.Any(option => option.OptionId == id
@@ -136,24 +164,25 @@ public static partial class CharacterCreationCompletionPlanner
                         request.StartingLifestyleId, request.NuyenToReserve, request.MaximumAdditionalPurchaseSpend,
                         request.MaximumPurchaseEvaluations) { LoadoutSnapshotDigest = inputs.Loadout?.SnapshotDigest };
                     var purchaseResult = CharacterCreationPurchaseCompletionPlanner.Plan(inputs.Lifestyles, inputs.Magic,
-                        inputs.Loadout, purchaseRequest, cancellationToken);
+                        inputs.Loadout, purchaseRequest, true, null, cancellationToken, original);
                     if (Terminal(purchaseResult.Outcome)) return new(purchaseResult.Outcome, null, purchaseResult.Blockers);
                     findings.AddRange(purchaseResult.Blockers);
                     purchases = purchaseResult.Value;
                     if (purchases is not null)
                         choices = choices with { Gear = purchases.Gear, Lifestyles = purchases.Lifestyles,
-                            StartingLifestyleId = purchases.StartingLifestyleId, Loadout = purchases.Loadout };
+                            StartingLifestyleId = purchases.StartingLifestyleId, Loadout = purchases.Loadout,
+                            AmmunitionAssignments = purchases.AmmunitionAssignments };
                 }
             }
         }
 
         var final = CharacterCreationCompletionReviewService.Review(inputs,
-            new(request.InputsSnapshotDigest, choices), cancellationToken);
+            ReviewRequest(request, choices), cancellationToken, ruleSources, campaign);
         if (final.Value is not { } review) return new(final.Outcome, null, final.Blockers);
         if (request.AllocateRemainingAttributeKarma && attributes is not null
             && skills is not null && magic is not null && purchases is not null)
         {
-            var karmaResult = AllocateAttributeKarma(inputs, request, attributes, choices, review, cancellationToken);
+            var karmaResult = AllocateAttributeKarma(inputs, request, attributes, choices, review, cancellationToken, ruleSources, campaign);
             if (karmaResult.Value is not { } allocation) return new(karmaResult.Outcome, null, karmaResult.Blockers);
             attributes = allocation.Attributes;
             choices = allocation.Selections;
@@ -184,6 +213,44 @@ public static partial class CharacterCreationCompletionPlanner
             Detach(plan), blockers);
     }
 
+    private static CharacterCreationCompletionReviewRequest ReviewRequest(
+        CharacterCreationCompletionPlanRequest request, CharacterCreationCompletionSelections selections)
+        => new(request.InputsSnapshotDigest, selections)
+        {
+            CampaignAuthority = request.CampaignAuthority,
+            PolicyRequirement = request.PolicyRequirement,
+            EffectivePolicyDigest = request.EffectivePolicyDigest,
+            PolicyConsumptionSchema = request.PolicyConsumptionSchema,
+            CompleteAssessmentSchema = request.CompleteAssessmentSchema,
+            MaximumAttributesDefaultExecutionSchema = request.MaximumAttributesDefaultExecutionSchema,
+            AdditionalConsumerExecutionSchema = request.AdditionalConsumerExecutionSchema,
+            ProfileSettingsExecutionSchema = request.ProfileSettingsExecutionSchema,
+            OriginalCharacterExecutionSchema = request.OriginalCharacterExecutionSchema,
+            RuleSourceExecutionSchema = request.RuleSourceExecutionSchema,
+            RuleSourceCaptureDigest = request.RuleSourceCaptureDigest,
+            SourcebookSelection = request.SourcebookSelection
+        };
+
+    // A non-null diagnostic review is not candidate readiness. Recompute fixed
+    // Complete authority from the detached admitted inputs before any search.
+    // Historical unpinned Complete still encounters its original review refusal.
+    private static IReadOnlyList<string> CompleteCandidateBlockers(
+        CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
+        CancellationToken cancellationToken, CharacterCreationCampaignExecutionContext? campaign = null,
+        CharacterCreationRuleSourceExecutionContext? ruleSources = null)
+    {
+        if (request.PolicyRequirement != CharacterCreationPolicyRequirement.Complete
+            || request.CompleteAssessmentSchema is null) return [];
+        // The new sourcebook opt-in needs its private capture even at fixed admission.
+        // Historical requests retain their previous assessment inputs.
+        var authority = CharacterCreationCompleteAssessmentService.AssessAuthority(inputs, request, cancellationToken, campaign,
+            request.SourcebookSelection is null ? null : ruleSources);
+        if (authority.Outcome == CharacterCreationFoundationOutcomes.Success
+            && authority.Value?.MayRequestCompleteCandidate == true) return [];
+        return authority.Blockers.Count != 0 ? authority.Blockers
+            : [CharacterCreationCompleteAssessment.FixedAuthorityUnavailable];
+    }
+
     private static bool MatchesOriginalRequests(CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionPlanRequest request)
         => request.Attributes.Binding == inputs.Skills.Attributes.Binding
             && Digest(request.Attributes.SnapshotDigest, inputs.Skills.Attributes.SnapshotDigest)
@@ -204,6 +271,23 @@ public static partial class CharacterCreationCompletionPlanner
                 Gear: { State: not null, Resources: not null } }
             || inputs.Lifestyles.Gear.State.PendingDraft is { } gear && (gear.Lines is null || gear.Lines.Any(row => row is null))
             || inputs.Contacts?.Contacts is null) return false;
+        // A previously applied Finish proposal is durable selection history,
+        // not a collection of ordinary stage drafts. The admitted composite
+        // baseline includes later manual edits; rebuilding from PendingDraft
+        // alone would silently lose purchases and fail preservation on re-Finish.
+        if (inputs.Skills.CompositeBaseline is { } baseline)
+        {
+            selections = baseline.Selections with
+            {
+                AttributeAllocations = inputs.Skills.Attributes.Attributes.Select(row =>
+                    new CharacterCreationAttributeAllocation(row.AttributeId, row.PriorityPointsSpent, row.KarmaLevels)).ToArray(),
+                SkillAllocations = inputs.Skills.Allocations,
+                GroupAllocations = inputs.Skills.GroupAllocations,
+                SkillKarmaPurchases = baseline.Selections.SkillKarmaPurchases
+                    ?? (inputs.Skills.KarmaPurchasePolicy is null ? null : [])
+            };
+            return true;
+        }
         selections = new(inputs.Skills.Attributes.Attributes.Select(row => new CharacterCreationAttributeAllocation(
                 row.AttributeId, row.PriorityPointsSpent, row.KarmaLevels)).ToArray(),
             inputs.Skills.Allocations, inputs.Skills.GroupAllocations, inputs.Magic.Selections,

@@ -14,7 +14,7 @@ public sealed class OwnerBoundCharacterCreationContactsService(
         if (!OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
             return Unavailable<CharacterCreationContactsState>();
         using (lease)
-            return service.Load(expectedOwner.Owner, request);
+            return service.InvokeOwner(lease, expectedOwner, request.WorkspaceId, bound => bound.Load(request));
     }
 
     public CharacterCreationContactResult<CharacterCreationContactPreview> Preview(
@@ -24,7 +24,7 @@ public sealed class OwnerBoundCharacterCreationContactsService(
         if (!OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
             return Unavailable<CharacterCreationContactPreview>();
         using (lease)
-            return service.Preview(expectedOwner.Owner, request);
+            return service.InvokeOwner(lease, expectedOwner, request.Binding?.WorkspaceId ?? default, bound => bound.Preview(request));
     }
 
     public CharacterCreationContactResult<CharacterCreationContactReceipt> Confirm(
@@ -34,7 +34,7 @@ public sealed class OwnerBoundCharacterCreationContactsService(
         if (!OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
             return Unavailable<CharacterCreationContactReceipt>();
         using (lease)
-            return service.Confirm(expectedOwner.Owner, request);
+            return service.InvokeOwner(lease, expectedOwner, request.Binding?.WorkspaceId ?? default, bound => bound.Confirm(request));
     }
 
     public CharacterCreationContactResult<CharacterCreationContactReceipt> LookupReceipt(
@@ -44,7 +44,7 @@ public sealed class OwnerBoundCharacterCreationContactsService(
         if (!OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
             return Unavailable<CharacterCreationContactReceipt>();
         using (lease)
-            return service.LookupReceipt(expectedOwner.Owner, request);
+            return service.InvokeOwner(lease, expectedOwner, request.WorkspaceId, bound => bound.LookupReceipt(request));
     }
 
     private static CharacterCreationContactResult<T> Unavailable<T>() where T : class

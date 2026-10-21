@@ -26,4 +26,11 @@ public interface ICharacterCreationLoadoutAtomicCommitCapability
 {
     CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(OwnerScope owner,
         CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver, CancellationToken cancellationToken = default);
+
+    // Explicit shared rules dependency. Legacy stores still execute their existing
+    // operation; composite preview fails closed there if they cannot supply it.
+    CharacterCreationFoundationResult<CharacterCreationLoadoutReceipt> CommitLoadout(OwnerScope owner,
+        CharacterCreationLoadoutConfirmRequest request, ICharacterSourceDataResolver resolver,
+        ICharacterFileQueries queries, CancellationToken cancellationToken = default)
+        => CommitLoadout(owner, request, resolver, cancellationToken);
 }
