@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20261021.4.shc77d3c38615af"
-runtime_source_commit="c77d3c38615af162c34039a770eb13db366491c3"
+candidate_version="0.0.0-packageplane.candidate.v20261021.5.sh3b6a68186379e"
+runtime_source_commit="3b6a68186379e7632274708bc531db5dec359737"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -844,13 +844,14 @@ finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTest
 prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteDigestTests|FullyQualifiedName~CharacterCreationPriorityRacialTests'
 source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'
 private_runtime_filter='FullyQualifiedName~PrivateWorkspaceRuleRuntimeTests|FullyQualifiedName~RequestOwnerContextLifetimeTests'
+career_magic_filter='FullyQualifiedName~CharacterAdeptPowerPointRulesTests|FullyQualifiedName~WorkspaceCharacterCareerPowerTests|FullyQualifiedName~CharacterCareerInitiationTests'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
   --framework net10.0 \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$private_runtime_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$private_runtime_filter|$career_magic_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   --logger 'console;verbosity=normal' \
   "${common_properties[@]}"
 

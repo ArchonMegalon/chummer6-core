@@ -65,8 +65,25 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("c77d3c38615af162c34039a770eb13db366491c3", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261021.4.shc77d3c38615af", runtime.PACKAGE_VERSION)
+        self.assertEqual("3b6a68186379e7632274708bc531db5dec359737", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261021.5.sh3b6a68186379e", runtime.PACKAGE_VERSION)
+
+    def test_career_magic_intake_is_in_runtime_and_required_consumer_tests(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        self.assertIn("career_magic_filter='FullyQualifiedName~CharacterAdeptPowerPointRulesTests|"
+                      "FullyQualifiedName~WorkspaceCharacterCareerPowerTests|"
+                      "FullyQualifiedName~CharacterCareerInitiationTests'", script)
+        self.assertIn("$private_runtime_filter|$career_magic_filter|", script)
+        for member in (
+            "Chummer.Contracts/Characters/CharacterCareerMagicRead.cs",
+            "Chummer.Contracts/Characters/CharacterCareerPower.cs",
+            "Chummer.Contracts/Characters/CharacterCareerInitiation.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCareerMagicReader.cs",
+            "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.CareerPowers.cs",
+            "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.CareerInitiation.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
@@ -423,7 +440,7 @@ class RuntimePackageLockTests(unittest.TestCase):
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         self.assertIn("\nprivate_runtime_filter='FullyQualifiedName~PrivateWorkspaceRuleRuntimeTests|FullyQualifiedName~RequestOwnerContextLifetimeTests'\n", script)
         invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
-        self.assertIn('$source_input_filter|$private_runtime_filter|FullyQualifiedName~WorkspaceContinuation', invocation)
+        self.assertIn('$source_input_filter|$private_runtime_filter|$career_magic_filter|FullyQualifiedName~WorkspaceContinuation', invocation)
         self.assertIn('--no-restore', invocation)
 
     def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
