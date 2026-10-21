@@ -24,6 +24,8 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCreationBootstrapAtomicCreateCapability,
     ICharacterCareerReputationAtomicCommitCapability,
     ICharacterCareerQualityAtomicCommitCapability,
+    ICharacterCareerInitiationAtomicCommitCapability,
+    ICharacterCareerPowerAtomicCommitCapability,
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
     ICharacterCreationCompletionAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
@@ -1739,6 +1741,16 @@ public sealed partial class FileWorkspaceStore :
                 JsonSerializer.Serialize(currentState.CharacterCareerReputationReceipts),
                 JsonSerializer.Serialize(replacementState.CharacterCareerReputationReceipts),
                 StringComparison.Ordinal))
+            return false;
+
+        // Power receipts may only be appended by the power-specific transaction.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerPowerTransactions),
+                JsonSerializer.Serialize(replacementState.CharacterCareerPowerTransactions), StringComparison.Ordinal))
+            return false;
+
+        // Only the source-admitted initiation transaction can change this ledger.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerInitiationTransactions),
+                JsonSerializer.Serialize(replacementState.CharacterCareerInitiationTransactions), StringComparison.Ordinal))
             return false;
 
         // Career quality history also has a dedicated source-admitted writer.

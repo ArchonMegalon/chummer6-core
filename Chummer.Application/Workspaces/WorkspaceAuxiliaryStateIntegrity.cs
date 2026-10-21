@@ -298,6 +298,10 @@ public static class WorkspaceAuxiliaryStateIntegrity
                && afterRunRewardReceiptsValid
                && CharacterCareerReputationTransaction.IsValidLedger(
                    workspaceId, currentContentRevision, state.CharacterCareerReputationReceipts)
+               && CharacterCareerInitiationTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerInitiationTransactions)
+               && CharacterCareerPowerTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerPowerTransactions)
                && CharacterCareerQualityTransaction.IsValidLedgers(
                    workspaceId, currentContentRevision, state.CharacterCareerQualityTransactions,
                    state.CharacterCareerQualityCorrections)

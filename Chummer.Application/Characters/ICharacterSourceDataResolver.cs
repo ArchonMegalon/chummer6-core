@@ -38,6 +38,14 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    // Career-only source authority. Defaults deliberately fail closed for older resolvers.
+    bool TryResolveCareerPowerSource(Guid sourceId, out CharacterCareerPowerSource? source)
+    { source = null; return false; }
+    bool TryResolveCareerPowerCatalog(out IReadOnlyList<CharacterCareerPowerSource> sources)
+    { sources = []; return false; }
+    bool TryResolveCareerPowerGrantSource(string kind, Guid sourceId, out CharacterCareerPowerGrantSource? source)
+    { source = null; return false; }
+
     /// <summary>
     /// Exact base-metatype source for Career quality restrictions. Unknown or
     /// variant identities fail closed; display names alone are not identity.
