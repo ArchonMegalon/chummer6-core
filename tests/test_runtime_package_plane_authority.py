@@ -85,6 +85,18 @@ class RuntimePackageLockTests(unittest.TestCase):
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
+    def test_career_catalog_source_regressions_are_in_the_required_consumer(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        self.assertIn("source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|"
+                      "FullyQualifiedName~CareerCatalog1158'", script)
+        self.assertIn("$source_input_filter|", script)
+        for member in (
+            "Chummer.Tests/CharacterCreationRuleSourceCaptureTests.CareerCatalog1158.cs",
+            "Chummer.Tests/WorkspaceCharacterCareerPowerTests.Catalog1158.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
     def test_pre_life_module_authority_cannot_stand_in_for_current_runtime(self) -> None:
         for field, value in (
             ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
