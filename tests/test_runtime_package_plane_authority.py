@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("3b6a68186379e7632274708bc531db5dec359737", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261021.5.sh3b6a68186379e", runtime.PACKAGE_VERSION)
+        self.assertEqual("7b2de75a667ee986c1018e05df21d5c7010c94b2", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261021.6.sh7b2de75a667ee", runtime.PACKAGE_VERSION)
 
     def test_career_magic_intake_is_in_runtime_and_required_consumer_tests(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
@@ -81,6 +81,18 @@ class RuntimePackageLockTests(unittest.TestCase):
             "Chummer.Application/Characters/OwnerBoundCharacterCareerMagicReader.cs",
             "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.CareerPowers.cs",
             "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.CareerInitiation.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_career_catalog_source_regressions_are_in_the_required_consumer(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        self.assertIn("source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|"
+                      "FullyQualifiedName~CareerCatalog1158'", script)
+        self.assertIn("$source_input_filter|", script)
+        for member in (
+            "Chummer.Tests/CharacterCreationRuleSourceCaptureTests.CareerCatalog1158.cs",
+            "Chummer.Tests/WorkspaceCharacterCareerPowerTests.Catalog1158.cs",
         ):
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
@@ -395,7 +407,7 @@ class RuntimePackageLockTests(unittest.TestCase):
 
     def test_isolated_lane_executes_source_input_regressions(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
-        self.assertIn("\nsource_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'\n", script)
+        self.assertIn("\nsource_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CareerCatalog1158'\n", script)
         invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|', invocation)
 

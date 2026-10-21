@@ -31,6 +31,24 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             if (_sourceInputs.HasSourceDrift
                 || !TryEnumerateTargets("powers.xml", ["powers"], "power", out var rows)
                 || rows.Length > 4096) return false;
+            // With no custom data or overlays, raw and effective rows are identical.
+            // Resolve against one detached raw document for this call instead of
+            // copying both full documents for every enabled row. Keep the exact
+            // resolver for every custom/amend/overlay case.
+            Dictionary<Guid, XElement?>? baseTargets = null;
+            if (_customDirectories.Count == 0 && !_catalog.Overlays.Any(pack => pack.Enabled)
+                && !_sourceInputs.HasSelectedProfile("powers.xml") && rows.Length != 0)
+            {
+                if (!TryLoadXml(Path.Combine(_catalog.BaseDataPath, "powers.xml"), out var raw)
+                    || raw?.Root is null) return false;
+                baseTargets = new();
+                // Count across ALL raw containers, as CountTargetRows does. A
+                // duplicate outside the first enumerated container still rejects
+                // an enabled target. Guid parsing matches LocatorMatches.
+                foreach (var row in raw.Root.Elements("powers").Elements("power"))
+                    if (Guid.TryParse(ReadValue(row, "id"), out var id)
+                        && !baseTargets.TryAdd(id, row)) baseTargets[id] = null;
+            }
             var result = new List<CharacterCareerPowerSource>();
             var ids = new HashSet<Guid>();
             foreach (var row in rows)
@@ -38,7 +56,26 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 if (!Guid.TryParse(row.Element("id")?.Value, out var id)
                     || !ids.Add(id) || !CareerPowerIdentity(row, "power", id, out _, out var book)) return false;
                 if (!IsEnabledSource(book)) continue;
-                if (!TryResolveCareerPowerSource(id, out var exact) || exact is null) return false;
+                CharacterCareerPowerSource? exact;
+                if (baseTargets is null)
+                {
+                    if (!TryResolveCareerPowerSource(id, out exact) || exact is null) return false;
+                }
+                else
+                {
+                    // Enumeration alone is not identity authority. Reject raw
+                    // ambiguity and apply the same exact-target source gates and
+                    // byte/profile/custom digests as TryResolveCareerPowerSource.
+                    if (!baseTargets.TryGetValue(id, out var target) || target is null
+                        || !FilterSourcebookTarget800("powers.xml", ref target) || target is null
+                        || !CareerPowerIdentity(target, "power", id, out var name, out var exactBook)
+                        || !IsEnabledSource(exactBook)
+                        || !TryComputeEffectiveInputDigest(_catalog, "powers.xml", out var sourceDigest)
+                        || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "powers.xml", out var custom)
+                        || _sourceInputs.HasSourceDrift) return false;
+                    exact = new(id, name, exactBook, target.ToString(SaveOptions.DisableFormatting),
+                        sourceDigest, _rawProfileInputsDigest, custom);
+                }
                 result.Add(exact);
             }
             if (_sourceInputs.HasSourceDrift) return false;
