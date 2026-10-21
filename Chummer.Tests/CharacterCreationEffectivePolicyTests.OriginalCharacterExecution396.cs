@@ -358,4 +358,3 @@ public sealed partial class CharacterCreationEffectivePolicyTests
             OriginalCharacterExecutionSchema = CharacterCreationCompletionReviewSchemas.OriginalCharacterExecutionV1
         };
 }
-

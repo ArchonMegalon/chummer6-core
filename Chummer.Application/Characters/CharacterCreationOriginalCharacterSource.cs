@@ -195,4 +195,3 @@ internal sealed class CharacterCreationOriginalCharacterSource
         => error is XmlException or InvalidDataException or FormatException or OverflowException
             or ArgumentException or InvalidOperationException or System.Text.Json.JsonException or NullReferenceException;
 }
-

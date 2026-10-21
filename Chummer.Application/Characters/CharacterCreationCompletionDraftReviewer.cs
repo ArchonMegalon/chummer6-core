@@ -67,7 +67,7 @@ internal static class CharacterCreationCompletionDraftReviewer
             var captured = reviewed.Capture(original, bootstrap, cancellationToken);
             if (captured.Outcome != CharacterCreationFoundationOutcomes.Success || captured.Value is not { } witness)
                 return new(captured.Outcome, null, captured.Blockers);
-    
+
             // The initial read is deliberately coherent and cached. Re-observe
             // the real store and source after selected replay before publishing.
             var currentView = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId,
