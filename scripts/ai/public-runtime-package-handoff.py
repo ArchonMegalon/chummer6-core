@@ -3,6 +3,13 @@
 
 The GitHub release is a transport, not an authority.  Consumers must pin the
 receipt and bundle byte digests in their own reviewed authority before use.
+
+The existing v2 receipt is Actions-only.  Local v3 receipts explicitly carry
+operator-declared execution evidence, not authenticated Actions provenance.
+The exporter does not capture SDK identity or execution start/end times: the
+operator must record those during the build in a local-execution/v1 JSON file.
+Local preparation checks that declaration against Git and the exported bytes;
+it cannot independently attest which SDK executed the build.
 """
 
 from __future__ import annotations
@@ -15,14 +22,17 @@ import math
 import os
 import re
 import stat
+import subprocess
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 
 CONTRACT = "chummer-core.runtime-package-public-handoff/v2"
+LOCAL_CONTRACT = "chummer-core.runtime-package-public-handoff/v3"
+LOCAL_EXECUTION_CONTRACT = "chummer-core.runtime-package-local-execution/v1"
 ARCHIVE_CONTRACT = "chummer-core.runtime-package-public-handoff-zip/v1"
 REPOSITORY = "ArchonMegalon/chummer6-core"
 MAIN_REF = "refs/heads/main"
@@ -46,6 +56,15 @@ RECEIPT_KEYS = {
     "source_actions_artifact",
     "bundle",
     "receipt_asset_name",
+}
+LOCAL_RECEIPT_KEYS = (RECEIPT_KEYS - {"ref", "source_actions_artifact"}) | {
+    "provenance_mode", "source_local_execution",
+}
+LOCAL_EXECUTION_KEYS = {
+    "contract", "evidence_kind", "repository", "runtime_source_commit",
+    "runtime_source_tree", "package_recipe_commit", "package_recipe_tree",
+    "package_version", "started_at_utc", "completed_at_utc", "toolchain",
+    "no_siblings_receipt_sha256", "no_siblings_generated_at_utc",
 }
 NO_SIBLINGS_RECEIPT_KEYS = {
     "contract",
@@ -616,26 +635,151 @@ def _deterministic_zip(members: dict[str, bytes]) -> bytes:
     return raw
 
 
+def _validate_local_source(source: Any, commit: str) -> tuple[datetime, datetime]:
+    if (
+        not isinstance(source, dict)
+        or set(source) != LOCAL_EXECUTION_KEYS
+        or source.get("contract") != LOCAL_EXECUTION_CONTRACT
+        or source.get("evidence_kind") != "operator-declared"
+        or source.get("repository") != REPOSITORY
+        or source.get("package_recipe_commit") != commit
+    ):
+        raise PublicHandoffError("local execution provenance shape or authority differs")
+    for key in ("runtime_source_commit", "runtime_source_tree", "package_recipe_commit", "package_recipe_tree"):
+        if not isinstance(source[key], str) or not COMMIT_RE.fullmatch(source[key]):
+            raise PublicHandoffError(f"local execution {key} must be one full Git SHA")
+    toolchain = source["toolchain"]
+    if (
+        not isinstance(toolchain, dict)
+        or set(toolchain) != {"dotnet_sdk_version"}
+        or not isinstance(toolchain["dotnet_sdk_version"], str)
+        or len(toolchain["dotnet_sdk_version"]) > 80
+        or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", toolchain["dotnet_sdk_version"])
+        or not isinstance(source["package_version"], str)
+        or not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+-]{0,199}", source["package_version"])
+        or not isinstance(source["no_siblings_receipt_sha256"], str)
+        or not SHA256_RE.fullmatch(source["no_siblings_receipt_sha256"])
+    ):
+        raise PublicHandoffError("local execution toolchain, version or receipt digest is invalid")
+    times = []
+    for key in ("started_at_utc", "no_siblings_generated_at_utc", "completed_at_utc"):
+        value = _utc_timestamp(source[key], f"local execution {key}")
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+            raise PublicHandoffError("local execution timestamp is not canonical UTC")
+        times.append(parsed)
+    start, generated, end = times
+    if not start <= generated <= end:
+        raise PublicHandoffError("no-siblings receipt is outside the declared local execution window")
+    return start, end
+
+
+def _validate_local_bundle_binding(
+    source: dict[str, Any], members: dict[str, bytes], inventory: dict[str, Any],
+) -> None:
+    no_siblings = _strict_json(members[NO_SIBLINGS_RECEIPT_NAME], "local no-siblings receipt")
+    lock = _strict_json(members[LOCK_NAME], "local runtime package lock")
+    sdk = lock.get("dotnet_sdk")
+    if (
+        any(source[key] != inventory[key] for key in (
+            "runtime_source_commit", "package_recipe_commit", "package_version",
+        ))
+        or source["no_siblings_receipt_sha256"] != _sha256(members[NO_SIBLINGS_RECEIPT_NAME])
+        or source["no_siblings_generated_at_utc"] != no_siblings["generated_at_utc"]
+        or not isinstance(sdk, dict)
+        or source["toolchain"]["dotnet_sdk_version"] != sdk.get("version")
+        or (lock.get("runtime_source") or {}).get("repository")
+        != f"https://github.com/{REPOSITORY}.git"
+    ):
+        raise PublicHandoffError("local execution provenance differs from exported bundle")
+
+
+def _git(repo_root: Path, *args: str) -> bytes:
+    try:
+        return subprocess.run(
+            ["git", "--no-replace-objects", "--no-optional-locks", "-C", str(repo_root), *args],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise PublicHandoffError("cannot verify local execution Git identity") from exc
+
+
+def _validate_local_checkout(repo_root: Path, source: dict[str, Any], lock_bytes: bytes) -> None:
+    commit = source["package_recipe_commit"]
+    if (
+        _git(repo_root, "rev-parse", "--show-toplevel").strip() != os.fsencode(repo_root.resolve())
+        or _git(repo_root, "rev-parse", "HEAD").strip() != commit.encode("ascii")
+        or _git(repo_root, "status", "--porcelain", "--untracked-files=all")
+        or _git(repo_root, "show", f"{commit}:eng/{LOCK_NAME}") != lock_bytes
+    ):
+        raise PublicHandoffError("local execution requires the clean exact recipe checkout")
+    for prefix in ("runtime_source", "package_recipe"):
+        revision = source[f"{prefix}_commit"]
+        if (
+            _git(repo_root, "cat-file", "-t", revision).strip() != b"commit"
+            or _git(repo_root, "rev-parse", f"{revision}^{{tree}}").strip()
+            != source[f"{prefix}_tree"].encode("ascii")
+        ):
+            raise PublicHandoffError("local execution source or recipe tree differs from Git")
+    _git(repo_root, "merge-base", "--is-ancestor", source["runtime_source_commit"], commit)
+
+
+def prepare_from_local_bundle(
+    *, repo_root: Path, bundle_dir: Path, local_provenance_path: Path,
+    output_dir: Path, commit: str,
+) -> tuple[Path, Path]:
+    """Seal an existing export; never run a build or manufacture execution evidence.
+
+    The local declaration must use exactly LOCAL_EXECUTION_KEYS, with
+    evidence_kind=operator-declared and toolchain={"dotnet_sdk_version": "..."}.
+    Record start/end around the existing no-siblings verifier/exporter. Exact
+    unchanged evidence remains reusable regardless of age. Git identities and
+    all bundle bytes are checked,
+    while SDK identity and execution times remain operator assertions.
+    """
+    _require_commit(commit)
+    source = _strict_json(
+        _read_bound_file(local_provenance_path, "local execution provenance"),
+        "local execution provenance",
+    )
+    _, end = _validate_local_source(source, commit)
+    now = datetime.now(timezone.utc)
+    if end > now:
+        raise PublicHandoffError("local execution evidence is in the future")
+    members, inventory = _validate_bundle(repo_root, bundle_dir, commit)
+    _validate_local_bundle_binding(source, members, inventory)
+    _validate_local_checkout(repo_root, source, members[LOCK_NAME])
+    return _write_public_assets(
+        members=members, output_dir=output_dir, repository=REPOSITORY,
+        commit=commit, source_local_execution=source,
+    )
+
+
+def _member_rows(members: dict[str, bytes]) -> list[dict[str, Any]]:
+    return [
+        {"path": name, "sha256": _sha256(members[name]), "size_bytes": len(members[name])}
+        for name in sorted(members, key=lambda value: (value.casefold(), value))
+    ]
+
+
 def _write_public_assets(
     *,
     members: dict[str, bytes],
     output_dir: Path,
     repository: str,
     commit: str,
-    ref: str,
-    source_actions_artifact: dict[str, Any],
+    ref: str | None = None,
+    source_actions_artifact: dict[str, Any] | None = None,
+    source_local_execution: dict[str, Any] | None = None,
 ) -> tuple[Path, Path]:
+    if (source_actions_artifact is None) == (source_local_execution is None):
+        raise PublicHandoffError("public handoff requires exactly one provenance mode")
+    if source_local_execution is not None and ref is not None:
+        raise PublicHandoffError("local execution cannot claim an Actions ref")
     archive_bytes = _deterministic_zip(members)
     archive_name = bundle_asset_name(commit)
     manifest_name = receipt_asset_name(commit)
-    member_rows = [
-        {
-            "path": name,
-            "sha256": _sha256(members[name]),
-            "size_bytes": len(members[name]),
-        }
-        for name in sorted(members, key=lambda value: (value.casefold(), value))
-    ]
+    member_rows = _member_rows(members)
     payload = {
         "contract": CONTRACT,
         "repository": repository,
@@ -654,6 +798,12 @@ def _write_public_assets(
         },
         "receipt_asset_name": manifest_name,
     }
+    if source_local_execution is not None:
+        payload["contract"] = LOCAL_CONTRACT
+        payload["provenance_mode"] = "local"
+        payload["source_local_execution"] = source_local_execution
+        del payload["ref"]
+        del payload["source_actions_artifact"]
     receipt_bytes = _canonical_json(payload)
     try:
         output_dir.mkdir(mode=0o755)
@@ -731,6 +881,11 @@ def prepare_from_actions_artifact(
 def _load_public_receipt(path: Path) -> tuple[bytes, dict[str, Any]]:
     raw = _read_bound_file(path, "public handoff receipt")
     payload = _strict_json(raw, "public handoff receipt")
+    if isinstance(payload, dict) and payload.get("contract") == LOCAL_CONTRACT:
+        _validate_local_public_receipt(payload)
+        if raw != _canonical_json(payload):
+            raise PublicHandoffError("public handoff receipt is not canonical JSON")
+        return raw, payload
     if not isinstance(payload, dict) or set(payload) != RECEIPT_KEYS:
         raise PublicHandoffError("public handoff receipt shape differs")
     commit = payload.get("commit")
@@ -843,6 +998,91 @@ def _load_public_receipt(path: Path) -> tuple[bytes, dict[str, Any]]:
     return raw, payload
 
 
+def _validate_local_public_receipt(payload: dict[str, Any]) -> None:
+    if set(payload) != LOCAL_RECEIPT_KEYS or payload.get("provenance_mode") != "local":
+        raise PublicHandoffError("local public handoff receipt shape or mode differs")
+    commit = payload["commit"]
+    if not isinstance(commit, str):
+        raise PublicHandoffError("local public handoff commit is invalid")
+    _require_commit(commit)
+    source = payload["source_local_execution"]
+    _, completed = _validate_local_source(source, commit)
+    if completed > datetime.now(timezone.utc):
+        raise PublicHandoffError("local public handoff execution is in the future")
+    bundle = payload["bundle"]
+    if (
+        payload["repository"] != REPOSITORY
+        or payload["release_tag"] != release_tag(commit)
+        or payload["receipt_asset_name"] != receipt_asset_name(commit)
+        or not isinstance(bundle, dict)
+        or set(bundle) != {
+            "contract", "asset_name", "sha256", "size_bytes", "member_count",
+            "uncompressed_size_bytes", "members",
+        }
+        or bundle["contract"] != ARCHIVE_CONTRACT
+        or bundle["asset_name"] != bundle_asset_name(commit)
+        or not isinstance(bundle["sha256"], str)
+        or not SHA256_RE.fullmatch(bundle["sha256"])
+        or not isinstance(bundle["members"], list)
+    ):
+        raise PublicHandoffError("local public handoff bundle authority differs")
+    for key in ("size_bytes", "member_count", "uncompressed_size_bytes"):
+        _positive_int(bundle[key], f"local bundle {key}")
+    rows = bundle["members"]
+    paths: list[str] = []
+    total = 0
+    receipt_digest = None
+    for row in rows:
+        if (
+            not isinstance(row, dict) or set(row) != {"path", "sha256", "size_bytes"}
+            or not isinstance(row["path"], str) or not isinstance(row["sha256"], str)
+            or not SHA256_RE.fullmatch(row["sha256"])
+        ):
+            raise PublicHandoffError("local bundle member authority is invalid")
+        _safe_member_name(row["path"])
+        size = _positive_int(row["size_bytes"], "local bundle member size")
+        if size > MAX_MEMBER_BYTES:
+            raise PublicHandoffError("local bundle member exceeds byte bound")
+        total += size
+        paths.append(row["path"])
+        if row["path"] == NO_SIBLINGS_RECEIPT_NAME:
+            receipt_digest = row["sha256"]
+    if (
+        bundle["member_count"] != 11 or len(rows) != 11
+        or len({path.casefold() for path in paths}) != 11
+        or paths != sorted(paths, key=lambda value: (value.casefold(), value))
+        or not {INVENTORY_NAME, LOCK_NAME, NO_SIBLINGS_RECEIPT_NAME} <= set(paths)
+        or any(not re.fullmatch(r"packages/[^/]+\.nupkg", path) for path in paths
+               if path not in {INVENTORY_NAME, LOCK_NAME, NO_SIBLINGS_RECEIPT_NAME})
+        or total != bundle["uncompressed_size_bytes"] or total > MAX_BUNDLE_BYTES
+        or bundle["size_bytes"] > MAX_BUNDLE_BYTES
+        or receipt_digest != source["no_siblings_receipt_sha256"]
+    ):
+        raise PublicHandoffError("local bundle members differ from receipt authority")
+
+
+def _verify_local_public_bundle(raw: bytes, receipt: dict[str, Any]) -> None:
+    # Both archive modes use the same exact 11-file, stored-only ZIP posture.
+    snapshot = _snapshot_actions_archive(raw)
+    if _member_rows(snapshot) != receipt["bundle"]["members"] or _deterministic_zip(snapshot) != raw:
+        raise PublicHandoffError("local public bundle members differ from receipt")
+    try:
+        with tempfile.TemporaryDirectory(prefix="chummer-core-local-readback-") as temporary:
+            root = Path(temporary)
+            bundle = root / "bundle"
+            for name, data in snapshot.items():
+                destination = bundle / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+            (root / "eng").mkdir()
+            (root / "eng" / LOCK_NAME).write_bytes(snapshot[LOCK_NAME])
+            # At readback the pinned receipt supplies byte authority, not a checkout.
+            members, inventory = _validate_bundle(root, bundle, receipt["commit"])
+            _validate_local_bundle_binding(receipt["source_local_execution"], members, inventory)
+    except OSError as exc:
+        raise PublicHandoffError(f"cannot validate local bundle readback: {exc}") from exc
+
+
 def _validate_direct_tag_metadata(tag_metadata: Any, tag: str, commit: str) -> None:
     if (
         not isinstance(tag_metadata, dict)
@@ -921,6 +1161,8 @@ def verify_public_release(
             raise PublicHandoffError(f"public release asset byte authority differs: {name}")
     if downloaded_receipt != expected_receipt_bytes:
         raise PublicHandoffError("downloaded public receipt differs byte-for-byte")
+    if receipt["contract"] == LOCAL_CONTRACT:
+        _verify_local_public_bundle(downloaded_bundle, receipt)
 
 
 def parse_args() -> argparse.Namespace:
@@ -943,6 +1185,13 @@ def parse_args() -> argparse.Namespace:
     prepare_parser.add_argument("--workflow-ref", required=True)
     prepare_parser.add_argument("--workflow-sha", required=True)
     prepare_parser.add_argument("--head-tree", required=True)
+
+    local_parser = subcommands.add_parser("prepare-from-local-bundle")
+    local_parser.add_argument("--repo-root", type=Path, required=True)
+    local_parser.add_argument("--bundle-dir", type=Path, required=True)
+    local_parser.add_argument("--local-provenance", type=Path, required=True)
+    local_parser.add_argument("--output-dir", type=Path, required=True)
+    local_parser.add_argument("--commit", required=True)
 
     verify_parser = subcommands.add_parser("verify-public-release")
     verify_parser.add_argument("--release-metadata", type=Path, required=True)
@@ -979,6 +1228,16 @@ def main() -> int:
                 workflow_ref=args.workflow_ref,
                 workflow_sha=args.workflow_sha,
                 head_tree=args.head_tree,
+            )
+            print(f"public runtime package bundle: {archive}")
+            print(f"public runtime package receipt: {receipt}")
+        elif args.command == "prepare-from-local-bundle":
+            archive, receipt = prepare_from_local_bundle(
+                repo_root=args.repo_root.absolute(),
+                bundle_dir=args.bundle_dir.absolute(),
+                local_provenance_path=args.local_provenance.absolute(),
+                output_dir=args.output_dir.absolute(),
+                commit=args.commit,
             )
             print(f"public runtime package bundle: {archive}")
             print(f"public runtime package receipt: {receipt}")

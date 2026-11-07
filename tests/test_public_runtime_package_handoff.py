@@ -9,7 +9,9 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -240,8 +242,8 @@ class PublicRuntimePackageHandoffTests(unittest.TestCase):
         self._write_json(metadata_path, metadata)
         return digest
 
-    def _release_fixture(self) -> tuple[Path, Path, Path, Path, Path, dict]:
-        archive, receipt_path = self._prepare()
+    def _release_fixture(self, *, local: bool = False) -> tuple[Path, Path, Path, Path, Path, dict]:
+        archive, receipt_path = self._prepare_local() if local else self._prepare()
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         downloads = self.root / "downloads"
         downloads.mkdir()
@@ -281,6 +283,227 @@ class PublicRuntimePackageHandoffTests(unittest.TestCase):
             },
         )
         return metadata_path, tag_path, receipt_path, downloaded_archive, downloaded_receipt, metadata
+
+    def _local_inputs(self) -> tuple[Path, dict]:
+        end = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(seconds=1)
+        generated = end - timedelta(seconds=1)
+        start = end - timedelta(minutes=5)
+        stamp = lambda value: value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        receipt_path = self.bundle / handoff.NO_SIBLINGS_RECEIPT_NAME
+        receipt = json.loads(receipt_path.read_bytes())
+        receipt["generated_at_utc"] = stamp(generated)
+        self._write_json(receipt_path, receipt)
+        source = {
+            "contract": handoff.LOCAL_EXECUTION_CONTRACT,
+            "evidence_kind": "operator-declared",
+            "repository": handoff.REPOSITORY,
+            "runtime_source_commit": self.lock["runtime_source"]["commit"],
+            "runtime_source_tree": "c" * 40,
+            "package_recipe_commit": self.COMMIT,
+            "package_recipe_tree": self.HEAD_TREE,
+            "package_version": self.lock["package_version"],
+            "started_at_utc": stamp(start),
+            "completed_at_utc": stamp(end),
+            "toolchain": {"dotnet_sdk_version": self.lock["dotnet_sdk"]["version"]},
+            "no_siblings_receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+            "no_siblings_generated_at_utc": stamp(generated),
+        }
+        path = self.root / "local-provenance.json"
+        self._write_json(path, source)
+        return path, source
+
+    def _local_git(self, repo_root: Path, *args: str) -> bytes:
+        self.assertEqual(repo_root, self.repo)
+        responses = {
+            ("rev-parse", "--show-toplevel"): str(self.repo).encode(),
+            ("rev-parse", "HEAD"): self.COMMIT.encode(),
+            ("status", "--porcelain", "--untracked-files=all"): b"",
+            ("show", f"{self.COMMIT}:eng/{handoff.LOCK_NAME}"): (self.repo / "eng" / handoff.LOCK_NAME).read_bytes(),
+            ("cat-file", "-t", self.COMMIT): b"commit",
+            ("cat-file", "-t", self.lock["runtime_source"]["commit"]): b"commit",
+            ("rev-parse", f"{self.COMMIT}^{{tree}}"): self.HEAD_TREE.encode(),
+            ("rev-parse", self.lock["runtime_source"]["commit"] + "^{tree}"): b"c" * 40,
+            ("merge-base", "--is-ancestor", self.lock["runtime_source"]["commit"], self.COMMIT): b"",
+        }
+        return responses[args]
+
+    def _prepare_local(self, name: str = "out", provenance: Path | None = None) -> tuple[Path, Path]:
+        if provenance is None:
+            provenance, _ = self._local_inputs()
+        with patch.object(handoff, "_git", side_effect=self._local_git):
+            return handoff.prepare_from_local_bundle(
+                repo_root=self.repo, bundle_dir=self.bundle, local_provenance_path=provenance,
+                output_dir=self.root / name, commit=self.COMMIT,
+            )
+
+    def test_local_prepare_preserves_exact_bytes_without_actions_claims(self) -> None:
+        provenance, source = self._local_inputs()
+        archive, receipt_path = self._prepare_local("local-one", provenance)
+        archive_two, receipt_two = self._prepare_local("local-two", provenance)
+        actions_archive, actions_receipt = self._prepare("actions")
+        self.assertEqual(archive.read_bytes(), archive_two.read_bytes())
+        self.assertEqual(receipt_path.read_bytes(), receipt_two.read_bytes())
+        self.assertEqual(archive.read_bytes(), actions_archive.read_bytes())
+        _, receipt = handoff._load_public_receipt(receipt_path)
+        self.assertEqual(receipt["contract"], handoff.LOCAL_CONTRACT)
+        self.assertEqual(receipt["provenance_mode"], "local")
+        self.assertEqual(receipt["source_local_execution"], source)
+        self.assertNotIn("source_actions_artifact", receipt)
+        self.assertNotIn("ref", receipt)
+        _, actions = handoff._load_public_receipt(actions_receipt)
+        self.assertEqual(actions["contract"], handoff.CONTRACT)
+        self.assertEqual(set(actions), handoff.RECEIPT_KEYS)
+        with zipfile.ZipFile(archive) as zipped:
+            for name in zipped.namelist():
+                self.assertEqual(zipped.read(name), (self.bundle / name).read_bytes())
+
+    def test_local_prepare_rejects_inconsistent_missing_or_actions_provenance(self) -> None:
+        path, source = self._local_inputs()
+        cases = []
+        for key, value in (
+            ("package_recipe_commit", "f" * 40), ("runtime_source_commit", "f" * 40),
+            ("package_recipe_tree", "f" * 40), ("runtime_source_tree", "f" * 40),
+            ("package_version", "1.2.3"), ("no_siblings_receipt_sha256", "f" * 64),
+            ("toolchain", {"dotnet_sdk_version": "1.2.3"}),
+            ("repository", "foreign/repo"), ("evidence_kind", "authenticated"),
+            ("run_id", self.RUN_ID), ("started_at_utc", source["completed_at_utc"]),
+            ("toolchain", {"dotnet_sdk_version": True}),
+        ):
+            cases.append(dict(source, **{key: value}))
+        cases.extend({key: value for key, value in source.items() if key != omitted}
+                     for omitted in source)
+        for index, candidate in enumerate(cases):
+            with self.subTest(index=index):
+                self._write_json(path, candidate)
+                with self.assertRaises(handoff.PublicHandoffError):
+                    self._prepare_local(f"bad-{index}", path)
+                self.assertFalse((self.root / f"bad-{index}").exists())
+
+    def test_local_prepare_rejects_future_or_mismatched_receipt_time(self) -> None:
+        path, source = self._local_inputs()
+        future = dict(source)
+        for key in ("started_at_utc", "completed_at_utc", "no_siblings_generated_at_utc"):
+            stamp = datetime.strptime(future[key], "%Y-%m-%dT%H:%M:%SZ")
+            future[key] = (stamp + timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._write_json(path, future)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "in the future"):
+            self._prepare_local("future-time", path)
+        source["no_siblings_generated_at_utc"] = source["completed_at_utc"]
+        self._write_json(path, source)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "differs from exported bundle"):
+            self._prepare_local("mismatched-time", path)
+
+    def test_local_prepare_reuses_unchanged_evidence_after_two_days(self) -> None:
+        path, source = self._local_inputs()
+        for key in ("started_at_utc", "completed_at_utc", "no_siblings_generated_at_utc"):
+            stamp = datetime.strptime(source[key], "%Y-%m-%dT%H:%M:%SZ")
+            source[key] = (stamp - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        receipt_path = self.bundle / handoff.NO_SIBLINGS_RECEIPT_NAME
+        receipt = json.loads(receipt_path.read_bytes())
+        receipt["generated_at_utc"] = source["no_siblings_generated_at_utc"]
+        self._write_json(receipt_path, receipt)
+        source["no_siblings_receipt_sha256"] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+        self._write_json(path, source)
+        archive, receipt = self._prepare_local("retained-evidence", path)
+        _, accepted = handoff._load_public_receipt(receipt)
+        self.assertEqual(accepted["source_local_execution"], source)
+        self.assertTrue(archive.is_file())
+
+    def test_local_prepare_checks_clean_checkout_and_git_identity(self) -> None:
+        path, _ = self._local_inputs()
+        for args, value in (
+            (("rev-parse", "HEAD"), b"f" * 40),
+            (("status", "--porcelain", "--untracked-files=all"), b" M source.py"),
+            (("show", f"{self.COMMIT}:eng/{handoff.LOCK_NAME}"), b"drift"),
+            (("cat-file", "-t", self.COMMIT), b"tag"),
+        ):
+            with self.subTest(args=args), patch.object(
+                handoff, "_git", side_effect=lambda root, *command: value if command == args
+                else self._local_git(root, *command),
+            ):
+                with self.assertRaises(handoff.PublicHandoffError):
+                    handoff.prepare_from_local_bundle(
+                        repo_root=self.repo, bundle_dir=self.bundle, local_provenance_path=path,
+                        output_dir=self.root / "bad-git", commit=self.COMMIT,
+                    )
+        self.assertFalse((self.root / "bad-git").exists())
+
+    def test_local_prepare_reuses_byte_layout_and_absent_output_guards(self) -> None:
+        path, _ = self._local_inputs()
+        self._prepare_local("out", path)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "new directory"):
+            self._prepare_local("out", path)
+        package = self.bundle / "packages" / self.rows[0]["file_name"]
+        package.write_bytes(b"tampered")
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "bytes differ"):
+            self._prepare_local("drift", path)
+        package.unlink()
+        package.symlink_to(path)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "bounded regular file"):
+            self._prepare_local("symlink", path)
+
+    def test_local_public_readback_accepts_local_and_rejects_moved_tag_and_byte_drift(self) -> None:
+        metadata, tag, receipt, archive, downloaded, _ = self._release_fixture(local=True)
+        args = dict(release_metadata_path=metadata, tag_metadata_path=tag, receipt_path=receipt,
+                    downloaded_bundle_path=archive, downloaded_receipt_path=downloaded)
+        handoff.verify_public_release(**args)
+        original_tag = tag.read_bytes()
+        self._write_json(tag, {"ref": f"refs/tags/{handoff.release_tag(self.COMMIT)}",
+                               "object": {"type": "commit", "sha": "f" * 40}})
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "exact commit"):
+            handoff.verify_public_release(**args)
+        tag.write_bytes(original_tag)
+        archive.write_bytes(archive.read_bytes() + b"tamper")
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "byte authority differs"):
+            handoff.verify_public_release(**args)
+
+    def test_local_public_receipt_rejects_cross_mode_and_digest_tampering(self) -> None:
+        _, path = self._prepare_local()
+        original = json.loads(path.read_bytes())
+        for key, value in (("provenance_mode", "actions"), ("contract", handoff.CONTRACT),
+                           ("ref", handoff.MAIN_REF), ("source_actions_artifact", {})):
+            with self.subTest(key=key):
+                path.write_bytes(handoff._canonical_json(dict(original, **{key: value})))
+                with self.assertRaises(handoff.PublicHandoffError):
+                    handoff._load_public_receipt(path)
+        original["source_local_execution"]["no_siblings_receipt_sha256"] = "f" * 64
+        path.write_bytes(handoff._canonical_json(original))
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "members differ"):
+            handoff._load_public_receipt(path)
+        _, actions_path = self._prepare("actions")
+        actions = json.loads(actions_path.read_bytes())
+        actions["source_local_execution"] = original["source_local_execution"]
+        actions_path.write_bytes(handoff._canonical_json(actions))
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "shape differs"):
+            handoff._load_public_receipt(actions_path)
+
+    def test_local_prepare_requires_passing_receipt_and_all_eight_packages(self) -> None:
+        provenance, source = self._local_inputs()
+        receipt_path = self.bundle / handoff.NO_SIBLINGS_RECEIPT_NAME
+        receipt = json.loads(receipt_path.read_bytes())
+        original = receipt_path.read_bytes()
+        receipt["eight_package_runtime_plane"] = "fail"
+        self._write_json(receipt_path, receipt)
+        source["no_siblings_receipt_sha256"] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+        self._write_json(provenance, source)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "claims differ"):
+            self._prepare_local("failed-receipt", provenance)
+        receipt_path.write_bytes(original)
+        gm_row = next(row for row in self.rows if row["id"] == "Chummer.Engine.GmCharacterEdits")
+        (self.bundle / "packages" / gm_row["file_name"]).unlink()
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "cannot inspect runtime package"):
+            self._prepare_local("seven-packages", provenance)
+
+    def test_local_public_readback_rejects_provenance_rebound_away_from_bundle(self) -> None:
+        archive, path = self._prepare_local()
+        payload = json.loads(path.read_bytes())
+        for key, value in (("runtime_source_commit", "f" * 40), ("package_version", "1.2.3"),
+                           ("toolchain", {"dotnet_sdk_version": "1.2.3"})):
+            with self.subTest(key=key):
+                altered = json.loads(json.dumps(payload))
+                altered["source_local_execution"][key] = value
+                with self.assertRaisesRegex(handoff.PublicHandoffError, "differs from exported bundle"):
+                    handoff._verify_local_public_bundle(archive.read_bytes(), altered)
 
     def test_prepare_is_byte_deterministic_and_stored_only(self) -> None:
         archive_one, receipt_one = self._prepare("out-one")
