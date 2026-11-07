@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("7b2de75a667ee986c1018e05df21d5c7010c94b2", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261021.6.sh7b2de75a667ee", runtime.PACKAGE_VERSION)
+        self.assertEqual("c28c87a1abb6e72f8a3db45a2a2f9ae578fd103c", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261107.1.shc28c87a1abb6e", runtime.PACKAGE_VERSION)
 
     def test_career_magic_intake_is_in_runtime_and_required_consumer_tests(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
@@ -117,6 +117,8 @@ class RuntimePackageLockTests(unittest.TestCase):
             "CharacterCreationTalentRestrictionCatalog",
             "CharacterCreationTalentSpiritCategory",
             "IOwnerBoundCharacterCreationLifeModuleFinalizationService",
+            "IOwnerBoundCharacterCreationLifeModuleJourneyService",
+            "OwnerBoundCharacterCreationLifeModuleJourneyService",
             "CharacterCreationFoundationFinalizationConfirmRequest",
             "IOwnerBoundLifeModuleBookService", "OriginStoryArcSeed",
             "IOwnerBoundLifeModuleAvailabilityService", "LifeModuleDecisionAvailabilitySnapshot",
@@ -127,6 +129,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                 self.assertIn(name, script)
         for member in (
             "Chummer.Application/Characters/OwnerBoundCharacterCreationLifeModuleFinalizationService.cs",
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationLifeModuleJourneyService.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationLifeModuleJourneyService.cs",
             "Chummer.Application/LifeModules/OwnerBoundLifeModuleBookService.cs",
             "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.LifeModuleFinalization.cs",
             "Chummer.Tests/CharacterCreationFoundationDraftApplyAuthorityTests.OperationScope.cs",
