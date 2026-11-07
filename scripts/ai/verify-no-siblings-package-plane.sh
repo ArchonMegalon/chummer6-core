@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20261021.6.sh7b2de75a667ee"
-runtime_source_commit="7b2de75a667ee986c1018e05df21d5c7010c94b2"
+candidate_version="0.0.0-packageplane.candidate.v20261107.1.shc28c87a1abb6e"
+runtime_source_commit="c28c87a1abb6e72f8a3db45a2a2f9ae578fd103c"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -571,6 +571,28 @@ public static class BoundaryProbe
         IOwnerBoundCharacterCreationLifeModuleFinalizationService service,
         OwnerContextStamp owner, CharacterCreationFoundationFinalizationConfirmRequest request)
         => service.Confirm(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationLifeModuleJourneyState> LoadJourney(
+        IOwnerBoundCharacterCreationLifeModuleJourneyService service, OwnerContextStamp owner,
+        CharacterCreationFoundationLoadRequest request) => service.LoadJourney(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationLifeModulePreview> PreviewJourneyModule(
+        IOwnerBoundCharacterCreationLifeModuleJourneyService service, OwnerContextStamp owner,
+        CharacterCreationLifeModulePreviewRequest request) => service.PreviewModule(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationLifeModuleApplyReceipt> ConfirmJourneyModule(
+        IOwnerBoundCharacterCreationLifeModuleJourneyService service, OwnerContextStamp owner,
+        CharacterCreationLifeModuleConfirmRequest request) => service.ConfirmModule(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationLifeModuleFinishPreview> PreviewJourneyFinish(
+        IOwnerBoundCharacterCreationLifeModuleJourneyService service, OwnerContextStamp owner,
+        CharacterCreationLifeModuleFinishRequest request) => service.PreviewFinishSelection(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationLifeModuleFinishReceipt> ConfirmJourneyFinish(
+        IOwnerBoundCharacterCreationLifeModuleJourneyService service, OwnerContextStamp owner,
+        CharacterCreationLifeModuleFinishConfirmRequest request) => service.ConfirmFinishSelection(owner, request);
+
+    public static Type OwnerJourneyImplementation => typeof(OwnerBoundCharacterCreationLifeModuleJourneyService);
 
     public static LifeModuleOriginDossierResult<OriginStoryArcSeed> ReadRetainedLifeModuleBook(
         IOwnerBoundLifeModuleBookService service, OwnerContextStamp owner,

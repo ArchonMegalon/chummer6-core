@@ -23,6 +23,7 @@
     <Compile Include="CharacterCreationAttributesServiceTests.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.cs" />
     <Compile Include="CharacterCreationMagicResonanceServiceTests.cs" />
+    <Compile Include="MagicResonanceServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationMagicResonanceSourceResolverTests.cs" />
     <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
     <Compile Include="OwnerBoundCreationQualitiesTests.cs" />
@@ -62,6 +63,7 @@
     <Compile Include="LifeModuleOriginDossierServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.*.cs" />
+    <Compile Include="OwnerBoundCharacterCreationLifeModuleJourneyServiceTests.cs" />
     <Compile Include="CharacterCreationTalentRestrictionAuthorityTests.cs" />
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
