@@ -82,9 +82,13 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCareerPowerEntry>? CharacterCareerPowerTransactions { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<Sr6CareerAttributeReceipt>? Sr6CareerAttributeReceipts { get; init; }
+
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
-    public bool IsEmpty => CharacterCareerPowerTransactions is null
+    public bool IsEmpty => Sr6CareerAttributeReceipts is null
+        && CharacterCareerPowerTransactions is null
                            && CharacterCareerInitiationTransactions is null
                            && CharacterCreationCompletionDrafts is null && Sr6CreationFoundationDecisions is null
                            && CharacterCreationLoadoutDraft is null

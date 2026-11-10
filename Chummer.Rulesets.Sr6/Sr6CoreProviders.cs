@@ -35,6 +35,43 @@ public sealed class Sr6DiceProvider
             CriticalGlitch: glitch && hits == 0);
     }
 
+    /// <summary>
+    /// Evaluates a separate wild die and the regular dice. A wild one cancels
+    /// every regular five; regular sixes still count as hits.
+    /// </summary>
+    public int EvaluateWildDie(int wildDie, IReadOnlyList<int> regularDice)
+    {
+        if (wildDie is < 1 or > 6)
+        {
+            throw new ArgumentOutOfRangeException(nameof(wildDie), "SR6 wild die value must be between 1 and 6.");
+        }
+
+        ArgumentNullException.ThrowIfNull(regularDice);
+        int hits = 0;
+        foreach (int die in regularDice)
+        {
+            if (die is < 1 or > 6)
+            {
+                throw new ArgumentOutOfRangeException(nameof(regularDice), "SR6 dice values must be between 1 and 6.");
+            }
+
+            if (die == 6 || die == 5 && wildDie != 1)
+            {
+                hits++;
+            }
+        }
+
+        return wildDie >= 5 ? checked(hits + 3) : hits;
+    }
+
+    /// <summary>
+    /// Compatibility entry point for callers with only a regular hit total.
+    /// A wild one with any regular hits requires the regular-dice overload:
+    /// the total cannot distinguish the fives to cancel from the sixes to keep.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// The wild die is one and the regular hit total is positive.
+    /// </exception>
     public int EvaluateWildDie(int wildDie, int regularHits)
     {
         if (wildDie is < 1 or > 6)
@@ -42,10 +79,21 @@ public sealed class Sr6DiceProvider
             throw new ArgumentOutOfRangeException(nameof(wildDie), "SR6 wild die value must be between 1 and 6.");
         }
 
+        if (regularHits < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(regularHits), "SR6 regular hit count cannot be negative.");
+        }
+
+        if (wildDie == 1 && regularHits > 0)
+        {
+            throw new ArgumentException(
+                "A wild one requires regular die values to cancel fives; use the regularDice overload.",
+                nameof(regularHits));
+        }
+
         return wildDie switch
         {
-            >= 5 => regularHits + 3,
-            1 => Math.Max(0, regularHits - 1),
+            >= 5 => checked(regularHits + 3),
             _ => regularHits
         };
     }

@@ -29,10 +29,15 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability,
     ICharacterCreationCompletionAtomicCommitCapability,
     ICharacterCreationLifeModuleFinalizationAtomicCommitCapability,
+    ISr6CareerAttributeAtomicCommitCapability,
     ISr6CreationFoundationAtomicCommitCapability, ISr6CreationFinalizationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 4;
+    // Versions through 5 predate SR6 advancement history and can silently drop it.
+    // Keep receipt-free records on their existing versions; only this history
+    // requires a format that those readers reject before any replacement.
+    private const int Sr6CareerAttributeRecordSchemaVersion = 6;
     private const string WorkspacePayloadKind = "workspace";
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
@@ -1345,9 +1350,11 @@ public sealed partial class FileWorkspaceStore :
             localHistory = CreateLocalHistory();
         }
 
-        // Reference-bearing variants cannot be exported, adopted or restored
-        // until an authorized private-byte copy protocol exists. Legacy paths keep working.
-        if ((continuationRead || localAdoptionRead) && record.RetainedRuleSources is not null)
+        // Retained sources need an authorized private-byte copy protocol; SR6
+        // advancement needs an SR6-aware continuation evaluator. Neither may be
+        // exported, adopted or restored through the current continuation path.
+        if ((continuationRead || localAdoptionRead)
+            && (record.RetainedRuleSources is not null || record.AuxiliaryState?.Sr6CareerAttributeReceipts is not null))
             return UnavailableRead();
         RetainedRuleSourceWorkspace? recovered;
         try { recovered = OpenRecordRuleSources(owner, id, record); }
@@ -1451,8 +1458,10 @@ public sealed partial class FileWorkspaceStore :
         out long savedRevision,
         out bool requiresLegacyMigration)
     {
-        if (record.RecordSchemaVersion is int recordSchemaVersion
-            && (recordSchemaVersion < 1 || recordSchemaVersion > RetainedWorkspaceRecordSchemaVersion))
+        if ((record.RecordSchemaVersion is int recordSchemaVersion
+            && (recordSchemaVersion < 1 || recordSchemaVersion > Sr6CareerAttributeRecordSchemaVersion))
+            || (record.RecordSchemaVersion == Sr6CareerAttributeRecordSchemaVersion)
+                != (record.AuxiliaryState?.Sr6CareerAttributeReceipts is { Count: > 0 }))
         {
             document = null!;
             contentRevision = 0;
@@ -1549,7 +1558,8 @@ public sealed partial class FileWorkspaceStore :
             throw new InvalidOperationException("Workspace GM execution segments are invalid.");
         return new PersistedWorkspaceRecord(document.Format.ToString())
         {
-            RecordSchemaVersion = CurrentWorkspaceRecordSchemaVersion,
+            RecordSchemaVersion = document.AuxiliaryState.Sr6CareerAttributeReceipts is { Count: > 0 }
+                ? Sr6CareerAttributeRecordSchemaVersion : CurrentWorkspaceRecordSchemaVersion,
             LocalHistory = localHistory,
             DelegatedGmHistorySegmentStarts = segmentStarts.ToArray(),
             Envelope = NormalizeEnvelope(document.State),
@@ -1705,6 +1715,8 @@ public sealed partial class FileWorkspaceStore :
         if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationCompletionDrafts),
                 JsonSerializer.Serialize(replacementState.CharacterCreationCompletionDrafts), StringComparison.Ordinal))
             return false;
+        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CareerAttributeReceipts),
+            JsonSerializer.Serialize(replacementState.Sr6CareerAttributeReceipts), StringComparison.Ordinal)) return false;
         // SR6 choices have their own source-validated transaction. No generic
         // writer, including an unrelated lane, can replace or discard them.
         if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFinalizationArchive),

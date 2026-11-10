@@ -25,7 +25,7 @@ public static class Sr6CreationFinalizationIntegrity
 
     public static bool IsValidArchive(CharacterWorkspaceId id, long revision, WorkspaceDocumentAuxiliaryState state)
     {
-        if (state.Sr6CreationFinalizationArchive is not { } archive) return true;
+        if (state.Sr6CreationFinalizationArchive is not { } archive) return state.Sr6CareerAttributeReceipts is null;
         var review = archive.Review;
         var receipt = archive.Receipt;
         var before = archive.OriginalState;
@@ -35,7 +35,7 @@ public static class Sr6CreationFinalizationIntegrity
             || before.Sr6CreationFoundationDecisions is not { Count: > 0 }
             || !Equals(before, new WorkspaceDocumentAuxiliaryState(CharacterCreationBootstrapBinding: bootstrap,
                 Sr6CreationFoundationDecisions: before.Sr6CreationFoundationDecisions))
-            || !(state with { Sr6CreationFinalizationArchive = null }).IsEmpty
+            || !(state with { Sr6CreationFinalizationArchive = null, Sr6CareerAttributeReceipts = null }).IsEmpty
             || !IsConfirmed(receipt.Command) || receipt.Command.Binding != binding || binding.WorkspaceId != id
             || receipt.Command.ReviewDigest != review.ReviewDigest
             || receipt.ContentRevision != binding.ContentRevision + 1 || receipt.SavedRevision != receipt.ContentRevision
