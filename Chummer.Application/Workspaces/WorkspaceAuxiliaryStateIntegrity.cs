@@ -23,6 +23,7 @@ public static class WorkspaceAuxiliaryStateIntegrity
         if (!CharacterCreationCompletionDraftTransaction.IsValidLedger(workspaceId, currentContentRevision, state, recovery)) return false;
         if (!CharacterCreationCompositePurchaseEdit.HasValidHistory(state)) return false;
         if (!Sr6CreationFinalizationIntegrity.IsValidArchive(workspaceId, currentContentRevision, state)) return false;
+        if (!Sr6CareerAttributeIntegrity.IsValidLedger(workspaceId, currentContentRevision, state)) return false;
         // New completion, Karma and Life Modules finalization require
         // reconstruction archives; only older ordinary Priority receipts have
         // an archive-less legacy form.

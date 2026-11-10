@@ -486,7 +486,7 @@ public sealed partial class FileWorkspaceStore
                 throw RetainedRuleSourceRejected();
             return null;
         }
-        if (record.RecordSchemaVersion != RetainedWorkspaceRecordSchemaVersion || manifest.SchemaVersion != 1
+        if (record.RecordSchemaVersion is not (RetainedWorkspaceRecordSchemaVersion or Sr6CareerAttributeRecordSchemaVersion) || manifest.SchemaVersion != 1
             || manifest.OwnerId != owner.NormalizedValue || manifest.WorkspaceId != id.Value
             || record.LocalHistory is null || manifest.IncarnationId != record.LocalHistory.IncarnationId
             || manifest.References is not { Length: <= MaximumRetainedRuleSourceReferences }
@@ -561,6 +561,7 @@ public sealed partial class FileWorkspaceStore
         WorkspaceWriteDisposition disposition)
     {
         var previous = disposition == WorkspaceWriteDisposition.ReplaceExisting ? ReadPrivateRecord(path) : null;
+        RequirePreservedSr6CareerAttributeHistory(previous, record);
         if (previous?.RetainedRuleSources is { } retained)
         {
             if (previous.LocalHistory?.IncarnationId != record.LocalHistory?.IncarnationId
@@ -577,7 +578,7 @@ public sealed partial class FileWorkspaceStore
             }
             else record = record with { RetainedRuleSources = retained };
         }
-        if (record.RetainedRuleSources is not null)
+        if (record.RetainedRuleSources is not null && record.RecordSchemaVersion != Sr6CareerAttributeRecordSchemaVersion)
             record = record with { RecordSchemaVersion = RetainedWorkspaceRecordSchemaVersion };
         return record;
     }

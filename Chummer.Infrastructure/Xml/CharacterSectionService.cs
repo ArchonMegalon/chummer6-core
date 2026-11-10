@@ -43,7 +43,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         IReadOnlyList<CharacterAttributeSummary> attributes = character
             .Element("attributes")?
             .Elements("attribute")
-            .Select(attribute => BuildAttributeSummary(attribute, created, availableKarma))
+            .Select(attribute => BuildAttributeSummary(attribute, created, availableKarma, IsSr6(character)))
             .ToArray()
             ?? Array.Empty<CharacterAttributeSummary>();
 
@@ -60,7 +60,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         IReadOnlyList<CharacterAttributeDetailSummary> attributes = character
             .Element("attributes")?
             .Elements("attribute")
-            .Select(attribute => BuildAttributeDetailSummary(attribute, created, availableKarma))
+            .Select(attribute => BuildAttributeDetailSummary(attribute, created, availableKarma, IsSr6(character)))
             .ToArray()
             ?? Array.Empty<CharacterAttributeDetailSummary>();
 
@@ -69,13 +69,16 @@ public sealed class CharacterSectionService : ICharacterSectionService
             Attributes: attributes);
     }
 
-    private static CharacterAttributeSummary BuildAttributeSummary(XElement attribute, bool created, int availableKarma)
+    private static bool IsSr6(XElement character) => ReadValue(character, "gameedition").Trim() is
+        "SR6" or "sr6" or "Shadowrun 6" or "Shadowrun 6th Edition";
+
+    private static CharacterAttributeSummary BuildAttributeSummary(XElement attribute, bool created, int availableKarma, bool sr6)
     {
         string name = ReadValue(attribute, "name");
         int baseValue = ParseInt(ReadValue(attribute, "base"));
         int karmaValue = ParseInt(ReadValue(attribute, "karma"));
         int totalValue = ParseInt(FirstNonBlank(ReadValue(attribute, "totalvalue"), ReadValue(attribute, "value")));
-        if (karmaValue == 0 && totalValue >= baseValue)
+        if (!sr6 && karmaValue == 0 && totalValue >= baseValue)
         {
             karmaValue = totalValue - baseValue;
         }
@@ -84,8 +87,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
         int metatypeMax = Math.Max(metatypeMin, ParseInt(ReadValue(attribute, "metatypemax")));
         int metatypeAugMax = Math.Max(metatypeMax, ParseInt(ReadValue(attribute, "metatypeaugmax")));
         int priorityMaximum = Math.Max(baseValue, metatypeMax);
-        int karmaMaximum = Math.Max(0, metatypeAugMax - baseValue);
-        int upgradeKarmaCost = ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
+        int karmaMaximum = Math.Max(0, (sr6 ? metatypeMax : metatypeAugMax) - baseValue);
+        // XML alone cannot establish SR6 natural-limit or modifier authority.
+        int upgradeKarmaCost = sr6 ? -1 : ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
 
         return new CharacterAttributeSummary(
             Name: name,
@@ -106,7 +110,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         };
     }
 
-    private static CharacterAttributeDetailSummary BuildAttributeDetailSummary(XElement attribute, bool created, int availableKarma)
+    private static CharacterAttributeDetailSummary BuildAttributeDetailSummary(XElement attribute, bool created, int availableKarma, bool sr6)
     {
         string name = ReadValue(attribute, "name");
         int metatypeMin = ParseInt(ReadValue(attribute, "metatypemin"));
@@ -115,14 +119,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
         int baseValue = ParseInt(ReadValue(attribute, "base"));
         int karmaValue = ParseInt(ReadValue(attribute, "karma"));
         int totalValue = ParseInt(ReadValue(attribute, "totalvalue"));
-        if (karmaValue == 0 && totalValue >= baseValue)
+        if (!sr6 && karmaValue == 0 && totalValue >= baseValue)
         {
             karmaValue = totalValue - baseValue;
         }
 
         int priorityMaximum = Math.Max(baseValue, metatypeMax);
-        int karmaMaximum = Math.Max(0, metatypeAugMax - baseValue);
-        int upgradeKarmaCost = ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
+        int karmaMaximum = Math.Max(0, (sr6 ? metatypeMax : metatypeAugMax) - baseValue);
+        // XML alone cannot establish SR6 natural-limit or modifier authority.
+        int upgradeKarmaCost = sr6 ? -1 : ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
 
         return new CharacterAttributeDetailSummary(
             Name: name,

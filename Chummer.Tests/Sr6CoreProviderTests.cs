@@ -25,13 +25,67 @@ public sealed class Sr6DiceProviderTests
     }
 
     [TestMethod]
-    public void Wild_die_applies_seeded_hit_and_cancel_rules()
+    public void Wild_one_cancels_each_regular_five_and_preserves_sixes()
     {
         Sr6DiceProvider provider = new();
 
+        Assert.AreEqual(0, provider.EvaluateWildDie(1, regularDice: [5, 5]));
+        Assert.AreEqual(2, provider.EvaluateWildDie(1, regularDice: [6, 6]));
+        Assert.AreEqual(1, provider.EvaluateWildDie(1, regularDice: [5, 6]));
+    }
+
+    [TestMethod]
+    public void Wild_die_uses_seeded_faces_without_counting_misses_or_the_wild_die_twice()
+    {
+        Sr6DiceProvider provider = new();
+        int[] regularDice = [1, 2, 3, 4, 5, 6];
+
+        Assert.AreEqual(1, provider.EvaluateWildDie(1, regularDice));
+        foreach (int wildDie in new[] { 2, 3, 4 })
+        {
+            Assert.AreEqual(2, provider.EvaluateWildDie(wildDie, regularDice));
+            Assert.AreEqual(0, provider.EvaluateWildDie(wildDie, regularDice: []));
+        }
+
+        foreach (int wildDie in new[] { 5, 6 })
+        {
+            Assert.AreEqual(5, provider.EvaluateWildDie(wildDie, regularDice));
+            Assert.AreEqual(3, provider.EvaluateWildDie(wildDie, regularDice: []));
+        }
+
+        Assert.AreEqual(0, provider.EvaluateWildDie(1, regularDice: []));
+    }
+
+    [TestMethod]
+    public void Wild_die_rejects_missing_or_out_of_range_dice()
+    {
+        Sr6DiceProvider provider = new();
+
+        Assert.ThrowsExactly<ArgumentNullException>(() => provider.EvaluateWildDie(1, regularDice: null!));
+        foreach (int invalid in new[] { 0, 7 })
+        {
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => provider.EvaluateWildDie(invalid, regularDice: [5, 6]));
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => provider.EvaluateWildDie(invalid, regularHits: 2));
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => provider.EvaluateWildDie(1, regularDice: [5, invalid]));
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => provider.EvaluateWildDie(6, regularDice: [6, invalid]));
+        }
+    }
+
+    [TestMethod]
+    public void Wild_die_compatibility_overload_fails_explicitly_when_hit_faces_are_needed()
+    {
+        Sr6DiceProvider provider = new();
+
+        ArgumentException error = Assert.ThrowsExactly<ArgumentException>(() => provider.EvaluateWildDie(1, regularHits: 2));
+        Assert.AreEqual("regularHits", error.ParamName);
+        StringAssert.Contains(error.Message, "regularDice");
+        Assert.AreEqual(0, provider.EvaluateWildDie(1, regularHits: 0));
+        Assert.AreEqual(5, provider.EvaluateWildDie(5, regularHits: 2));
         Assert.AreEqual(5, provider.EvaluateWildDie(6, regularHits: 2));
-        Assert.AreEqual(1, provider.EvaluateWildDie(1, regularHits: 2));
         Assert.AreEqual(2, provider.EvaluateWildDie(3, regularHits: 2));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => provider.EvaluateWildDie(1, regularHits: -1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => provider.EvaluateWildDie(6, regularHits: -1));
+        Assert.ThrowsExactly<OverflowException>(() => provider.EvaluateWildDie(6, regularHits: int.MaxValue));
     }
 }
 

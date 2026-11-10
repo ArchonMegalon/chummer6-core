@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj/sr6-career-attribute/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/sr6-career-attribute/</BaseOutputPath>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject><IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Chummer.CreationBootstrap.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+    <Compile Include="Sr6CareerAttributeAdvancementTests.cs" />
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>
