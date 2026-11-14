@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("2057d3160122608339884cddc129bb6a4abdb6bb", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261110.1.sh2057d31601226", runtime.PACKAGE_VERSION)
+        self.assertEqual("903be22902d51769a8742cb2778dbf4bf3385ac8", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51", runtime.PACKAGE_VERSION)
 
     def test_career_magic_intake_is_in_runtime_and_required_consumer_tests(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
