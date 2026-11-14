@@ -251,7 +251,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             PublicAwareness: ParseInt(ReadValue(character, "publicawareness")),
             BurntStreetCred: ParseInt(ReadValue(character, "burntstreetcred")),
             BuildKarma: ParseInt(ReadValue(character, "buildkarma")),
-            TotalAttributes: ParseInt(ReadValue(character, "totalattributes")),
+            TotalAttributes: ReadTotalAttributes(character),
             TotalSpecial: ParseInt(ReadValue(character, "totalspecial")),
             PhysicalCmFilled: ParseInt(ReadValue(character, "physicalcmfilled")),
             StunCmFilled: ParseInt(ReadValue(character, "stuncmfilled")),
@@ -328,9 +328,24 @@ public sealed class CharacterSectionService : ICharacterSectionService
             SumToTen: ParseInt(ReadValue(character, "sumtoten")),
             Special: ParseInt(ReadValue(character, "special")),
             TotalSpecial: ParseInt(ReadValue(character, "totalspecial")),
-            TotalAttributes: ParseInt(ReadValue(character, "totalattributes")),
+            TotalAttributes: ReadTotalAttributes(character),
             ContactPoints: ParseInt(ReadValue(character, "contactpoints")),
             ContactPointsUsed: ParseInt(ReadValue(character, "contactpointsused")));
+    }
+
+    private static int ReadTotalAttributes(XElement character)
+    {
+        // The legacy field is the creation attribute-point budget, not a sum of
+        // natural or augmented ratings. A supplied value (including zero) wins.
+        if (character.Element("totalattributes") is not null)
+            return ParseInt(ReadValue(character, "totalattributes"));
+        if (!IsSr6(character))
+            return 0;
+
+        // SR6 materializes the edition-owned budget here and retains it when
+        // finalization renames the projection. Do not infer it from attributes.
+        XElement? creation = character.Element("sr6creation") ?? character.Element("sr6creationprojection");
+        return ParseInt(creation?.Element("budget")?.Element("attributes")?.Value.Trim() ?? string.Empty);
     }
 
     public CharacterMovementSection ParseMovement(string xml)
