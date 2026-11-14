@@ -80,6 +80,8 @@ public sealed partial class Sr6CreationFoundationTests
         using var fixture = new Fixture(method);
         var request = FinalizationRequest(fixture, method);
         var before = fixture.Store.Get(fixture.Id).Value!;
+        int attributeBudget = Sr6CreationFoundationRules.Load(before).Value!.Selection!.Budget.AttributePoints;
+        Assert.IsGreaterThan(0, attributeBudget);
         var review = fixture.Service.ReviewFinalization(fixture.Stamp, request.Binding).Value!;
         Assert.IsTrue(review.Losses.Any(row => row.DomainId == "karma" && row.Amount == 45));
         Assert.IsTrue(review.Losses.Any(row => row.DomainId == "attributes"));
@@ -112,6 +114,9 @@ public sealed partial class Sr6CreationFoundationTests
         Assert.AreEqual("6", root.Element("totaless")!.Value);
         Assert.AreEqual("finalized", root.Element("sr6creation")!.Attribute("stage")!.Value);
         Assert.IsNull(root.Element("sr6creationprojection"));
+        Assert.IsNull(root.Element("totalattributes"));
+        Assert.AreEqual(attributeBudget, sections.ParseBuild(after.Document.Content).TotalAttributes);
+        Assert.AreEqual(attributeBudget, sections.ParseProgress(after.Document.Content).TotalAttributes);
         Assert.AreEqual("0", root.Element("physicalcmfilled")!.Value);
         Assert.IsTrue(cold.ConfirmFinalization(fixture.Stamp, request).Value!.Replayed);
         Assert.IsNull(cold.ConfirmFinalization(fixture.Stamp, request with { OperationId = Guid.NewGuid() }).Value);

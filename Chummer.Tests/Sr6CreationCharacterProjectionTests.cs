@@ -55,6 +55,11 @@ public sealed partial class Sr6CreationFoundationTests
         Assert.AreEqual("1", body.Element("karma")!.Value);
         Assert.AreEqual("3", body.Element("totalvalue")!.Value);
         var sections = new CharacterSectionService();
+        int attributeBudget = Sr6CreationFoundationRules.Load(saved).Value!.Selection!.Budget.AttributePoints;
+        Assert.IsGreaterThan(0, attributeBudget);
+        Assert.IsNull(root.Element("totalattributes"));
+        Assert.AreEqual(attributeBudget, sections.ParseBuild(projection.Document.Content).TotalAttributes);
+        Assert.AreEqual(attributeBudget, sections.ParseProgress(projection.Document.Content).TotalAttributes);
         var parsedBody = sections.ParseAttributes(projection.Document.Content).Attributes.Single(row => row.Name == "BOD");
         Assert.AreEqual(2, parsedBody.BaseValue);
         Assert.AreEqual(1, parsedBody.KarmaValue);

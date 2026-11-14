@@ -17,6 +17,78 @@ public class CharacterSectionServiceTests
     private const string ResolverVehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
+    [DataRow("SR6", "sr6creation", 24)]
+    [DataRow("SR6", "sr6creationprojection", 24)]
+    [DataRow("SR5", "sr6creation", 0)]
+    [DataRow("SR5", "sr6creationprojection", 0)]
+    [DataRow("SR4", "sr6creation", 0)]
+    [DataRow("", "sr6creation", 0)]
+    [DataRow("SR6", "unrelated", 0)]
+    public void Missing_legacy_attribute_total_reads_only_the_sr6_creation_budget(
+        string edition, string projectionElement, int expected)
+    {
+        string xml = $$"""
+            <character>
+              <gameedition>{{edition}}</gameedition>
+              <{{projectionElement}}><budget><attributes>24</attributes></budget></{{projectionElement}}>
+              <attributes>
+                <attribute><name>BOD</name><base>3</base><karma>1</karma><totalvalue>9</totalvalue></attribute>
+                <attribute><name>EDG</name><base>2</base><karma>0</karma><totalvalue>2</totalvalue></attribute>
+              </attributes>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        Assert.AreEqual(expected, service.ParseBuild(xml).TotalAttributes);
+        Assert.AreEqual(expected, service.ParseProgress(xml).TotalAttributes);
+        if (edition == "SR6")
+        {
+            var body = service.ParseAttributes(xml).Attributes.Single(attribute => attribute.Name == "BOD");
+            Assert.AreEqual(3, body.BaseValue);
+            Assert.AreEqual(1, body.KarmaValue);
+            Assert.AreEqual(9, body.TotalValue);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("sr6creation", "0", 0)]
+    [DataRow("sr6creation", "19", 19)]
+    [DataRow("sr6creationprojection", "0", 0)]
+    [DataRow("sr6creationprojection", "19", 19)]
+    [DataRow("sr6creation", "", 0)]
+    public void Supplied_legacy_attribute_total_takes_precedence_over_sr6_budget(
+        string projectionElement, string supplied, int expected)
+    {
+        string xml = $$"""
+            <character>
+              <gameedition>SR6</gameedition>
+              <totalattributes>{{supplied}}</totalattributes>
+              <{{projectionElement}}><budget><attributes>24</attributes></budget></{{projectionElement}}>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        Assert.AreEqual(expected, service.ParseBuild(xml).TotalAttributes);
+        Assert.AreEqual(expected, service.ParseProgress(xml).TotalAttributes);
+    }
+
+    [TestMethod]
+    public void Missing_legacy_attribute_total_and_sr6_budget_do_not_fabricate_a_rank_sum()
+    {
+        const string xml = """
+            <character>
+              <gameedition>SR6</gameedition>
+              <sr6creation><budget/></sr6creation>
+              <attributes><attribute><name>BOD</name><base>3</base><karma>1</karma><totalvalue>9</totalvalue></attribute></attributes>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        Assert.AreEqual(0, service.ParseBuild(xml).TotalAttributes);
+        Assert.AreEqual(0, service.ParseProgress(xml).TotalAttributes);
+    }
+
+    [TestMethod]
     public void Overview_projection_is_exactly_equivalent_to_the_seven_individual_sections()
     {
         const string xml = """
