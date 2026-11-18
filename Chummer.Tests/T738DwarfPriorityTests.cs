@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
@@ -157,5 +158,61 @@ public sealed class CharacterCreationDwarfPriorityTests
     public void Dwarf_sum_to_ten_finalization_writes_surcharge_and_resistances()
     {
         AssertDwarfFinalization(CharacterCreationBuildMethods.SumToTen);
+    }
+
+    [TestMethod]
+    public void Selected_graph_materializes_shared_metatype_base_bonus_surcharge()
+    {
+        // The selected/completion graph sites (CharacterCreationSelectedPrerequisiteConsumer
+        // and CompileSelectedGraph) must materialize the Priority Dwarf heritage
+        // base bonuses (20% LifestyleCost surcharge) through the SAME shared strict
+        // source-bound materializer the ordinary finalization projector uses:
+        // identical Metatype-owned improvement element and matching review delta,
+        // so both execution paths cannot drift. The prerequisite draft comes from
+        // the real Dwarf Priority-C seeded workspace via the prerequisite service;
+        // the wire pair under test is exactly what both completion sites execute
+        // after racial TryApply: CharacterCreationMetatypeBaseBonusMaterializer.TryApply
+        // with the shared GetOrCreateDirectContainer semantics.
+        using var context = ReadyContext.Create(true, metatypeName: "Dwarf",
+            rankAssignments: RanksWithHeritageC);
+        var prerequisiteService = new CharacterCreationPrerequisiteService(
+            context.Store, context.Queries, context.Resolver);
+        var state = prerequisiteService.Load(new(context.WorkspaceId)).Value!;
+        var prerequisite = state.PendingDraft;
+        Assert.IsNotNull(prerequisite, "The seeded Dwarf Priority-C workspace must carry a pending draft.");
+        Assert.IsNotNull(prerequisite!.HeritageSelection, "Dwarf draft must carry a heritage selection.");
+        Assert.IsNotNull(prerequisite.HeritageSelection!.BaseBonuses,
+            "Dwarf selection must retain its source-bound base bonuses.");
+        Assert.AreEqual(20, prerequisite.HeritageSelection.BaseBonuses!.LifestyleCostPercent);
+
+        // The wired completion-site pair: racial TryApply, then the shared materializer
+        // through the same GetOrCreateDirectContainer the ordinary projector delegates to.
+        var root = new XElement("character", new XElement("qualities"), new XElement("gears"),
+            new XElement("metatype", "Dwarf"));
+        foreach (string flag in new[] { "magenabled", "resenabled", "depenabled" })
+            root.Add(new XElement(flag, "False"));
+        var deltas = new List<CharacterCreationFinalizationDelta>();
+        int order = 0;
+        Assert.IsTrue(CharacterCreationPriorityRacialQualities.TryApply(root, prerequisite.HeritageSelection,
+            prerequisite.DraftDigest, deltas, ref order));
+        Assert.IsTrue(CharacterCreationMetatypeBaseBonusMaterializer.TryApply(prerequisite.HeritageSelection,
+            root, deltas, ref order));
+        var improvements = root.Element("improvements");
+        Assert.IsNotNull(improvements, "The shared materializer must create the improvements container.");
+        var lifestyle = improvements.Elements("improvement").Single(
+            item => item.Element("improvementttype")!.Value == "LifestyleCost");
+        Assert.AreEqual("20", lifestyle.Element("val")!.Value);
+        Assert.AreEqual("Metatype", lifestyle.Element("improvementsource")!.Value);
+        Assert.AreEqual(prerequisite.HeritageSelection.MetatypeSourceId,
+            lifestyle.Element("sourcename")!.Value);
+        var delta = deltas.Single(item => item.DeltaId == "priority-metatype-bonus:LifestyleCost");
+        Assert.AreEqual("20", delta.AfterValue);
+        Assert.AreEqual("0", delta.BeforeValue);
+        Assert.AreEqual(CharacterCreationFinalizationDeltaKinds.Metatype, delta.Kind);
+        CollectionAssert.Contains(delta.SourceAnchorIds.ToArray(),
+            "metatypes.xml#metatype:" + prerequisite.HeritageSelection.MetatypeSourceId + "/bonus/lifestylecost");
+        // The Dwarf source binds only the lifestyle surcharge: no Armor/Reach deltas.
+        Assert.IsFalse(deltas.Any(item => item.DeltaId.StartsWith("priority-metatype-bonus:", StringComparison.Ordinal)
+                                          && item.DeltaId != "priority-metatype-bonus:LifestyleCost"));
     }
 }

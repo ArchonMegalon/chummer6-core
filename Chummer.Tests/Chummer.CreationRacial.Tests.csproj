@@ -15,6 +15,7 @@
     <Compile Include="MagicResonanceServiceTests.Completion.cs" />
     <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
     <Compile Include="T738DwarfPriorityTests.cs" />
+    <Compile Include="CharacterCreationCompletionReviewServiceTests.cs" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
     <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
