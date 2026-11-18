@@ -157,6 +157,51 @@ public sealed class CharacterCreationPriorityRacialTests
         Assert.AreEqual(result.AuthorityDigest, CharacterCreationPrerequisiteAuthorityDigest.Compute(result));
     }
 
+    [TestMethod]
+    public void Priority_racial_dwarf_requires_exact_nonnull_lifestyle_surcharge()
+    {
+        // Gen3 C4: admitted standard Dwarf rows must carry the claimed exact
+        // 20% lifestyle surcharge as a NON-null projection. An empty bonus
+        // element must fail closed (no null-vacuous admission), while
+        // Human/Elf/Ork keep their legitimate null projections.
+        var document = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "metatypes.xml"));
+        var root = document.Root!.Element("metatypes")!;
+        var dwarf = root.Elements("metatype")
+            .Single(row => row.Element("name")!.Value == "Dwarf");
+        Assert.IsTrue(CharacterCreationMetatypeCatalogProjector.TryProjectPriorityRacialOption(
+            dwarf, ["SR5"], out var dwarfOption));
+        Assert.IsTrue(dwarfOption.IsEnabled, string.Join(",", dwarfOption.Blockers));
+        Assert.AreEqual(0, dwarfOption.Blockers.Count);
+        var bonuses = dwarfOption.BaseBonuses;
+        Assert.IsNotNull(bonuses);
+        Assert.AreEqual(20, bonuses.LifestyleCostPercent);
+        Assert.AreEqual(0, bonuses.Armor);
+        Assert.AreEqual(0, bonuses.Reach);
+
+        var emptied = new XElement(dwarf);
+        emptied.Element("bonus")!.ReplaceWith(new XElement("bonus"));
+        Assert.IsFalse(CharacterCreationMetatypeCatalogProjector.TryProjectPriorityRacialOption(
+            emptied, ["SR5"], out var emptiedOption));
+        if (emptiedOption is not null)
+        {
+            Assert.IsFalse(emptiedOption.IsEnabled);
+            Assert.IsNull(emptiedOption.BaseBonuses);
+            Assert.IsTrue(emptiedOption.Blockers.Contains(
+                CharacterCreationMetatypeCatalogBlockers.SpecialSemanticsUnsupported),
+                string.Join(",", emptiedOption.Blockers));
+        }
+
+        foreach (string name in new[] { "Elf", "Ork" })
+        {
+            var row = root.Elements("metatype")
+                .Single(candidate => candidate.Element("name")!.Value == name);
+            Assert.IsTrue(CharacterCreationMetatypeCatalogProjector.TryProjectPriorityRacialOption(
+                row, ["SR5"], out var option), name);
+            Assert.IsTrue(option.IsEnabled, name);
+            Assert.IsNull(option.BaseBonuses, name);
+        }
+    }
+
     /// <summary>
     /// Reproduces the pre-Elf/Ork Human-only catalog (every standard racial
     /// row disabled with the unsupported blocker). Used by bind-rejection

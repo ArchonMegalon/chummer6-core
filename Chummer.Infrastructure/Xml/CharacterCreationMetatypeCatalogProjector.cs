@@ -185,8 +185,9 @@ internal static class CharacterCreationMetatypeCatalogProjector
             && !entry.Elements().GroupBy(element => element.Name).Any(group => group.Count() != 1)
             && TryProjectOption(entry, id, name, 1, 1, enabledSourcebooks, allowBonuses, out option, sourceExecutionSchema)
             && option.IsEnabled && option.Blockers.Count == 0
-            && (option.BaseBonuses is null
-                || dwarfAdmission && IsDwarfLifestyleSurcharge(option.BaseBonuses)))
+            && (dwarfAdmission
+                ? option.BaseBonuses is { } baseBonuses && IsDwarfLifestyleSurcharge(baseBonuses)
+                : option.BaseBonuses is null))
         {
             return true;
         }
@@ -302,7 +303,15 @@ internal static class CharacterCreationMetatypeCatalogProjector
         if (bonus.HasAttributes || bonus.Name != "bonus"
             || bonus.Nodes().Any(node => node is not XElement && (node is not XText text || !string.IsNullOrWhiteSpace(text.Value))))
             return false;
-        if (!bonus.HasElements) return true;
+        // An empty bonus element is only a legitimate null projection for
+        // metatypes whose bonuses carry no admitted semantics (Human/Elf/Ork).
+        // For allowed paths (Dwarf/Troll) the claimed surcharge is required:
+        // an empty shape must fail closed, never admit via a null short-circuit.
+        if (!bonus.HasElements)
+        {
+            if (allowed) return false;
+            return true;
+        }
         if (!allowed || bonus.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)) return false;
         int armor = 0, reach = 0, lifestyle = 0;
         foreach (var effect in bonus.Elements())
