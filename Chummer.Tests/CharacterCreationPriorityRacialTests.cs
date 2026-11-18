@@ -162,7 +162,7 @@ public sealed class CharacterCreationPriorityRacialTests
         // Reproduce the exact pre-extension catalog, not a relaxed validator.
         var baseline = current with { Options = current.Options.Select(row => row with
         { HeritageOptions = row.HeritageOptions.Select(option => option.RacialQualitySources is null ? option
-            : option with { RacialQualitySources = null, IsEnabled = false,
+            : option with { RacialQualitySources = null, BaseBonuses = null, IsEnabled = false,
                 Blockers = [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported] }).ToArray() }).ToArray() };
         return baseline with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(baseline) };
     }

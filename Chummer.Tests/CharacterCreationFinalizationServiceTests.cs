@@ -3263,8 +3263,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             };
             CharacterCreationPrerequisitePreview prerequisitePreview =
                 prerequisites.Preview(prerequisiteRequest).Value!;
-            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
-                prerequisites.Confirm(new(
+            var prerequisiteConfirmResult = prerequisites.Confirm(new(
                     prerequisitePreview.Binding,
                     ranks,
                     prerequisitePreview.PreviewDigest,
@@ -3273,7 +3272,9 @@ public sealed class CharacterCreationFinalizationServiceTests
                     HeritageSelectionId = heritage.SelectionId,
                     TalentSelectionId = talent.SelectionId,
                     TalentActiveSkillSelectionIds = talentSkills, TalentSkillGroupSelectionIds = talentGroups
-                }).Outcome);
+                });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                prerequisiteConfirmResult.Outcome, string.Join(",", prerequisiteConfirmResult.Blockers));
 
             var attributes = new CharacterCreationAttributesService(store, resolver);
             CharacterCreationAttributesState attributeState = attributes.Load(new(workspaceId)).Value!;

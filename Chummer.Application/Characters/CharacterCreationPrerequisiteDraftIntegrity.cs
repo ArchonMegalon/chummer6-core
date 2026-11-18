@@ -167,7 +167,8 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
                     heritageMatches[0].SourceAnchorIds.ToArray())
                 {
                     Movement = heritageMatches[0].Movement,
-                    RacialQualitySources = heritageMatches[0].RacialQualitySources
+                    RacialQualitySources = heritageMatches[0].RacialQualitySources,
+                    BaseBonuses = heritageMatches[0].BaseBonuses
                 })
             || draft.CreationKarmaUsed != heritageMatches[0].KarmaCost
             || expectedTalentSelection is null

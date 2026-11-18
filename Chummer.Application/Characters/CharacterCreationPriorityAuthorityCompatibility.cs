@@ -3,10 +3,11 @@ using Chummer.Contracts.Characters;
 namespace Chummer.Application.Characters;
 
 /// <summary>
-/// Recognizes the exact former Human-only catalog from independently resolved
-/// current sources. This is not a source-drift exemption or a workspace rewrite.
-/// Only admission of Elf/Ork racial qualities is removed for the comparison;
-/// source/profile hashes, ranks, costs, talents and every other field remain.
+/// Recognizes the exact former Human-only and Elf/Ork-era catalogs from
+/// independently resolved current sources. This is not a source-drift
+/// exemption or a workspace rewrite. Only admission of Elf/Ork/Dwarf racial
+/// qualities is removed for the comparison; source/profile hashes, ranks,
+/// costs, talents and every other field remain.
 /// </summary>
 internal static class CharacterCreationPriorityAuthorityCompatibility
 {
@@ -21,9 +22,10 @@ internal static class CharacterCreationPriorityAuthorityCompatibility
             Options = current.Options.Select(row => row with
             {
                 HeritageOptions = row.HeritageOptions.Select(option =>
-                    option.MetatypeName is "Elf" or "Ork" && option.MetavariantSourceId is null
+                    option.MetatypeName is "Elf" or "Ork" or "Dwarf" && option.MetavariantSourceId is null
                         && option.IsEnabled && option.Blockers.Count == 0 && option.RacialQualitySources is { Count: > 0 }
                     ? option with { IsEnabled = false, RacialQualitySources = null,
+                        BaseBonuses = null,
                         Blockers = [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported] }
                     : option).ToArray()
             }).ToArray()

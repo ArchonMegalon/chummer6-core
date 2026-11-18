@@ -21,7 +21,7 @@ internal static class CharacterCreationPriorityRacialAuthority
         if (!original.IsAuthoritative || original.Blockers.Count != 0) return original;
         var sources = new Dictionary<string, CharacterCreationTalentQualitySource[]>(StringComparer.Ordinal);
         var declarations = new Dictionary<string, CharacterCreationMetatypeOptionProjection>(StringComparer.Ordinal);
-        foreach (string name in new[] { "Elf", "Ork" })
+        foreach (string name in new[] { "Elf", "Ork", "Dwarf" })
         {
             var matches = metatypes.Root?.Element("metatypes")?.Elements("metatype")
                 .Where(row => row.Element("name")?.Value == name).Take(2).ToArray() ?? [];
@@ -58,7 +58,10 @@ internal static class CharacterCreationPriorityRacialAuthority
                     if (option.MetatypeSourceId != metatype.OptionId || option.HalvesNormalAttributePoints
                         || !option.Attributes.SequenceEqual(metatype.Attributes) || option.Movement != metatype.Movement)
                         return option;
-                    return option with { IsEnabled = true, Blockers = [], RacialQualitySources = grants };
+                    return option with { IsEnabled = true, Blockers = [], RacialQualitySources = grants,
+                        BaseBonuses = metatype.BaseBonuses is { } bb
+                            && CharacterCreationMetatypeCatalogProjector.IsDwarfLifestyleSurcharge(bb)
+                            ? bb : null };
                 }).ToArray()
             }).ToArray(),
             AuthorityDigest = string.Empty

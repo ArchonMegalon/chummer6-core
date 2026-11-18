@@ -213,6 +213,41 @@ public static class CharacterCreationFinalizationProjector
             SetDirect(root, "sumtoten", prerequisite.SumToTenTarget.GetValueOrDefault()
                 .ToString(CultureInfo.InvariantCulture));
 
+            // Metatype base bonuses (Priority Dwarf admission: 20% lifestyle
+            // surcharge) materialize through the same grammar as the Karma
+            // grant path — improvement element plus Metatype-kind delta, with
+            // the source anchor pointing at the metatype bonus field.
+            if (heritage.BaseBonuses is { } bonuses)
+            {
+                if (bonuses.Armor < 0 || bonuses.Reach < 0 || bonuses.LifestyleCostPercent < 0)
+                {
+                    blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
+                    return false;
+                }
+                var baseBonusImprovements = new List<XElement>();
+                foreach (var (type, value, unique, sourceField) in new[]
+                {
+                    ("Armor", bonuses.Armor, "group0", "armor"),
+                    ("Reach", bonuses.Reach, string.Empty, "reach"),
+                    ("LifestyleCost", bonuses.LifestyleCostPercent, string.Empty, "lifestylecost")
+                })
+                {
+                    if (value == 0) continue;
+                    baseBonusImprovements.Add(CharacterCreationAwakenedLegacyProjector.Improvement(type, string.Empty,
+                        heritage.MetatypeSourceId, "Metatype", value, unique));
+                    AddDelta(projected, ref order, "priority-metatype-bonus:" + type,
+                        CharacterCreationFinalizationDeltaKinds.Metatype, heritage.MetatypeSourceId, "0",
+                        value.ToString(CultureInfo.InvariantCulture), 0, 0,
+                        ["metatypes.xml#metatype:" + heritage.MetatypeSourceId + "/bonus/" + sourceField],
+                        heritage.MetatypeName);
+                }
+                if (baseBonusImprovements.Count > 0)
+                {
+                    XElement improvementsContainer = GetOrCreateDirectContainer(root, "improvements");
+                    improvementsContainer.Add(baseBonusImprovements);
+                }
+            }
+
             ReplaceDirect(root, BuildAttributes(attributes!, projected, ref order));
             ReplaceDirect(root, BuildSkills(skills!, projected, ref order));
             SetDirect(root, "magenabled", "False");

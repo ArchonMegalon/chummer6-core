@@ -169,6 +169,9 @@ public sealed record CharacterCreationPriorityHeritageOptionProjection(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationTalentQualitySource>? RacialQualitySources { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeBaseBonuses? BaseBonuses { get; init; }
 }
 
 public sealed record CharacterCreationPriorityTalentOptionProjection(
@@ -605,6 +608,9 @@ public sealed record CharacterCreationPriorityHeritageSelection(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationTalentQualitySource>? RacialQualitySources { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeBaseBonuses? BaseBonuses { get; init; }
 }
 
 public sealed record CharacterCreationPriorityTalentSelection(
