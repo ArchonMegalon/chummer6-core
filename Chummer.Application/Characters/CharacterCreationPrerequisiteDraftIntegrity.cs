@@ -36,8 +36,8 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
             || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
                 draft.AuthorityDigest)
             || !(FixedTimeEquals(draft.AuthorityDigest, authority.AuthorityDigest)
-                || draft.HeritageSelection is { MetatypeName: "Human", MetavariantSourceId: null, RacialQualitySources: null }
-                && CharacterCreationPriorityAuthorityCompatibility.MatchesLegacyHumanCatalog(draft.AuthorityDigest, authority))
+                || CharacterCreationPriorityAuthorityCompatibility
+                    .MatchesLegacyPendingDraftAuthority(draft, authority))
             || !string.Equals(draft.BuildMethod, authority.BuildMethod, StringComparison.Ordinal)
             || !string.Equals(
                 draft.SettingsProfileId,

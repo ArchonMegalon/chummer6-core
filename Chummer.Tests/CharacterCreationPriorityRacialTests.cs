@@ -132,7 +132,7 @@ public sealed class CharacterCreationPriorityRacialTests
         var workspace = context.Store.Get(context.WorkspaceId).Value!;
         var sourceContext = context.Resolver.TryCreateContext(workspace.Document.Content)!;
         Assert.IsTrue(sourceContext.TryResolveCreationPrerequisiteAuthority(out var current));
-        var baseline = LegacyAuthority(current);
+        var baseline = HumanOnlyLegacyAuthority(current);
         var quality = XElement.Parse(current.Options.SelectMany(item => item.HeritageOptions)
             .First(item => item.IsEnabled && item.MetatypeName == "Elf").RacialQualitySources!.Single().CanonicalSourceXml);
         var document = XDocument.Load(Path.Combine(FindCoreRoot(), "Chummer", "data", "metatypes.xml"));
@@ -157,13 +157,36 @@ public sealed class CharacterCreationPriorityRacialTests
         Assert.AreEqual(result.AuthorityDigest, CharacterCreationPrerequisiteAuthorityDigest.Compute(result));
     }
 
-    internal static CharacterCreationPrerequisiteAuthority LegacyAuthority(CharacterCreationPrerequisiteAuthority current)
+    /// <summary>
+    /// Reproduces the pre-Elf/Ork Human-only catalog (every standard racial
+    /// row disabled with the unsupported blocker). Used by bind-rejection
+    /// tests that exercise the upgrade path from a disabled row.
+    /// </summary>
+    internal static CharacterCreationPrerequisiteAuthority HumanOnlyLegacyAuthority(CharacterCreationPrerequisiteAuthority current)
     {
-        // Reproduce the exact pre-extension catalog, not a relaxed validator.
         var baseline = current with { Options = current.Options.Select(row => row with
         { HeritageOptions = row.HeritageOptions.Select(option => option.RacialQualitySources is null ? option
             : option with { RacialQualitySources = null, BaseBonuses = null, IsEnabled = false,
                 Blockers = [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported] }).ToArray() }).ToArray() };
+        return baseline with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(baseline) };
+    }
+
+    internal static CharacterCreationPrerequisiteAuthority LegacyAuthority(CharacterCreationPrerequisiteAuthority current)
+    {
+        // Reproduce the exact 80584eff baseline, not a relaxed validator:
+        // Elf/Ork stay enabled WITH racial sources, only the newly admitted
+        // standard Dwarf rows are downgraded, and no row carries BaseBonuses
+        // (the field post-dates that baseline).
+        var baseline = current with { Options = current.Options.Select(row => row with
+        { HeritageOptions = row.HeritageOptions.Select(option =>
+            !option.IsEnabled || option.MetavariantSourceId is not null
+                || (option.MetatypeName != "Elf" && option.MetatypeName != "Ork"
+                    && option.MetatypeName != "Dwarf")
+                ? option
+                : option.MetatypeName == "Dwarf"
+                    ? option with { RacialQualitySources = null, BaseBonuses = null, IsEnabled = false,
+                        Blockers = [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported] }
+                    : option with { BaseBonuses = null }).ToArray() }).ToArray() };
         return baseline with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(baseline) };
     }
 
@@ -199,5 +222,88 @@ public sealed class CharacterCreationPriorityRacialTests
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
             if (File.Exists(Path.Combine(directory.FullName, "Chummer", "data", "metatypes.xml"))) return directory.FullName;
         throw new DirectoryNotFoundException("Canonical data missing.");
+    }
+    [TestMethod]
+    [DataRow("Human", CharacterCreationBuildMethods.Priority)]
+    [DataRow("Human", CharacterCreationBuildMethods.SumToTen)]
+    [DataRow("Elf", CharacterCreationBuildMethods.Priority)]
+    [DataRow("Elf", CharacterCreationBuildMethods.SumToTen)]
+    [DataRow("Ork", CharacterCreationBuildMethods.Priority)]
+    [DataRow("Ork", CharacterCreationBuildMethods.SumToTen)]
+    public void Baseline_authority_drafts_save_coldload_review_finalize(string metatype, string method)
+    {
+        ICharacterSourceDataResolver currentResolver = null!;
+        using var context = ReadyContext.Create(true, buildMethod: method, metatypeName: metatype, wrapResolver: inner =>
+        {
+            currentResolver = inner;
+            return new LegacyResolver(inner);
+        });
+        var original = context.Store.Get(context.WorkspaceId).Value!;
+        var store = new FileWorkspaceStore(context.Directory);
+        var finalizer = ReadyContext.BuildFinalizer(store, context.Queries, currentResolver);
+        var state = finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(state.CanReview, string.Join(",", state.Blockers));
+        var reloaded = store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(original.Document.Content, reloaded.Document.Content);
+        Assert.AreEqual(original.Document.AuxiliaryStateDigest, reloaded.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(original.ContentRevision, reloaded.ContentRevision);
+        var draft = original.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
+        Assert.AreEqual(metatype, draft.HeritageSelection!.MetatypeName);
+        var sourceContext = currentResolver.TryCreateContext(reloaded.Document.Content)!;
+        Assert.IsTrue(sourceContext.TryResolveCreationPrerequisiteAuthority(out var authority));
+        Assert.AreNotEqual(draft.AuthorityDigest, authority.AuthorityDigest,
+            "the current authority must differ from the persisted baseline digest for this to exercise legacy compatibility");
+        Assert.IsTrue(sourceContext.TryResolveCreationDefaultStartingNuyen(out var cash));
+        var review = finalizer.Review(new(state.Binding)
+            { StartingCash = new(cash!.AuthorityDigest, cash.Dice) }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "historical-" + metatype.ToLowerInvariant() + "-finalize", true)
+            { StartingCash = review.Plan.StartingCash };
+        var applied = finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        var coldStore = new FileWorkspaceStore(context.Directory);
+        var coldFinalizer = ReadyContext.BuildFinalizer(coldStore, context.Queries, currentResolver);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, coldFinalizer.Confirm(command).Outcome);
+        Assert.AreEqual(metatype, XElement.Parse(coldStore.Get(context.WorkspaceId).Value!.Document.Content).Element("metatype")!.Value);
+    }
+
+    [TestMethod]
+    public void Compatibility_recognizers_match_only_exact_baseline_reconstructions()
+    {
+        using var context = ReadyContext.Create(true, metatypeName: "Ork");
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var sourceContext = context.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(sourceContext.TryResolveCreationPrerequisiteAuthority(out var authority));
+        var baseline = CharacterCreationPriorityRacialTests.LegacyAuthority(authority);
+        var humanOnly = CharacterCreationPriorityRacialTests.HumanOnlyLegacyAuthority(authority);
+
+        // The 80584eff baseline (Elf/Ork enabled) matches ONLY the
+        // Dwarf-only downgrade reconstruction; the Human-only
+        // reconstruction (which also disables Elf/Ork) must NOT match.
+        Assert.IsTrue(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyElfOrkEnabledBaseline(baseline.AuthorityDigest, authority));
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyHumanCatalog(baseline.AuthorityDigest, authority));
+        // The Human-only catalog matches ONLY the full downgrade.
+        Assert.IsTrue(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyHumanCatalog(humanOnly.AuthorityDigest, authority));
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyElfOrkEnabledBaseline(humanOnly.AuthorityDigest, authority));
+        // The current extended authority matches neither reconstruction.
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyElfOrkEnabledBaseline(authority.AuthorityDigest, authority));
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyHumanCatalog(authority.AuthorityDigest, authority));
+        // Tampered authorities fail closed.
+        var tampered = authority with
+        {
+            RawProfileInputsDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("different profile")
+        };
+        var rehashed = tampered with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(tampered) };
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyElfOrkEnabledBaseline(baseline.AuthorityDigest, rehashed));
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyHumanCatalog(baseline.AuthorityDigest, rehashed));
     }
 }
