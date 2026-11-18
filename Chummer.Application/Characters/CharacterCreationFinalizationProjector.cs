@@ -223,6 +223,12 @@ public static class CharacterCreationFinalizationProjector
                 return false;
             }
 
+            // Admitted heritage movement (Priority metatype source-bound rates)
+            // persists exactly like the completion-graph path: the shared
+            // materializer writes walk/run/sprint and no-ops for special
+            // movement. Never relies on local-source fallback as saved authority.
+            CharacterCreationHeritageGraph832.ApplyMovement(root, heritage);
+
             ReplaceDirect(root, BuildAttributes(attributes!, projected, ref order));
             ReplaceDirect(root, BuildSkills(skills!, projected, ref order));
             SetDirect(root, "magenabled", "False");

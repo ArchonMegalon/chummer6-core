@@ -125,6 +125,15 @@ public sealed class CharacterCreationDwarfPriorityTests
         Assert.IsTrue(review.OrderedDeltas.Any(item =>
             item.DeltaId == "priority-metatype-bonus:LifestyleCost"));
 
+        // Admitted heritage movement persists source-bound exactly once
+        // (fix 3: the ordinary finalizer writes heritage.Movement via the
+        // shared CharacterCreationHeritageGraph832.ApplyMovement materializer).
+        var movement = root.Element("movement");
+        Assert.IsNotNull(movement, "Finalized Dwarf must persist a movement element.");
+        Assert.AreEqual(string.Empty, movement.Value);
+        Assert.AreEqual("2/1/0", root.Element("walk")!.Value, "Dwarf walk must persist.");
+        Assert.AreEqual("4/0/0", root.Element("run")!.Value, "Dwarf run must persist.");
+        Assert.AreEqual("1/1/0", root.Element("sprint")!.Value, "Dwarf sprint must persist.");
         // Racial qualities and their literal resistance effects are retained.
         var qualities = root.Elements("qualities").Descendants("quality").ToList();
         Assert.IsTrue(qualities.Any(item => item.Element("name")!.Value == "Thermographic Vision"),
