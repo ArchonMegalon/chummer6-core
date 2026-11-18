@@ -196,7 +196,97 @@ public sealed class CharacterCreationDwarfPriorityTests
             "Well-formed resistance values must be admitted.");
     }
 
-    /// <summary>Builds a draft whose single racial source carries the given
+    [TestMethod]
+    public void Pending_heritage_lifestyle_surcharge_quotes_2400_before_materialization()
+    {
+        // C2 gen3: PriceSelectedCompletion must bind the pending heritage's
+        // source-backed 20% into the effective MetatypeCostPercent exactly once
+        // (Standard Low Lifestyle quotes 2400, not 2000) before any graph
+        // materialization, with provenance digests folded the same way the
+        // resolver folds the materialized improvement.
+        using var context = ReadyContext.Create(true, metatypeName: "Dwarf",
+            rankAssignments: RanksWithHeritageC);
+        var workspace = context.Store.Get(context.WorkspaceId).Value!;
+        var sourceContext = context.Resolver.TryCreateContext(workspace.Document.Content)!;
+        Assert.IsTrue(sourceContext.TryResolveCreationLifestylesAuthority(out var authority),
+            "The pending Dwarf workspace must resolve a lifestyles authority.");
+        Assert.IsTrue(CharacterCreationLifestylesRules.IsValidAuthority(authority));
+        Assert.AreEqual(0m, authority.MetatypeCostPercent,
+            "Nothing is materialized yet, so the retained percent must be zero.");
+        var prerequisiteService = new CharacterCreationPrerequisiteService(
+            context.Store, context.Queries, context.Resolver);
+        var prerequisite = prerequisiteService.Load(new(context.WorkspaceId)).Value!.PendingDraft;
+        Assert.IsNotNull(prerequisite);
+        var heritage = prerequisite.HeritageSelection;
+        Assert.IsNotNull(heritage?.BaseBonuses, "Dwarf draft must carry its base bonuses.");
+        Assert.AreEqual(20, heritage.BaseBonuses.LifestyleCostPercent);
+
+        var priced = CharacterCreationLifestylesService.PriceSelectedCompletion(
+            new(authority, prerequisite, [],
+                [], CharacterCreationMagicResonanceDigest.ComputeUtf8("t750-c2-provenance"),
+                [LowConfiguration(authority, out var lowId)], lowId, 50000m, ["gear.xml"], []));
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Available, priced.Outcome,
+            string.Join(",", priced.Blockers));
+        var value = priced.Value!;
+        Assert.AreEqual(20m, value.Authority.MetatypeCostPercent,
+            "The heritage surcharge must be bound exactly once into the effective authority.");
+        Assert.AreEqual(2400m, value.FullLifestyleCost,
+            "Standard Low Lifestyle must quote 2400 for the Dwarf pending heritage.");
+        Assert.AreEqual(2400m, value.Lifestyles.Single().Economics.CostPerIncrement);
+
+        // Human control: no pending base bonuses, so pricing stays byte-for-byte.
+        using var humanContext = ReadyContext.Create(true, metatypeName: "Human");
+        var humanWorkspace = humanContext.Store.Get(humanContext.WorkspaceId).Value!;
+        var humanSource = humanContext.Resolver.TryCreateContext(humanWorkspace.Document.Content)!;
+        Assert.IsTrue(humanSource.TryResolveCreationLifestylesAuthority(out var humanAuthority));
+        var humanPrerequisite = new CharacterCreationPrerequisiteService(
+            humanContext.Store, humanContext.Queries, humanContext.Resolver)
+            .Load(new(humanContext.WorkspaceId)).Value!.PendingDraft;
+        Assert.IsNotNull(humanPrerequisite);
+        Assert.IsNull(humanPrerequisite.HeritageSelection?.BaseBonuses,
+            "Human must not gain a base-bonus projection.");
+        var humanPriced = CharacterCreationLifestylesService.PriceSelectedCompletion(
+            new(humanAuthority, humanPrerequisite,
+                humanPrerequisite.HeritageSelection?.RacialQualitySources ?? [],
+                [], CharacterCreationMagicResonanceDigest.ComputeUtf8("t750-c2-provenance"),
+                [LowConfiguration(humanAuthority, out var humanLowId)], humanLowId, 50000m, ["gear.xml"], []));
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Available, humanPriced.Outcome,
+            string.Join(",", humanPriced.Blockers));
+        Assert.AreEqual(0m, humanPriced.Value!.Authority.MetatypeCostPercent);
+        Assert.AreEqual(2000m, humanPriced.Value.FullLifestyleCost,
+            "Human Standard Low Lifestyle must still quote 2000.");
+
+        // Historical replay guard: a nonzero incoming percent is refused so the
+        // same source-backed bonus can never be bound twice.
+        var prebound = authority with
+        {
+            MetatypeCostPercent = 20m,
+            AuthorityDigest = string.Empty,
+        };
+        prebound = prebound with
+        {
+            AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(prebound),
+        };
+        var refused = CharacterCreationLifestylesService.PriceSelectedCompletion(
+            new(prebound, prerequisite, [],
+                [], CharacterCreationMagicResonanceDigest.ComputeUtf8("t750-c2-provenance"),
+                [LowConfiguration(authority, out var refusedLowId)], refusedLowId, 50000m, ["gear.xml"], []));
+        Assert.AreEqual(CharacterCreationLifestyleOutcomes.Blocked, refused.Outcome,
+            "Double-binding the heritage surcharge must be refused.");
+        Assert.IsTrue(refused.Blockers.Contains("creation-lifestyles-unsupported-semantics"),
+            "Double-binding must be refused as unsupported semantics; actual: " + string.Join("|", refused.Blockers));
+    }
+
+    private static CharacterCreationLifestyleConfiguration LowConfiguration(
+        CharacterCreationLifestylesAuthority authority, out Guid lowId)
+    {
+        var option = authority.LifestyleOptions.Single(row => row.Name == "Low");
+        lowId = Guid.NewGuid();
+        return new(lowId, option.OptionId, "Low home", CharacterCreationLifestyleStyleIds.Standard,
+            option.DefaultIncrementId, 1, 100m, 0, false, false, 0, 0, 0, 0, string.Empty,
+            string.Empty, string.Empty, []);
+    }
+    /// <summary>Builds a draft whose single racial source carries the given    /// <summary>Builds a draft whose single racial source carries the given
     /// bonus grammar grafted onto the REAL seeded Dwarf racial quality row
     /// (identity scalars stay genuine; digests recomputed) so validation
     /// passes and the independence proof reaches the racial effect switch.</summary>
