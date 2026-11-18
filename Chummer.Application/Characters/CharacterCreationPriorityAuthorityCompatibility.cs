@@ -70,10 +70,11 @@ internal static class CharacterCreationPriorityAuthorityCompatibility
     /// authoritative and self-consistent, applies the supplied downgrade
     /// predicate, and compares the reconstructed digest in fixed time.
     /// </summary>
-    private static bool MatchesHistorical(
+    private static bool TryReconstruct(
         string digest,
         CharacterCreationPrerequisiteAuthority current,
-        Func<CharacterCreationPriorityHeritageOptionProjection, bool> downgrade)
+        Func<CharacterCreationPriorityHeritageOptionProjection, bool> downgrade,
+        out CharacterCreationPrerequisiteAuthority? reconstructed)
     {
         if (string.IsNullOrWhiteSpace(digest)
             || current is null
@@ -84,6 +85,7 @@ internal static class CharacterCreationPriorityAuthorityCompatibility
                 current.AuthorityDigest,
                 CharacterCreationPrerequisiteAuthorityDigest.Compute(current)))
         {
+            reconstructed = null;
             return false;
         }
         var historical = current with
@@ -104,9 +106,61 @@ internal static class CharacterCreationPriorityAuthorityCompatibility
                         : option).ToArray()
             }).ToArray()
         };
-        return CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
+        if (!CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
             digest,
-            CharacterCreationPrerequisiteAuthorityDigest.Compute(historical));
+            CharacterCreationPrerequisiteAuthorityDigest.Compute(historical)))
+        {
+            reconstructed = null;
+            return false;
+        }
+        reconstructed = historical;
+        return true;
+    }
+
+    /// <summary>Boolean wrapper over <see cref="TryReconstruct"/> preserving
+    /// the exact historical comparison semantics for existing callers.</summary>
+    private static bool MatchesHistorical(
+        string digest,
+        CharacterCreationPrerequisiteAuthority current,
+        Func<CharacterCreationPriorityHeritageOptionProjection, bool> downgrade)
+    {
+        return TryReconstruct(digest, current, downgrade, out _);
+    }
+
+    /// <summary>Independent-oracle accessor: reconstructs the immediate
+    /// 80584eff baseline (Elf/Ork enabled, Dwarf disabled) from current
+    /// sources and returns it only when the supplied digest matches exactly.
+    /// Tests use this to prove the production reconstruction is byte-equal
+    /// to an independently written 80584 oracle reconstruction.</summary>
+    internal static bool TryReconstructLegacyElfOrkEnabledBaseline(
+        string digest,
+        CharacterCreationPrerequisiteAuthority current,
+        out CharacterCreationPrerequisiteAuthority? reconstructed)
+    {
+        return TryReconstruct(
+            digest,
+            current,
+            option => IsNewlyAdmittedStandardDwarf(option),
+            out reconstructed);
+    }
+
+    /// <summary>Independent-oracle accessor for the pre-Elf/Ork Human-only
+    /// catalog reconstruction (every admitted standard racial row
+    /// downgraded).</summary>
+    internal static bool TryReconstructLegacyHumanCatalog(
+        string digest,
+        CharacterCreationPrerequisiteAuthority current,
+        out CharacterCreationPrerequisiteAuthority? reconstructed)
+    {
+        return TryReconstruct(
+            digest,
+            current,
+            option => option.MetatypeName is "Elf" or "Ork" or "Dwarf"
+                && option.MetavariantSourceId is null
+                && option.IsEnabled
+                && option.Blockers.Count == 0
+                && option.RacialQualitySources is { Count: > 0 },
+            out reconstructed);
     }
 
     /// <summary>
@@ -124,8 +178,43 @@ internal static class CharacterCreationPriorityAuthorityCompatibility
     {
         if (draft.HeritageSelection is not { MetavariantSourceId: null })
             return false;
-        return MatchesLegacyHumanCatalog(draft.AuthorityDigest, authority)
-            || MatchesLegacyElfOrkEnabledBaseline(draft.AuthorityDigest, authority);
+        // C3 gen3: eligibility binds to the MATCHED historical reconstruction.
+        // The digest gate alone would admit a Dwarf draft (newly admitted)
+        // claiming either legacy era, or an Elf/Ork draft claiming the
+        // Human-only era, because DraftIntegrity canonical equality runs
+        // against the CURRENT authority projections. The draft's selected
+        // heritage must be an enabled, blocker-free row of the matched
+        // reconstruction: Dwarf is refused under both eras, Elf/Ork under
+        // the Human-only era, and matching Human/Elf/Ork drafts (Priority
+        // and SumToTen) are preserved with their original persisted
+        // identities.
+        if (TryReconstructLegacyHumanCatalog(draft.AuthorityDigest, authority, out var human)
+            && SelectionAdmitted(human, draft.HeritageSelection.SelectionId))
+        {
+            return true;
+        }
+        return TryReconstructLegacyElfOrkEnabledBaseline(draft.AuthorityDigest, authority, out var baseline)
+            && SelectionAdmitted(baseline, draft.HeritageSelection.SelectionId);
+    }
+
+    /// <summary>True when the matched historical reconstruction carries the
+    /// given selection id exactly once as an enabled, blocker-free row.</summary>
+    private static bool SelectionAdmitted(
+        CharacterCreationPrerequisiteAuthority? reconstruction,
+        string selectionId)
+    {
+        if (reconstruction is null || string.IsNullOrEmpty(selectionId))
+        {
+            return false;
+        }
+        CharacterCreationPriorityHeritageOptionProjection[] matches = reconstruction.Options
+            .SelectMany(row => row.HeritageOptions)
+            .Where(option => string.Equals(option.SelectionId, selectionId, StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        return matches.Length == 1
+            && matches[0].IsEnabled
+            && matches[0].Blockers.Count == 0;
     }
 
     /// <summary>

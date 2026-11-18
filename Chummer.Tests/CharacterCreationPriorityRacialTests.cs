@@ -269,6 +269,165 @@ public sealed class CharacterCreationPriorityRacialTests
     }
 
     [TestMethod]
+    public void Legacy_eligibility_binds_to_matched_reconstruction_and_80584_oracle()
+    {
+        // C3 gen3: the legacy compatibility gate must bind the DRAFT'S
+        // SELECTED heritage to the MATCHED historical reconstruction, and
+        // the production reconstruction must be provable against an
+        // independently written exact-80584 oracle.
+        using var context = ReadyContext.Create(true, metatypeName: "Ork");
+        var workspace = context.Store.Get(context.WorkspaceId).Value!;
+        var sourceContext = context.Resolver.TryCreateContext(workspace.Document.Content)!;
+        Assert.IsTrue(sourceContext.TryResolveCreationPrerequisiteAuthority(out var authority));
+        var baseline = CharacterCreationPriorityRacialTests.LegacyAuthority(authority);
+        var humanOnly = CharacterCreationPriorityRacialTests.HumanOnlyLegacyAuthority(authority);
+        var draft = workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
+        Assert.AreEqual("Ork", draft.HeritageSelection!.MetatypeName);
+
+        // The pending-draft gate admits an Ork draft persisted under the
+        // 80584eff baseline era (Ork was enabled there): re-stamp the draft's
+        // authority digest to the baseline and recompute its draft digest.
+        var orkLegacy = draft with { AuthorityDigest = baseline.AuthorityDigest };
+        orkLegacy = orkLegacy with
+        {
+            DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(orkLegacy),
+        };
+        Assert.IsTrue(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyPendingDraftAuthority(orkLegacy, authority),
+            "An Ork draft from the 80584eff era must keep its legacy eligibility.");
+
+        // Counterexample 1: a Dwarf draft (newly admitted today) wearing the
+        // 80584eff baseline digest must be REFUSED - Dwarf was disabled there.
+        var dwarfSelection = draft.HeritageSelection with
+        {
+            SelectionId = FindDisabledDwarfSelectionId(authority),
+            MetatypeName = "Dwarf",
+            MetatypeSourceId = FindDisabledDwarfMetatypeSourceId(authority),
+        };
+        var dwarfDraft = draft with
+        {
+            AuthorityDigest = baseline.AuthorityDigest,
+            HeritageSelection = dwarfSelection,
+        };
+        dwarfDraft = dwarfDraft with
+        {
+            DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(dwarfDraft),
+        };
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyPendingDraftAuthority(dwarfDraft, authority),
+            "A Dwarf draft must not bind to the Dwarf-disabled 80584eff history.");
+
+        // Counterexample 2: the same Dwarf draft wearing the Human-only
+        // digest must also be refused.
+        var dwarfHuman = dwarfDraft with { AuthorityDigest = humanOnly.AuthorityDigest };
+        dwarfHuman = dwarfHuman with
+        {
+            DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(dwarfHuman),
+        };
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyPendingDraftAuthority(dwarfHuman, authority),
+            "A Dwarf draft must not bind to the Human-only history either.");
+
+        // Counterexample 3: an Elf draft (enabled at 80584eff) wearing the
+        // Human-only digest must be REFUSED - Elf was not admitted there.
+        var elfSelection = draft.HeritageSelection with
+        {
+            SelectionId = FindEnabledRacialSelectionId(authority, "Elf"),
+            MetatypeName = "Elf",
+            MetatypeSourceId = FindEnabledRacialMetatypeSourceId(authority, "Elf"),
+        };
+        var elfHuman = draft with
+        {
+            AuthorityDigest = humanOnly.AuthorityDigest,
+            HeritageSelection = elfSelection,
+        };
+        elfHuman = elfHuman with
+        {
+            DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(elfHuman),
+        };
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .MatchesLegacyPendingDraftAuthority(elfHuman, authority),
+            "An Elf draft must not bind to the Human-only history.");
+
+        // Independent 80584 oracle: the production reconstruction must be
+        // byte-equal to this test's own independently derived oracle.
+        Assert.IsTrue(CharacterCreationPriorityAuthorityCompatibility
+            .TryReconstructLegacyElfOrkEnabledBaseline(baseline.AuthorityDigest, authority, out var produced));
+        Assert.IsNotNull(produced);
+        string oracleDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(
+            Oracle80584Baseline(authority));
+        Assert.AreEqual(oracleDigest,
+            CharacterCreationPrerequisiteAuthorityDigest.Compute(produced),
+            "Production reconstruction must equal the independent 80584 oracle.");
+        Assert.IsFalse(CharacterCreationPriorityAuthorityCompatibility
+            .TryReconstructLegacyElfOrkEnabledBaseline(authority.AuthorityDigest, authority, out _),
+            "The current extended authority must not reconstruct the 80584 baseline.");
+    }
+
+    /// <summary>Independent exact-80584 oracle written from the era's
+    /// recorded facts (NOT by calling the production reconstructor):
+    /// Elf/Ork enabled WITH racial sources, every standard Dwarf row
+    /// disabled with its racial sources and base bonuses stripped (the
+    /// BaseBonuses field post-dates that baseline), all other rows
+    /// untouched.</summary>
+    private static CharacterCreationPrerequisiteAuthority Oracle80584Baseline(
+        CharacterCreationPrerequisiteAuthority current)
+    {
+        var options = current.Options
+            .Select(row => row with
+            {
+                HeritageOptions = row.HeritageOptions
+                    .Select(option =>
+                        option.MetatypeName == "Dwarf"
+                            && option.MetavariantSourceId is null
+                            && option.IsEnabled
+                            ? option with
+                            {
+                                IsEnabled = false,
+                                RacialQualitySources = null,
+                                BaseBonuses = null,
+                                Blockers = [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported],
+                            }
+                            : option)
+                    .ToArray()
+            })
+            .ToArray();
+        var oracle = current with { Options = options };
+        return oracle with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(oracle) };
+    }
+
+    private static string FindDisabledDwarfSelectionId(
+        CharacterCreationPrerequisiteAuthority authority)
+    {
+        var row = authority.Options.SelectMany(item => item.HeritageOptions)
+            .First(item => item.MetatypeName == "Dwarf" && item.MetavariantSourceId is null);
+        return row.SelectionId;
+    }
+
+    private static string FindDisabledDwarfMetatypeSourceId(
+        CharacterCreationPrerequisiteAuthority authority)
+    {
+        var row = authority.Options.SelectMany(item => item.HeritageOptions)
+            .First(item => item.MetatypeName == "Dwarf" && item.MetavariantSourceId is null);
+        return row.MetatypeSourceId;
+    }
+
+    private static string FindEnabledRacialSelectionId(
+        CharacterCreationPrerequisiteAuthority authority, string metatype)
+    {
+        var row = authority.Options.SelectMany(item => item.HeritageOptions)
+            .First(item => item.MetatypeName == metatype && item.MetavariantSourceId is null && item.IsEnabled);
+        return row.SelectionId;
+    }
+
+    private static string FindEnabledRacialMetatypeSourceId(
+        CharacterCreationPrerequisiteAuthority authority, string metatype)
+    {
+        var row = authority.Options.SelectMany(item => item.HeritageOptions)
+            .First(item => item.MetatypeName == metatype && item.MetavariantSourceId is null && item.IsEnabled);
+        return row.MetatypeSourceId;
+    }
+    [TestMethod]
     public void Compatibility_recognizers_match_only_exact_baseline_reconstructions()
     {
         using var context = ReadyContext.Create(true, metatypeName: "Ork");
