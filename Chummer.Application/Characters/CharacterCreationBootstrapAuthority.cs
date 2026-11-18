@@ -282,8 +282,8 @@ public static class CharacterCreationBootstrapAuthority
             // only additional supported choices were admitted. Reconstruct the
             // old catalog from fresh sources; any other drift still fails below.
             if (document.AuxiliaryState.CharacterCreationBootstrapBinding is { } existing
-                && CharacterCreationPriorityAuthorityCompatibility.MatchesLegacyHumanCatalog(
-                    existing.PrerequisiteAuthorityDigest, prerequisiteAuthority))
+                && CharacterCreationPriorityAuthorityCompatibility
+                    .MatchesLegacyBootstrapBinding(existing, prerequisiteAuthority))
                 prerequisiteAuthorityDigest = existing.PrerequisiteAuthorityDigest;
         }
 

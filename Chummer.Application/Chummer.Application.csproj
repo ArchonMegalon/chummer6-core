@@ -30,6 +30,7 @@
     <InternalsVisibleTo Include="Chummer.FeatureSlice.Tests" />
     <InternalsVisibleTo Include="Chummer.Tests" />
     <InternalsVisibleTo Include="Chummer.CreationFinalization.Tests" />
+    <InternalsVisibleTo Include="Chummer.CreationRacial.Tests" />
     <InternalsVisibleTo Include="Chummer.CreationBootstrap.Tests" />
   </ItemGroup>
 </Project>

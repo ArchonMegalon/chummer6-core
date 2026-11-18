@@ -585,7 +585,8 @@ public sealed partial class CharacterCreationPrerequisiteService :
             selected.SourceAnchorIds.ToArray())
         {
             Movement = selected.Movement,
-            RacialQualitySources = selected.RacialQualitySources
+            RacialQualitySources = selected.RacialQualitySources,
+            BaseBonuses = selected.BaseBonuses
         };
     }
 

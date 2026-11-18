@@ -96,6 +96,7 @@ internal static class CharacterCreationSelectedPrerequisiteConsumer
                 checked((int)skills.Attributes.CreationKarmaBudget.Used), qualities.KarmaRemaining,
                 qualities.SourceAnchorIds, snapshot, deltas, ref order);
             if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order)
+                || !CharacterCreationMetatypeBaseBonusMaterializer.TryApply(heritage, root, deltas, ref order)
                 || !apply(root, deltas, ref order)
                 || !TryCheckFinalGraph(root, prerequisite, talentSources, skills.Attributes.Attributes, out var checks)) return null;
             var execution = new Execution(new(CharacterCreationSelectedPrerequisiteEvaluation.SchemaV1, snapshot, selectionsDigest,
