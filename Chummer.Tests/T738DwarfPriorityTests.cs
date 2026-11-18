@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
@@ -155,6 +155,80 @@ public sealed class CharacterCreationDwarfPriorityTests
                     item => item.Element("improvementttype")!.Value == resistanceType),
                 $"Resistance improvement {resistanceType} must be materialized.");
         }
+    }
+
+    [TestMethod]
+    public void Racial_resistance_effects_are_admitted_for_completion_independence()
+    {
+        // C1 gen3: the lifestyles/contacts completion independence proof must
+        // admit the exact shared literal resistance grammar for racial grants
+        // (the Dwarf's source-bound qualities carry these effects). Unknown
+        // or malformed racial effects still fail closed. The racial sources
+        // come from the real seeded Dwarf Priority-C workspace so every
+        // digest/identity field is genuine; only the bonus grammar is varied.
+        using var context = ReadyContext.Create(true, metatypeName: "Dwarf",
+            rankAssignments: RanksWithHeritageC);
+        var prerequisiteService = new CharacterCreationPrerequisiteService(
+            context.Store, context.Queries, context.Resolver);
+        var state = prerequisiteService.Load(new(context.WorkspaceId)).Value!;
+        var prerequisite = state.PendingDraft;
+        Assert.IsNotNull(prerequisite, "The seeded Dwarf Priority-C workspace must carry a pending draft.");
+        var heritage = prerequisite.HeritageSelection;
+        Assert.IsNotNull(heritage, "Dwarf draft must carry a heritage selection.");
+        Assert.IsNotNull(heritage.RacialQualitySources, "Dwarf draft must carry racial quality sources.");
+        Assert.IsTrue(CharacterCreationLegacySourceProjector.AreCompletionGrantEffectsIndependent(
+            prerequisite, []), "Dwarf racial resistance effects must be admitted.");
+
+        // An unknown racial effect fails closed (grammar-varied source with
+        // recomputed digests so validation reaches the effect switch).
+        Assert.IsFalse(AreIndependentWithBonus(prerequisite, heritage,
+            "<bonus><someunknownbonus>1</someunknownbonus></bonus>"),
+            "Unknown racial effects must fail closed.");
+
+        // A negative resistance value fails closed.
+        Assert.IsFalse(AreIndependentWithBonus(prerequisite, heritage,
+            "<bonus><toxincontactresist>-1</toxincontactresist></bonus>"),
+            "Negative resistance values must fail closed.");
+
+        // A well-formed resistance value is still admitted.
+        Assert.IsTrue(AreIndependentWithBonus(prerequisite, heritage,
+            "<bonus><toxincontactresist>2</toxincontactresist></bonus>"),
+            "Well-formed resistance values must be admitted.");
+    }
+
+    /// <summary>Builds a draft whose single racial source carries the given
+    /// bonus grammar grafted onto the REAL seeded Dwarf racial quality row
+    /// (identity scalars stay genuine; digests recomputed) so validation
+    /// passes and the independence proof reaches the racial effect switch.</summary>
+    private static bool AreIndependentWithBonus(
+        CharacterCreationPrerequisiteDraft prerequisite,
+        CharacterCreationPriorityHeritageSelection heritage,
+        string bonusXml)
+    {
+        CharacterCreationTalentQualitySource real = heritage.RacialQualitySources!
+            .FirstOrDefault(s => XElement.Parse(s.CanonicalSourceXml).Element("bonus") is not null)
+            ?? heritage.RacialQualitySources[0];
+        var row = XElement.Parse(real.CanonicalSourceXml);
+        row.Element("bonus")!.Remove();
+        row.Add(XElement.Parse(bonusXml));
+        string canonical = row.ToString(SaveOptions.DisableFormatting);
+        string inputsDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(canonical);
+        var source = real with
+        {
+            CanonicalSourceXml = canonical,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(canonical),
+            EffectiveSourceDigest = inputsDigest,
+            SourceNodeDigest = CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(
+                inputsDigest, real.SourceId, canonical),
+        };
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(source),
+            "The grafted source must be valid so the effect switch is reached.");
+        return CharacterCreationLegacySourceProjector.AreCompletionGrantEffectsIndependent(
+            prerequisite with
+            {
+                HeritageSelection = heritage with { RacialQualitySources = [source] }
+            },
+            []);
     }
 
     [TestMethod]
