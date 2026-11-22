@@ -45,6 +45,8 @@ public static class Sr6CreationFoundationIntegrity
         Sr6CreationSpellSelection? spells = null;
         if (selection.Spells is not null && !TryFreezeSpells(selection.Spells, out spells)) return false;
         Sr6CreationAdeptPowerSelection? powers = null;
+        Sr6CreationTraditionSelection? tradition = null;
+        if (selection.Tradition is not null && !TryFreezeTradition(selection.Tradition, out tradition)) return false;
         if (selection.AdeptPowers is not null && !TryFreezeAdeptPowers(selection.AdeptPowers, out powers)) return false;
         Sr6CreationKarmaSelection? karma = null;
         if (selection.Karma is not null && !TryFreezeKarma(selection.Karma, out karma)) return false;
@@ -58,7 +60,7 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Lifestyle is not null && !TryFreezeLifestyle(selection.Lifestyle, out lifestyle)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Karma = karma, Qualities = qualities, Contacts = contacts, Gear = gear, Lifestyle = lifestyle };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms, Spells = spells, AdeptPowers = powers, Tradition = tradition, Karma = karma, Qualities = qualities, Contacts = contacts, Gear = gear, Lifestyle = lifestyle };
         return true;
     }
 
@@ -167,6 +169,15 @@ public static class Sr6CreationFoundationIntegrity
                 || row.CatalogId.Any(c => !(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-')))
             || rows.Select(row => row.CatalogId).Distinct(StringComparer.Ordinal).Count() != rows.Length) return false;
         frozen = new(rows.OrderBy(row => row.CatalogId, StringComparer.Ordinal).ToArray());
+        return true;
+    }
+
+    public static bool TryFreezeTradition(Sr6CreationTraditionSelection? selection, out Sr6CreationTraditionSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.TraditionId is not { Length: <= 100 } id) return false;
+        if (id.Any(c => !(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-'))) return false;
+        frozen = new(id);
         return true;
     }
 

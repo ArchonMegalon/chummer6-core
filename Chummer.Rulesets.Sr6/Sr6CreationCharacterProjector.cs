@@ -154,7 +154,17 @@ public static class Sr6CreationCharacterProjector
             new XElement("name", row.SourceName), new XElement("extra", row.Choice.Subject),
             new XElement("source", row.SourceAnchorId), new XElement("sr6gmreviewrequired", row.SubjectNeedsGmReview)))));
         if (selection.Selection.TalentId is "magician" or "mystic-adept" or "aspected-magician")
-            incomplete.Add("magical-tradition");
+        {
+            if (selection.Tradition is { } tradition)
+                Replace(new XElement("traditions", new XElement("tradition",
+                    Identity("tradition", tradition.Tradition.Id),
+                    new XElement("name", tradition.Tradition.Name),
+                    new XElement("traditiontype", "MAG"),
+                    new XElement("sourceid", tradition.Tradition.Id),
+                    new XElement("source", tradition.Tradition.SourceAnchorId))));
+            else
+                incomplete.Add("magical-tradition");
+        }
         if (selection.Spells is { Spells.Count: > 0 }) incomplete.Add("spell-runtime-stats");
         if (selection.ComplexForms is { Forms.Count: > 0 }) incomplete.Add("complex-form-runtime-stats");
 

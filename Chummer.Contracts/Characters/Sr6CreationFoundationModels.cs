@@ -42,6 +42,9 @@ public sealed record Sr6CreationFoundationSelection(
     public Sr6CreationAdeptPowerSelection? AdeptPowers { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationTraditionSelection? Tradition { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationKarmaSelection? Karma { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -74,6 +77,7 @@ public sealed record Sr6CreationFoundationState(
     public IReadOnlyList<Sr6CreationComplexFormOption>? ComplexFormOptions { get; init; }
     public IReadOnlyList<Sr6CreationSpellOption>? SpellOptions { get; init; }
     public IReadOnlyList<Sr6CreationAdeptPowerOption>? AdeptPowerOptions { get; init; }
+    public IReadOnlyList<Sr6CreationTraditionOption>? TraditionOptions { get; init; }
     public Sr6CreationKarmaOptions? KarmaOptions { get; init; }
     public Sr6CreationKarmaSpecializationOptions? KarmaSpecializationOptions { get; init; }
     public Sr6CreationKarmaKnowledgeOptions? KarmaKnowledgeOptions { get; init; }
@@ -117,6 +121,9 @@ public sealed record Sr6CreationFoundationPreview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationAdeptPowerPreview? AdeptPowers { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationTraditionPreview? Tradition { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationKarmaPreview? Karma { get; init; }

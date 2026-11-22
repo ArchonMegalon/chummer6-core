@@ -76,6 +76,7 @@ public static class Sr6CreationFoundationRules
             ComplexFormOptions = selected is { Selection.TalentId: "technomancer", TalentAllocation: not null }
                 ? Sr6CreationComplexFormRules.Catalog() : null,
             SpellOptions = selected is null ? null : Sr6CreationSpellRules.Options(selected),
+            TraditionOptions = selected is null ? null : Sr6CreationTraditionRules.Options(selected),
             AdeptPowerOptions = selected is null ? null : Sr6CreationAdeptPowerRules.Options(selected),
             KarmaOptions = selected is null ? null : Sr6CreationKarmaRules.Options(selected),
             KarmaSpecializationOptions = selected is null ? null : Sr6CreationKarmaRules.SpecializationOptions(selected),
@@ -114,6 +115,9 @@ public static class Sr6CreationFoundationRules
         if (selection?.AdeptPowers is { } requestedPowers
             && !Sr6CreationFoundationIntegrity.TryFreezeAdeptPowers(requestedPowers, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationAdeptPowerBlockers.InvalidSelection);
+        if (selection?.Tradition is { } requestedTradition
+            && !Sr6CreationFoundationIntegrity.TryFreezeTradition(requestedTradition, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationTraditionBlockers.InvalidSelection);
         if (selection?.Karma is { } requestedKarma
             && !Sr6CreationFoundationIntegrity.TryFreezeKarma(requestedKarma, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKarmaBlockers.InvalidSelection);
@@ -224,6 +228,13 @@ public static class Sr6CreationFoundationRules
                     PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
                     ComplexFormCost = forms.Value.CharacterPointCost } };
             }
+        }
+        if (selection.Tradition is { } traditionSelection)
+        {
+            var tradition = Sr6CreationTraditionRules.Evaluate(preview, traditionSelection);
+            if (tradition.Value is null) return new(tradition.Outcome, null, tradition.Blockers);
+            preview = preview with { Tradition = tradition.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Append(Sr6CreationTraditionRules.SourceAnchor).Distinct(StringComparer.Ordinal).ToArray() };
         }
         if (selection.Spells is { } spellSelection)
         {
