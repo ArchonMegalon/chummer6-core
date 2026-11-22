@@ -140,10 +140,16 @@ public static class Sr6CreationCharacterProjector
                 new XElement("cost", lifestyle.Option.MonthlyNuyen), new XElement("totalmonthlycost", lifestyle.Option.MonthlyNuyen),
                 new XElement("months", lifestyle.Selection.Months), new XElement("source", lifestyle.Option.SourceAnchorId))));
 
-        Replace(new XElement("spells", (selection.Spells?.Spells ?? []).Select(row => new XElement("spell",
-            Identity("spell", row.Id), new XElement("sr6id", row.Id), new XElement("name", row.SourceName),
-            new XElement("category", row.CategoryId), new XElement("sr6kind", row.Kind),
-            new XElement("source", row.SourceAnchorId), new XElement("sr6use", selection.Spells!.UseId)))));
+        Replace(new XElement("spells", (selection.Spells?.Spells ?? []).Select(row =>
+        {
+            var statistics = Sr6CreationSpellProfiles.Materialize(row, out bool complete);
+            if (!complete) incomplete.Add("spell-runtime-stats");
+            return new XElement("spell", Identity("spell", row.Id),
+                new XElement("sr6id", row.Id), new XElement("name", row.SourceName),
+                new XElement("category", row.CategoryId), new XElement("sr6kind", row.Kind),
+                new XElement("source", row.SourceAnchorId), new XElement("sr6use", selection.Spells!.UseId),
+                statistics);
+        })));
         Replace(new XElement("powers", (selection.AdeptPowers?.Powers ?? []).Select(row => new XElement("power",
             Identity("power", row.Option.Id), new XElement("sr6id", row.Option.Id), new XElement("name", row.Option.SourceName),
             new XElement("rating", row.Rating), new XElement("pointsperlevel", row.Option.QuarterPointsPerRating / 4m),
@@ -165,7 +171,6 @@ public static class Sr6CreationCharacterProjector
             else
                 incomplete.Add("magical-tradition");
         }
-        if (selection.Spells is { Spells.Count: > 0 }) incomplete.Add("spell-runtime-stats");
         if (selection.ComplexForms is { Forms.Count: > 0 }) incomplete.Add("complex-form-runtime-stats");
 
         if (summary.PassiveValues is { } passive)
@@ -197,6 +202,7 @@ public static class Sr6CreationCharacterProjector
         string[] unresolved = incomplete.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         projection.Add(new XElement("incomplete", unresolved.Select(id => new XElement("domain", id))));
         string[] anchors = summary.SourceAnchorIds.Concat(summary.PassiveValues?.SourceAnchorIds ?? [])
+            .Concat((selection.Spells?.Spells ?? []).Select(row => row.SourceAnchorId))
             .Concat(summary.Equipment.SelectMany(row => row.SourceAnchorIds)).Distinct(StringComparer.Ordinal).ToArray();
         projection.Add(new XElement("sources", anchors.Select(anchor => new XElement("anchor", anchor))));
         string xml = root.ToString(SaveOptions.DisableFormatting);

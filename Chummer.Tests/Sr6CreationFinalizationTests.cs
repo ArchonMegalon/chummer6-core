@@ -15,6 +15,108 @@ namespace Chummer.Tests;
 
 public sealed partial class Sr6CreationFoundationTests
 {
+    private static Sr6CreationFoundationSelection SpellRuntimeSelection(string method, string talent = "mystic-adept")
+        => SpellSeed(method, talent) with
+        {
+            MetatypeId = "dwarf", Skills = new([]), Karma = new([], [], 0),
+            Knowledge = new("German", [], []), Contacts = new([]), Gear = new([]), Lifestyle = new("street", 1),
+            Spells = new(["spell-decrease-attribute"]), Tradition = new("shinto"),
+            TalentAllocation = new(talent == "mystic-adept" ? 1 : 0),
+            AdeptPowers = talent == "mystic-adept" ? new([new("adrenaline-boost", 2)]) : null
+        };
+
+    [TestMethod]
+    [DataRow("Priority", "mystic-adept")]
+    [DataRow("SumtoTen", "mystic-adept")]
+    [DataRow("PointBuy", "mystic-adept")]
+    [DataRow("Priority", "magician")]
+    [DataRow("SumtoTen", "magician")]
+    [DataRow("PointBuy", "magician")]
+    public void Spell_runtime_finalization_preserves_draft_tradition_power_reserve_and_cold_reopen(string method, string talent)
+    {
+        using var fixture = new Fixture(method);
+        var selection = SpellRuntimeSelection(method, talent);
+        var request = fixture.Request(selection);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, request).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var reopenedStore = new FileWorkspaceStore(fixture.Directory);
+        var reopened = new Sr6CreationFoundationService(reopenedStore, fixture.Owner);
+        Assert.AreEqual(request.PreviewDigest, reopened.Load(fixture.Stamp, fixture.Id).Value!.Selection!.PreviewDigest);
+        var review = reopened.ReviewFinalization(fixture.Stamp, fixture.Binding).Value!;
+        Assert.IsTrue(review.CanFinalize, string.Join(",", review.Blockers));
+        var spellBefore = new CharacterSectionService().ParseSpells(review.Document.Content).Spells.Single();
+        Assert.AreEqual("P", spellBefore.Type);
+        Assert.AreEqual("T", spellBefore.Range);
+        Assert.AreEqual("S", spellBefore.Duration);
+        Assert.AreEqual("3", spellBefore.DrainValue);
+        var finish = new Sr6CreationFinalizationRequest(review.Binding, review.ReviewDigest, Guid.NewGuid(), true, true);
+        Assert.IsNull(reopened.ConfirmFinalization(fixture.Stamp, finish with { AcceptUnspentLoss = false }).Value);
+        var result = reopened.ConfirmFinalization(fixture.Stamp, finish);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        var coldStore = new FileWorkspaceStore(fixture.Directory);
+        var cold = new Sr6CreationFoundationService(coldStore, fixture.Owner);
+        var saved = coldStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        Assert.AreEqual("sr6", saved.Document.RulesetId);
+        Assert.AreEqual(review.Document.Content, saved.Document.Content);
+        Assert.AreEqual(spellBefore, new CharacterSectionService().ParseSpells(saved.Document.Content).Spells.Single());
+        var root = XDocument.Parse(saved.Document.Content).Root!;
+        Assert.AreEqual("true", root.Element("created")!.Value);
+        Assert.AreEqual("Dwarf", root.Element("metatype")!.Value);
+        Assert.AreEqual("spell-decrease-attribute", root.Element("spells")!.Element("spell")!.Element("sr6id")!.Value);
+        Assert.AreEqual("shinto", root.Element("traditions")!.Element("tradition")!.Element("sourceid")!.Value);
+        var archive = saved.Document.AuxiliaryState.Sr6CreationFinalizationArchive!;
+        Assert.AreEqual(before.Document.Content, archive.OriginalDocument.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, WorkspaceDocumentAuxiliaryStateDigest.Compute(archive.OriginalState));
+        Assert.AreEqual(request.PreviewDigest, archive.OriginalState.Sr6CreationFoundationDecisions!.Last().Preview.PreviewDigest);
+        if (talent == "mystic-adept")
+        {
+            var power = root.Element("powers")!.Element("power")!;
+            Assert.AreEqual("adrenaline-boost", power.Element("sr6id")!.Value);
+            Assert.AreEqual("2", power.Element("rating")!.Value);
+            Assert.AreEqual("0.5", power.Element("sr6totalpoints")!.Value);
+            Assert.AreEqual(1, archive.OriginalState.Sr6CreationFoundationDecisions!.Last().Command.Selection.TalentAllocation!.SelectedPowerPoints);
+        }
+        Assert.AreEqual(result.Value.Receipt, cold.LoadFinalization(fixture.Stamp, fixture.Id).Value);
+        Assert.IsTrue(cold.ConfirmFinalization(fixture.Stamp, finish).Value!.Replayed);
+        Assert.AreEqual(saved.ContentRevision, coldStore.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow("ritual-ward", "ritual-runtime-profile")]
+    [DataRow("spell-focus-boost", "maximum-duration-rule")]
+    public void Spell_runtime_finalization_refuses_incomplete_profiles_without_committing(string id, string requirement)
+    {
+        using var fixture = new Fixture();
+        var selection = SpellRuntimeSelection("Priority") with { Spells = new(["spell-decrease-attribute", id]) };
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(selection)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var review = fixture.Service.ReviewFinalization(fixture.Stamp, fixture.Binding).Value!;
+        Assert.IsFalse(review.CanFinalize);
+        CollectionAssert.Contains(review.Blockers.ToArray(), "spell-runtime-stats");
+        var spell = XDocument.Parse(review.Document.Content).Root!.Element("spells")!.Elements("spell")
+            .Single(row => row.Element("sr6id")!.Value == id);
+        Assert.AreEqual(requirement, spell.Element("sr6spellprofile")!.Element("missing")!.Value);
+        var request = new Sr6CreationFinalizationRequest(review.Binding, review.ReviewDigest, Guid.NewGuid(), true, true);
+        Assert.IsNull(fixture.Service.ConfirmFinalization(fixture.Stamp, request).Value);
+        Assert.AreEqual(Sr6CreationFoundationIntegrity.Digest(before),
+            Sr6CreationFoundationIntegrity.Digest(fixture.Store.Get(fixture.Id).Value!));
+    }
+
+    [TestMethod]
+    public void Spell_runtime_finalization_still_requires_a_reviewed_spell_selection()
+    {
+        using var fixture = new Fixture();
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp,
+            fixture.Request(SpellRuntimeSelection("Priority") with { Spells = null })).Value);
+        var review = fixture.Service.ReviewFinalization(fixture.Stamp, fixture.Binding).Value!;
+        CollectionAssert.Contains(review.Blockers.ToArray(), "spells");
+        Assert.IsFalse(review.CanFinalize);
+        Assert.IsNull(fixture.Service.ConfirmFinalization(fixture.Stamp,
+            new(review.Binding, review.ReviewDigest, Guid.NewGuid(), true, true)).Value);
+    }
+
     [TestMethod]
     [DataRow("Priority")]
     [DataRow("SumtoTen")]
@@ -217,7 +319,7 @@ public sealed partial class Sr6CreationFoundationTests
         var review = fixture.Service.ReviewFinalization(fixture.Stamp, fixture.Binding).Value!;
         CollectionAssert.Contains(review.Blockers.ToArray(), "magical-tradition");
         CollectionAssert.Contains(review.Blockers.ToArray(), "equipment-runtime-stats");
-        CollectionAssert.Contains(review.Blockers.ToArray(), "spell-runtime-stats");
+        CollectionAssert.DoesNotContain(review.Blockers.ToArray(), "spell-runtime-stats");
         var request = new Sr6CreationFinalizationRequest(review.Binding, review.ReviewDigest, Guid.NewGuid(), true, true);
         Assert.IsNull(fixture.Service.ConfirmFinalization(fixture.Stamp, request).Value);
         Assert.AreEqual(review.Binding.ContentRevision, fixture.Store.Get(fixture.Id).Value!.ContentRevision);

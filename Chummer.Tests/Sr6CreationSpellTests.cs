@@ -150,6 +150,57 @@ public sealed partial class Sr6CreationFoundationTests
             Document = candidate with { State = candidate.State with { AuxiliaryState = state } } }).Value);
     }
 
+    [TestMethod]
+    [DataRow("spell-unknown")]
+    [DataRow("sr5-spell")]
+    [DataRow("Spell-Decrease-Attribute")]
+    [DataRow("spell-decrease-attribute ")]
+    [DataRow("")]
+    public void Spell_runtime_rejects_unknown_or_invalid_identity_without_saving(string id)
+    {
+        using var fixture = new Fixture();
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var result = fixture.Service.Preview(fixture.Stamp, fixture.Binding,
+            SpellRuntimeSelection("Priority") with { Spells = new([id]) });
+        Assert.IsNull(result.Value);
+        Assert.IsGreaterThan(0, result.Blockers.Count);
+        Assert.AreEqual(Sr6CreationFoundationIntegrity.Digest(saved),
+            Sr6CreationFoundationIntegrity.Digest(fixture.Store.Get(fixture.Id).Value!));
+    }
+
+    [TestMethod]
+    [DataRow("source")]
+    [DataRow("category")]
+    [DataRow("kind")]
+    [DataRow("name")]
+    public void Spell_runtime_projection_and_finalization_refuse_redigested_noncanonical_catalog_data(string field)
+    {
+        using var fixture = new Fixture();
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var request = fixture.Request(SpellRuntimeSelection("Priority"));
+        Assert.IsTrue(Sr6CreationFoundationRules.TryBuild(saved, request, out var candidate, out var decision));
+        var option = decision.Preview.Spells!.Spells.Single();
+        var forgedOption = field switch
+        {
+            "source" => option with { SourceAnchorId = "sr5_core:p288" },
+            "category" => option with { CategoryId = "combat" },
+            "kind" => option with { Kind = "ritual" },
+            _ => option with { SourceName = "Untrusted formula" }
+        };
+        var preview = decision.Preview with { Spells = decision.Preview.Spells with { Spells = [forgedOption] } };
+        preview = preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) };
+        var forged = decision with { Preview = preview, Command = request with { PreviewDigest = preview.PreviewDigest } };
+        forged = forged with { DecisionDigest = Sr6CreationFoundationIntegrity.DecisionDigest(forged) };
+        var auxiliary = candidate.AuxiliaryState with { Sr6CreationFoundationDecisions = [forged] };
+        Assert.IsTrue(Sr6CreationFoundationIntegrity.IsValidLedger(fixture.Id, 2, auxiliary));
+        var invalid = saved with { ContentRevision = 2, SavedRevision = 2,
+            Document = candidate with { State = candidate.State with { AuxiliaryState = auxiliary } } };
+        Assert.IsNull(Sr6CreationCharacterProjector.Project(invalid).Value);
+        Assert.IsNull(Sr6CreationFinalizationRules.Review(invalid).Value);
+        Assert.AreEqual(Sr6CreationFoundationIntegrity.Digest(saved),
+            Sr6CreationFoundationIntegrity.Digest(fixture.Store.Get(fixture.Id).Value!));
+    }
+
     private static Sr6CreationFoundationSelection SpellSeed(string method, string talent = "magician")
         => (method == "PointBuy" ? PointBuy(talent: talent) with { PointBuy = new(0, 0, 2, 0) }
             : Ranked("talent", "A") with { TalentId = talent }) with

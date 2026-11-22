@@ -16,6 +16,91 @@ namespace Chummer.Tests;
 public sealed partial class Sr6CreationFoundationTests
 {
     [TestMethod]
+    [DataRow("spell-decrease-attribute", "P", "T", "S", "3")]
+    [DataRow("spell-heal", "P", "T", "P", "3")]
+    [DataRow("spell-invisibility", "M", "T", "S", "3")]
+    [DataRow("spell-stunbolt", "M", "LOS", "I", "3")]
+    [DataRow("spell-lightning-bolt", "P", "LOS", "I", "5")]
+    [DataRow("spell-vehicle-armor", "P", "T", "S", "6")]
+    [DataRow("spell-detect-magic", "M", "T", "S", "4")]
+    public void Spell_runtime_projection_populates_the_shared_reader_without_changing_the_saved_draft(
+        string id, string type, string range, string duration, string drain)
+    {
+        using var fixture = new Fixture();
+        var request = fixture.Request(SpellSeed("Priority") with { Spells = new([id]), Tradition = new("shinto") });
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, request).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        string digest = Sr6CreationFoundationIntegrity.Digest(saved);
+        var projected = fixture.Service.ProjectCharacter(fixture.Stamp, fixture.Binding).Value!;
+        var spell = new CharacterSectionService().ParseSpells(projected.Document.Content).Spells.Single();
+        Assert.AreEqual(type, spell.Type);
+        Assert.AreEqual(range, spell.Range);
+        Assert.AreEqual(duration, spell.Duration);
+        Assert.AreEqual(drain, spell.DrainValue);
+        var option = Sr6CreationSpellRules.Catalog().Single(row => row.Id == id);
+        Assert.AreEqual(option.SourceName, spell.Name);
+        Assert.AreEqual(option.SourceAnchorId, spell.Source);
+        CollectionAssert.Contains(projected.SourceAnchorIds.ToArray(), option.SourceAnchorId);
+        CollectionAssert.DoesNotContain(projected.IncompleteDomains.ToArray(), "spell-runtime-stats");
+        var roundtrip = XDocument.Parse(XDocument.Parse(projected.Document.Content).ToString(SaveOptions.DisableFormatting));
+        Assert.AreEqual(id, roundtrip.Root!.Element("spells")!.Element("spell")!.Element("sr6id")!.Value);
+        Assert.AreEqual(spell, new CharacterSectionService().ParseSpells(roundtrip.ToString()).Spells.Single());
+        Assert.AreEqual(digest, Sr6CreationFoundationIntegrity.Digest(fixture.Store.Get(fixture.Id).Value!));
+        Assert.AreEqual(projected.Document.Content,
+            fixture.Service.ProjectCharacter(fixture.Stamp, fixture.Binding).Value!.Document.Content);
+    }
+
+    [TestMethod]
+    public void Spell_runtime_catalog_coverage_preserves_complete_profiles_and_explicit_missing_requirements()
+    {
+        string[] timed = ["spell-focus-boost", "spell-control-thoughts", "spell-control-actions",
+            "spell-animate-wood", "spell-animate-plastic", "spell-animate-metal", "spell-animate-stone"];
+        int supported = 0, refused = 0;
+        foreach (var batch in Sr6CreationSpellRules.Catalog().Chunk(8))
+        {
+            using var fixture = new Fixture();
+            Assert.IsNotNull(fixture.Service.Confirm(fixture.Stamp, fixture.Request(SpellSeed("Priority") with
+                { Spells = new(batch.Select(row => row.Id).ToArray()) })).Value);
+            var projected = fixture.Service.ProjectCharacter(fixture.Stamp, fixture.Binding).Value!;
+            var spells = XDocument.Parse(projected.Document.Content).Root!.Element("spells")!.Elements("spell").ToArray();
+            bool missing = false;
+            foreach (var option in batch)
+            {
+                var spell = spells.Single(row => row.Element("sr6id")!.Value == option.Id);
+                Assert.AreEqual(option.SourceAnchorId, spell.Element("source")!.Value);
+                Assert.AreEqual(Sr6CreationFoundationRules.CoreSourceSha256,
+                    spell.Element("sr6spellprofile")!.Element("sourcesha256")!.Value);
+                bool expected = option.Kind == "spell" && !timed.Contains(option.Id);
+                Assert.AreEqual(expected, (bool)spell.Element("sr6runtimestatsavailable")!);
+                if (expected)
+                {
+                    supported++;
+                    foreach (string field in new[] { "type", "range", "duration", "dv" })
+                        Assert.IsFalse(string.IsNullOrWhiteSpace(spell.Element(field)?.Value), option.Id + ":" + field);
+                    Assert.IsTrue(int.TryParse(spell.Element("dv")!.Value, out int drain) && drain >= 0);
+                    if (option.CategoryId == "combat")
+                    {
+                        Assert.IsTrue(spell.Element("damage")!.Value is "P" or "S");
+                        Assert.IsTrue(spell.Element("sr6spellprofile")!.Element("combatkind")!.Value is "direct" or "indirect");
+                    }
+                }
+                else
+                {
+                    refused++;
+                    missing = true;
+                    Assert.AreEqual(option.Kind == "ritual" ? "ritual-runtime-profile" : "maximum-duration-rule",
+                        spell.Element("sr6spellprofile")!.Element("missing")!.Value);
+                    foreach (string field in new[] { "type", "range", "duration", "dv" })
+                        Assert.IsNull(spell.Element(field), option.Id + ":" + field);
+                }
+            }
+            Assert.AreEqual(missing, projected.IncompleteDomains.Contains("spell-runtime-stats"));
+        }
+        Assert.AreEqual(66, supported);
+        Assert.AreEqual(15, refused);
+    }
+
+    [TestMethod]
     [DataRow("Priority")]
     [DataRow("SumtoTen")]
     [DataRow("PointBuy")]
@@ -156,7 +241,9 @@ public sealed partial class Sr6CreationFoundationTests
         var spells = XDocument.Parse(magical.Document.Content).Root!.Element("spells")!.Elements("spell").ToArray();
         Assert.AreEqual(2, spells.Length);
         Assert.IsTrue(spells.All(row => row.Element("source")!.Value.StartsWith("sr6_core_de_2024:p", StringComparison.Ordinal)));
-        Assert.IsTrue(spells.All(row => row.Element("drain") is null));
+        Assert.AreEqual("3", spells.Single(row => row.Element("sr6id")!.Value == "spell-heal").Element("dv")!.Value);
+        Assert.AreEqual("P", spells.Single(row => row.Element("sr6id")!.Value == "spell-heal").Element("duration")!.Value);
+        Assert.IsNull(spells.Single(row => row.Element("sr6id")!.Value == "ritual-ward").Element("dv"));
         CollectionAssert.Contains(magical.IncompleteDomains.ToArray(), "magical-tradition");
         CollectionAssert.Contains(magical.IncompleteDomains.ToArray(), "spell-runtime-stats");
         using var techno = new Fixture();
