@@ -6,10 +6,10 @@
     "archive_url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.103/dotnet-sdk-10.0.103-linux-x64.tar.gz",
     "archive_sha512": "bab94f13c57b2ac821d4924fe66084be9b44c41761ff7ff64522c8f7aba345659d31258401dcec31cc3cf6ccae1d012623075aca1c9b9165bcfe5ba9abda1c0c"
   },
-  "package_version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51",
+  "package_version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38",
   "runtime_source": {
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "903be22902d51769a8742cb2778dbf4bf3385ac8"
+    "commit": "f90440d521d381a66e368cc64d46a9b7bccd9213"
   },
   "allowed_recipe_delta": [
     "eng/runtime-package-plane.lock.json",
@@ -60,11 +60,11 @@
     },
     {
       "path": "scripts/ai/runtime-package-plane.py",
-      "sha256": "7c77a4d2c67f4f4c8dff743294daf03f277f60a998573a3d11948e3adb0c77b0"
+      "sha256": "11466891732db3670bd3313aa349756b8d2d17a5e36de846502e0a84161ad413"
     },
     {
       "path": "scripts/ai/verify-no-siblings-package-plane.sh",
-      "sha256": "e8ee4ee6675a1962a88b4c8ea116a9ab9228c4a4a2eb65c0a7f0897d6d6d62e0"
+      "sha256": "96064b6265d77c8f81705eaafeb002e517c7ed985b6234f3507360e52c3f1786"
     }
   ],
   "external_owner_packages": [
@@ -109,13 +109,13 @@
     {
       "id": "Chummer.Application",
       "project": "Chummer.Application/Chummer.Application.csproj",
-      "project_sha256": "b2449270677e611b0eeb81065af67e8d78123d48f533fedc76fcbcc75147b2ea",
+      "project_sha256": "8cd88bc3e01ff18cffb2014b39c45adf99f271345bfc321529dcdb71d07939cc",
       "assembly": "Chummer.Application.dll",
       "target_framework": "net10.0",
       "dependencies": [
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Hub.Registry.Contracts",
@@ -136,11 +136,11 @@
       "dependencies": [
         {
           "id": "Chummer.Application",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Run.Contracts",
@@ -161,11 +161,11 @@
       "dependencies": [
         {
           "id": "Chummer.Application",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Run.Contracts",
@@ -186,11 +186,11 @@
       "dependencies": [
         {
           "id": "Chummer.Application",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Run.Contracts",
@@ -211,11 +211,11 @@
       "dependencies": [
         {
           "id": "Chummer.Application",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Hub.Registry.Contracts",
@@ -223,15 +223,15 @@
         },
         {
           "id": "Chummer.Rulesets.Hosting",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Rulesets.Sr5",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Rulesets.Sr6",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Run.Contracts",
@@ -256,15 +256,15 @@
       "dependencies": [
         {
           "id": "Chummer.Application",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Infrastructure",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Run.Contracts",
@@ -285,11 +285,11 @@
       "dependencies": [
         {
           "id": "Chummer.Application",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Engine.Contracts",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Hub.Registry.Contracts",
@@ -297,19 +297,19 @@
         },
         {
           "id": "Chummer.Infrastructure",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Rulesets.Hosting",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Rulesets.Sr5",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Rulesets.Sr6",
-          "version": "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+          "version": "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
         },
         {
           "id": "Chummer.Run.Contracts",

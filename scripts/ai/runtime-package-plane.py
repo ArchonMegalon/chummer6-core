@@ -36,9 +36,9 @@ CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.invent
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
 # Date/sequence must advance for new candidates; commit hashes do not sort by
 # release order. Keep the source suffix for identity, not version precedence.
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "903be22902d51769a8742cb2778dbf4bf3385ac8"
+SOURCE_COMMIT = "f90440d521d381a66e368cc64d46a9b7bccd9213"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -99,7 +99,7 @@ PACKAGE_SPECS = (
     PackageSpec(
         "Chummer.Application",
         "Chummer.Application/Chummer.Application.csproj",
-        "b2449270677e611b0eeb81065af67e8d78123d48f533fedc76fcbcc75147b2ea",
+        "8cd88bc3e01ff18cffb2014b39c45adf99f271345bfc321529dcdb71d07939cc",
         "Chummer.Application.dll",
         (
             "Chummer.Engine.Contracts",
@@ -1329,6 +1329,19 @@ def _candidate_inventory_digest(
     return hashlib.sha256(raw).hexdigest()
 
 
+def _configured_package_source_mapping() -> dict[str, str]:
+    # Validation authority comes from the caller, never from a receipt claim.
+    # Offline bundle consumers must opt in explicitly as the producer does.
+    mode = os.environ.get("CHUMMER_PACKAGE_PLANE_SOURCE_MODE", "declared-source")
+    sources = {
+        "declared-source": "https://api.nuget.org/v3/index.json",
+        "offline": "offline-packages",
+    }
+    if mode not in sources:
+        raise RuntimePackagePlaneError("unsupported package-plane source mode")
+    return {"Chummer.*": "locked-owner-contracts", "other": sources[mode]}
+
+
 def _validate_receipt(
     repo_root: Path,
     feed: Path,
@@ -1484,10 +1497,7 @@ def _validate_receipt(
         "package_version": owner_lock["package_version"],
         "no_sibling_directories": True,
         "isolated_package_cache": True,
-        "package_source_mapping": {
-            "Chummer.*": "locked-owner-contracts",
-            "other": "https://api.nuget.org/v3/index.json",
-        },
+        "package_source_mapping": _configured_package_source_mapping(),
     }
     for key, expected in required.items():
         if receipt.get(key) != expected:

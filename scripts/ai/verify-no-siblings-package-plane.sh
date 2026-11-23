@@ -8,13 +8,101 @@ lock_path="$repo_root/eng/package-plane.lock.json"
 runtime_lock_path="$repo_root/eng/runtime-package-plane.lock.json"
 bootstrap_script="$repo_root/scripts/ai/bootstrap-owner-contracts-feed.py"
 runtime_plane_script="$repo_root/scripts/ai/runtime-package-plane.py"
-feed_root="$repo_root/.tmp/ai/local-nuget"
+# Existing callers retain the declared owner bootstrap and nuget.org source.
+# Local offline execution must be selected explicitly; it never bootstraps.
+source_mode="${CHUMMER_PACKAGE_PLANE_SOURCE_MODE-declared-source}"
+case "$source_mode" in
+  declared-source)
+    if [[ -v CHUMMER_PACKAGE_PLANE_OWNER_FEED || -v CHUMMER_PACKAGE_PLANE_OFFLINE_SOURCE ]]; then
+      echo "offline inputs require explicit offline source mode" >&2
+      exit 1
+    fi
+    feed_root="$repo_root/.tmp/ai/local-nuget"
+    offline_source=""
+    ;;
+  offline)
+    feed_root="${CHUMMER_PACKAGE_PLANE_OWNER_FEED:?set a validated offline owner feed}"
+    offline_source="${CHUMMER_PACKAGE_PLANE_OFFLINE_SOURCE:?set the offline package archive source}"
+    for package_plane_input in "$feed_root" "$offline_source"; do
+      if [[ "$package_plane_input" != /* || ! -d "$package_plane_input" ]]; then
+        echo "package-plane inputs must be absolute local directories: $package_plane_input" >&2
+        exit 1
+      fi
+    done
+    ;;
+  *) echo "unsupported package-plane source mode: $source_mode" >&2; exit 1 ;;
+esac
+package_plane_dotnet="${CHUMMER_PACKAGE_PLANE_DOTNET:-dotnet}"
+
+offline_properties=(
+  '-p:TargetFramework=net10.0'
+  '-p:TargetFrameworks=net10.0'
+  '-p:RuntimeIdentifier='
+  '-p:RuntimeIdentifiers=linux-x64'
+  '-p:ChummerDesktopRuntimeIdentifiers=linux-x64'
+  '-p:SelfContained=false'
+  '-p:NuGetAudit=false'
+  '-p:RestoreAdditionalProjectSources='
+  '-p:RestoreFallbackFolders='
+  '-p:DisableImplicitNuGetFallbackFolder=true'
+  '-p:UseChummerEngineContractsLocalFeed=false'
+  '-p:ChummerUseLocalCompatibilityTree=false'
+  '-p:ChummerUseLockedOwnerContractPackages=true'
+  '-p:UseSharedCompilation=false'
+  '-p:BuildInParallel=false'
+  '-p:RestoreBuildInParallel=false'
+)
+dotnet() {
+  if [[ "$source_mode" != offline ]]; then
+    command "$package_plane_dotnet" "$@"
+    return
+  fi
+  case "${1:-}" in
+    restore|build|pack|test)
+      command "$package_plane_dotnet" "$@" "${offline_properties[@]}" \
+        "-p:RestoreConfigFile=$nuget_config" ;;
+    *) command "$package_plane_dotnet" "$@" ;;
+  esac
+}
+if [[ "$(dotnet --version)" != 10.0.103 ]]; then
+  echo "package-plane requires exact SDK 10.0.103" >&2
+  exit 1
+fi
+
+write_package_nuget_config() {
+  python3 - "$1" "$2" "$offline_source" "$source_mode" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+destination, owner_feed, package_source, source_mode = sys.argv[1:]
+if source_mode == "declared-source":
+    package_source = "https://api.nuget.org/v3/index.json"
+    source_key = "nuget.org"
+elif source_mode == "offline":
+    source_key = "offline-packages"
+else:
+    raise SystemExit("unsupported package-plane source mode")
+configuration = ET.Element("configuration")
+sources = ET.SubElement(configuration, "packageSources")
+ET.SubElement(sources, "clear")
+ET.SubElement(sources, "add", key="locked-owner-contracts", value=owner_feed)
+other_source = ET.SubElement(sources, "add", key=source_key, value=package_source)
+if source_mode == "declared-source":
+    other_source.set("protocolVersion", "3")
+mapping = ET.SubElement(configuration, "packageSourceMapping")
+for key, pattern in (("locked-owner-contracts", "Chummer.*"), (source_key, "*")):
+    source = ET.SubElement(mapping, "packageSource", key=key)
+    ET.SubElement(source, "package", pattern=pattern)
+ET.ElementTree(configuration).write(Path(destination), encoding="utf-8", xml_declaration=True)
+PY
+}
 inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"
-runtime_source_commit="903be22902d51769a8742cb2778dbf4bf3385ac8"
+candidate_version="0.0.0-packageplane.candidate.v20261123.9918.shf90440d521d38"
+runtime_source_commit="f90440d521d381a66e368cc64d46a9b7bccd9213"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -23,7 +111,9 @@ locked_version="$(python3 "$bootstrap_script" --repo-root "$repo_root" --print-v
 
 python3 "$runtime_plane_script" --repo-root "$repo_root" --lock "$runtime_lock_path"
 
-bash "$script_dir/bootstrap-contracts-feed.sh"
+if [[ "$source_mode" == declared-source ]]; then
+  bash "$script_dir/bootstrap-contracts-feed.sh"
+fi
 python3 "$bootstrap_script" \
   --repo-root "$repo_root" \
   --feed "$feed_root" \
@@ -39,6 +129,10 @@ cleanup() {
 trap cleanup EXIT
 normal_packages="$temporary_root/normal-packages"
 mkdir -p "$normal_packages"
+if [[ "$source_mode" == offline ]]; then
+  nuget_config="$temporary_root/normal.NuGet.Config"
+  write_package_nuget_config "$nuget_config" "$feed_root"
+fi
 
 # Prove the normal developer graph is coherent: the local Engine project at
 # 0.0.0-local must win while Registry/Play/Run resolve as the locked packages.
@@ -121,24 +215,7 @@ test ! -e "$consumer_parent/chummer-hub-registry"
 test ! -e "$consumer_parent/chummer.run-services"
 test ! -e "$consumer_parent/chummer-core-engine"
 
-cat >"$nuget_config" <<EOF
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="locked-owner-contracts" value="$isolated_feed" />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
-  </packageSources>
-  <packageSourceMapping>
-    <packageSource key="locked-owner-contracts">
-      <package pattern="Chummer.*" />
-    </packageSource>
-    <packageSource key="nuget.org">
-      <package pattern="*" />
-    </packageSource>
-  </packageSourceMapping>
-</configuration>
-EOF
+write_package_nuget_config "$nuget_config" "$isolated_feed"
 
 export DOTNET_CLI_HOME="$isolated_cli_home"
 export NUGET_PACKAGES="$isolated_packages"
@@ -867,13 +944,15 @@ prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTest
 source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CareerCatalog1158'
 private_runtime_filter='FullyQualifiedName~PrivateWorkspaceRuleRuntimeTests|FullyQualifiedName~RequestOwnerContextLifetimeTests'
 career_magic_filter='FullyQualifiedName~CharacterAdeptPowerPointRulesTests|FullyQualifiedName~WorkspaceCharacterCareerPowerTests|FullyQualifiedName~CharacterCareerInitiationTests'
+sr6_spell_runtime_filter='FullyQualifiedName~Sr6CreationFoundationTests.Spell_runtime_|FullyQualifiedName~Sr6CreationFoundationTests.Character_projection_keeps_spell_and_form_source_identity_without_invented_runtime_stats|FullyQualifiedName~Sr6CreationFoundationTests.Sr6_finalization_does_not_promote_unresolved_equipment_or_magical_tradition|FullyQualifiedName~Sr6CreationFoundationTests.Tradition_selection_resolves_magical_tradition_and_materializes|FullyQualifiedName~Sr6CreationFoundationTests.Spells_and_rituals_share_one_creation_pool_save_and_cold_reopen|FullyQualifiedName~Sr6CreationFoundationTests.Spell_freeze_is_detached_canonical_and_redigested_forgery_is_not_authority'
+portable_workspace_filter='FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Export_import_|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Portable_envelope_dispatch_preserves_sr6_hero_lab_json_import|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Export_builds_receipt_from_ruleset_codec_sections|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Export_marks_bounded_loss_when_portable_sections_are_missing|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_json_marks_portable_dossier_review_posture|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_get_profile_update_and_save_roundtrip|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_accepts_xml_with_utf8_bom_prefix|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_with_owner_scope_routes_create_through_owner_scoped_store|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_does_not_create_workspace_when_summary_parse_fails'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
   --framework net10.0 \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$private_runtime_filter|$career_magic_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$private_runtime_filter|$career_magic_filter|$sr6_spell_runtime_filter|$portable_workspace_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   --logger 'console;verbosity=normal' \
   "${common_properties[@]}"
 
@@ -915,7 +994,7 @@ python3 - \
   "$isolated_feed" \
   "$receipt_path" \
   "$candidate_version" \
-  "$runtime_source_commit" <<'PY'
+  "$runtime_source_commit" "$source_mode" <<'PY'
 import hashlib
 import json
 import subprocess
@@ -938,6 +1017,13 @@ from pathlib import Path
 # Consume the same locked authority used by the pack invocations, never derive
 # expected identity from the candidate inventories being checked.
 expected_candidate_version, expected_runtime_source_commit = sys.argv[11:13]
+source_mode = sys.argv[13]
+source_mappings = {
+    "declared-source": "https://api.nuget.org/v3/index.json",
+    "offline": "offline-packages",
+}
+if source_mode not in source_mappings:
+    raise SystemExit("unsupported package-plane source mode")
 expected_package_root = package_root.resolve()
 asset_files = sorted(consumer_root.glob("**/obj/project.assets.json"))
 if not asset_files:
@@ -1156,7 +1242,7 @@ receipt = {
     "isolated_package_cache": True,
     "package_source_mapping": {
         "Chummer.*": "locked-owner-contracts",
-        "other": "https://api.nuget.org/v3/index.json",
+        "other": source_mappings[source_mode],
     },
     "normal_local_engine_dependency_graph": "pass",
     "build": "pass",
