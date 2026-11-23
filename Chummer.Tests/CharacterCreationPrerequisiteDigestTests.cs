@@ -20,7 +20,8 @@ public sealed class CharacterCreationPrerequisiteDigestTests
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     public void Complete_representative_graph_preserves_legacy_bytes_and_public_digest(string buildMethod)
     {
-        CharacterCreationPrerequisiteAuthority authority = CreateFixture(buildMethod, includeRacialSources: true);
+        CharacterCreationPrerequisiteAuthority authority = CreateFixture(
+            buildMethod, includeRacialSources: true, includeBaseBonuses: true);
         Assert.IsTrue(CurrentOptions().IsReadOnly);
         Assert.IsNotNull(CreateOptions(typeof(CharacterCreationPrerequisiteAuthority)));
         AssertEquivalent(authority);
@@ -31,6 +32,7 @@ public sealed class CharacterCreationPrerequisiteDigestTests
             typeof(CharacterCreationPriorityOptionProjection),
             typeof(CharacterCreationPriorityHeritageOptionProjection),
             typeof(CharacterCreationMetatypeAttributeProjection),
+            typeof(CharacterCreationMetatypeBaseBonuses),
             typeof(CharacterCreationMetatypeMovementProjection),
             typeof(CharacterCreationMetatypeMovementRate),
             typeof(CharacterCreationPriorityTalentOptionProjection),
@@ -46,6 +48,7 @@ public sealed class CharacterCreationPrerequisiteDigestTests
         CollectionAssert.AreEquivalent(expected, actual.ToArray(), "Review every new declared graph type.");
         CharacterCreationPriorityOptionProjection option = authority.Options[0];
         Assert.HasCount(2, option.HeritageOptions[0].Attributes);
+        Assert.AreEqual(new CharacterCreationMetatypeBaseBonuses(1, 2, 20), option.HeritageOptions[0].BaseBonuses);
         Assert.HasCount(2, option.HeritageOptions[0].RacialQualitySources!);
         Assert.HasCount(2, option.HeritageOptions[0].RacialQualitySources![0].GrantedGearSources!);
         Assert.IsNotNull(option.HeritageOptions[0].Movement.Walk);
@@ -305,7 +308,49 @@ public sealed class CharacterCreationPrerequisiteDigestTests
         Assert.IsFalse(before.AsSpan().SequenceEqual(changed), "Nested source digests must not be blanked.");
     }
 
-    public static CharacterCreationPrerequisiteAuthority CreateFixture(string buildMethod, string text = "fixture", bool includeRacialSources = false)
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Optional_base_bonuses_preserve_omission_and_bind_each_value_and_source(string buildMethod)
+    {
+        var historical = CreateFixture(buildMethod);
+        byte[] absent = AssertEquivalent(historical);
+        Assert.IsFalse(Encoding.UTF8.GetString(absent).Contains("BaseBonuses", StringComparison.Ordinal));
+
+        var zero = ReplaceFirstHeritage(historical, option => option with { BaseBonuses = new(0, 0, 0) });
+        byte[] zeroBytes = AssertEquivalent(zero);
+        Assert.IsFalse(absent.AsSpan().SequenceEqual(zeroBytes), "Omitted bonuses must differ from an all-zero record.");
+        StringAssert.Contains(Encoding.UTF8.GetString(zeroBytes),
+            "\"BaseBonuses\":{\"Armor\":0,\"LifestyleCostPercent\":0,\"Reach\":0}");
+
+        var bonuses = new CharacterCreationMetatypeBaseBonuses(1, 2, 20);
+        var populated = ReplaceFirstHeritage(historical, option => option with { BaseBonuses = bonuses });
+        byte[] before = AssertEquivalent(populated);
+        Assert.IsFalse(zeroBytes.AsSpan().SequenceEqual(before));
+        StringAssert.Contains(Encoding.UTF8.GetString(before),
+            "\"BaseBonuses\":{\"Armor\":1,\"LifestyleCostPercent\":20,\"Reach\":2}");
+
+        // Exercise serialization boundaries, not metatype domain validation.
+        foreach (var changed in new[]
+        {
+            bonuses with { Armor = int.MinValue },
+            bonuses with { Reach = int.MaxValue },
+            bonuses with { LifestyleCostPercent = -20 }
+        })
+        {
+            byte[] after = AssertEquivalent(ReplaceFirstHeritage(populated, option => option with { BaseBonuses = changed }));
+            Assert.IsFalse(before.AsSpan().SequenceEqual(after), "Every base-bonus value must remain digest significant.");
+        }
+
+        // The enclosing heritage and authority carry this record's source binding.
+        Assert.IsFalse(before.AsSpan().SequenceEqual(AssertEquivalent(ReplaceFirstHeritage(
+            populated, option => option with { MetatypeSourceNodeDigest = "changed-metatype-source" }))));
+        Assert.IsFalse(before.AsSpan().SequenceEqual(AssertEquivalent(
+            populated with { EffectiveMetatypesInputsDigest = "changed-metatype-inputs" })));
+    }
+
+    public static CharacterCreationPrerequisiteAuthority CreateFixture(string buildMethod, string text = "fixture",
+        bool includeRacialSources = false, bool includeBaseBonuses = false)
     {
         string[] anchors = ["z-anchor:" + text, "a-anchor:" + text];
         var activeChoice = new CharacterCreationTalentActiveSkillChoiceProjection(
@@ -346,6 +391,8 @@ public sealed class CharacterCreationPrerequisiteDigestTests
             { GrantedGearSources = [gear, gear with { SourceId = "gear-a" }] };
             heritage = heritage with { RacialQualitySources = [quality, quality with { SourceId = "quality-a" }] };
         }
+        if (includeBaseBonuses)
+            heritage = heritage with { BaseBonuses = new(1, 2, 20) };
         var talent = new CharacterCreationPriorityTalentOptionProjection(
             "talent-z", text, text, 5, 6, null, 0, [text, "second"], "talent-child",
             true, ["z-block", "a-block"], anchors)
