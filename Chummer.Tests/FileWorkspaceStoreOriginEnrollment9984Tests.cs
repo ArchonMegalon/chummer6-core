@@ -148,7 +148,10 @@ public sealed class FileWorkspaceStoreOriginEnrollment9984Tests
         }
         internal void Change(FileWorkspaceStore store, CharacterWorkspaceId id, string alias)
         {
-            var saved = store.Get(Owners.Current, id).Value!;
+            var ordinary = store.Get(Owners.Current, id);
+            Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, ordinary.Outcome);
+            Assert.IsNull(ordinary.Value);
+            var saved = store.WithCurrentRuleEnvironment(Owners, Owners.Capture(), id, (workspace, _) => workspace);
             var xml = XElement.Parse(saved.Document.Content); xml.SetElementValue("alias", alias);
             var document = saved.Document with { State = saved.Document.State with { Payload = xml.ToString(SaveOptions.DisableFormatting) } };
             Assert.IsTrue(store.ReplaceWorkspaceDocumentAndCheckpoint(Owners.Current, id, saved.ContentRevision, document).Success);

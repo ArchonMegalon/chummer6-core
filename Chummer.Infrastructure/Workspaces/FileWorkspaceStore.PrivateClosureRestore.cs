@@ -126,8 +126,7 @@ public sealed partial class FileWorkspaceStore
             RequireIncomingOriginHistory(admission, decoded, previous?.AuthenticatedHistory);
 
             // Retain original operation proofs across later reviewed revisions. Never prune a proof on save.
-            var priorReceipts = previous?.RetainedRuleSources?.RestoreReceipts
-                ?? (previous?.LocalHistory?.LastRestore is { } priorRestore ? [priorRestore] : []);
+            var priorReceipts = previous?.RetainedRuleSources?.RestoreReceipts ?? [];
             var priorEvidence = previous?.RetainedRuleSources?.RestoreEvidence ?? [];
             if (priorEvidence.Length != priorReceipts.Length) throw RetainedRuleSourceRejected();
             if (priorReceipts.Length >= MaximumRetainedRuleSourceReferences)

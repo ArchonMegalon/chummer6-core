@@ -25,7 +25,10 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
     {
         using var f = new SavedRunner(reverse, authenticatedHistory: true);
         var original = f.Export();
-        var before = f.Store.Get(f.Id).Value!;
+        var ordinary = f.Store.Get(f.Id);
+        Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, ordinary.Outcome);
+        Assert.IsNull(ordinary.Value);
+        var before = f.ReadCurrent();
         Assert.AreEqual(10m, f.Quote());
         f.StageAmend();
         // Ambient edit cannot silently refresh an ordinary export.
@@ -44,7 +47,7 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
         var alternatives = f.Service.ListUpdateAlternatives(f.Owners.Capture(), f.Id);
         var originalAlternative = alternatives.Single(row => row.Binding == original.Binding);
         Assert.AreEqual((decimal)expectedCost, f.Quote());
-        var after = f.Store.Get(f.Id).Value!;
+        var after = f.ReadCurrent();
         Assert.AreEqual(before.Document.Content, after.Document.Content);
         Assert.AreEqual(JsonSerializer.Serialize(before.Document.AuxiliaryState), JsonSerializer.Serialize(after.Document.AuxiliaryState));
         Assert.AreEqual(after.ContentRevision, after.SavedRevision);
@@ -71,7 +74,7 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
         Assert.AreEqual(WorkspaceContinuationRestoreOutcome.Applied, f.Service.Confirm(restore, true).Outcome);
         f.Reopen();
         Assert.AreEqual(10m, f.Quote());
-        Assert.AreEqual(before.Document.Content, f.Store.Get(f.Id).Value!.Document.Content);
+        Assert.AreEqual(before.Document.Content, f.ReadCurrent().Document.Content);
     }
 
     [TestMethod]
@@ -241,11 +244,11 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
         CollectionAssert.AreEqual(exported, f.Export().ExportPrivateBytes());
         Assert.AreEqual(WorkspaceRuleUpdateState.CommittedUpdate,
             f.Service.Recover(f.Owners.Capture(), f.Id, review.OperationId, review.AdmissionDigest!).RuleUpdate?.State);
-        var saved = f.Store.Get(f.Id).Value!;
+        var saved = f.ReadCurrent();
         Assert.IsTrue(f.Store.ReplaceWorkspaceDocumentAndCheckpoint(f.Id, saved.ContentRevision, saved.Document).Success);
         byte[] later = File.ReadAllBytes(path);
         f.Reopen();
-        Assert.IsTrue(f.Store.Get(f.Id).Success);
+        Assert.IsNotNull(f.ReadCurrent());
         CollectionAssert.AreEqual(later, File.ReadAllBytes(path)); // never rewind a later save
         using var old = f.Service.ReviewUpdateAlternative(f.Owners.Capture(), f.Id, review.OperationId, f.Resolver());
         Assert.IsNotNull(old.UpdatePreview);
@@ -299,7 +302,7 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
         Assert.AreEqual(0, Directory.GetFiles(Path.GetDirectoryName(path)!, temporaryPattern).Length);
         if (slot is null) File.Delete(path + ".slot"); else File.WriteAllBytes(path + ".slot", slot);
         f.Reopen();
-        Assert.IsTrue(f.Store.Get(f.Id).Success);
+        Assert.IsNotNull(f.ReadCurrent());
         CollectionAssert.AreEqual(published, File.ReadAllBytes(path));
         Assert.AreEqual(publishedTime, File.GetLastWriteTimeUtc(path));
         CollectionAssert.AreEqual(publishedExport, f.Export().ExportPrivateBytes());
@@ -721,6 +724,9 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
             Store = FileWorkspaceStore.CreateWithRetainedRuleSources(State, Queries, new FileWorkspaceStore.OriginTrustDomain(Trust));
             Service = new(Store, Owners, Queries, reviewLifetime: TimeSpan.FromMinutes(30));
         }
+        // Retained workspaces require an owner lease and current-source admission; ordinary Get is refused.
+        internal WorkspaceStoredDocument ReadCurrent() => Store.WithCurrentRuleEnvironment(Owners, Owners.Capture(), Id,
+            (saved, _) => saved);
         internal decimal Quote() => Store.WithCurrentRuleEnvironment(Owners, Owners.Capture(), Id, (saved, resolver) =>
         {
             var gear = Guid.Parse("22222222-2222-2222-2222-222222222222");
