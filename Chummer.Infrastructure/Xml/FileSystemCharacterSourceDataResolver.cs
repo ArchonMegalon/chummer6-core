@@ -9664,7 +9664,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             if (_customDirectories.Count != 0 || _catalog.Overlays.Any(pack => pack.Enabled))
                 return TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out qualities);
             var references = (metatypes.Root?.Element("metatypes")?.Elements("metatype") ?? [])
-                .Where(row => row.Element("name")?.Value is "Elf" or "Ork")
+                .Where(row => row.Element("name")?.Value is "Elf" or "Ork" or "Dwarf")
                 .SelectMany(row => row.Elements("qualities").Elements().Elements("quality"))
                 .Select(row => row.Value.Trim()).ToHashSet(StringComparer.Ordinal);
             if (!_sourceInputs.TryLoadQualityReferences(Path.Combine(_catalog.BaseDataPath, "qualities.xml"),
