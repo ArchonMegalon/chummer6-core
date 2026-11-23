@@ -703,16 +703,26 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
         string path = Directory.GetFiles(f.State, f.Id.Value + ".json", SearchOption.AllDirectories).Single();
         byte[] before = File.ReadAllBytes(path);
         var request = new WorkspaceWizardRequest(f.Id, saved.ContentRevision, Guid.NewGuid(), new WorkspaceAliasEdit("uncertain alias"));
-        var fault = new StageFault9981(FileWorkspaceStoreFaultStage.AfterTempFileFlushed);
+        int workspaceFaultCount = 0;
+        // Retaining the changed alias capture uses this hook before wizard dispatch.
+        // Fail only the workspace record write, after the capture has been admitted.
+        var fault = new StageFault9981(FileWorkspaceStoreFaultStage.AfterTempFileFlushed,
+            (targetPath, _) =>
+            {
+                if (!string.Equals(targetPath, path, StringComparison.Ordinal)) return;
+                workspaceFaultCount++;
+                throw new IOException("test-only wizard workspace publication failure");
+            }, throwAfter: false);
         var faulting = f.CreateFaultingStore(fault);
         Assert.IsTrue(f.Owners.TryAcquire(stamp, out var lease));
         using (lease)
         {
             var preview = faulting.PreviewWizardMutation(f.Owners, stamp, lease!, request);
             Assert.AreEqual(WorkspaceWizardOutcome.Available, preview.Outcome, preview.Error);
-            Assert.AreEqual(WorkspaceWizardOutcome.Unknown,
-                faulting.CommitWizardMutation(f.Owners, stamp, lease!, preview.Command!).Outcome);
+            var attempted = faulting.CommitWizardMutation(f.Owners, stamp, lease!, preview.Command!);
+            Assert.AreEqual(WorkspaceWizardOutcome.Unknown, attempted.Outcome, attempted.Error);
             Assert.IsTrue(fault.Hit);
+            Assert.AreEqual(1, workspaceFaultCount, "The exact workspace record fault must be reached once.");
         }
         CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
         f.Reopen();
