@@ -14,7 +14,15 @@ namespace Chummer.Contracts.Workspaces;
 [JsonDerivedType(typeof(WorkspaceAttributeAdvance), "attribute")]
 [JsonDerivedType(typeof(WorkspaceActiveSkillAdvance), "active-skill")]
 [JsonDerivedType(typeof(WorkspaceAttributeCorrection), "attribute-correction")]
+[JsonDerivedType(typeof(WorkspaceAliasEdit), "alias-edit")]
 public abstract record WorkspaceWizardAction;
+
+// Literal metadata text (including empty/whitespace aliases when the character
+// still has a legal display name). The bound is UTF-16 code units, not XML bytes.
+public sealed record WorkspaceAliasEdit(string Alias) : WorkspaceWizardAction
+{
+    public const int MaximumAliasLength = 256;
+}
 public sealed record WorkspaceCalendarAdd(string CalendarRevision, string SourceAuthorityDigest,
     CharacterCareerCalendarWeekIdentity NewIdentity, int FirstYear, int FirstWeek) : WorkspaceWizardAction;
 public sealed record WorkspaceCalendarEdit(string CalendarRevision, string SourceAuthorityDigest,

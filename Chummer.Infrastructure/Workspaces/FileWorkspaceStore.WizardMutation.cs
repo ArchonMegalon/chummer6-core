@@ -3,6 +3,7 @@ using Chummer.Application.Characters;
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Workspaces;
+using Chummer.Infrastructure.Xml;
 
 namespace Chummer.Infrastructure.Workspaces;
 
@@ -81,7 +82,8 @@ public sealed partial class FileWorkspaceStore : IWorkspaceWizardMutationStoreCa
             if (command is not null && command.BindingDigest != binding) return WizardRefused("The reviewed owner, source or character changed.");
             // Exact retained source bytes, never an ambient resolver or supplied settings.
             var replacement = WorkspaceWizardTransaction.Build(saved, request, expected.Owner.NormalizedValue,
-                WizardSources(current,cancellationToken), out var receipt);
+                WizardSources(current,cancellationToken), new XmlCharacterMetadataCommands(new CharacterFileService()),
+                _retainedCharacterQueries!, out var receipt);
             var proposed = saved with { Document = replacement, ContentRevision = receipt.CommittedRevision,
                 SavedRevision = receipt.CommittedRevision };
             var readmission = current.Execution.ReadmitProposedCurrentEnvironment(saved, current.Capture,

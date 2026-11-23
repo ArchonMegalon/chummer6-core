@@ -152,9 +152,11 @@ public sealed class FileWorkspaceStoreOriginEnrollment9984Tests
             Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, ordinary.Outcome);
             Assert.IsNull(ordinary.Value);
             var saved = store.WithCurrentRuleEnvironment(Owners, Owners.Capture(), id, (workspace, _) => workspace);
-            var xml = XElement.Parse(saved.Document.Content); xml.SetElementValue("alias", alias);
-            var document = saved.Document with { State = saved.Document.State with { Payload = xml.ToString(SaveOptions.DisableFormatting) } };
-            Assert.IsTrue(store.ReplaceWorkspaceDocumentAndCheckpoint(Owners.Current, id, saved.ContentRevision, document).Success);
+            var before = Export(store, id);
+            var receipt = FileWorkspaceStoreAppliedAmend9976Tests.EditAlias10141(store, Owners, id, saved.ContentRevision, alias);
+            var after = store.WithCurrentRuleEnvironment(Owners, Owners.Capture(), id, (workspace, _) => workspace);
+            FileWorkspaceStoreAppliedAmend9976Tests.AssertAliasChange10141(saved, after, alias, receipt);
+            FileWorkspaceStoreAppliedAmend9976Tests.AssertAliasHistory10141(before, Export(store, id), Queries);
         }
         internal void Authorize(FileWorkspaceStore.OriginTrustDomain domain, string installation, WorkspacePrivateRuleSourceClosure closure)
         {

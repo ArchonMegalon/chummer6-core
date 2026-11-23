@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml;
+using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces.TypedWizard;
 using Chummer.Contracts.Characters;
@@ -38,8 +40,16 @@ public static class WorkspaceWizardTransaction
             WorkspaceAttributeAdvance a => a.ExpectedAttribute is not null,
             WorkspaceActiveSkillAdvance a => a.ExpectedSkill is not null,
             WorkspaceAttributeCorrection a => a.OriginalReceipt is not null,
+            WorkspaceAliasEdit a => ValidAlias(a.Alias),
             _ => false
         });
+
+    private static bool ValidAlias(string? alias)
+    {
+        if (alias is null || alias.Length > WorkspaceAliasEdit.MaximumAliasLength) return false;
+        try { XmlConvert.VerifyXmlChars(alias); return true; }
+        catch (XmlException) { return false; }
+    }
     // Detach nested quote collections before binding or executing them. A caller
     // retaining an array must not change a prepared command during publication.
     public static WorkspaceWizardRequest Freeze(WorkspaceWizardRequest request)
@@ -69,6 +79,15 @@ public static class WorkspaceWizardTransaction
     // or a calculation delegate from the caller of the workspace capability.
     public static WorkspaceDocument Build(WorkspaceStoredDocument saved, WorkspaceWizardRequest r,
         string owner, ICharacterSourceDataResolver retainedSources, out WorkspaceWizardReceipt receipt)
+        => Build(saved, r, owner, retainedSources, null, null, out receipt);
+
+    // These are store-owned metadata adapters, never serialized commands or
+    // workspace-capability parameters. The original overload remains compatible
+    // for existing actions and refuses alias edits without the metadata adapter.
+    public static WorkspaceDocument Build(WorkspaceStoredDocument saved, WorkspaceWizardRequest r,
+        string owner, ICharacterSourceDataResolver retainedSources,
+        ICharacterMetadataCommands? metadataCommands, ICharacterFileQueries? characterQueries,
+        out WorkspaceWizardReceipt receipt)
     {
         if (!Valid(r) || r.WorkspaceId != saved.Id || r.ExpectedContentRevision != saved.ContentRevision
             || saved.Document.Format != WorkspaceDocumentFormat.NativeXml || saved.Document.RulesetId != "sr5")
@@ -91,6 +110,7 @@ public static class WorkspaceWizardTransaction
                 a.ExpectedSkill,a.RuleDigest,a.Confirmed,a.ExpenseId,a.ExpenseDateLocal), null, retainedSources),
             WorkspaceAttributeAdvance a => Attribute(a),
             WorkspaceAttributeCorrection a => Correct(a),
+            WorkspaceAliasEdit a => Alias(a),
             _ => throw new InvalidOperationException("Unsupported typed wizard operation.")
         };
         var rows = saved.Document.AuxiliaryState.WorkspaceWizardReceipts ?? [];
@@ -102,6 +122,21 @@ public static class WorkspaceWizardTransaction
         receipt = receipt with { ReceiptDigest = Hash(receipt) };
         return saved.Document with { State = saved.Document.State with { Payload = result,
             AuxiliaryState = saved.Document.AuxiliaryState with { WorkspaceWizardReceipts = [..rows,receipt] } } };
+
+        string Alias(WorkspaceAliasEdit a)
+        {
+            if (metadataCommands is null || characterQueries is null)
+                throw new InvalidOperationException("The typed alias metadata adapter is unavailable.");
+            var character = XDocument.Parse(xml, LoadOptions.PreserveWhitespace).Root;
+            // Compare literal text before the metadata serializer can normalize
+            // document framing. A no-op must not mint a revision or receipt.
+            if (character is null || (character.Element("alias")?.Value ?? "") == a.Alias)
+                throw new InvalidOperationException("The alias is unchanged.");
+            var updated = metadataCommands.UpdateMetadata(new(new(xml), new(null, a.Alias, null)));
+            if (!characterQueries.Validate(updated.UpdatedDocument).IsValid)
+                throw new InvalidOperationException("The alias would leave invalid character metadata.");
+            return updated.UpdatedDocument.Content;
+        }
         string Correct(WorkspaceAttributeCorrection a)
         {
             var applied = CareerAttributeAdvanceMutation.Correct(xml,new(r.WorkspaceId,r.ExpectedContentRevision,

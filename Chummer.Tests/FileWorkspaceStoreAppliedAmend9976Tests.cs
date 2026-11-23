@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
+using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
@@ -245,10 +246,23 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
         Assert.AreEqual(WorkspaceRuleUpdateState.CommittedUpdate,
             f.Service.Recover(f.Owners.Capture(), f.Id, review.OperationId, review.AdmissionDigest!).RuleUpdate?.State);
         var saved = f.ReadCurrent();
-        Assert.IsTrue(f.Store.ReplaceWorkspaceDocumentAndCheckpoint(f.Id, saved.ContentRevision, saved.Document).Success);
+        var beforeAlias = f.Export();
+        var aliasReceipt = EditAlias10141(f.Store, f.Owners, f.Id, saved.ContentRevision, "Later Windows save 10141");
+        var edited = f.ReadCurrent();
+        AssertAliasChange10141(saved, edited, "Later Windows save 10141", aliasReceipt);
+        var laterExport = f.Export();
+        AssertAliasHistory10141(beforeAlias, laterExport, f.Queries);
+        Assert.AreEqual(80m, f.Quote());
         byte[] later = File.ReadAllBytes(path);
         f.Reopen();
-        Assert.IsNotNull(f.ReadCurrent());
+        var reopened = f.ReadCurrent();
+        Assert.AreEqual(edited.ContentRevision, reopened.ContentRevision);
+        Assert.AreEqual(reopened.ContentRevision, reopened.SavedRevision);
+        Assert.AreEqual(edited.Document.Content, reopened.Document.Content);
+        Assert.AreEqual(80m, f.Quote());
+        Assert.AreEqual(WorkspaceRuleUpdateState.CommittedUpdate,
+            f.Service.Recover(f.Owners.Capture(), f.Id, review.OperationId, review.AdmissionDigest!).RuleUpdate?.State);
+        CollectionAssert.AreEqual(laterExport.ExportPrivateBytes(), f.Export().ExportPrivateBytes());
         CollectionAssert.AreEqual(later, File.ReadAllBytes(path)); // never rewind a later save
         using var old = f.Service.ReviewUpdateAlternative(f.Owners.Capture(), f.Id, review.OperationId, f.Resolver());
         Assert.IsNotNull(old.UpdatePreview);
@@ -582,6 +596,246 @@ public sealed class FileWorkspaceStoreAppliedAmend9976Tests
             return xml;
         }
         finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
+    public void AppliedAmend9976_Alias10141_Literal_metadata_checkpoints_and_preserves_history_offline()
+    {
+        using var f = new SavedRunner(false, authenticatedHistory: true);
+        var before = f.ReadCurrent();
+        var closure = f.Export();
+        // Alias mutation must use retained sources even with all ambient files gone.
+        Directory.Delete(f.Sources, true);
+        const string alias = "  Alias <&>\r\n10141  ";
+        var receipt = EditAlias10141(f.Store, f.Owners, f.Id, before.ContentRevision, alias);
+        var after = f.ReadCurrent();
+        AssertAliasChange10141(before, after, alias, receipt);
+        var edited = f.Export();
+        AssertAliasHistory10141(closure, edited, f.Queries);
+        Assert.AreEqual(10m, f.Quote());
+        f.Reopen();
+        CollectionAssert.AreEqual(edited.ExportPrivateBytes(), f.Export().ExportPrivateBytes());
+        Assert.AreEqual(after.ContentRevision, f.ReadCurrent().SavedRevision);
+        Assert.AreEqual(10m, f.Quote());
+
+        // Clearing an alias remains legal when the existing name supplies display identity.
+        Assert.IsFalse(string.IsNullOrWhiteSpace(XElement.Parse(after.Document.Content).Element("name")?.Value));
+        var cleared = EditAlias10141(f.Store, f.Owners, f.Id, after.ContentRevision, "");
+        AssertAliasChange10141(after, f.ReadCurrent(), "", cleared);
+    }
+
+    [TestMethod]
+    public void AppliedAmend9976_Alias10141_Refuses_noop_invalid_stale_owner_revision_source_and_binding()
+    {
+        using var f = new SavedRunner(false, authenticatedHistory: true);
+        var saved = f.ReadCurrent();
+        string path = Directory.GetFiles(f.State, f.Id.Value + ".json", SearchOption.AllDirectories).Single();
+        byte[] bytes = File.ReadAllBytes(path);
+        var stamp = f.Owners.Capture();
+        var request = new WorkspaceWizardRequest(f.Id, saved.ContentRevision, Guid.NewGuid(), new WorkspaceAliasEdit("reviewed alias"));
+        WorkspaceWizardCommand command;
+        Assert.IsTrue(f.Owners.TryAcquire(stamp, out var lease));
+        using (lease)
+        {
+            IWorkspaceWizardMutationCapability typed = f.Store;
+            foreach (string? alias in new[] { null, new string('a', WorkspaceAliasEdit.MaximumAliasLength + 1), "bad\0alias",
+                XElement.Parse(saved.Document.Content).Element("alias")?.Value ?? "" })
+                Assert.AreEqual(WorkspaceWizardOutcome.Rejected, typed.PreviewWizardMutation(f.Owners, stamp, lease!,
+                    request with { Action = new WorkspaceAliasEdit(alias!) }).Outcome);
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, typed.PreviewWizardMutation(f.Owners, stamp, lease!,
+                request with { ExpectedContentRevision = saved.ContentRevision - 1 }).Outcome);
+            var preview = typed.PreviewWizardMutation(f.Owners, stamp, lease!, request);
+            Assert.AreEqual(WorkspaceWizardOutcome.Available, preview.Outcome, preview.Error);
+            command = preview.Command!;
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, typed.CommitWizardMutation(f.Owners, stamp, lease!,
+                command with { BindingDigest = new string('0', 64) }).Outcome);
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, typed.CommitWizardMutation(f.Owners, stamp, lease!,
+                command with { Request = request with { Action = new WorkspaceAliasEdit("substituted alias") } }).Outcome);
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, typed.CommitWizardMutation(f.Owners, stamp, lease!,
+                command with { Request = request with { WorkspaceId = new CharacterWorkspaceId(Guid.NewGuid().ToString("N")) } }).Outcome);
+        }
+        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+
+        // Same owner, newer login/transition stamp: old authority is still stale.
+        f.Owners.Set(stamp.Owner);
+        Assert.IsTrue(f.Owners.TryAcquire(f.Owners.Capture(), out var freshLease));
+        using (freshLease)
+        {
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected,
+                f.Store.CommitWizardMutation(f.Owners, stamp, freshLease!, command).Outcome);
+            // A command reviewed under the old stamp cannot be rebound by supplying the new stamp.
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected,
+                f.Store.CommitWizardMutation(f.Owners, f.Owners.Capture(), freshLease!, command).Outcome);
+        }
+        f.Owners.Set(new OwnerScope("install-account-v1:" + new string('b', 64)));
+        var foreign = f.Owners.Capture();
+        Assert.IsTrue(f.Owners.TryAcquire(foreign, out var foreignLease));
+        using (foreignLease)
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected,
+                f.Store.PreviewWizardMutation(f.Owners, foreign, foreignLease!, request).Outcome);
+        f.Owners.Set(stamp.Owner);
+        stamp = f.Owners.Capture();
+        Assert.IsTrue(f.Owners.TryAcquire(stamp, out var sourceLease));
+        using (sourceLease)
+        {
+            var preview = f.Store.PreviewWizardMutation(f.Owners, stamp, sourceLease!, request);
+            Assert.AreEqual(WorkspaceWizardOutcome.Available, preview.Outcome, preview.Error);
+            command = preview.Command!;
+        }
+        // Remove retained archives after review. Ambient sources must not rescue this command.
+        string[] captures = Directory.GetFiles(f.State, "*.bin", SearchOption.AllDirectories);
+        Assert.IsTrue(captures.Length > 0);
+        foreach (string capture in captures) File.Delete(capture);
+        f.Reopen();
+        Assert.IsTrue(f.Owners.TryAcquire(stamp, out var refusedLease));
+        using (refusedLease)
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected,
+                f.Store.CommitWizardMutation(f.Owners, stamp, refusedLease!, command).Outcome);
+        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    public void AppliedAmend9976_Alias10141_Unknown_and_lost_response_use_receipt_lookup_without_reexecution()
+    {
+        using var f = new SavedRunner(false, authenticatedHistory: true);
+        var saved = f.ReadCurrent();
+        var stamp = f.Owners.Capture();
+        string path = Directory.GetFiles(f.State, f.Id.Value + ".json", SearchOption.AllDirectories).Single();
+        byte[] before = File.ReadAllBytes(path);
+        var request = new WorkspaceWizardRequest(f.Id, saved.ContentRevision, Guid.NewGuid(), new WorkspaceAliasEdit("uncertain alias"));
+        var fault = new StageFault9981(FileWorkspaceStoreFaultStage.AfterTempFileFlushed);
+        var faulting = f.CreateFaultingStore(fault);
+        Assert.IsTrue(f.Owners.TryAcquire(stamp, out var lease));
+        using (lease)
+        {
+            var preview = faulting.PreviewWizardMutation(f.Owners, stamp, lease!, request);
+            Assert.AreEqual(WorkspaceWizardOutcome.Available, preview.Outcome, preview.Error);
+            Assert.AreEqual(WorkspaceWizardOutcome.Unknown,
+                faulting.CommitWizardMutation(f.Owners, stamp, lease!, preview.Command!).Outcome);
+            Assert.IsTrue(fault.Hit);
+        }
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        f.Reopen();
+        Assert.IsTrue(f.Owners.TryAcquire(stamp, out var recoveryLease));
+        WorkspaceWizardCommand committed;
+        using (recoveryLease)
+        {
+            Assert.AreEqual(WorkspaceWizardOutcome.NotFound,
+                f.Store.LookupWizardMutation(f.Owners, stamp, recoveryLease!, request).Outcome);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+            // The uncertain operation is not resubmitted. A separate operation
+            // models a successful publication whose response the caller loses.
+            request = request with { OperationId = Guid.NewGuid(), Action = new WorkspaceAliasEdit("lost response alias") };
+            var preview = f.Store.PreviewWizardMutation(f.Owners, stamp, recoveryLease!, request);
+            Assert.AreEqual(WorkspaceWizardOutcome.Available, preview.Outcome, preview.Error);
+            committed = preview.Command!;
+            _ = f.Store.CommitWizardMutation(f.Owners, stamp, recoveryLease!, committed);
+        }
+        byte[] published = File.ReadAllBytes(path);
+        f.Reopen();
+        Assert.IsTrue(f.Owners.TryAcquire(stamp, out var lookupLease));
+        using (lookupLease)
+        {
+            var recovered = f.Store.LookupWizardMutation(f.Owners, stamp, lookupLease!, request);
+            Assert.AreEqual(WorkspaceWizardOutcome.Replayed, recovered.Outcome, recovered.Error);
+            Assert.AreEqual(saved.ContentRevision + 1, recovered.Receipt!.CommittedRevision);
+            CollectionAssert.AreEqual(published, File.ReadAllBytes(path));
+            // Explicit idempotency regression, only after read-only reconciliation.
+            var duplicate = f.Store.CommitWizardMutation(f.Owners, stamp, lookupLease!, committed);
+            Assert.AreEqual(WorkspaceWizardOutcome.Replayed, duplicate.Outcome);
+            Assert.AreEqual(recovered.Receipt, duplicate.Receipt);
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, f.Store.PreviewWizardMutation(f.Owners, stamp, lookupLease!,
+                request with { OperationId = Guid.NewGuid() }).Outcome); // original revision is now stale
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, f.Store.LookupWizardMutation(f.Owners, stamp, lookupLease!,
+                request with { Action = new WorkspaceAliasEdit("operation collision") }).Outcome);
+            Assert.AreEqual(WorkspaceWizardOutcome.Rejected, f.Store.CommitWizardMutation(f.Owners, stamp, lookupLease!,
+                committed with { Request = request with { Action = new WorkspaceAliasEdit("operation collision") } }).Outcome);
+        }
+        CollectionAssert.AreEqual(published, File.ReadAllBytes(path));
+        AssertAliasChange10141(saved, f.ReadCurrent(), "lost response alias",
+            f.ReadCurrent().Document.AuxiliaryState.WorkspaceWizardReceipts!.Single());
+        Assert.AreEqual(10m, f.Quote());
+    }
+
+    [TestMethod]
+    public void AppliedAmend9976_Alias10141_Preexisting_request_and_receipt_canonical_bytes_remain_compatible()
+    {
+        // Frozen pre-alias schema: no new serialized defaults may enter these bytes.
+        const string requestJson = """{"WorkspaceId":{"Value":"alias-compat10141"},"ExpectedContentRevision":7,"OperationId":"11111111-2222-3333-4444-555555555555","Action":{"operation":"edge","ExpectedState":{"EdgeUsed":0,"TotalEdge":3,"CanSpend":true,"CanRegain":false,"AvailableEdge":3},"Action":0}}""";
+        const string receiptJson = """{"WorkspaceId":{"Value":"alias-compat10141"},"OwnerId":"fixture-owner","OperationId":"11111111-2222-3333-4444-555555555555","CommandDigest":"3133d0385c1c1257abee9973a73fe82c5c347da38afd5d86fe3468305ebd3469","PreviousRevision":7,"CommittedRevision":8,"PayloadDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","AttributeReceipt":null,"ReceiptDigest":"c5e05dc69a003fde594a37d67b739afd75f0ad1bab79c3a95067058de40541e6","AttributeCorrection":null}""";
+        var request = JsonSerializer.Deserialize<WorkspaceWizardRequest>(requestJson)!;
+        Assert.AreEqual(requestJson, JsonSerializer.Serialize(WorkspaceWizardTransaction.Freeze(request)));
+        Assert.AreEqual("3133d0385c1c1257abee9973a73fe82c5c347da38afd5d86fe3468305ebd3469", WorkspaceWizardTransaction.RequestDigest(request));
+        var receipt = JsonSerializer.Deserialize<WorkspaceWizardReceipt>(receiptJson)!;
+        Assert.AreEqual(receiptJson, JsonSerializer.Serialize(receipt));
+        Assert.IsTrue(WorkspaceWizardTransaction.ValidLedger(request.WorkspaceId, 8, [receipt]));
+        var alias = request with { Action = new WorkspaceAliasEdit(new string('a', WorkspaceAliasEdit.MaximumAliasLength)) };
+        Assert.IsTrue(WorkspaceWizardTransaction.Valid(alias));
+        Assert.AreEqual(alias, WorkspaceWizardTransaction.Freeze(alias));
+        Assert.IsFalse(WorkspaceWizardTransaction.Valid(alias with { Action = new WorkspaceAliasEdit("\ud800") }));
+    }
+
+    internal static WorkspaceWizardReceipt EditAlias10141(FileWorkspaceStore store, IOwnerContextLeaseAccessor owners,
+        CharacterWorkspaceId id, long revision, string alias)
+    {
+        var stamp = owners.Capture();
+        Assert.IsTrue(owners.TryAcquire(stamp, out var lease));
+        using (lease)
+        {
+            IWorkspaceWizardMutationCapability typed = store;
+            var request = new WorkspaceWizardRequest(id, revision, Guid.NewGuid(), new WorkspaceAliasEdit(alias));
+            var preview = typed.PreviewWizardMutation(owners, stamp, lease!, request);
+            Assert.AreEqual(WorkspaceWizardOutcome.Available, preview.Outcome, preview.Error);
+            Assert.IsNotNull(preview.Command);
+            var result = typed.CommitWizardMutation(owners, stamp, lease!, preview.Command!);
+            Assert.AreEqual(WorkspaceWizardOutcome.Applied, result.Outcome, result.Error);
+            Assert.IsNotNull(result.Receipt);
+            Assert.AreEqual(WorkspaceWizardTransaction.RequestDigest(request), result.Receipt!.CommandDigest);
+            Assert.AreEqual(stamp.Owner.NormalizedValue, result.Receipt.OwnerId);
+            return result.Receipt;
+        }
+    }
+
+    internal static void AssertAliasChange10141(WorkspaceStoredDocument before, WorkspaceStoredDocument after,
+        string alias, WorkspaceWizardReceipt receipt)
+    {
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        Assert.AreEqual(before.ContentRevision, receipt.PreviousRevision);
+        Assert.AreEqual(after.ContentRevision, receipt.CommittedRevision);
+        Assert.AreEqual(WorkspaceWizardTransaction.Hash(after.Document.Content), receipt.PayloadDigest);
+        var expected = XDocument.Parse(before.Document.Content, LoadOptions.PreserveWhitespace);
+        expected.Root!.SetElementValue("alias", alias);
+        var actual = XDocument.Parse(after.Document.Content, LoadOptions.PreserveWhitespace);
+        Assert.AreEqual(alias, actual.Root!.Element("alias")!.Value);
+        Assert.IsTrue(XNode.DeepEquals(expected.Root, actual.Root), "Unrelated XML must be preserved.");
+        Assert.AreEqual(before.Document.Format, after.Document.Format);
+        Assert.AreEqual(before.Document.RulesetId, after.Document.RulesetId);
+        Assert.AreEqual(JsonSerializer.Serialize(before.LocalHistory), JsonSerializer.Serialize(after.LocalHistory));
+        Assert.AreEqual(JsonSerializer.Serialize(before.DelegatedGmHistorySegmentStarts), JsonSerializer.Serialize(after.DelegatedGmHistorySegmentStarts));
+        Assert.AreEqual(before.HasDelegatedGmHistory, after.HasDelegatedGmHistory);
+        var oldRows = before.Document.AuxiliaryState.WorkspaceWizardReceipts ?? [];
+        var newRows = after.Document.AuxiliaryState.WorkspaceWizardReceipts!;
+        Assert.AreEqual(oldRows.Count + 1, newRows.Count);
+        Assert.AreEqual(JsonSerializer.Serialize(oldRows), JsonSerializer.Serialize(newRows.Take(oldRows.Count)));
+        Assert.AreEqual(receipt, newRows.Last());
+        Assert.IsTrue(WorkspaceWizardTransaction.ValidLedger(after.Id, after.ContentRevision, newRows));
+        Assert.AreEqual(JsonSerializer.Serialize(before.Document.AuxiliaryState),
+            JsonSerializer.Serialize(after.Document.AuxiliaryState with { WorkspaceWizardReceipts = before.Document.AuxiliaryState.WorkspaceWizardReceipts }));
+    }
+
+    internal static void AssertAliasHistory10141(WorkspacePrivateRuleSourceClosure before,
+        WorkspacePrivateRuleSourceClosure after, ICharacterFileQueries queries)
+    {
+        var oldState = WorkspacePrivateRuleSourceClosure.DecodeForRestore(before.ExportPrivateBytes(), before.Binding, queries, default);
+        var newState = WorkspacePrivateRuleSourceClosure.DecodeForRestore(after.ExportPrivateBytes(), after.Binding, queries, default);
+        var oldHistory = oldState.AuthenticatedHistory!.Transitions;
+        var newHistory = newState.AuthenticatedHistory!.Transitions;
+        Assert.AreEqual(oldHistory.Length + 1, newHistory.Length);
+        CollectionAssert.AreEqual(JsonSerializer.SerializeToUtf8Bytes(oldHistory), JsonSerializer.SerializeToUtf8Bytes(newHistory[..^1]));
+        Assert.IsTrue(oldState.Captures.Keys.All(newState.Captures.ContainsKey));
+        foreach (var pair in oldState.Captures)
+            CollectionAssert.AreEqual(pair.Value.ExportPrivateInputs(), newState.Captures[pair.Key].ExportPrivateInputs());
     }
 
     private sealed class SavedRunner : IDisposable
