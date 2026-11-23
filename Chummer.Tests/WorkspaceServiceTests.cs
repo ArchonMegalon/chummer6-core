@@ -6,6 +6,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 using Chummer.Contracts.Api;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
@@ -381,6 +383,182 @@ public class WorkspaceServiceTests
         Assert.AreEqual("BOM Runner", imported.Summary.Name);
         Assert.AreEqual("BOM", imported.Summary.Alias);
     }
+
+    [DataTestMethod]
+    [DataRow("sr4")]
+    [DataRow("sr5")]
+    [DataRow("sr6")]
+    public void Export_import_roundtrip_preserves_native_character_and_inline_sources(string rulesetId)
+    {
+        WorkspaceService service = CreatePortableRoundTripService();
+        OwnerScope owner = new("portable-owner@example.com");
+        string xml = PortableRoundTripXml(rulesetId);
+        WorkspaceImportResult original = service.Import(owner, new(xml, rulesetId));
+        Assert.IsTrue(service.Save(owner, original.Id, original.ContentRevision).Success);
+        WorkspaceDocumentSnapshot before = service.GetWorkspace(owner, original.Id).Value!;
+
+        CommandResult<WorkspaceExportReceipt> exported = service.Export(owner, original.Id);
+        Assert.IsTrue(exported.Success);
+        Assert.IsNotNull(exported.Value);
+        WorkspaceExportReceipt receipt = exported.Value;
+        Assert.AreEqual(WorkspaceDocumentFormat.Json, receipt.Format);
+        byte[] bytes = Convert.FromBase64String(receipt.ContentBase64);
+        DataExportBundle bundle = JsonSerializer.Deserialize<DataExportBundle>(bytes)!;
+        Assert.IsNotNull(bundle.NativeWorkspace);
+        Assert.AreEqual(xml, bundle.NativeWorkspace.Payload);
+        Assert.AreEqual(before.Document.PayloadEnvelope, bundle.NativeWorkspace);
+        Assert.AreEqual(bytes.Length, receipt.DocumentLength);
+        Assert.IsTrue(receipt.Portability?.Notes.Any(note => note.Code == "native-character-scope") == true);
+
+        // Blank outer ruleset exercises explicit native-envelope detection.
+        WorkspaceImportResult imported = service.Import(owner,
+            WorkspaceImportDocument.FromUtf8Bytes(bytes, string.Empty, receipt.Format));
+        WorkspaceDocumentSnapshot after = service.GetWorkspace(owner, imported.Id).Value!;
+        Assert.AreNotEqual(original.Id, imported.Id);
+        Assert.AreEqual(rulesetId, imported.RulesetId);
+        Assert.AreEqual(before.Document.PayloadEnvelope, after.Document.PayloadEnvelope);
+        Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, after.Document.Format);
+        Assert.AreEqual(1L, imported.ContentRevision);
+        Assert.AreEqual(0L, imported.SavedRevision);
+        Assert.AreEqual(xml, after.Document.Content); // Includes every unknown source/amend/spell field.
+        Assert.AreEqual(WorkspaceDocumentAuxiliaryState.Empty, after.Document.AuxiliaryState);
+        Assert.AreEqual(before, service.GetWorkspace(owner, original.Id).Value);
+        Assert.HasCount(0, service.List(new OwnerScope("other-owner@example.com")));
+        Assert.HasCount(0, service.List());
+
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings,
+            imported.Portability?.CompatibilityState);
+        Assert.AreEqual(WorkspacePortabilityLossStates.None, imported.Portability?.Loss?.State);
+        CollectionAssert.AreEqual(new[] { "format-review-required" },
+            imported.Portability?.Compatibility?.WarningCodes.ToArray());
+        Assert.AreEqual(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            imported.Portability?.PayloadSha256);
+        Assert.AreEqual(imported.ImportReceiptId, imported.Portability?.Provenance?.ReceiptId);
+        Assert.AreEqual(receipt.Portability?.PayloadSha256, imported.Portability?.PayloadSha256);
+
+        // Subsequent save, native download and portable re-export use the native codec,
+        // rather than leaving JSON-labelled XML in the workspace store.
+        Assert.IsTrue(service.Save(owner, imported.Id, imported.ContentRevision).Success);
+        WorkspaceDownloadReceipt downloaded = service.Download(owner, imported.Id).Value!;
+        Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, downloaded.Format);
+        Assert.AreEqual(xml, Encoding.UTF8.GetString(Convert.FromBase64String(downloaded.ContentBase64)));
+        WorkspaceExportReceipt reexported = service.Export(owner, imported.Id).Value!;
+        Assert.AreEqual(receipt.ContentBase64, reexported.ContentBase64);
+    }
+
+    [DataTestMethod]
+    [DataRow("sr4")]
+    [DataRow("sr5")]
+    [DataRow("sr6")]
+    public void Export_import_refusals_preserve_saved_state(string rulesetId)
+    {
+        WorkspaceService service = CreatePortableRoundTripService();
+        string xml = PortableRoundTripXml(rulesetId);
+        WorkspaceImportResult original = service.Import(new(xml, rulesetId));
+        Assert.IsTrue(service.Save(original.Id, original.ContentRevision).Success);
+        WorkspaceDocumentSnapshot before = service.GetWorkspace(original.Id).Value!;
+        WorkspaceExportReceipt receipt = service.Export(original.Id).Value!;
+        string json = Encoding.UTF8.GetString(Convert.FromBase64String(receipt.ContentBase64));
+        string foreign = rulesetId == "sr5" ? "sr6" : "sr5";
+        List<WorkspaceImportDocument> refused =
+        [
+            new(json, foreign, receipt.Format),
+            new(json, rulesetId, WorkspaceDocumentFormat.NativeXml),
+            new(json, rulesetId, (WorkspaceDocumentFormat)99),
+            new(xml, rulesetId, WorkspaceDocumentFormat.Json),
+            new(json[..^1], rulesetId, receipt.Format),
+            new(json.Replace("\"NativeWorkspace\":", "\"NativeWorkspace\": null, \"NativeWorkspace\":", StringComparison.Ordinal), rulesetId, receipt.Format)
+        ];
+        void AddMutation(Action<JsonObject> mutate)
+        {
+            JsonObject package = JsonNode.Parse(json)!.AsObject();
+            mutate(package);
+            refused.Add(new(package.ToJsonString(), rulesetId, receipt.Format));
+        }
+        AddMutation(package => package.Remove("NativeWorkspace")); // Legacy dossier is not reconstructable.
+        AddMutation(package => package["NativeWorkspace"] = null);
+        AddMutation(package => package["OwnerAuthority"] = "untrusted");
+        AddMutation(package => package["NativeWorkspace"]!["RulesetId"] = foreign);
+        AddMutation(package => package["NativeWorkspace"]!["SchemaVersion"] = 999);
+        AddMutation(package => package["NativeWorkspace"]!["PayloadKind"] = foreign + "/chum5-xml");
+        AddMutation(package => package["NativeWorkspace"]!["AuxiliaryState"] = new JsonObject());
+        AddMutation(package => package["NativeWorkspace"]!.AsObject().Remove("Payload"));
+        AddMutation(package => package["NativeWorkspace"]!["Payload"] = "<character>");
+        AddMutation(package => package["NativeWorkspace"]!["Payload"] = xml.Replace("<metatype>Human</metatype>", "", StringComparison.Ordinal));
+        AddMutation(package => package["NativeWorkspace"]!["Payload"] = xml.Replace(rulesetId.ToUpperInvariant(), foreign.ToUpperInvariant(), StringComparison.Ordinal));
+        AddMutation(package => package["NativeWorkspace"]!["Payload"] = xml.Replace("</character>", "<gameedition>SR5</gameedition></character>", StringComparison.Ordinal));
+        AddMutation(package => package["NativeWorkspace"]!["Payload"] = xml.Replace("</character>", "<creationbootstrap /></character>", StringComparison.Ordinal));
+
+        foreach (WorkspaceImportDocument invalid in refused)
+        {
+            Exception? failure = null;
+            try { service.Import(invalid); }
+            catch (Exception exception) { failure = exception; }
+            Assert.IsNotNull(failure, "Malformed, foreign, authority-bearing or wrongly labelled input must be refused.");
+            Assert.HasCount(1, service.List());
+            Assert.AreEqual(before, service.GetWorkspace(original.Id).Value,
+                "Refused imports must leave the saved document and both revisions unchanged.");
+        }
+    }
+
+    [TestMethod]
+    public void Export_import_roundtrip_keeps_legacy_native_without_edition_marker()
+    {
+        WorkspaceService service = CreatePortableRoundTripService();
+        string xml = PortableRoundTripXml("sr5").Replace("<gameedition>SR5</gameedition>", "", StringComparison.Ordinal);
+        WorkspaceImportResult original = service.Import(new(xml, "sr5"));
+        WorkspaceExportReceipt receipt = service.Export(original.Id).Value!;
+        WorkspaceImportResult imported = service.Import(WorkspaceImportDocument.FromUtf8Bytes(
+            Convert.FromBase64String(receipt.ContentBase64), receipt.RulesetId, receipt.Format));
+        Assert.AreEqual(xml, service.GetWorkspace(imported.Id).Value!.Document.Content);
+        Assert.AreEqual("sr5", imported.RulesetId);
+    }
+
+    [TestMethod]
+    public void Export_import_uses_native_truth_instead_of_projected_summary()
+    {
+        WorkspaceService service = CreatePortableRoundTripService();
+        WorkspaceImportResult original = service.Import(new(PortableRoundTripXml("sr5"), "sr5"));
+        WorkspaceExportReceipt receipt = service.Export(original.Id).Value!;
+        JsonObject package = JsonNode.Parse(Convert.FromBase64String(receipt.ContentBase64))!.AsObject();
+        package["Summary"]!["Name"] = "Untrusted projection";
+        WorkspaceImportResult imported = service.Import(new(package.ToJsonString(), "sr5", receipt.Format));
+        Assert.AreEqual(original.Summary.Name, imported.Summary.Name);
+        Assert.AreEqual(PortableRoundTripXml("sr5"), service.GetWorkspace(imported.Id).Value!.Document.Content);
+    }
+
+    [TestMethod]
+    public void Portable_envelope_dispatch_preserves_sr6_hero_lab_json_import()
+    {
+        const string json = """
+            {"metadata":{"gameCode":"SR6","gameName":"Shadowrun Sixth World"},
+             "actors":{"actor_1":{"name":"Hero Lab Runner","gameValues":{"buildMethod":"Priority"},"items":{}}}}
+            """;
+        WorkspaceImportResult imported = CreatePortableRoundTripService().Import(
+            new(json, "sr6", WorkspaceDocumentFormat.Json));
+        Assert.AreEqual("Hero Lab Runner", imported.Summary.Name);
+        Assert.AreEqual("sr6", imported.RulesetId);
+    }
+
+    private static WorkspaceService CreatePortableRoundTripService() => CreateWorkspaceService(
+        new InMemoryWorkspaceStore(),
+        new XmlCharacterFileQueries(new CharacterFileService()),
+        new XmlCharacterSectionQueries(new CharacterSectionService()),
+        new XmlCharacterMetadataCommands(new CharacterFileService()),
+        new Sr4WorkspaceCodec());
+
+    private static string PortableRoundTripXml(string rulesetId) => $"""
+        <character><name>Round Trip</name><alias>Source Keeper</alias><metatype>Human</metatype>
+        <buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion>
+        <karma>12</karma><nuyen>2500</nuyen><created>True</created><gameedition>{rulesetId.ToUpperInvariant()}</gameedition>
+        <settings>custom-rules.xml</settings><gameplayoption>Standard</gameplayoption>
+        <sources><source><name>Source fixture</name><guid>source-fixture</guid><opaque>keep source bytes</opaque></source></sources>
+        <customdatadirectorynames><customdatadirectoryname>amend-fixture</customdatadirectoryname></customdatadirectorynames>
+        <improvements><improvement><source>amend-fixture</source><opaque>keep rule closure</opaque></improvement></improvements>
+        <spells><spell><name>Fixture spell</name><unknownruntime>keep complete spell</unknownruntime></spell></spells>
+        <vendor:extension xmlns:vendor="urn:test:source"><vendor:amend revision="7">opaque &amp; preserved</vendor:amend></vendor:extension>
+        </character>
+        """;
 
     [TestMethod]
     public void Import_json_marks_portable_dossier_review_posture()

@@ -54,19 +54,26 @@ public sealed class WorkspaceService : IWorkspaceService
         WorkspaceStoreAccess access,
         WorkspaceImportDocument document)
     {
+        WorkspacePayloadEnvelope? portableWorkspace = ReadPortableWorkspace(document);
         string? rulesetId = RulesetDefaults.NormalizeOptional(document.RulesetId)
+            ?? RulesetDefaults.NormalizeOptional(portableWorkspace?.RulesetId)
             ?? _workspaceImportRulesetDetector.Detect(document);
         if (rulesetId is null)
             throw new InvalidOperationException("Workspace ruleset is required or must be detectable from import content.");
 
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(rulesetId);
-        WorkspacePayloadEnvelope envelope = codec.WrapImport(rulesetId, document);
+        WorkspaceImportDocument nativeDocument = portableWorkspace is null
+            ? document
+            : UnwrapPortableWorkspace(document, portableWorkspace, rulesetId, codec);
+        WorkspacePayloadEnvelope envelope = codec.WrapImport(rulesetId, nativeDocument);
         if (CharacterCreationBootstrapAuthority.HasBootstrapState(
-                new WorkspaceDocument(envelope, document.Format)))
+                new WorkspaceDocument(envelope, nativeDocument.Format)))
         {
             throw new InvalidOperationException(
                 "A character creation bootstrap must use the typed, resolver-bound atomic creation service.");
         }
+        if (portableWorkspace is not null && !codec.Validate(envelope).IsValid)
+            throw new InvalidOperationException("Portable native character was not accepted by its ruleset codec.");
         CharacterFileSummary summary = codec.ParseSummary(envelope);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
         CharacterWorkspaceId id = new(Guid.NewGuid().ToString("N"));
@@ -79,7 +86,8 @@ public sealed class WorkspaceService : IWorkspaceService
             envelope.RulesetId,
             summary,
             importedAtUtc,
-            payloadSha256);
+            payloadSha256,
+            preservesNativePayload: portableWorkspace is not null);
         WorkspaceWorkflowDeterministicReceipt workflowReceipt = BuildWorkflowDeterministicReceipt(
             importReceiptId,
             id,
@@ -91,7 +99,7 @@ public sealed class WorkspaceService : IWorkspaceService
             id,
             new WorkspaceDocument(
                 PayloadEnvelope: envelope,
-                Format: document.Format));
+                Format: nativeDocument.Format));
         if (!created.Success || created.Entry is not WorkspaceStoreEntry createdEntry)
         {
             throw new InvalidOperationException(created.Error ?? "Workspace could not be created.");
@@ -107,6 +115,77 @@ public sealed class WorkspaceService : IWorkspaceService
             WorkflowDeterministicReceipt: workflowReceipt,
             ContentRevision: createdEntry.ContentRevision,
             SavedRevision: createdEntry.SavedRevision);
+    }
+
+    private static WorkspacePayloadEnvelope? ReadPortableWorkspace(WorkspaceImportDocument document)
+    {
+        if (document.Format != WorkspaceDocumentFormat.Json)
+            return null;
+
+        using JsonDocument json = JsonDocument.Parse(document.Content);
+        if (json.RootElement.ValueKind != JsonValueKind.Object
+            || !json.RootElement.TryGetProperty(nameof(DataExportBundle.NativeWorkspace), out JsonElement native))
+            return null; // Keep other codecs' JSON contracts, including SR6 Hero Lab Online.
+
+        // Do not silently discard duplicate or future source/authority fields.
+        // Projected sections are display data only; all imported character truth
+        // comes from the native payload and is checked again by the native codec.
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (JsonProperty property in json.RootElement.EnumerateObject())
+        {
+            if (!seen.Add(property.Name) || property.Name is not (
+                nameof(DataExportBundle.Summary) or nameof(DataExportBundle.Profile)
+                or nameof(DataExportBundle.Progress) or nameof(DataExportBundle.Attributes)
+                or nameof(DataExportBundle.Skills) or nameof(DataExportBundle.Inventory)
+                or nameof(DataExportBundle.Qualities) or nameof(DataExportBundle.Contacts)
+                or nameof(DataExportBundle.Lifestyles) or nameof(DataExportBundle.NativeWorkspace)))
+                throw new InvalidOperationException("Portable workspace contains duplicate or unsupported fields.");
+        }
+        if (native.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Portable workspace must contain a native payload envelope.");
+
+        seen.Clear();
+        foreach (JsonProperty property in native.EnumerateObject())
+        {
+            if (!seen.Add(property.Name) || property.Name is not (
+                nameof(WorkspacePayloadEnvelope.RulesetId) or nameof(WorkspacePayloadEnvelope.SchemaVersion)
+                or nameof(WorkspacePayloadEnvelope.PayloadKind) or nameof(WorkspacePayloadEnvelope.Payload)))
+                throw new InvalidOperationException("Native payload envelope contains duplicate or unsupported fields.");
+        }
+        if (seen.Count != 4)
+            throw new InvalidOperationException("Native payload envelope is incomplete.");
+
+        return native.Deserialize<WorkspacePayloadEnvelope>()
+            ?? throw new InvalidOperationException("Native payload envelope is missing.");
+    }
+
+    private static WorkspaceImportDocument UnwrapPortableWorkspace(
+        WorkspaceImportDocument document,
+        WorkspacePayloadEnvelope portable,
+        string rulesetId,
+        IRulesetWorkspaceCodec codec)
+    {
+        if (!string.Equals(RulesetDefaults.NormalizeOptional(portable.RulesetId), rulesetId, StringComparison.Ordinal)
+            || !string.Equals(RulesetDefaults.NormalizeOptional(codec.RulesetId), rulesetId, StringComparison.Ordinal)
+            || portable.SchemaVersion != codec.SchemaVersion
+            || !string.Equals(portable.PayloadKind, codec.PayloadKind, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(portable.Payload))
+            throw new InvalidOperationException("Native payload envelope does not match the selected ruleset codec.");
+
+        XElement? character = XDocument.Parse(portable.Payload, LoadOptions.PreserveWhitespace).Root;
+        if (character is null || character.Name != "character")
+            throw new InvalidOperationException("Portable native payload must contain a character root.");
+        XElement[] editions = character.Elements("gameedition").ToArray();
+        if (editions.Length > 1 || (editions.Length == 1
+            && !string.Equals(WorkspaceRulesetDetection.Detect(null,
+                new XElement("gameedition", editions[0].Value.Trim()).ToString(SaveOptions.DisableFormatting)),
+                rulesetId, StringComparison.Ordinal)))
+            throw new InvalidOperationException("Native character edition does not match its payload envelope.");
+
+        // No reserialization: unknown character/source/amend elements survive.
+        // The outer JSON remains the import provenance; only the decoded native
+        // payload is handed to the codec and stored as NativeXml.
+        return document with { Content = portable.Payload, RulesetId = rulesetId, Format = WorkspaceDocumentFormat.NativeXml };
     }
 
     public IReadOnlyList<WorkspaceListItem> List(int? maxCount = null)
@@ -932,7 +1011,8 @@ public sealed class WorkspaceService : IWorkspaceService
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
         string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
-        WorkspaceExportReceipt receipt = BuildExportReceipt(id, envelope.RulesetId, bundle, payloadSha256, envelope.Payload);
+        WorkspaceExportReceipt receipt = BuildExportReceipt(id, envelope.RulesetId,
+            bundle with { NativeWorkspace = envelope }, payloadSha256, envelope.Payload);
 
         return new CommandResult<WorkspaceExportReceipt>(
             Success: true,
@@ -1154,7 +1234,8 @@ public sealed class WorkspaceService : IWorkspaceService
         string rulesetId,
         CharacterFileSummary summary,
         DateTimeOffset importedAtUtc,
-        string payloadSha256)
+        string payloadSha256,
+        bool preservesNativePayload)
     {
         string displayName = string.IsNullOrWhiteSpace(summary.Name) ? id.Value : summary.Name;
         bool needsReview = document.Format != WorkspaceDocumentFormat.NativeXml;
@@ -1193,7 +1274,9 @@ public sealed class WorkspaceService : IWorkspaceService
             ProvenanceSummary: $"Imported workspace {id.Value} from {document.Format} with payload hash {payloadSha256[..12]} on {rulesetId}.",
             PayloadSha256: payloadSha256,
             NextSafeAction: needsReview
-                ? "Open the Rules and Profile tabs, then export a fresh portable package before you authorize merge or replace elsewhere."
+                ? preservesNativePayload
+                    ? "Review the native character and installed sources before authorizing merge or replace; imported data does not confer authority."
+                    : "Open the Rules and Profile tabs, then export a fresh portable package before you authorize merge or replace elsewhere."
                 : "Use the workspace normally or export a portable package when you need a governed cross-surface handoff.",
             SupportedExchangeModes:
             [
@@ -1232,13 +1315,15 @@ public sealed class WorkspaceService : IWorkspaceService
                 WarningCodes: needsReview ? ["format-review-required"] : [],
                 BlockingCodes: []),
             Loss: new WorkspacePortabilityLossReceipt(
-                State: needsReview
+                State: needsReview && !preservesNativePayload
                     ? WorkspacePortabilityLossStates.BoundedLoss
                     : WorkspacePortabilityLossStates.None,
-                Summary: needsReview
+                Summary: preservesNativePayload
+                    ? "The canonical native character payload is preserved; auxiliary workspace state and external source files require the separate continuation and source-admission paths."
+                    : needsReview
                     ? "Portable import may omit native-only detail until the governed workspace is re-exported."
                     : "No governed content loss was detected on import.",
-                AffectedSections: needsReview ? ["native-workspace-review"] : []),
+                AffectedSections: needsReview && !preservesNativePayload ? ["native-workspace-review"] : []),
             Provenance: new WorkspacePortabilityProvenanceReceipt(
                 ReceiptId: receiptId,
                 GeneratedAtUtc: importedAtUtc,
@@ -1535,6 +1620,10 @@ public sealed class WorkspaceService : IWorkspaceService
                     Code: "format-identity",
                     Severity: WorkspacePortabilityNoteSeverities.Info,
                     Summary: $"Package format {WorkspacePortabilityFormatIds.PortableDossierV1} stays attached to {normalizedRulesetId} dossier truth."),
+                new WorkspacePortabilityNote(
+                    Code: "native-character-scope",
+                    Severity: WorkspacePortabilityNoteSeverities.Info,
+                    Summary: "The JSON includes the native character payload for codec import. Owner authority, auxiliary ledgers and external source files require separate continuation and source admission; this package does not activate amends or authorize account sync."),
                 new WorkspacePortabilityNote(
                     Code: "section-coverage",
                     Severity: hasWarnings
