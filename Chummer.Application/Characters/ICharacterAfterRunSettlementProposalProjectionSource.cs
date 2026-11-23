@@ -42,7 +42,11 @@ public sealed record CharacterAfterRunSettlementProposalProjectionRequest(
     CharacterWorkspaceId WorkspaceId,
     long WorkspaceRevision,
     CharacterAfterRunSettlementIdentity Identity,
-    string CharacterProjectionDigest);
+    string CharacterProjectionDigest)
+{
+    // Empty only for the legacy unbound path. Current sources must echo this exact context.
+    public string CurrentContextDigest { get; init; } = "";
+}
 
 public sealed record CharacterAfterRunSettlementProposalProjectionResult(
     CharacterAfterRunSettlementProposalProjectionOutcome Outcome,
@@ -50,7 +54,10 @@ public sealed record CharacterAfterRunSettlementProposalProjectionResult(
     long WorkspaceRevision,
     string CharacterProjectionDigest,
     CharacterAfterRunSettlementProposalProjection? Projection = null,
-    string? Error = null);
+    string? Error = null)
+{
+    public string CurrentContextDigest { get; init; } = "";
+}
 
 /// <summary>
 /// Bounded host seam for authoritative run proposals and their reviews. Core has

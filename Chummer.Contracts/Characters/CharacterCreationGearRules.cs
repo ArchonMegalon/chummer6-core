@@ -94,7 +94,7 @@ public static class CharacterCreationGearRules
         out CharacterCreationGearBudget budget,
         out string[] blockers)
         => TryProjectBasketCore(requested, authority?.Options, authority?.MaximumBasketLines ?? 0,
-            authority?.MaximumQuantityPerLine ?? 0, totalStartingNuyen, IsValidAuthority(authority),
+            authority?.MaximumQuantityPerLine ?? 0, authority?.MaximumAvailability ?? 0, totalStartingNuyen, IsValidAuthority(authority),
             out lines, out budget, out blockers);
 
     // Shared pricing kernel. The ordinary and selected-history entry points
@@ -104,6 +104,7 @@ public static class CharacterCreationGearRules
         IReadOnlyList<CharacterCreationGearCatalogOption>? options,
         int maximumBasketLines,
         int maximumQuantityPerLine,
+        int maximumAvailability,
         decimal totalStartingNuyen,
         bool authorityValid,
         out CharacterCreationGearLine[] lines,
@@ -155,6 +156,13 @@ public static class CharacterCreationGearRules
                         : option.Blockers);
                     continue;
                 }
+                if (selection.Focus is not null || option.Category == "Foci")
+                {
+                    if (!CharacterCreationFocusSelectionRules.TryProject(selection, option, options!, maximumAvailability, maximumQuantityPerLine, out var focusLine))
+                        findings.Add(selection.Focus?.Stack is not null ? CharacterCreationFocusSelectionRules.StackUnsupported : CharacterCreationFocusSelectionRules.Invalid);
+                    else projected.Add(focusLine!);
+                    continue;
+                }
                 decimal lineCost;
                 try
                 {
@@ -186,11 +194,14 @@ public static class CharacterCreationGearRules
             }
         }
 
+        decimal retainedCost = 0m;
+        if (!CharacterCreationFocusSelectionRules.TryValidateBasket(projected, out retainedCost))
+            findings.Add(CharacterCreationFocusSelectionRules.OwnedInvalid);
         decimal basketCost = 0m;
         try
         {
             basketCost = projected.Aggregate(
-                0m,
+                retainedCost,
                 (sum, item) => checked(sum + item.TotalCost));
         }
         catch (OverflowException)
@@ -284,7 +295,7 @@ public static class CharacterCreationGearRules
         CharacterCreationSelectedGearAuthority? witness, decimal totalStartingNuyen,
         out CharacterCreationGearLine[] lines, out CharacterCreationGearBudget budget, out string[] blockers)
         => TryProjectBasketCore(requested, witness?.Options, witness?.MaximumBasketLines ?? 0,
-            witness?.MaximumQuantityPerLine ?? 0, totalStartingNuyen, IsValidSelectedAuthority(witness),
+            witness?.MaximumQuantityPerLine ?? 0, witness?.MaximumAvailability ?? 0, totalStartingNuyen, IsValidSelectedAuthority(witness),
             out lines, out budget, out blockers);
 
     private static bool ValidSelectedIds(IReadOnlyList<string>? ids, int maximum)
@@ -326,6 +337,10 @@ public static class CharacterCreationGearRules
         && option.SourceId != Guid.Empty
         && !string.IsNullOrWhiteSpace(option.Name)
         && !string.IsNullOrWhiteSpace(option.Category)
+        && (option.FocusSource is null
+            ? !option.IsSelectable || option.Category != "Foci"
+            : CharacterCreationFocusSelectionRules.TryReadSource(option.SourceNodeXml, out var focusSource)
+                && focusSource == option.FocusSource)
         && option.PackageCost >= 0m
         && option.PackageQuantity > 0
         && option.Availability >= 0
@@ -437,6 +452,11 @@ public static class CharacterCreationGearRules
         writer.WriteBoolean("AvailabilityIsExact", value.AvailabilityIsExact);
         WriteStrings(writer, "Blockers", value.Blockers);
         writer.WriteString("Category", value.Category);
+        if (value.FocusSource is not null)
+        {
+            writer.WritePropertyName("FocusSource");
+            WriteCanonical(JsonSerializer.SerializeToElement(value.FocusSource), writer);
+        }
         writer.WriteBoolean("IsSelectable", value.IsSelectable);
         writer.WriteString("Legality", value.Legality);
         writer.WriteString("Name", value.Name);

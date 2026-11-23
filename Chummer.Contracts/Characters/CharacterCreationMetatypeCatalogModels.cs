@@ -37,6 +37,11 @@ public static class CharacterCreationMetatypeQualityPolarities
     public const string Negative = "negative";
 }
 
+/// <summary>A child ID is meaningful only under its exact active-source parent.</summary>
+public sealed record CharacterCreationMetatypeSelectionIdentity(
+    string ParentMetatypeOptionId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? MetavariantOptionId = null);
+
 public sealed record CharacterCreationMetatypeAttributeProjection(
     string AttributeId,
     int Minimum,
@@ -93,7 +98,13 @@ public sealed record CharacterCreationMetatypeExcludedChoice(
 public sealed record CharacterCreationMetatypeBaseBonuses(
     int Armor,
     int Reach,
-    int LifestyleCostPercent);
+    int LifestyleCostPercent)
+{
+    // Null preserves every older serialized projection and digest. Zero is an
+    // explicit source effect and must still have its exact saved owner row.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ConditionOverflow5497 { get; init; }
+}
 
 public sealed record CharacterCreationMetatypeOptionProjection(
     string OptionId,
@@ -115,6 +126,15 @@ public sealed record CharacterCreationMetatypeOptionProjection(
     // Preserve the canonical bytes of existing Human/Elf/Ork draft histories.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationMetatypeBaseBonuses? BaseBonuses { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeSelectionIdentity? MetatypeIdentity { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentMetatypeLabel { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentMetatypeCategory { get; init; }
 }
 
 public sealed record CharacterCreationMetatypeSourceContextAuthority(
@@ -155,6 +175,9 @@ public sealed record CharacterCreationMetatypeCatalogAuthority(
     IReadOnlyList<string> Blockers,
     bool IsAuthoritative)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationMetatypeOptionProjection>? MetavariantOptions { get; init; }
+
     public static CharacterCreationMetatypeCatalogAuthority Unavailable { get; } = new(
         Schema: CharacterCreationMetatypeCatalogSchemas.CatalogV1,
         SourceContext: CharacterCreationMetatypeSourceContextAuthority.Unavailable,

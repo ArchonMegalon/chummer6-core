@@ -13,16 +13,50 @@ internal sealed record CharacterCreationTalentSkillGrants(
 {
     internal static bool TryResolve(CharacterCreationPrerequisiteDraft? prerequisite,
         CharacterCreationSkillsAuthority authority, out CharacterCreationTalentSkillGrants grants)
+        => TryResolve(prerequisite, authority.ActiveSkills, authority.SkillGroups,
+            authority.EffectiveSkillsInputsDigest, authority.MaxActiveSkillRatingCreate,
+            authority.MaxSkillGroupRatingCreate, out grants);
+
+    internal static bool TryResolveCatalog3563(CharacterCreationPrerequisiteDraft prerequisite,
+        CharacterCreationSkillsCatalog catalog, int maximumRating, out CharacterCreationTalentSkillGrants grants)
+        => TryResolve(prerequisite, catalog.ActiveSkills, catalog.SkillGroups,
+            catalog.SkillsInputsDigest, maximumRating, maximumRating, out grants);
+
+    private static bool TryResolve(CharacterCreationPrerequisiteDraft? prerequisite,
+        IReadOnlyList<CharacterCreationSkillCatalogEntry> activeSkills,
+        IReadOnlyList<CharacterCreationSkillGroupCatalogEntry> skillGroups,
+        string skillsDigest, int maximumActiveRating, int maximumGroupRating,
+        out CharacterCreationTalentSkillGrants grants)
+    {
+        grants = new(new Dictionary<string, CharacterCreationTalentActiveSkillGrantPlanEntry>(StringComparer.Ordinal),
+            new Dictionary<string, CharacterCreationTalentSkillGroupGrantPlanEntry>(StringComparer.Ordinal));
+        if (prerequisite?.TalentSelection?.GrantPlan is not { } plan) return true;
+        return TryResolvePlan5693(plan, activeSkills, skillGroups, skillsDigest,
+            maximumActiveRating, maximumGroupRating, out grants, prerequisite);
+    }
+
+    // The caller must obtain this plan from the existing source-backed planner.
+    // A public/serialized plan is never an imported selection capability.
+    internal static bool TryResolveImportedPlan5693(CharacterCreationTalentGrantPlanContribution? plan,
+        CharacterCreationSkillsCatalog catalog, int maximumRating, out CharacterCreationTalentSkillGrants grants)
+        => TryResolvePlan5693(plan, catalog.ActiveSkills, catalog.SkillGroups, catalog.SkillsInputsDigest,
+            maximumRating, maximumRating, out grants);
+
+    private static bool TryResolvePlan5693(CharacterCreationTalentGrantPlanContribution? plan,
+        IReadOnlyList<CharacterCreationSkillCatalogEntry> activeSkills,
+        IReadOnlyList<CharacterCreationSkillGroupCatalogEntry> skillGroups,
+        string skillsDigest, int maximumActiveRating, int maximumGroupRating,
+        out CharacterCreationTalentSkillGrants grants, CharacterCreationPrerequisiteDraft? prerequisite = null)
     {
         var skills = new Dictionary<string, CharacterCreationTalentActiveSkillGrantPlanEntry>(StringComparer.Ordinal);
         var groups = new Dictionary<string, CharacterCreationTalentSkillGroupGrantPlanEntry>(StringComparer.Ordinal);
         grants = new(skills, groups);
-        if (prerequisite?.TalentSelection?.GrantPlan is not { } plan)
+        if (plan is null)
             return true;
         if (plan.Schema != CharacterCreationPrerequisiteSchemas.TalentGrantPlanV1
             || plan.ActiveSkills is null || plan.SkillGroups is null || plan.SourceAnchorIds is not { Count: > 0 }
             || plan.ActiveSkills.Count + plan.SkillGroups.Count is < 1 or > CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
-            || !CharacterCreationSkillsDigest.EqualsFixedTime(prerequisite.DraftDigest,
+            || prerequisite is not null && !CharacterCreationSkillsDigest.EqualsFixedTime(prerequisite.DraftDigest,
                 CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(prerequisite))
             || plan.ActiveSkills.Count != 0 && plan.SkillGroups.Count != 0
             || !CharacterCreationSkillsDigest.EqualsFixedTime(plan.PlanDigest,
@@ -31,14 +65,14 @@ internal sealed record CharacterCreationTalentSkillGrants(
         foreach (var grant in plan.ActiveSkills)
         {
             if (grant is null) return false;
-            var matches = authority.ActiveSkills.Where(item => item.SourceSkillId == grant.SourceId).Take(2).ToArray();
+            var matches = activeSkills.Where(item => item.SourceSkillId == grant.SourceId).Take(2).ToArray();
             if (matches.Length != 1 || grant.TargetKind != "active-skill"
                 || grant.ImprovementKind != CharacterCreationTalentGrantImprovementKinds.SkillBase
-                || grant.BaseRating < 1 || grant.BaseRating > authority.MaxActiveSkillRatingCreate
+                || grant.BaseRating < 1 || grant.BaseRating > maximumActiveRating
                 || grant.CanonicalName != matches[0].Name || grant.Category != matches[0].Category
                 || grant.SkillGroup != matches[0].SkillGroup || matches[0].IsExotic
                 || grant.SourceAnchorIds is not { Count: > 0 }
-                || !CharacterCreationSkillsDigest.EqualsFixedTime(grant.SkillsSourceDigest, authority.EffectiveSkillsInputsDigest)
+                || !CharacterCreationSkillsDigest.EqualsFixedTime(grant.SkillsSourceDigest, skillsDigest)
                 || !skills.TryAdd(grant.SourceId, grant))
                 return false;
         }
@@ -46,15 +80,15 @@ internal sealed record CharacterCreationTalentSkillGrants(
         foreach (var grant in plan.SkillGroups)
         {
             if (grant is null) return false;
-            var matches = authority.SkillGroups.Where(item => item.Name == grant.CanonicalName).Take(2).ToArray();
+            var matches = skillGroups.Where(item => item.Name == grant.CanonicalName).Take(2).ToArray();
             if (matches.Length != 1 || grant.TargetKind != "skill-group"
                 || grant.ImprovementKind != CharacterCreationTalentGrantImprovementKinds.SkillGroupBase
-                || grant.BaseRating < 0 || grant.BaseRating > authority.MaxSkillGroupRatingCreate
+                || grant.BaseRating < 0 || grant.BaseRating > maximumGroupRating
                 || grant.MemberSkillSourceIds is not { Count: > 0 }
                 || grant.SourceAnchorIds is not { Count: > 0 }
                 || !grant.MemberSkillSourceIds.OrderBy(id => id, StringComparer.Ordinal).SequenceEqual(
                     matches[0].MemberSkillSourceIds.OrderBy(id => id, StringComparer.Ordinal), StringComparer.Ordinal)
-                || !CharacterCreationSkillsDigest.EqualsFixedTime(grant.SkillsSourceDigest, authority.EffectiveSkillsInputsDigest)
+                || !CharacterCreationSkillsDigest.EqualsFixedTime(grant.SkillsSourceDigest, skillsDigest)
                 || !selectedGroups.Add(matches[0].GroupId))
                 return false;
             // Zero-rated entries remain in the validated Priority choice plan,

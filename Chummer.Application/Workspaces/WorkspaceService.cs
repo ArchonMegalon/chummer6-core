@@ -1,4 +1,5 @@
 using System.IO;
+using Chummer.Application.Owners;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,7 +16,8 @@ using Chummer.Application.Characters;
 
 namespace Chummer.Application.Workspaces;
 
-public sealed class WorkspaceService : IWorkspaceService
+public sealed partial class WorkspaceService : IWorkspaceService, IWorkspaceCurrentRuleEnvironmentReadCapability,
+    IWorkspaceCurrentDisplayRosterCapability, IWorkspaceCurrentSaveCapability
 {
     private const string DenseWorkbenchParityFamilyId = "family:initiative_action_notes_and_workflow_state";
     private const string ExchangeParityFamilyId = "family:sheet_export_print_viewer_and_exchange";
@@ -265,6 +267,9 @@ public sealed class WorkspaceService : IWorkspaceService
             SavedRevision: stored.SavedRevision);
     }
 
+    public WorkspaceStoreReadResult GetWorkspaceObservation(OwnerScope owner, CharacterWorkspaceId id)
+        => ScopedStoreAccess(owner).Get(id);
+
     public CommandResult<WorkspaceDocumentSnapshot> GetWorkspace(CharacterWorkspaceId id)
     {
         return GetWorkspaceCore(LocalStoreAccess(), id);
@@ -274,6 +279,64 @@ public sealed class WorkspaceService : IWorkspaceService
     {
         return GetWorkspaceCore(ScopedStoreAccess(owner), id);
     }
+
+    public IWorkspaceStartupDisplayObservation? BeginWorkspaceRefreshObservation(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, CharacterWorkspaceId id)
+        => (_workspaceStore as IWorkspaceCurrentDisplayRosterStoreCapability)
+            ?.BeginWorkspaceRefreshObservation(owners, expectedOwner, _workspaceCodecResolver, id);
+
+    public IWorkspaceStartupDisplayObservation? BeginStartupDisplayObservation(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, CharacterWorkspaceId? preferredId = null)
+        => (_workspaceStore as IWorkspaceCurrentDisplayRosterStoreCapability)
+            ?.BeginStartupDisplayObservation(owners, expectedOwner, _workspaceCodecResolver, preferredId);
+
+    public IWorkspaceCurrentDisplayObservation? BeginCurrentDisplayObservation(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, CharacterWorkspaceId id)
+        => (_workspaceStore as IWorkspaceCurrentDisplayStoreCapability)
+            ?.BeginCurrentDisplayObservation(owners, expectedOwner, id, _workspaceCodecResolver);
+
+    public CommandResult<WorkspaceDocumentSnapshot> GetCurrentDisplayWorkspace(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, IOwnerContextLease ownerLease,
+        CharacterWorkspaceId id, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _workspaceStore is IWorkspaceCurrentDisplayStoreCapability currentDisplay
+            ? NormalizeCurrentDisplayResult(currentDisplay.GetCurrentDisplayWorkspace(
+                owners, expectedOwner, ownerLease, id, cancellationToken))
+            : CurrentDisplayUnavailable<WorkspaceDocumentSnapshot>();
+    }
+
+    public CommandResult<WorkspaceOverviewProjection> GetCurrentDisplayOverview(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, IOwnerContextLease ownerLease,
+        CharacterWorkspaceId id, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _workspaceStore is IWorkspaceCurrentDisplayStoreCapability currentDisplay
+            ? NormalizeCurrentDisplayResult(currentDisplay.GetCurrentDisplayOverview(
+                owners, expectedOwner, ownerLease, id, _workspaceCodecResolver, cancellationToken))
+            : CurrentDisplayUnavailable<WorkspaceOverviewProjection>();
+    }
+
+    public CommandResult<IReadOnlyList<WorkspaceListItem>> ListCurrentDisplayWorkspaces(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, IOwnerContextLease ownerLease,
+        int? maxCount = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _workspaceStore is IWorkspaceCurrentDisplayRosterStoreCapability roster
+            ? NormalizeCurrentDisplayResult(roster.ListCurrentDisplayWorkspaces(
+                owners, expectedOwner, ownerLease, _workspaceCodecResolver, maxCount, cancellationToken))
+            : CurrentDisplayUnavailable<IReadOnlyList<WorkspaceListItem>>();
+    }
+
+    private static CommandResult<T> NormalizeCurrentDisplayResult<T>(CommandResult<T>? result) where T : class
+        => result is { Success: true, Value: not null } && result.Outcome == WorkspaceOperationOutcome.Success
+            || result is { Success: false, Value: null } && Enum.IsDefined(result.Outcome)
+                && result.Outcome != WorkspaceOperationOutcome.Success
+            ? result! : CurrentDisplayUnavailable<T>();
+
+    private static CommandResult<T> CurrentDisplayUnavailable<T>() where T : class
+        => new(false, default, "Workspace display is unavailable for the current owner and rule environment.",
+            WorkspaceOperationOutcome.Unavailable);
 
     private static CommandResult<WorkspaceDocumentSnapshot> GetWorkspaceCore(
         WorkspaceStoreAccess access,
@@ -455,13 +518,12 @@ public sealed class WorkspaceService : IWorkspaceService
         CharacterWorkspaceId id,
         string sectionId)
     {
-        if (!TryResolveEnvelope(access, id, out WorkspacePayloadEnvelope envelope))
-        {
-            return null;
-        }
-
+        var read = access.Get(id);
+        if (!read.Success || read.Value is not { } observation) return null;
+        var envelope = ResolveEnvelope(observation.Document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
-        object? section = codec.ParseSection(sectionId, envelope);
+        object? section = string.Equals(sectionId?.Trim(), "sheetderived", StringComparison.OrdinalIgnoreCase)
+            ? codec.ParseSection(sectionId!, observation) : codec.ParseSection(sectionId!, envelope);
         return section is BuildLabConceptIntakeProjection projection
             ? BuildLabWorkspaceProjectionFactory.BindWorkspaceId(projection, id.Value)
             : section;
@@ -904,25 +966,9 @@ public sealed class WorkspaceService : IWorkspaceService
             return ConflictFailure<WorkspaceSaveReceipt>();
         }
 
-        WorkspaceDocument document = current.Document;
-        WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
+        WorkspacePayloadEnvelope envelope = ResolveEnvelope(current.Document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
-        DataExportBundle bundle = codec.BuildExportBundle(envelope);
-        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
-        string receiptId = BuildReceiptId("save", id.Value, payloadSha256);
-        WorkspaceSaveReceipt receipt = new(
-            Id: id,
-            DocumentLength: envelope.Payload.Length,
-            RulesetId: envelope.RulesetId,
-            ReceiptId: receiptId,
-            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
-                receiptId,
-                id,
-                envelope.RulesetId,
-                bundle,
-                envelope.Payload),
-            ContentRevision: current.ContentRevision,
-            SavedRevision: current.ContentRevision);
+        WorkspaceSaveReceipt receipt = BuildSaveReceipt(id, current, envelope, codec.BuildExportBundle(envelope));
         WorkspaceStoreMutationResult checkpoint = access.SaveCheckpoint(
             id,
             expectedContentRevision);
@@ -940,6 +986,37 @@ public sealed class WorkspaceService : IWorkspaceService
                 },
                 Error: null,
                 OperationOutcome: WorkspaceOperationOutcome.Success);
+    }
+
+    public CommandResult<WorkspaceSaveReceipt> SaveCurrent(
+        IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, IOwnerContextLease ownerLease,
+        CharacterWorkspaceId id, long expectedContentRevision, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _workspaceStore is IWorkspaceCurrentSaveStoreCapability currentSave
+            ? currentSave.SaveCurrent(owners, expectedOwner, ownerLease, id, expectedContentRevision,
+                _workspaceCodecResolver, (saved, bundle) => BuildSaveReceipt(id, saved, saved.Document.PayloadEnvelope, bundle), cancellationToken)
+            : new(false, null, "Current owner-bound workspace Save is unavailable.", WorkspaceOperationOutcome.Unavailable);
+    }
+
+    private static WorkspaceSaveReceipt BuildSaveReceipt(
+        CharacterWorkspaceId id, WorkspaceStoredDocument current, WorkspacePayloadEnvelope envelope, DataExportBundle bundle)
+    {
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
+        string receiptId = BuildReceiptId("save", id.Value, payloadSha256);
+        return new(
+            Id: id,
+            DocumentLength: envelope.Payload.Length,
+            RulesetId: envelope.RulesetId,
+            ReceiptId: receiptId,
+            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
+                receiptId,
+                id,
+                envelope.RulesetId,
+                bundle,
+                envelope.Payload),
+            ContentRevision: current.ContentRevision,
+            SavedRevision: current.ContentRevision);
     }
 
     public CommandResult<WorkspaceDownloadReceipt> Download(CharacterWorkspaceId id)
@@ -1046,7 +1123,7 @@ public sealed class WorkspaceService : IWorkspaceService
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
         string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
-        WorkspacePrintReceipt receipt = BuildPrintReceipt(id, envelope.RulesetId, bundle, payloadSha256, envelope.Payload);
+        WorkspacePrintReceipt receipt = BuildPrintReceipt(id, codec, envelope, bundle, payloadSha256);
 
         return new CommandResult<WorkspacePrintReceipt>(
             Success: true,
@@ -1113,15 +1190,17 @@ public sealed class WorkspaceService : IWorkspaceService
 
     private static WorkspacePrintReceipt BuildPrintReceipt(
         CharacterWorkspaceId id,
-        string rulesetId,
+        IRulesetWorkspaceCodec codec,
+        WorkspacePayloadEnvelope envelope,
         DataExportBundle bundle,
-        string payloadSha256,
-        string payload)
+        string payloadSha256)
     {
+        string rulesetId = envelope.RulesetId;
+        string payload = envelope.Payload;
         string title = string.IsNullOrWhiteSpace(bundle.Summary.Name)
             ? $"Character {id.Value}"
             : bundle.Summary.Name;
-        string html = BuildPrintHtml(bundle, title);
+        string html = CharacterSheetHtmlFormatter.Format(codec, envelope, bundle, title);
         byte[] bytes = Encoding.UTF8.GetBytes(html);
         string receiptId = BuildReceiptId("print", id.Value, payloadSha256);
 
@@ -1148,73 +1227,6 @@ public sealed class WorkspaceService : IWorkspaceService
                 payload: payload));
     }
 
-    private static string BuildPrintHtml(DataExportBundle bundle, string title)
-    {
-        string encodedTitle = WebUtility.HtmlEncode(title);
-        string alias = WebUtility.HtmlEncode(bundle.Profile?.Alias ?? bundle.Summary.Alias);
-        string metatype = WebUtility.HtmlEncode(bundle.Profile?.Metatype ?? bundle.Summary.Metatype);
-        string buildMethod = WebUtility.HtmlEncode(bundle.Profile?.BuildMethod ?? bundle.Summary.BuildMethod);
-        string playerName = WebUtility.HtmlEncode(bundle.Profile?.PlayerName ?? string.Empty);
-        string concept = WebUtility.HtmlEncode(bundle.Profile?.Concept ?? string.Empty);
-        string karma = bundle.Progress?.Karma.ToString("0.##") ?? bundle.Summary.Karma.ToString("0.##");
-        string nuyen = bundle.Progress?.Nuyen.ToString("0.##") ?? bundle.Summary.Nuyen.ToString("0.##");
-        string streetCred = bundle.Progress?.StreetCred.ToString() ?? "0";
-        string initiative = bundle.Progress?.InitiateGrade.ToString() ?? "0";
-        string attributeCount = bundle.Attributes?.Count.ToString() ?? "0";
-        string skillCount = bundle.Skills?.Count.ToString() ?? "0";
-        string gearCount = bundle.Inventory?.GearCount.ToString() ?? "0";
-        string contactCount = bundle.Contacts?.Count.ToString() ?? "0";
-
-        StringBuilder html = new();
-        html.AppendLine("<!DOCTYPE html>");
-        html.AppendLine("<html lang=\"en\">");
-        html.AppendLine("<head>");
-        html.AppendLine("  <meta charset=\"utf-8\" />");
-        html.AppendLine($"  <title>{encodedTitle}</title>");
-        html.AppendLine("  <style>");
-        html.AppendLine("    body { font-family: 'Segoe UI', sans-serif; margin: 2rem; color: #111827; }");
-        html.AppendLine("    h1, h2 { margin-bottom: 0.5rem; }");
-        html.AppendLine("    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1.5rem; }");
-        html.AppendLine("    .card { border: 1px solid #d1d5db; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; }");
-        html.AppendLine("    dt { font-weight: 700; }");
-        html.AppendLine("    dd { margin: 0 0 0.5rem 0; }");
-        html.AppendLine("  </style>");
-        html.AppendLine("</head>");
-        html.AppendLine("<body>");
-        html.AppendLine($"  <h1>{encodedTitle}</h1>");
-        html.AppendLine("  <div class=\"card\">");
-        html.AppendLine("    <h2>Profile</h2>");
-        html.AppendLine("    <dl class=\"grid\">");
-        html.AppendLine($"      <dt>Alias</dt><dd>{alias}</dd>");
-        html.AppendLine($"      <dt>Metatype</dt><dd>{metatype}</dd>");
-        html.AppendLine($"      <dt>Build Method</dt><dd>{buildMethod}</dd>");
-        html.AppendLine($"      <dt>Player</dt><dd>{playerName}</dd>");
-        html.AppendLine($"      <dt>Concept</dt><dd>{concept}</dd>");
-        html.AppendLine("    </dl>");
-        html.AppendLine("  </div>");
-        html.AppendLine("  <div class=\"card\">");
-        html.AppendLine("    <h2>Progress</h2>");
-        html.AppendLine("    <dl class=\"grid\">");
-        html.AppendLine($"      <dt>Karma</dt><dd>{WebUtility.HtmlEncode(karma)}</dd>");
-        html.AppendLine($"      <dt>Nuyen</dt><dd>{WebUtility.HtmlEncode(nuyen)}</dd>");
-        html.AppendLine($"      <dt>Street Cred</dt><dd>{WebUtility.HtmlEncode(streetCred)}</dd>");
-        html.AppendLine($"      <dt>Initiate Grade</dt><dd>{WebUtility.HtmlEncode(initiative)}</dd>");
-        html.AppendLine("    </dl>");
-        html.AppendLine("  </div>");
-        html.AppendLine("  <div class=\"card\">");
-        html.AppendLine("    <h2>Coverage</h2>");
-        html.AppendLine("    <dl class=\"grid\">");
-        html.AppendLine($"      <dt>Attributes</dt><dd>{WebUtility.HtmlEncode(attributeCount)}</dd>");
-        html.AppendLine($"      <dt>Skills</dt><dd>{WebUtility.HtmlEncode(skillCount)}</dd>");
-        html.AppendLine($"      <dt>Gear</dt><dd>{WebUtility.HtmlEncode(gearCount)}</dd>");
-        html.AppendLine($"      <dt>Contacts</dt><dd>{WebUtility.HtmlEncode(contactCount)}</dd>");
-        html.AppendLine("    </dl>");
-        html.AppendLine("  </div>");
-        html.AppendLine("</body>");
-        html.AppendLine("</html>");
-        return html.ToString();
-    }
-
     private static string SanitizeFileName(string value)
     {
         char[] invalidChars = Path.GetInvalidFileNameChars();
@@ -1238,11 +1250,18 @@ public sealed class WorkspaceService : IWorkspaceService
         bool preservesNativePayload)
     {
         string displayName = string.IsNullOrWhiteSpace(summary.Name) ? id.Value : summary.Name;
-        bool needsReview = document.Format != WorkspaceDocumentFormat.NativeXml;
+        bool missingSettings = rulesetId == "sr5" && document.Format == WorkspaceDocumentFormat.NativeXml
+            && XDocument.Parse(document.Content.TrimStart('\uFEFF')).Root?.Elements("settings").ToArray() is [var selectedSettings]
+            && !Guid.TryParse(selectedSettings.Value, out _);
+        bool needsReview = document.Format != WorkspaceDocumentFormat.NativeXml || missingSettings;
         string receiptId = BuildReceiptId("import", id.Value, payloadSha256);
         string outputKind = document.Format == WorkspaceDocumentFormat.Json
             ? WorkspacePortabilityOutputKinds.PortableDossier
             : WorkspacePortabilityOutputKinds.NativeWorkspaceXml;
+        WorkspacePortabilityNote settingsNote = new(
+            Code: "missing-settings",
+            Severity: WorkspacePortabilityNoteSeverities.Warning,
+            Summary: "This character-only import has no retained standalone settings binding. Import a complete private rule environment from the source installation, including the original selected settings file and its ordered custom data.");
         WorkspacePortabilityNote formatNote = new(
             Code: "format-identity",
             Severity: needsReview
@@ -1273,7 +1292,9 @@ public sealed class WorkspaceService : IWorkspaceService
                 : "Portable import completed as governed dossier truth and is ready for normal use or portable export.",
             ProvenanceSummary: $"Imported workspace {id.Value} from {document.Format} with payload hash {payloadSha256[..12]} on {rulesetId}.",
             PayloadSha256: payloadSha256,
-            NextSafeAction: needsReview
+            NextSafeAction: missingSettings
+                ? settingsNote.Summary
+                : needsReview
                 ? preservesNativePayload
                     ? "Review the native character and installed sources before authorizing merge or replace; imported data does not confer authority."
                     : "Open the Rules and Profile tabs, then export a fresh portable package before you authorize merge or replace elsewhere."
@@ -1288,7 +1309,8 @@ public sealed class WorkspaceService : IWorkspaceService
             [
                 formatNote,
                 rulesetNote,
-                provenanceNote
+                provenanceNote,
+                .. (missingSettings ? new[] { settingsNote } : Array.Empty<WorkspacePortabilityNote>())
             ],
             OutputKind: outputKind,
             Lineage:

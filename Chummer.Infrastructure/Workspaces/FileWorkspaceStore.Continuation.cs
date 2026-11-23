@@ -16,6 +16,26 @@ public sealed partial class FileWorkspaceStore : IWorkspaceContinuationReadCapab
 
     public bool SupportsWorkspaceContinuationRead => true;
 
+    public CommandResult<WorkspaceContinuationRestoreTarget> ReadContinuationStorageTarget(
+        OwnerScope owner, CharacterWorkspaceId id)
+    {
+        if (!owner.IsLocalSingleUser && IsInvalidScopedOwner(owner))
+            return new(false, null, "Workspace storage identity is unavailable.", WorkspaceOperationOutcome.Unavailable);
+        // Retained private environments keep their canonical read authority. An
+        // ordinary continuation read must never bypass that admission boundary.
+        if (SupportsWorkspacePrivateRuleSourceClosureRestore)
+        {
+            var inspected = InspectPrivateClosureRestoreTarget(owner, id).Result;
+            return inspected.Outcome == WorkspaceContinuationRestoreOutcome.Available && inspected.Target is { Exists: true }
+                ? new(true, inspected.Target, null, WorkspaceOperationOutcome.Success)
+                : new(false, null, "Private workspace storage identity is unavailable.", WorkspaceOperationOutcome.Unavailable);
+        }
+        var read = ReadContinuationCore(owner, id, out var target, captureStorageTarget: true);
+        return read.Success && target is not null
+            ? new(true, target, null, WorkspaceOperationOutcome.Success)
+            : new(false, null, "Workspace storage identity is unavailable.", read.Outcome);
+    }
+
     public CommandResult<WorkspaceContinuationSnapshot> ReadContinuation(CharacterWorkspaceId id) =>
         ReadContinuationCore(OwnerScope.LocalSingleUser, id);
 
@@ -25,7 +45,13 @@ public sealed partial class FileWorkspaceStore : IWorkspaceContinuationReadCapab
             : ReadContinuationCore(owner, id);
 
     private CommandResult<WorkspaceContinuationSnapshot> ReadContinuationCore(OwnerScope owner, CharacterWorkspaceId id)
+        => WithSessionPlayExport5712(owner, id, reader => ReadContinuationCore(owner, id, out _, playReader5712: reader));
+
+    private CommandResult<WorkspaceContinuationSnapshot> ReadContinuationCore(OwnerScope owner, CharacterWorkspaceId id,
+        out WorkspaceContinuationRestoreTarget? target, bool captureStorageTarget = false,
+        Chummer.Application.Session.ISessionPlayReader? playReader5712 = null)
     {
+        target = null;
         string? path = TryGetPath(owner, id);
         if (path is null)
             return ContinuationFailure(WorkspaceOperationOutcome.Missing);
@@ -43,15 +69,25 @@ public sealed partial class FileWorkspaceStore : IWorkspaceContinuationReadCapab
                 return ContinuationFailure(read.Outcome);
 
             WorkspaceStoredDocument stored = read.Value;
+            if (Chummer.Application.Session.SessionAmmunitionSettlementRules5712.RequiresSettlement(playReader5712,
+                Chummer.Application.Session.SessionAmmunitionSettlementRules5712.Identity(stored.Document.AuxiliaryState.SessionPlaySettlement5712)))
+                return new(false, null, "Save pending Play ammunition through After Run before exporting.", WorkspaceOperationOutcome.Conflict);
             // The ledger validator proved that the entry's two private hash fields
             // equal the public receipt fields. Reusing the existing receipt loses
             // no replay identity and does not create a second audit contract.
-            return new(true, new(owner.NormalizedValue,
+            var snapshot = new WorkspaceContinuationSnapshot(owner.NormalizedValue,
                 new(stored.Id, stored.Document, stored.LastUpdatedUtc,
                     stored.ContentRevision, stored.SavedRevision),
                 ledger.Select(entry => entry.Receipt).ToArray())
-                { DelegatedGmHistorySegmentStarts = stored.DelegatedGmHistorySegmentStarts.ToArray() }, null,
-                WorkspaceOperationOutcome.Success);
+                { DelegatedGmHistorySegmentStarts = stored.DelegatedGmHistorySegmentStarts.ToArray() };
+            if (captureStorageTarget)
+            {
+                if (stored.LocalHistory is null) return ContinuationFailure(WorkspaceOperationOutcome.Unavailable);
+                target = new(owner.NormalizedValue, id, true, stored.LocalHistory.IncarnationId,
+                    stored.ContentRevision, stored.SavedRevision, WorkspaceContinuationSnapshotDigest.Compute(snapshot),
+                    ReadContinuationSlotUnderLease(path));
+            }
+            return new(true, snapshot, null, WorkspaceOperationOutcome.Success);
         }
         catch (IOException)
         {

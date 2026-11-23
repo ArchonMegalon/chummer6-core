@@ -24,6 +24,8 @@ public sealed partial class OwnerBoundCharacterCareerQualityService(IWorkspaceSt
             return new(CharacterCareerQualityCommitOutcome.Conflict, Error: "quality_owner_admission_rejected");
         using (lease)
         {
+            if (store is ICharacterCareerQualityCurrentCapability current)
+                return current.CommitCurrentCareerQuality(ownerContext, expectedOwner, lease!, plan, authority, cancellationToken);
             var prior = LookupAdmitted(expectedOwner, plan);
             if (prior.Outcome != CharacterCareerQualityCommitOutcome.NotFound) return prior;
             if (store is not ICharacterCareerQualityAtomicCommitCapability atomic)
@@ -61,6 +63,8 @@ public sealed partial class OwnerBoundCharacterCareerQualityService(IWorkspaceSt
             return new(CharacterCareerQualityCommitOutcome.Conflict, Error: "quality_owner_admission_rejected");
         using (lease)
         {
+            if (store is ICharacterCareerQualityCurrentCapability current)
+                return current.CorrectCurrentCareerQuality(ownerContext, expectedOwner, lease!, correction, authority, cancellationToken);
             var prior = LookupCorrectionAdmitted(expectedOwner, correction);
             if (prior.Outcome != CharacterCareerQualityCommitOutcome.NotFound) return prior;
             if (store is not ICharacterCareerQualityAtomicCommitCapability atomic)

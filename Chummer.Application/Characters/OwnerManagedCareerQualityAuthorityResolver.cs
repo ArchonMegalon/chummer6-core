@@ -29,12 +29,13 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
         try
         {
             var context = sources.TryCreateContext(saved.Document.Content);
-            if (context is null || !TryReadAuthority(context, out var settings,
-                    out var catalog, out var rawRules, out var digest, out var metatype)) return null;
+            if (context is null || !TryReadAuthority(context, saved.Document.Content, out var settings,
+                    out var catalog, out var rawRules, out var digest, out var metatype, out var arms, out var authorityDigest)) return null;
+            (XElement Character, XElement Metatype)? restrictionGraphs = null;
             var source = catalog.SingleOrDefault(row => row.SourceId == identity.SourceId);
             if (source is null || !TryInput(owner, saved, identity, operation, runtimeFingerprint,
-                    source, settings, rawRules, digest, metatype, out var input)) return null;
-            return new Admission(sources, context, saved.Document.Content, source, input!, digest);
+                    source, settings, rawRules, digest, metatype, arms, ref restrictionGraphs, out var input)) return null;
+            return new Admission(sources, context, saved.Document.Content, source, input!, authorityDigest, arms);
         }
         catch (Exception exception) when (exception is XmlException or InvalidDataException or ArgumentException
             or InvalidOperationException or IOException or UnauthorizedAccessException) { return null; }
@@ -47,16 +48,19 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
         try
         {
             var context = sources.TryCreateContext(saved.Document.Content);
-            if (context is null || !TryReadAuthority(context, out var settings,
-                    out var catalog, out var rawRules, out var digest, out var metatype)
+            if (context is null || !TryReadAuthority(context, saved.Document.Content, out var settings,
+                    out var catalog, out var rawRules, out var digest, out var metatype, out var arms, out var authorityDigest)
                 || !CharacterCareerQualityGraph.TryReadIdentities(saved.Document.Content, out var identities)) return null;
             var candidates = new List<CharacterCareerQualityInput>();
+            // Detached, read-only trees live only for this catalog request. Keep
+            // canonical candidate projection and both source-currentness fences.
+            (XElement Character, XElement Metatype)? restrictionGraphs = null;
             var ownedBySource = identities.ToLookup(row => row.SourceId);
             foreach (var source in catalog)
             {
                 // Do not turn unsupported requirements or partial effect graphs
                 // into apparently available purchases. No fabricated anatomy.
-                if (!CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(source.RawSourceXml)) continue;
+                if (!CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(source.RawSourceXml, arms)) continue;
                 var acquired = new CharacterCareerQualityIdentity(StableAcquisitionId(owner, saved, source.SourceId, digest), source.SourceId);
                 Add(acquired, CharacterCareerQualityOperation.AcquireLevel);
                 foreach (var existing in ownedBySource[source.SourceId])
@@ -68,13 +72,13 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
                 void Add(CharacterCareerQualityIdentity identity, CharacterCareerQualityOperation operation)
                 {
                     if (TryInput(owner, saved, identity, operation, runtimeFingerprint, source, settings,
-                            rawRules, digest, metatype, out var input)) candidates.Add(input!);
+                            rawRules, digest, metatype, arms, ref restrictionGraphs, out var input)) candidates.Add(input!);
                 }
             }
             var binding = new CharacterCareerQualityExecutionBinding(owner.NormalizedValue, saved.Id.Value,
                 saved.ContentRevision, saved.SavedRevision, runtimeFingerprint, digest);
             var admission = new CatalogAdmission(sources, context, saved.Document.Content, binding,
-                Array.AsReadOnly(candidates.ToArray()));
+                Array.AsReadOnly(candidates.ToArray()), authorityDigest);
             if (admission.IsCurrent()) return admission;
             admission.Dispose();
             return null;
@@ -93,11 +97,12 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
         => new(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', PolicyIdentity, owner.NormalizedValue,
             saved.Id.Value, saved.ContentRevision.ToString(CultureInfo.InvariantCulture), sourceId.ToString("D"), digest)))[..16]);
 
-    private static bool TryReadAuthority(ICharacterSourceDataContext context,
+    private static bool TryReadAuthority(ICharacterSourceDataContext context, string characterXml,
         out CharacterCareerQualitySettings settings, out IReadOnlyList<CharacterCareerQualitySource> catalog,
-        out string rawRules, out string digest, out string metatype)
+        out string rawRules, out string digest, out string metatype, out int? arms, out string authorityDigest)
     {
-        rawRules = digest = metatype = string.Empty;
+        arms = null;
+        rawRules = digest = metatype = authorityDigest = string.Empty;
         catalog = [];
         settings = new(0, false, false);
         if (!context.TryResolveCareerQualitySettings(out settings, out var rules)
@@ -107,28 +112,72 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
             || catalog.Select(row => row.SourceId).Distinct().Count() != catalog.Count) return false;
         rawRules = string.Join('\0', PolicyIdentity, rules, metatypeAuthority);
         if (rawRules.Length > CharacterCareerQualityRules.MaximumRuleTextLength) return false;
+        string? anatomyDigest = null, anatomyGeneration = null;
+        var resolvedCatalog = catalog;
+        if (context.TryResolveCareerQualityAnatomySources(out var anatomy) && anatomy is not null
+            && anatomy.Schema == CharacterCareerQualityAnatomySources.Sr5CareerV1
+            && anatomy.MetatypeXml == metatype && anatomy.MetatypeAuthority == metatypeAuthority
+            && anatomy.SettingsAuthority.Length > 0 && anatomy.SettingsXml.Length > 0
+            && anatomy.QualityInputsAuthority.Length > 0
+            && anatomy.Qualities is not null
+            && anatomy.Qualities.All(typed => typed is not null && Guid.TryParseExact(typed.SourceId, "D", out var id)
+                && resolvedCatalog.SingleOrDefault(row => row.SourceId == id) is { } raw
+                // Match the typed projector's LoadOptions.None whitespace policy;
+                // the catalog and anatomy digests still bind the original source bytes.
+                && Parse(raw.RawSourceXml, ignoreWhitespace: true).ToString(SaveOptions.DisableFormatting) == typed.CanonicalSourceXml)
+            // The anatomy producer hashes the character parsed with LoadOptions.None.
+            // Match that detached view after acquisition copies source indentation
+            // into saved bonus nodes; keep the original saved graph for all mutations.
+            && CharacterCreationLegacySourceProjector.TryResolveCareerArmCount(
+                Parse(characterXml, ignoreWhitespace: true).ToString(SaveOptions.DisableFormatting),
+                anatomy, out var resolved))
+        {
+            arms = resolved;
+            anatomyDigest = anatomy.Digest;
+            // Receipt recovery spans this character's own committed revisions.
+            // Bind its content generation to source authority, not the saved
+            // character digest, selected contributors or resulting arm count.
+            anatomyGeneration = CharacterCareerQualityGraph.Hash(JsonSerializer.Serialize(new
+            {
+                anatomy.Schema, anatomy.BuildMethod, anatomy.SettingsProfileId,
+                anatomy.MetatypeId, anatomy.MetavariantId, anatomy.MetavariantName,
+                anatomy.MetatypeXml, anatomy.MetatypeAuthority,
+                anatomy.SettingsXml, anatomy.SettingsAuthority, anatomy.QualityInputsAuthority
+            }));
+        }
+        // Unsupported anatomy remains null without withdrawing unrelated quality
+        // operations. A previously resolved proof becoming unavailable changes the
+        // authority digest and permanently invalidates its retained lease.
         digest = CharacterCareerQualityGraph.Hash(JsonSerializer.Serialize(new
         {
-            PolicyIdentity, Rules = rawRules, Sources = catalog.OrderBy(row => row.SourceId)
+            PolicyIdentity, Rules = rawRules, Sources = catalog.OrderBy(row => row.SourceId),
+            AnatomySemantics = anatomyDigest is null ? null : CharacterCareerQualityAnatomySources.Sr5CareerV1,
+            AnatomyGeneration = anatomyGeneration
+        }));
+        // Keep the complete character-bound proof in both retained/fresh lease
+        // checks. Separating generation identity never relaxes anatomy admission.
+        authorityDigest = CharacterCareerQualityGraph.Hash(JsonSerializer.Serialize(new
+        {
+            ContentDigest = digest, AnatomyDigest = anatomyDigest, ResolvedArmCount = arms
         }));
         return true;
     }
 
     private static bool TryInput(OwnerScope owner, WorkspaceStoredDocument saved, CharacterCareerQualityIdentity identity,
         CharacterCareerQualityOperation operation, string runtimeFingerprint, CharacterCareerQualitySource source,
-        CharacterCareerQualitySettings settings, string rawRules, string digest, string metatype,
-        out CharacterCareerQualityInput? input)
+        CharacterCareerQualitySettings settings, string rawRules, string digest, string metatype, int? arms,
+        ref (XElement Character, XElement Metatype)? restrictionGraphs, out CharacterCareerQualityInput? input)
     {
         input = null;
-        if (!CharacterCareerQualityGraph.TryProject(saved.Document.Content, source, identity, operation, null, out var graph)
+        if (!CharacterCareerQualityGraph.TryProject(saved.Document.Content, source, identity, operation, arms, out var graph)
             // These source-defined free-cost cases need their full grant authority.
             // Never charge regular Karma or guess a free grant in its absence.
             || graph!.Definition.Metagenic || graph.Definition.Name == "Mentor Spirit"
             || graph.Definition.MentorSpiritWayFreeCostEligible) return false;
-        var character = Parse(saved.Document.Content);
-        var type = Parse(metatype);
-        if (!TryRestriction(character, graph.Definition, out bool characterAllowed)
-            || !TryRestriction(type, graph.Definition, out bool metatypeAllowed)) return false;
+        // Parse lazily: rejected candidates must not introduce a new parse failure.
+        restrictionGraphs ??= (Parse(saved.Document.Content), Parse(metatype));
+        if (!TryRestriction(restrictionGraphs.Value.Character, graph.Definition, out bool characterAllowed)
+            || !TryRestriction(restrictionGraphs.Value.Metatype, graph.Definition, out bool metatypeAllowed)) return false;
         bool permitted = characterAllowed && metatypeAllowed;
         string eligibility = CharacterCareerQualityGraph.Hash(JsonSerializer.Serialize(new
         { digest, identity.SourceId, graph.CharacterDigest, CharacterAllowed = characterAllowed, MetatypeAllowed = metatypeAllowed }));
@@ -166,33 +215,34 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
         return true;
     }
 
-    private static XElement Parse(string xml)
+    private static XElement Parse(string xml, bool ignoreWhitespace = false)
     {
         using var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings
-        { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
+        { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, IgnoreWhitespace = ignoreWhitespace,
             MaxCharactersInDocument = CharacterCareerReputationProjector.MaximumCharacterXmlLength });
         return XElement.Load(reader);
     }
 
     private sealed class Admission(ICharacterSourceDataResolver sources, ICharacterSourceDataContext context, string characterXml,
-        CharacterCareerQualitySource source, CharacterCareerQualityInput input, string digest)
-        : AuthorityLease(sources, context, characterXml, digest), ICharacterCareerQualityAdmission
+        CharacterCareerQualitySource source, CharacterCareerQualityInput input, string authorityDigest, int? arms)
+        : AuthorityLease(sources, context, characterXml, authorityDigest), ICharacterCareerQualityAdmission
     {
         public CharacterCareerQualityInput Input => input;
         public CharacterCareerQualitySource Source => source;
-        public int? ResolvedArmCount => null;
+        public int? ResolvedArmCount => arms;
     }
 
     private sealed class CatalogAdmission(ICharacterSourceDataResolver sources, ICharacterSourceDataContext context,
-        string characterXml, CharacterCareerQualityExecutionBinding binding, IReadOnlyList<CharacterCareerQualityInput> candidates)
-        : AuthorityLease(sources, context, characterXml, binding.ContentDigest), ICharacterCareerQualityCatalogAdmission
+        string characterXml, CharacterCareerQualityExecutionBinding binding, IReadOnlyList<CharacterCareerQualityInput> candidates,
+        string authorityDigest)
+        : AuthorityLease(sources, context, characterXml, authorityDigest), ICharacterCareerQualityCatalogAdmission
     {
         public CharacterCareerQualityExecutionBinding Binding => binding;
         public IReadOnlyList<CharacterCareerQualityInput> Candidates => candidates;
     }
 
     private abstract class AuthorityLease(ICharacterSourceDataResolver sources, ICharacterSourceDataContext context,
-        string characterXml, string digest) : IDisposable
+        string characterXml, string authorityDigest) : IDisposable
     {
         private bool disposed, invalidated;
         public bool IsCurrent()
@@ -202,10 +252,10 @@ public sealed class OwnerManagedCareerQualityAuthorityResolver(ICharacterSourceD
             {
                 // Retained context catches observed file ABA; fresh context also
                 // checks changed overlay/profile membership in the host catalog.
-                bool retained = TryReadAuthority(context, out _, out _, out _, out var current, out _) && current == digest;
+                bool retained = TryReadAuthority(context, characterXml, out _, out _, out _, out _, out _, out _, out var current) && current == authorityDigest;
                 var fresh = retained ? sources.TryCreateContext(characterXml) : null;
-                bool same = fresh is not null && TryReadAuthority(fresh, out _, out _, out _, out current, out _)
-                    && current == digest;
+                bool same = fresh is not null && TryReadAuthority(fresh, characterXml, out _, out _, out _, out _, out _, out _, out current)
+                    && current == authorityDigest;
                 invalidated = !same;
                 return same;
             }

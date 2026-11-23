@@ -74,6 +74,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     IReadOnlyList<CharacterCreationLoadoutReceipt>? CharacterCreationLoadoutReceipts = null)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerLifestyleMaintenanceReceipt>? CharacterCareerLifestyleMaintenanceReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationCompletionDraftEntry>? CharacterCreationCompletionDrafts { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -83,12 +86,97 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     public IReadOnlyList<CharacterCareerPowerEntry>? CharacterCareerPowerTransactions { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerLifestylePaymentReceipt>? CharacterCareerLifestylePaymentReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerContactsReceipt>? CharacterCareerContactsReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerGearPurchaseReceipt>? CharacterCareerGearPurchaseReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<WorkspaceWizardReceipt>? WorkspaceWizardReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerSpellLearningReceipt>? CharacterCareerSpellLearningReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerCustomDrugPurchaseReceipt>? CharacterCareerCustomDrugPurchaseReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerComplexFormLearningReceipt>? CharacterCareerComplexFormLearningReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerImplantCommerceReceipt>? CharacterCareerImplantCommerceReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerFreeSpriteConversionReceipt>? CharacterCareerFreeSpriteConversionReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerSpiritFetteringReceipt>? CharacterCareerSpiritFetteringReceipts { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerFocusBondingReceipt>? CharacterCareerFocusBondingReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerGearEquipmentReceipt>? CharacterCareerGearEquipmentReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerLoadoutPreset>? CharacterCareerLoadoutPresets { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerGearSaleReceipt>? CharacterCareerGearSaleReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerSpecializationReceipt>? CharacterCareerSpecializationReceipts { get; init; }
+
+    [JsonExtensionData]
+    public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+
+    // Extension data is for genuinely unknown fields, never another spelling of
+    // a typed ledger. Generated wire metadata keeps this list complete as ledgers grow.
+    public static bool HasSafeExtensionData(WorkspaceDocumentAuxiliaryState state)
+        => state.ExtensionData is null || state.ExtensionData.Keys.All(key =>
+            !WorkspaceDocumentAuxiliaryStateJsonConverter.TypeInfo.Properties.Any(property =>
+                string.Equals(property.Name, key, StringComparison.OrdinalIgnoreCase)));
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerMartialAcquisitionReceipt>? CharacterCareerMartialAcquisitionReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<Sr6CareerAttributeReceipt>? Sr6CareerAttributeReceipts { get; init; }
 
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
-    public bool IsEmpty => Sr6CareerAttributeReceipts is null
-        && CharacterCareerPowerTransactions is null
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr5RecoveryLedger? Sr5NaturalRecovery { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterSustainedSpellReceipt>? CharacterSustainedSpellReceipts { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<Chummer.Contracts.Session.SessionConditionTransferCanonicalReceipt>? SessionConditionTransfers { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Chummer.Contracts.Session.SessionCanonicalCondition? SessionCondition { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Chummer.Contracts.Session.SessionPlaySettlementContinuation5712? SessionPlaySettlement5712 { get; init; }
+
+    public bool IsEmpty => Sr6CareerAttributeReceipts is null && SessionPlaySettlement5712 is null && SessionConditionTransfers is null && SessionCondition is null && CharacterSustainedSpellReceipts is null && Sr5NaturalRecovery is null && CharacterCareerMartialAcquisitionReceipts is null
+                            && CharacterCareerSpecializationReceipts is null && CharacterCareerGearSaleReceipts is null && CharacterCareerGearEquipmentReceipts is null && CharacterCareerLoadoutPresets is null
+                           && (ExtensionData is null || ExtensionData.Count == 0)
+                           && CharacterCareerImplantCommerceReceipts is null
+                           && CharacterCareerFreeSpriteConversionReceipts is null
+                           && CharacterCareerSpiritFetteringReceipts is null
+                           && CharacterCareerFocusBondingReceipts is null
+                           && CharacterCareerCustomDrugPurchaseReceipts is null
+                           && CharacterCareerComplexFormLearningReceipts is null
+                           && CharacterCareerSpellLearningReceipts is null && WorkspaceWizardReceipts is null
+                           && CharacterCareerGearPurchaseReceipts is null
+                           && CharacterCareerContactsReceipts is null
+                           && CharacterCareerLifestyleMaintenanceReceipts is null
+                           && CharacterCareerLifestylePaymentReceipts is null
+                           && CharacterCareerPowerTransactions is null
                            && CharacterCareerInitiationTransactions is null
                            && CharacterCreationCompletionDrafts is null && Sr6CreationFoundationDecisions is null
                            && CharacterCreationLoadoutDraft is null
@@ -154,12 +242,26 @@ public static class WorkspaceDocumentAuxiliaryStateDigest
         using JsonDocument document = JsonSerializer.SerializeToDocument(
             state ?? WorkspaceDocumentAuxiliaryState.Empty,
             WorkspaceDocumentAuxiliaryStateJsonConverter.TypeInfo);
+        return ComputeCanonical(document.RootElement);
+    }
+
+    // Application's retained evaluation supplies one complete fresh serialization
+    // using the same generated contract. Never reread mutable state on mismatch.
+    // Existing Contracts -> Application friendship keeps this off the public API.
+    internal static string ComputeCapturedJson7985(ReadOnlyMemory<byte> json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return ComputeCanonical(document.RootElement);
+    }
+
+    private static string ComputeCanonical(JsonElement root)
+    {
         // Keep the canonical v1 bytes, but hash them as they are emitted rather
         // than retaining another full copy of the large Creation/archive graph.
         using var output = new CanonicalHashBufferWriter();
         using (Utf8JsonWriter writer = new(output))
         {
-            WriteCanonical(document.RootElement, writer);
+            WriteCanonical(root, writer);
         }
 
         return output.GetDigest();

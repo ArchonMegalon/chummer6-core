@@ -131,7 +131,12 @@ public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CharacterCreationKarmaContactSelection>? ContactSelections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CharacterCreationLifestyleConfiguration>? LifestyleSelections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? StartingLifestyleId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationMagicResonanceSelections? MagicSelections = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationMagicResonanceSelections? MagicSelections = null)
+{
+    // Absent on historical commands: do not reinterpret their receipt hashes.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? QualityPromptValues { get; init; }
+}
 
 /// <summary>Pending selection only: no character effects or finalization.</summary>
 public sealed record CharacterCreationKarmaMetatypeDecision(

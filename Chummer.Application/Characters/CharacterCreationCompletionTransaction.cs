@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
@@ -11,6 +12,7 @@ namespace Chummer.Application.Characters;
 /// <summary>Exact live admission and historical reconstruction. Storage alone owns the atomic write.</summary>
 public static class CharacterCreationCompletionTransaction
 {
+    private static readonly ActivitySource Activities8568 = new(CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ActivitySourceName);
     public static string AuthorityDigest(CharacterCreationCompletionAuthority authority)
         => CharacterCreationFinalizationDigest.Compute(authority with { AuthorityDigest = string.Empty });
 
@@ -52,9 +54,22 @@ public static class CharacterCreationCompletionTransaction
         Action<CharacterCreationRuleSourceExecutionContext>? capturedRuleSources = null,
         ICharacterCreationRuleSourceRecovery? recovery = null,
         CharacterCreationCampaignExecutionContext? campaign = null)
+        => TryAdmitCurrent8568(admittedStore, owner, workspace, resolver, queries, proposal, startingCash,
+            cancellationToken, out authority, out projection, out blockers, out _, capturedRuleSources, recovery, campaign);
+
+    private static bool TryAdmitCurrent8568(IWorkspaceStore admittedStore, OwnerScope owner, WorkspaceStoredDocument workspace,
+        ICharacterSourceDataResolver resolver, ICharacterFileQueries queries,
+        CharacterCreationCompletionReviewRequest proposal, CharacterCreationStartingCashChoice startingCash,
+        CancellationToken cancellationToken,
+        out CharacterCreationCompletionAuthority? authority,
+        out CharacterCreationCompletionFinalizationProjection? projection, out IReadOnlyList<string> blockers,
+        out CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8568,
+        Action<CharacterCreationRuleSourceExecutionContext>? capturedRuleSources = null,
+        ICharacterCreationRuleSourceRecovery? recovery = null,
+        CharacterCreationCampaignExecutionContext? campaign = null)
     {
         using var validation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
-        authority = null; projection = null;
+        authority = null; projection = null; currentReview8568 = null;
         blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid];
         cancellationToken.ThrowIfCancellationRequested();
         try
@@ -135,7 +150,7 @@ public static class CharacterCreationCompletionTransaction
             if (prepared.Witness is not { } witness)
             { blockers = [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid]; return false; }
             var selected = ProjectSelected(workspace, prepared.Bootstrap, witness, prepared.Proposal,
-                cashSource, startingCash, cancellationToken, ruleSources, campaign);
+                cashSource, startingCash, cancellationToken, ruleSources, campaign, prepared.CurrentReview8563);
             // A compact history must reproduce the entire full-source result,
             // including XML, source anchors, deterministic IDs and every delta.
             // An internally consistent selected budget alone is insufficient.
@@ -165,6 +180,7 @@ public static class CharacterCreationCompletionTransaction
             { blockers = [CharacterCreationCampaignExecutionContext.Blocker]; return false; }
             authority = candidate with { AuthorityDigest = AuthorityDigest(candidate) };
             projection = prepared.Projection;
+            currentReview8568 = prepared.CurrentReview8563;
             blockers = [];
             if (ruleSources is not null) capturedRuleSources?.Invoke(ruleSources);
             return true;
@@ -211,8 +227,9 @@ public static class CharacterCreationCompletionTransaction
             || campaign is not null && !campaign.AuthorizesOriginal(owner.Value, workspace,
                 request.Proposal.CampaignAuthority, CharacterCreationCampaignPhase.Apply, cancellationToken)
             || !IsConfirmed(request) || Lookup(workspace, request, recovery, campaign) is not null
-            || !TryAdmit(admittedStore, owner, workspace, resolver, queries, request.Proposal, request.StartingCash,
-                cancellationToken, out var authority, out var projection, out _, value => captured = value, recovery, campaign)
+            || !TryAdmitCurrent8568(admittedStore, owner, workspace, resolver, queries, request.Proposal, request.StartingCash,
+                cancellationToken, out var authority, out var projection, out _, out var currentReview8568,
+                value => captured = value, recovery, campaign)
             || projection!.Binding != request.Binding || projection.ReviewDigest != request.CompletionReviewDigest
             || projection.ProjectionDigest != request.ProjectionDigest) return false;
         string key = CharacterCreationFinalizationDigest.ComputeIdempotencyKeyDigest(request.IdempotencyKey);
@@ -239,7 +256,11 @@ public static class CharacterCreationCompletionTransaction
         ICharacterCreationRuleSourceRecovery? admitted = captured is null ? recovery
             : new AdmittedCharacterCreationRuleSources(request.Proposal.RuleSourceCaptureDigest!, captured, recovery);
         if (campaign is not null) admitted = new CharacterCreationCampaignRecovery(campaign, admitted);
-        if (!WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspace.Id, result.ContentRevision, auxiliary, admitted)) return false;
+        // This private proof comes only from the actual full review above. It may
+        // supply reputation's identical full review during this new archive's
+        // independent selected replay; it never replaces replay or store admission.
+        if (!WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspace.Id, result.ContentRevision, auxiliary,
+                admitted, cancellationToken, currentReview8568)) return false;
         replacement = workspace.Document with { State = workspace.Document.State with
             { Payload = projection.CharacterXml, AuxiliaryState = auxiliary } };
         receipt = result;
@@ -318,11 +339,24 @@ public static class CharacterCreationCompletionTransaction
         CharacterCreationCampaignExecutionContext? campaign = null)
         => TryValidateArchive(id, archive, receipt, out _, recovery, campaign);
 
+    internal static bool IsValidArchive(CharacterWorkspaceId id, CharacterCreationFinalizationArchive archive,
+        CharacterCreationFinalizationReceipt receipt, ICharacterCreationRuleSourceRecovery? recovery,
+        CharacterCreationCampaignExecutionContext? campaign, CancellationToken cancellationToken)
+        => TryValidateArchive(id, archive, receipt, out _, recovery, campaign, cancellationToken);
+
+    internal static bool IsValidArchive(CharacterWorkspaceId id, CharacterCreationFinalizationArchive archive,
+        CharacterCreationFinalizationReceipt receipt, ICharacterCreationRuleSourceRecovery? recovery,
+        CharacterCreationCampaignExecutionContext? campaign, CancellationToken cancellationToken,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8568)
+        => TryValidateArchive(id, archive, receipt, out _, recovery, campaign, cancellationToken, currentReview8568);
+
     private static bool TryValidateArchive(CharacterWorkspaceId id, CharacterCreationFinalizationArchive archive,
         CharacterCreationFinalizationReceipt receipt, out CharacterCreationCompletionFinalizationProjection? validatedProjection,
         ICharacterCreationRuleSourceRecovery? recovery = null,
-        CharacterCreationCampaignExecutionContext? campaign = null)
+        CharacterCreationCampaignExecutionContext? campaign = null, CancellationToken cancellationToken = default,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8568 = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var validation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         validatedProjection = null;
         var authority = archive.CompletionAuthority;
@@ -348,7 +382,7 @@ public static class CharacterCreationCompletionTransaction
                 return false;
             // Validate the original draft prefixes with explicit recovery before nested
             // pure readers reuse their canonical identities within this operation.
-            if (!WorkspaceAuxiliaryStateIntegrity.IsValidShape(id, receipt.PreviousContentRevision, archive.State, recovery))
+            if (!WorkspaceAuxiliaryStateIntegrity.IsValidShape(id, receipt.PreviousContentRevision, archive.State, recovery, cancellationToken))
                 return false;
             if (authority.Proposal.CampaignAuthority is { } campaignBinding)
             {
@@ -356,7 +390,7 @@ public static class CharacterCreationCompletionTransaction
                     || !recovery.TryRecoverCampaignAuthority(campaignBinding, receipt.ReceiptDigest, out campaign))) return false;
                 if (campaign is null || campaign.Phase == CharacterCreationCampaignPhase.Preparation
                     || !campaign.AuthorizesOriginal(campaignBinding.RetainedIdentity.OwnerId, original,
-                        campaignBinding, campaign.Phase)) return false;
+                        campaignBinding, campaign.Phase, cancellationToken)) return false;
             }
             else if (campaign is not null) return false;
             CharacterCreationCompletionFinalizationProjection projection;
@@ -375,7 +409,7 @@ public static class CharacterCreationCompletionTransaction
                 if (bootstrap is null || !bootstrap.IsValid()
                     || !Same(snapshot, JsonSerializer.SerializeToElement(bootstrap))) return false;
                 var full = CharacterCreationCompletionFinalizationProjector.ReviewAndProject(original, bootstrap,
-                    authority.Inputs, authority.Proposal, _ => authority.StartingCashSource, authority.StartingCash);
+                    authority.Inputs, authority.Proposal, _ => authority.StartingCashSource, authority.StartingCash, cancellationToken);
                 if (full.Outcome != CharacterCreationFoundationOutcomes.Success || full.Value is null) return false;
                 projection = full.Value.Projection;
             }
@@ -393,11 +427,15 @@ public static class CharacterCreationCompletionTransaction
                     && (recovery is null || !recovery.ValidateRetainedRuleSources()
                         || !recovery.TryRecoverRuleSources(authority.Proposal.RuleSourceCaptureDigest!, out restored)
                         || restored is null)) return false;
+                using var archiveReview8568 = currentReview8568 is null ? null
+                    : Activities8568.StartActivity("CandidateArchiveReputation");
                 var selected = ProjectSelected(original, bootstrap, witness, authority.Proposal,
-                    authority.StartingCashSource, authority.StartingCash, ruleSources: restored, campaign: campaign);
+                    authority.StartingCashSource, authority.StartingCash, cancellationToken, ruleSources: restored,
+                    campaign: campaign, currentReview8563: currentReview8568);
                 if (selected.Outcome != CharacterCreationFoundationOutcomes.Success || selected.Value is null) return false;
                 projection = selected.Value;
             }
+            cancellationToken.ThrowIfCancellationRequested();
             var request = new CharacterCreationCompletionApplyRequest(projection.Binding, authority.Proposal,
                 projection.ReviewDigest, authority.StartingCash, projection.ProjectionDigest, "historical-validation", true);
             bool valid = IsConfirmed(request) && projection.Binding.WorkspaceId == id
@@ -428,7 +466,8 @@ public static class CharacterCreationCompletionTransaction
         CharacterCreationStartingNuyenSource startingCashSource, CharacterCreationStartingCashChoice startingCash,
         CancellationToken cancellationToken = default,
         CharacterCreationRuleSourceExecutionContext? ruleSources = null,
-        CharacterCreationCampaignExecutionContext? campaign = null)
+        CharacterCreationCampaignExecutionContext? campaign = null,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8563 = null)
     {
         var replay = CharacterCreationSelectedCompletionEvaluator.Replay(original, bootstrap, witness, proposal,
             cancellationToken, ruleSources, campaign);
@@ -443,9 +482,13 @@ public static class CharacterCreationCompletionTransaction
             return new(CharacterCreationFoundationOutcomes.Blocked, null,
                 [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid]);
         CharacterCreationCompletionFinalizationProjector.ReputationHandoff? reputation = null;
+        CharacterCreationCompleteRuleSourceExecution? essence1222 = null;
+        if (CharacterCreationCompleteRuleSourceExecution.WantsEssence1222(proposal) && ruleSources is null)
+            return new(CharacterCreationFoundationOutcomes.Blocked, null, [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid]);
         if (ruleSources is not null)
         {
             var reconstructed = ruleSources.Resolve(original, proposal, cancellationToken);
+            if (CharacterCreationCompleteRuleSourceExecution.WantsEssence1222(proposal)) essence1222 = reconstructed;
             if (reconstructed is null
                 || !CharacterCreationOriginalCharacterSource.TryFromSelected(original, bootstrap, witness, proposal,
                     out var originalSource, cancellationToken))
@@ -455,9 +498,9 @@ public static class CharacterCreationCompletionTransaction
                 CharacterCreationCompletionPreservationRules.SnapshotOriginal(reconstructed.Inputs),
                 reconstructed.Inputs.Contacts.OriginalEffects, reconstructed);
             var effects = CharacterCreationSelectedEffectsConsumer.FromSelected(witness, proposal, evaluated, authority,
-                reconstructed.Inputs.Loadout?.PendingDraft?.Instances, cancellationToken, originalSource);
+                reconstructed.Inputs.Loadout?.PendingDraft?.Instances, cancellationToken, originalSource, essence1222);
             if (effects is null || !ruleSources.TryEvaluateReputation(original, bootstrap, proposal,
-                    originalSource!, authority, effects, out var execution, out _, cancellationToken, campaign))
+                    originalSource!, authority, effects, out var execution, out _, cancellationToken, campaign, currentReview8563))
                 return new(CharacterCreationFoundationOutcomes.Blocked, null,
                     [CharacterCreationFinalizationBlockers.DraftAuthorityInvalid]);
             reputation = new(execution!, bootstrap, proposal);
@@ -481,9 +524,10 @@ public static class CharacterCreationCompletionTransaction
             remainingKarma, remainingNuyen,
             new CharacterCreationCompletionFinalizationProjector.SelectedAwakenedGraphInputs(
                 witness.Magic, witness.Skills.Attributes.Attributes, evaluated.Magic.Proposed.SourceAnchorIds))
-            { RuleSourceExecutionSchema = proposal.RuleSourceExecutionSchema, PhysicalInitiative886 = witness.PhysicalInitiative886,
+            { LifecycleResultSchema = proposal.LifecycleResultSchema, RuleSourceExecutionSchema = proposal.RuleSourceExecutionSchema, PhysicalInitiative886 = witness.PhysicalInitiative886,
             Loadout = evaluated.Loadout, AmmunitionAssignments = proposal.Selections.AmmunitionAssignments,
-                SkillGroupOrderAuthority = groupOrder, Reputation = reputation };
+                InitialAmmunitionLoads3847 = proposal.Selections.InitialAmmunitionLoads3847,
+                SkillGroupOrderAuthority = groupOrder, Reputation = reputation, Essence1222 = essence1222 };
         return CharacterCreationCompletionFinalizationProjector.ProjectEvaluated(graph,
             startingCashSource, startingCash, cancellationToken);
     }

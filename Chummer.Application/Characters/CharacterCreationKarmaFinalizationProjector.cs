@@ -146,11 +146,7 @@ public static class CharacterCreationKarmaFinalizationProjector
             decimal qualitySourceCost = 0;
             foreach (var option in foundation.Qualities!.Selections.OrderBy(item => item.OptionId, StringComparer.Ordinal))
             {
-                var selection = new CharacterCreationQualitySelection(option.OptionId, option.SourceId, option.SelectionKey,
-                    option.Name, option.Type, option.Rating, option.KarmaCost, option.IsMetagenic, option.CountsAgainstQualityLimit,
-                    option.CountsAgainstKarma, false, null, null, option.SourceAnchorIds, option.SourceNodeXml,
-                    option.SourceNodeDigest, option.OptionDigest)
-                { SourceExecutionSchema = option.SourceExecutionSchema };
+                var selection = CharacterCreationKarmaQualityPrompts.Selection(option);
                 if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, foundation.QuoteDigest,
                         out var qualities, out var improvements, selection.ResolvedArmCount, sourceExecutionSchema)) return false;
                 root.Element("qualities")!.Add(qualities);

@@ -11,7 +11,7 @@ namespace Chummer.Application.Characters;
 /// only inside whole-build projection, never against a durable character directly.
 /// Unknown bonuses and unprovided choices reject the entire projection.
 /// </summary>
-internal static class CharacterCreationAwakenedLegacyProjector
+internal static partial class CharacterCreationAwakenedLegacyProjector
 {
     internal static bool TryResolvePowerPointPurchase(CharacterCreationMagicResonanceDraft? magic,
         CharacterCreationAttributesDraft attributes, out CharacterCreationMysticAdeptPowerPointAllocation? allocation)
@@ -48,8 +48,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
     {
         try
         {
+            var physicalBefore1279 = BeginPhysicalTalent1279(root);
             ApplySkillGrants(root, prerequisite, skills);
-            if (magic is null) return CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite);
+            if (magic is null) return CompletePhysicalTalent1279(root, physicalBefore1279,
+                CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite));
             var contribution = magic.FinalizationContribution;
             Require(contribution is not null && !magic.CharacterEffectsApplied
                 && contribution.Spells is not null && contribution.AdeptPowers is not null && contribution.ComplexForms is not null
@@ -72,10 +74,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && CharacterCreationTalentQualitySourceRules.MatchesTalent(
                     contribution.Talent.CanonicalSourceXml, contribution.Talent.GrantedQualitySources));
             Require(TryResolvePowerPointPurchase(magic, attributes, out var purchasedPowerPoints));
-            return TryApplyEvaluatedGraph(root, prerequisite, attributes.Attributes,
+            return CompletePhysicalTalent1279(root, physicalBefore1279, TryApplyEvaluatedGraph(root, prerequisite, attributes.Attributes,
                 contribution!.Talent, contribution.Tradition, contribution.Stream,
                 contribution.AdeptPowers, contribution.Spells, contribution.ComplexForms,
-                magic.Selections, purchasedPowerPoints, magic.DraftDigest, deltas, ref order);
+                magic.Selections, purchasedPowerPoints, magic.DraftDigest, deltas, ref order));
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
             or XmlException or OverflowException or FormatException or ArgumentException)
@@ -99,6 +101,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
     {
         try
         {
+            var physicalBefore1279 = BeginPhysicalTalent1279(root);
             Require(CharacterCreationMagicResonanceDigest.IsCanonical(instanceSeed)
                 && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(prerequisite, inputs.PrerequisiteDraft)
                 && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(attributes, evaluated.Attributes.Attributes));
@@ -108,7 +111,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
             Require(replay.Outcome == CharacterCreationFoundationOutcomes.Success && replay.Value is not null
                 && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(replay.Value, evaluated));
             ApplySkillGrants(root, prerequisite, skills, skillGroups);
-            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite)) return true;
+            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite))
+                return CompletePhysicalTalent1279(root, physicalBefore1279, true);
             Require(CharacterCreationMagicResonanceFinalizationRules.TryProjectTalent(evaluated.Talent, out var talent));
             var selections = evaluated.Selections;
             var authority = inputs.Authority;
@@ -120,8 +124,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
             var forms = selections.ComplexForms.Select(item => ProjectOption(item, authority.ComplexForms, 1)!)
                 .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
-            return TryApplyEvaluatedGraph(root, prerequisite, attributes, talent!, tradition, stream,
-                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order);
+            return CompletePhysicalTalent1279(root, physicalBefore1279, TryApplyEvaluatedGraph(root, prerequisite, attributes, talent!, tradition, stream,
+                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order));
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
             or XmlException or OverflowException or FormatException or ArgumentException)
@@ -148,6 +152,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
     {
         try
         {
+            var physicalBefore1279 = BeginPhysicalTalent1279(root);
             Require(CharacterCreationMagicResonanceDigest.IsCanonical(instanceSeed)
                 && skills is not null && skillGroups is not null
                 && skills.All(item => item is not null) && skillGroups.All(item => item is not null));
@@ -157,7 +162,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && replay.Value is { Proposed.Blockers.Count: 0 });
             var evaluated = replay.Value!.Proposed;
             ApplySkillGrants(root, prerequisite, skills, skillGroups);
-            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite)) return true;
+            if (CharacterCreationFinalizationProjector.IsMundaneTalent(prerequisite))
+                return CompletePhysicalTalent1279(root, physicalBefore1279, true);
             Require(CharacterCreationMagicResonanceFinalizationRules.TryProjectTalent(witness.Talent, out var talent));
             var selections = evaluated.Selections;
             var tradition = ProjectOption(selections.Tradition, witness.Traditions, 1);
@@ -168,8 +174,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
             var forms = selections.ComplexForms.Select(item => ProjectOption(item, witness.ComplexForms, 1)!)
                 .OrderBy(item => item.Identity.SourceId, StringComparer.Ordinal).ToArray();
-            return TryApplyEvaluatedGraph(root, prerequisite, proposedAttributes, talent!, tradition, stream,
-                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order);
+            return CompletePhysicalTalent1279(root, physicalBefore1279, TryApplyEvaluatedGraph(root, prerequisite, proposedAttributes, talent!, tradition, stream,
+                powers, spells, forms, selections, evaluated.MysticAdeptPowerPoints, instanceSeed, deltas, ref order));
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
             or XmlException or OverflowException or FormatException or ArgumentException)
@@ -239,7 +245,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             var actual = attributes.Where(item => item.AttributeId == attribute).ToArray();
             Require(actual.Length == 1 && actual[0].IsEnabled == flags.Contains(flag));
         }
-        root.Element("qualities")!.Add(projectedQualities);
+        Container(root, "qualities").Add(projectedQualities);
         Container(root, "improvements").Add(improvements);
         XElement gears = Container(root, "gears");
         foreach (var (saved, gearSource) in projectedGear)
@@ -351,6 +357,37 @@ internal static class CharacterCreationAwakenedLegacyProjector
             or XmlException or OverflowException or FormatException or ArgumentException) { return false; }
     }
 
+    private sealed record DiceOnlyCategoryGrant(string Name, int Bonus, string Condition);
+
+    private static DiceOnlyCategoryGrant ReadDiceOnlySkillCategoryGrant(XElement effect)
+    {
+        Require(effect.Name == "skillcategory" && !effect.HasAttributes
+            && effect.Elements().All(item => item.Name == "name" || item.Name == "bonus"
+                || item.Name == "condition" || item.Name == "applytorating")
+            && !effect.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value)));
+        string name = Scalar(effect, "name");
+        string condition = Scalar(effect, "condition");
+        Require(!string.IsNullOrWhiteSpace(name) && name == name.Trim()
+            && int.TryParse(Scalar(effect, "bonus"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _)
+            && !Boolean(effect, "applytorating", false));
+        return new(name, int.Parse(Scalar(effect, "bonus"), CultureInfo.InvariantCulture), condition);
+    }
+
+    // Admission can recognize this bounded dice-only grammar without accepting
+    // rating grants, exclusions, expressions or unknown source parameters.
+    internal static bool IsDiceOnlySkillCategoryGrant(XElement effect)
+    {
+        try { _ = ReadDiceOnlySkillCategoryGrant(effect); return true; }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or XmlException
+            or OverflowException or FormatException or ArgumentException)
+        { return false; }
+    }
+
+    internal static bool IsLiteralDefenseTestPenalty(XElement effect)
+        => effect.Name == "defensetest" && !effect.HasAttributes && !effect.HasElements
+            && int.TryParse(effect.Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int value)
+            && value < 0;
+
     // Shared by the ordinary effect compiler and the Contacts/Lifestyles
     // independence proof. This literal operation emits only a spell constraint;
     // it supplies no prompt choice, attribute, contact or lifestyle cost effect.
@@ -361,9 +398,15 @@ internal static class CharacterCreationAwakenedLegacyProjector
     internal static string CompileBonus(XElement? bonus, string forced, IReadOnlyList<string> chosenGroups,
         CharacterCreationTalentQualitySource quality, string id, HashSet<string> flags, List<XElement> improvements,
         List<(XElement Saved, CharacterCreationTalentGearSource Source)> gears,
-        CharacterCreationTalentRestrictionPlan? restrictions = null)
+        CharacterCreationTalentRestrictionPlan? restrictions = null, bool retainUnresolvedDefensePenalty = false)
     {
         string extra = string.Empty;
+        // This opt-in retains an unhandled source channel on the saved quality;
+        // it must never accept a detached or substituted bonus. The sheet owner
+        // graph reports its existing typed unresolved modifier, not a fake row.
+        if (retainUnresolvedDefensePenalty)
+            Require(CharacterCreationTalentQualitySourceRules.IsValidSource(quality)
+                && XElement.DeepEquals(bonus, Parse(quality.CanonicalSourceXml, "quality").Element("bonus")));
         if (restrictions is not null)
             Require(CharacterCreationTalentRestrictionAuthority.HasPairedPrompts(quality)
                 && restrictions.QualitySourceId == quality.SourceId
@@ -380,6 +423,16 @@ internal static class CharacterCreationAwakenedLegacyProjector
             Require(!effect.HasAttributes && effect.Name.Namespace == XNamespace.None);
             switch (effect.Name.LocalName)
             {
+                case "notoriety":
+                    Require(!effect.HasElements && int.TryParse(effect.Value, NumberStyles.AllowLeadingSign,
+                        CultureInfo.InvariantCulture, out _));
+                    improvements.Add(Improvement("Notoriety", string.Empty, id, "Quality",
+                        int.Parse(effect.Value, CultureInfo.InvariantCulture)));
+                    break;
+                case "blockskillcategorydefaulting":
+                    Require(!effect.HasElements && !string.IsNullOrWhiteSpace(effect.Value));
+                    improvements.Add(Improvement("BlockSkillCategoryDefault", effect.Value, id, "Quality"));
+                    break;
                 case "addgear":
                     Require(forced.Length == 0 && quality.GrantedGearSources is not null
                         && gearIndex < quality.GrantedGearSources.Count);
@@ -397,6 +450,20 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     skillBonus.Element("condition")!.Value = parsedSkill.Condition;
                     skillBonus.Element("addtorating")!.Value = parsedSkill.AddsToRating ? "1" : "0";
                     improvements.Add(skillBonus);
+                    break;
+                case "skillcategory":
+                    var parsedCategory = ReadDiceOnlySkillCategoryGrant(effect);
+                    XElement categoryBonus = Improvement("SkillCategory", parsedCategory.Name, id, "Quality", parsedCategory.Bonus);
+                    categoryBonus.Element("condition")!.Value = parsedCategory.Condition;
+                    improvements.Add(categoryBonus);
+                    break;
+                case "defensetest":
+                    Require(retainUnresolvedDefensePenalty && IsLiteralDefenseTestPenalty(effect));
+                    // This legacy source has no DefenseTest improvement type or
+                    // dispatcher. Preserve the source bonus on the saved quality:
+                    // CharacterSheetOwnerGraph reports its typed unresolved defense
+                    // penalty once and blocks defense actions. Never persist an
+                    // invented row or turn this penalty into Dodge or a Karma cost.
                     break;
                 case "enableattribute":
                     Require(effect.Elements().Count() == 1 && effect.Element("name") is not null);
@@ -477,7 +544,19 @@ internal static class CharacterCreationAwakenedLegacyProjector
                         int.Parse(effect.Value, CultureInfo.InvariantCulture)));
                     break;
                 default:
-                    throw new InvalidDataException("Uncompiled Talent bonus.");
+                    // Ordinary native costs share the selected-quality source grammar and
+                    // percentage convention. Bounds/conditions/precedence remain guarded.
+                    Require(CharacterCreationLegacySourceProjector.TryCompileCurrentSkillEffects(
+                        new XElement("quality", new XElement("bonus", new XElement(effect))), false, out var compiled)
+                        && compiled.Count == 1);
+                    var cost = compiled[0];
+                    Require(CharacterCreationSkillKarmaModifierRules.IsSupportedType(cost.Type)
+                        && cost.Minimum == 0 && cost.Maximum == 0 && cost.Condition.Length == 0
+                        && string.IsNullOrEmpty(cost.Unique));
+                    var native = Improvement(cost.Type, cost.Target, id, "Quality");
+                    native.Element("val")!.Value = cost.Value.ToString(CultureInfo.InvariantCulture);
+                    improvements.Add(native);
+                    break;
             }
         }
         Require((forced.Length == 0 || usedForced) && gearIndex == (quality.GrantedGearSources?.Count ?? 0));
@@ -510,7 +589,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && required.Nodes().Concat(alternatives.Nodes()).All(item => item is XElement or XComment
                     || item is XText text && string.IsNullOrWhiteSpace(text.Value)));
             Require(alternatives.Elements().Any(condition =>
-                root.Element("qualities")!.Elements("quality").Concat(granted).Any(item =>
+                (root.Element("qualities")?.Elements("quality") ?? []).Concat(granted).Any(item =>
                     item.Element("name")?.Value == condition.Value || item.Element("sourceid")?.Value == condition.Value)));
         }
         XElement? forbidden = definition.Element("forbidden");
@@ -527,7 +606,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             if (condition.Name == "quality")
             {
                 Require(!string.IsNullOrWhiteSpace(condition.Value) && condition.Value == condition.Value.Trim());
-                Require(!root.Element("qualities")!.Elements("quality").Concat(granted).Any(item =>
+                Require(!(root.Element("qualities")?.Elements("quality") ?? []).Concat(granted).Any(item =>
                     item.Element("name")?.Value == condition.Value || item.Element("sourceid")?.Value == condition.Value));
             }
             else
@@ -542,7 +621,18 @@ internal static class CharacterCreationAwakenedLegacyProjector
         string digest, ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
     {
         Require(!root.Elements("tradition").Any());
-        XElement node = OptionSource(tradition, "tradition");
+        XElement saved = ProjectTradition(tradition, digest, out XElement node);
+        root.Add(saved);
+        SelectionDelta(deltas, ref order, tradition);
+        CharacterCreationCompiledSourceTrace.Observe(tradition, node, saved, digest);
+    }
+
+    // Pure native saved-shape projection shared by the writer and read compiler.
+    // It creates no receipt, trace observation, character mutation or persistence authority.
+    internal static XElement ProjectTradition(CharacterCreationMagicResonanceOptionFinalizationSource tradition,
+        string digest, out XElement node)
+    {
+        node = OptionSource(tradition, "tradition");
         Require(Scalar(node, "drain").Length > 0);
         Require(CharacterTraditionSpiritFormRules.TryRead(node, out string spiritForm));
         string kind = tradition.Identity.Kind == CharacterCreationMagicResonanceKinds.Stream ? "RES" : "MAG";
@@ -558,9 +648,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             saved.Add(new XElement(field, spirits is null ? string.Empty : Scalar(spirits, field)));
         saved.Add(new XElement("spirits", spirits?.Elements("spirit").Select(item => item.Value)
             .Distinct(StringComparer.Ordinal).Select(value => new XElement("spirit", value))), new XElement("bonus"));
-        root.Add(saved);
-        SelectionDelta(deltas, ref order, tradition);
-        CharacterCreationCompiledSourceTrace.Observe(tradition, node, saved, digest);
+        return saved;
     }
 
     internal static void ApplyOptions(XElement root, string container, string itemName,
@@ -588,7 +676,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             }
             else if (itemName == "power")
             {
-                Require(CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(node)
+                Require(CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(node, source.AdeptSkillSourceXml)
                     && CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(node, out _, out _));
                 CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(node, out _, out int savedMaximum);
                 saved.Add(new XElement("pointsperlevel", Scalar(node, "points")),
@@ -598,8 +686,16 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     // Chummer5 Power.Create reads maxlevel(s), not source limit.
                     new XElement("maxlevels", savedMaximum), new XElement("discounted", "False"),
                     new XElement("discountedgeas", "False"), new XElement("bonussource"), new XElement("freepoints", 0),
-                    new XElement("bonus"), node.Element("adeptwayrequires") is { } requirements
+                    node.Element("bonus") is { } bonus ? new XElement(bonus) : new XElement("bonus"),
+                    node.Element("adeptwayrequires") is { } requirements
                         ? new XElement(requirements) : new XElement("adeptwayrequires"), new XElement("enhancements"));
+                Require(CharacterCreationAdeptPowerSourceRules.TryCompileUndiscountedEffects(node, source.Levels,
+                    out var effects, source.AdeptSkillSourceXml));
+                XElement improvements = Container(root, "improvements");
+                Require(!improvements.HasAttributes
+                    && !improvements.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)));
+                foreach (var effect in effects)
+                    improvements.Add(Improvement(effect.Type, effect.Target, Scalar(saved, "guid"), "Power", effect.Value));
             }
             else
             {
@@ -630,9 +726,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
             _ => []
         };
         Require(node.Elements().All(item => allowed.Contains(item.Name.LocalName, StringComparer.Ordinal)
-            && !item.HasAttributes && (item.Name == "spirits" || name == "power" && item.Name == "adeptwayrequires" || !item.HasElements)));
-        Require(Scalar(node, "bonus").Length == 0);
-        if (name == "power") Require(CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(node));
+            && !item.HasAttributes && (item.Name == "spirits" || name == "power"
+                && (item.Name == "adeptwayrequires" || item.Name == "bonus") || !item.HasElements)));
+        if (name != "power") Require(Scalar(node, "bonus").Length == 0);
+        if (name == "power") Require(CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(node, source.AdeptSkillSourceXml));
         return node;
     }
 

@@ -21,9 +21,13 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
             ?? Array.Empty<CharacterCreationTalentGearSource>()).Select(gear => (Quality: quality, Gear: gear))).ToArray();
         var gearDeltas = deltas.Where(delta => delta.Kind == CharacterCreationFinalizationDeltaKinds.Gear).ToArray();
         var gearContainers = graph.Elements("gears").ToArray();
-        var gearNodes = gearContainers.SelectMany(container => container.Elements("gear")).ToArray();
+        var gearNodes = gearContainers.SelectMany(container => container.Elements("gear"))
+            .Where(node => node.Element("category")?.Value != "Stacked Focus")
+            .Concat(graph.Element("stackedfoci")?.Elements("stackedfocus").SelectMany(stack => stack.Element("gears")?.Elements("gear") ?? []) ?? [])
+            .ToArray();
+        int retained1253 = purchases.FirstOrDefault(line => line.Focus is not null)?.Focus?.Preserved?.Lines.Count ?? 0;
         if (gearContainers.Length > 1
-            || gearNodes.Length != gearDeltas.Length
+            || gearNodes.Length != gearDeltas.Length + retained1253
             || gearDeltas.Length != purchases.Count + sources.Length
             || gearDeltas.Select(delta => delta.DeltaId).Distinct(StringComparer.Ordinal).Count() != gearDeltas.Length)
             return false;

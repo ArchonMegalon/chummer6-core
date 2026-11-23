@@ -101,7 +101,7 @@ internal static partial class CharacterCareerPowerGraph
             expected.Select(EffectKey).Order(StringComparer.Ordinal));
 
     private static void RecalculateAttributeCaches(XElement root, XElement effects, IEnumerable<PowerState> states,
-        XElement metatype)
+        XElement metatype, CharacterFinalizedLifeModuleOwnership? modules)
     {
         var affected = states.SelectMany(s => CompileEffects(s.Source, s.Identity, s.Cost.TotalRating))
             .Where(e => Value(e, "improvementttype") == "Attribute").Select(e => Value(e, "improvedname")).Distinct();
@@ -117,7 +117,7 @@ internal static partial class CharacterCareerPowerGraph
                 && Int(attribute, "metatypeaugmax") == absoluteMaximum
                 && minimum >= 0 && minimum <= maximum && maximum <= absoluteMaximum
                 && allocated >= 0 && karma >= 0, "power_attribute_cap_unavailable");
-            int natural = checked(minimum + allocated + karma);
+            int natural = checked(minimum + allocated + karma + (modules?.AttributeLevels(name) ?? 0));
             Need(natural <= maximum, "power_attribute_cap_unavailable");
             decimal augmentation = 0;
             foreach (var effect in effects.Elements().Where(e => Bool(e, "enabled")
@@ -126,6 +126,9 @@ internal static partial class CharacterCareerPowerGraph
                 && (Value(e, "improvementttype").StartsWith("Attribute", StringComparison.Ordinal)
                     || Value(e, "improvementttype") == "ReplaceAttribute")))
             {
+                // Free native module ranks are source-authenticated and already
+                // included once in natural. All other effects keep the old checks.
+                if (modules?.OwnsAttributeLevel(effect, name) == true) continue;
                 Need(Value(effect, "improvementttype") == "Attribute" && Value(effect, "condition") == ""
                     && Decimal(effect, "min") == 0 && Decimal(effect, "max") == 0 && Decimal(effect, "augmax") == 0
                     && Value(effect, "improvedname") == name && Value(effect, "exclude") == ""

@@ -63,6 +63,9 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
             || !IsCanonicalDigest(ledger.SourceDigest)
             || !FixedTimeEquals(ledger.BaseRawCharacterXmlDigest, rawCharacterXmlDigest)
             || !FixedTimeEquals(ledger.SourceDigest, sourceDigest)
+            || !CharacterCreationMetatypeSelectionRules.IsValid(ledger.MetatypeIdentity)
+            || (ledger.MetatypeIdentity?.MetavariantOptionId is null
+                ? ledger.ParentMetatypeLabel is not null : !IsNormalizedNonEmpty(ledger.ParentMetatypeLabel))
             || !IsNormalizedNonEmpty(ledger.RequestedMetatype)
             || ledger.Selection is null
             || !IsNormalizedNonEmpty(ledger.Selection.ModuleId)
@@ -150,16 +153,24 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
         // digest or cache mutable caller objects.
         using JsonDocument leftDocument = JsonSerializer.SerializeToDocument(left);
         using JsonDocument rightDocument = JsonSerializer.SerializeToDocument(right);
+        return CapturedCanonicallyEquals(leftDocument.RootElement, rightDocument.RootElement);
+    }
+
+    // Both callers capture each current value once before entering this helper.
+    // Keep validation and canonical/hash semantics identical for prepared string
+    // encodings and the ordinary serializer; no captured document escapes.
+    internal static bool CapturedCanonicallyEquals(JsonElement left, JsonElement right)
+    {
         if (FixedTimeEquals(
-                ComputeElementSha256(leftDocument.RootElement, canonical: false),
-                ComputeElementSha256(rightDocument.RootElement, canonical: false)))
+                ComputeElementSha256(left, canonical: false),
+                ComputeElementSha256(right, canonical: false)))
             return true;
 
         // Different property order can still be canonically equal. Reuse the
         // captured documents: never serialize a mutable value a second time.
         return FixedTimeEquals(
-            ComputeElementSha256(leftDocument.RootElement, canonical: true),
-            ComputeElementSha256(rightDocument.RootElement, canonical: true));
+            ComputeElementSha256(left, canonical: true),
+            ComputeElementSha256(right, canonical: true));
     }
 
     private static bool IsStructurallyValid(LifeModuleRequirementProjectionDto? requirement)

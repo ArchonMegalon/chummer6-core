@@ -31,15 +31,16 @@ public sealed partial class CharacterCreationKarmaMetatypeService
             return Blocked<CharacterCreationKarmaQualityPreviews>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
 
         var results = new List<CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote>>();
-        foreach (var ids in request.QualitySelections)
+        for (int candidate = 0; candidate < request.QualitySelections.Count; candidate++)
         {
+            var ids = request.QualitySelections[candidate];
             cancellationToken.ThrowIfCancellationRequested();
             // Use the ordinary complete preview calculation: a quality can alter
             // skill eligibility, contacts, lifestyles, magic and the shared budget.
             var result = PreviewLoaded(state, admittedQualities, request.MetatypeOptionId,
                 request.TalentOptionId, request.AttributeAllocations, request.SkillsSelection, request.ResourceKarmaInvestment,
                 ids, request.GearSelections, request.ContactSelections, request.LifestyleSelections,
-                request.StartingLifestyleId, request.MagicSelections, context!);
+                request.StartingLifestyleId, request.MagicSelections, context!, request.QualityPromptValues?[candidate]);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Outcome == CharacterCreationFoundationOutcomes.Conflict
                 || result.Blockers.Contains(CharacterCreationKarmaMetatypeBlockers.StaleBinding))
@@ -47,6 +48,22 @@ public sealed partial class CharacterCreationKarmaMetatypeService
             results.Add(result);
         }
         return new(CharacterCreationFoundationOutcomes.Success, new(results.AsReadOnly()), []);
+    }
+
+    internal CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> PreviewCommand(
+        CharacterCreationKarmaMetatypeConfirmRequest request)
+    {
+        if (request.QualityPromptValues is null)
+            return Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
+                request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds, request.GearSelections,
+                request.ContactSelections, request.LifestyleSelections, request.StartingLifestyleId, request.MagicSelections);
+        if (request.QualityOptionIds is null)
+            return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationQualitiesBlockers.InvalidSelection);
+        var batch = PreviewQualitySelections(new(request.Binding, request.MetatypeOptionId, [request.QualityOptionIds],
+            request.TalentOptionId, request.AttributeAllocations, request.SkillsSelection, request.ResourceKarmaInvestment,
+            request.GearSelections, request.ContactSelections, request.LifestyleSelections, request.StartingLifestyleId,
+            request.MagicSelections) { QualityPromptValues = [request.QualityPromptValues] });
+        return batch.Value is { Results.Count: 1 } values ? values.Results[0] : new(batch.Outcome, null, batch.Blockers);
     }
 
     private static bool TryFreezeQualityPreviewRequest(CharacterCreationKarmaQualityPreviewRequest request,
@@ -64,6 +81,14 @@ public sealed partial class CharacterCreationKarmaMetatypeService
             {
                 if (!CharacterCreationKarmaQualitiesRules.TryFreeze(ids, out var selected)) return false;
                 selections.Add(Array.AsReadOnly(selected));
+            }
+            IReadOnlyDictionary<string, string>?[]? answers = null;
+            if (request.QualityPromptValues is not null)
+            {
+                if (request.QualityPromptValues.Count != selections.Count) return false;
+                answers = new IReadOnlyDictionary<string, string>?[selections.Count];
+                for (int index = 0; index < answers.Length; index++)
+                    if (!CharacterCreationKarmaQualityPrompts.TryFreeze(request.QualityPromptValues[index], out answers[index])) return false;
             }
             CharacterCreationKarmaAttributeAllocation[]? attributes = null;
             if (request.AttributeAllocations is not null)
@@ -84,7 +109,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService
             if (request.MagicSelections is not null && !CharacterCreationKarmaMagicSelectionRules.TryFreeze(request.MagicSelections, out magic)) return false;
             frozen = request with
             {
-                QualitySelections = selections.AsReadOnly(), AttributeAllocations = attributes,
+                QualitySelections = selections.AsReadOnly(), QualityPromptValues = answers, AttributeAllocations = attributes,
                 SkillsSelection = skills, GearSelections = gear, ContactSelections = contacts,
                 LifestyleSelections = lifestyles, MagicSelections = magic
             };

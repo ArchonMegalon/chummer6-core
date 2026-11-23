@@ -258,6 +258,7 @@ public static class CharacterCreationGearReceiptLedgerIntegrity
         total = 0m;
         try
         {
+            if (!CharacterCreationFocusSelectionRules.TryValidateBasket(lines, out total)) return false;
             foreach (CharacterCreationGearLine line in lines)
                 total = checked(total + line.TotalCost);
             return true;

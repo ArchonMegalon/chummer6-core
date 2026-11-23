@@ -66,8 +66,9 @@ public static class CharacterGearQuantityRules
             return false;
         }
 
-        decimal increments = value / minimumIncrement;
-        return decimal.Truncate(increments) == increments;
+        // Remainder tests exact divisibility without materializing a quotient
+        // that can overflow (for example 10 / 1e-28) or round to an integer.
+        return value % minimumIncrement == 0m;
     }
 
     public static bool AreIdenticalForMerge(
@@ -114,6 +115,10 @@ public static class CharacterGearQuantityRules
         CharacterGearCostSnapshot gear,
         out decimal cost)
         => TryCalculateTotalCost(gear, parentMultiplier: 1, quantityOverride: 1m, out cost);
+
+    /// <summary>Preserves the canonical multiply-before-divide order for the complete purchased quantity.</summary>
+    public static bool TryCalculatePurchaseTotalCost(CharacterGearCostSnapshot gear, out decimal cost)
+        => TryCalculateTotalCost(gear, parentMultiplier: 1, quantityOverride: null, out cost);
 
     private static bool TryCalculateTotalCost(
         CharacterGearCostSnapshot gear,

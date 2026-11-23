@@ -35,7 +35,8 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
                 || !CharacterCreationKarmaSkillsRules.IsValid(quote.Skills, quote.Metatype, quote.Talent,
                     quote.Attributes, quote.Skills.Selection)
                 || !CharacterCreationKarmaQualitiesRules.IsValid(quote.Qualities, quote.Metatype, quote.Talent,
-                    quote.Qualities.Selections.Select(item => item.OptionId).ToArray())
+                    quote.Qualities.Selections.Select(item => item.OptionId).ToArray(),
+                    CharacterCreationKarmaQualityPrompts.RetainedValues(quote.Qualities))
                 || racialSources.Count != quote.Metatype.GrantedQualities.Count
                 || racialSources.Any(source => !CharacterCreationTalentQualitySourceRules.IsValidSource(source)))
                 return false;
@@ -60,6 +61,9 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
                             quote.Qualities.Policy.Costs.KarmaMultiplier, bookEnabled: true)))
                     return false;
             }
+
+            if (!CharacterCreationKarmaSkillsRules.MatchesSources2568(quote.Skills, quote.Metatype,
+                    quote.Talent, quote.Attributes, quote.Qualities, new(racialSources, talentSource))) return false;
 
             var qualities = new List<XElement>();
             var improvements = new List<XElement>();
@@ -148,4 +152,75 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
             return false;
         }
     }
+
+    internal static bool TryCompileSkillCosts2568(CharacterCreationMetatypeOptionProjection metatype,
+        CharacterCreationKarmaTalentOption? talent, string? unlock, CharacterCreationNativeSkillCostSources sources,
+        out IReadOnlyList<CharacterCreationLegacySourceProjector.SourceQualityEffect> costs,
+        CharacterCreationTalentRestrictionSelection? talentRestrictions = null,
+        bool allowLifeModuleRacialDice = false)
+    {
+        costs = [];
+        try
+        {
+            if (sources.RacialSources is not { Count: <= 32 } || metatype.GrantedQualities is null
+                || sources.RacialSources.Count != metatype.GrantedQualities.Count) return false;
+            bool mundane = talent is null || talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId;
+            if (mundane ? sources.TalentSource is not null : sources.TalentSource is null) return false;
+            var all = sources.RacialSources.Concat(sources.TalentSource is null ? [] : new[] { sources.TalentSource }).ToArray();
+            if (all.Any(source => !CharacterCreationTalentQualitySourceRules.IsValidSource(source))
+                || all.Select(source => source.SourceId).Distinct(StringComparer.Ordinal).Count() != all.Length) return false;
+            var result = new List<CharacterCreationLegacySourceProjector.SourceQualityEffect>();
+            var flags = new HashSet<string>(StringComparer.Ordinal);
+            var gear = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
+            for (int index = 0; index < all.Length; index++)
+            {
+                var source = all[index];
+                var row = XElement.Parse(source.CanonicalSourceXml);
+                bool racial = index < sources.RacialSources.Count;
+                if (source.ForcedSelection.Length != 0 || racial && source.Reference != source.Name
+                    // The acquisition compiler has no first-level/generated/suppressed owner contract.
+                    // Do not price a graph that finalization cannot materialize.
+                    || row.Elements("bonus").Count() > 1 || row.Elements("firstlevelbonus").Any(e => e.HasElements)
+                    || racial && (source.Name != metatype.GrantedQualities[index].Name
+                        || !string.Equals(row.Element("category")?.Value, metatype.GrantedQualities[index].Polarity,
+                            StringComparison.OrdinalIgnoreCase))
+                    || !racial && (source.SourceId != talent!.OptionId
+                        || !XNode.DeepEquals(row, XElement.Parse(talent!.SourceNodeXml)))) return false;
+                string owner = "native:" + metatype.OptionId + ":" + source.SourceId;
+                var compiled = new List<XElement>();
+                CharacterCreationTalentRestrictionPlan? restrictions = null;
+                if (!racial && talent!.Restrictions is { } restrictionCatalog
+                    && !CharacterCreationTalentRestrictionAuthority.TryChoose(source, restrictionCatalog,
+                        talentRestrictions, out restrictions)) return false;
+                if (!racial && talent!.Restrictions is null && talentRestrictions is not null) return false;
+                if (allowLifeModuleRacialDice && racial && metatype.MetatypeIdentity is not null)
+                {
+                    // Price the same complete source grammar used by the Life
+                    // Modules writer. Pool/armor/resistance rows are not costs.
+                    string nativeOwner = CharacterCreationFinalizationProjector.StableGuid(owner).ToString("D");
+                    if (!CharacterCreationLifeModuleRacialGrants8590.TryCompile(metatype, source, nativeOwner,
+                        out _, out var racialEffects)) return false;
+                    compiled.AddRange(racialEffects);
+                }
+                else CharacterCreationAwakenedLegacyProjector.CompileBonus(row.Element("bonus"), string.Empty,
+                    unlock is null ? [] : new[] { unlock }, source, owner, flags, compiled, gear, restrictions);
+                for (int position = 0; position < compiled.Count; position++)
+                {
+                    var effect = compiled[position];
+                    string type = effect.Element("improvementttype")!.Value;
+                    if (effect.Element("addtorating")?.Value != "0") return false;
+                    if (!CharacterCreationSkillKarmaModifierRules.IsSupportedType(type)) continue;
+                    result.Add(new(type, effect.Element("improvedname")!.Value,
+                        decimal.Parse(effect.Element("val")!.Value, System.Globalization.CultureInfo.InvariantCulture),
+                        0, 0, string.Empty, Guid.Parse(source.SourceId), source.SourceNodeDigest, owner, 1, "bonus", position,
+                        source.SourceAnchorIds));
+                }
+            }
+            costs = result.ToArray();
+            return true;
+        }
+        catch (Exception error) when (error is XmlException or ArgumentException or InvalidDataException
+            or InvalidOperationException or OverflowException or FormatException) { return false; }
+    }
+
 }

@@ -92,7 +92,8 @@ public static class CharacterAfterRunRewardProjector
                command.ExistingKarmaExpenseId, command.ExistingNuyenExpenseId, command.Kind)
            && command.ExpectedWorkspaceRevision is > 0 and < long.MaxValue
            && IsDigest(command.ExpectedSourceDigest)
-           && IsDigest(command.ExpectedAuxiliaryStateDigest);
+           && IsDigest(command.ExpectedAuxiliaryStateDigest)
+           && (command.ExpectedCurrentBindingDigest is null || IsDigest(command.ExpectedCurrentBindingDigest));
 
     private static bool IsValidIntentFields(
         CharacterWorkspaceId workspaceId, Guid operationId, Guid rewardId,

@@ -135,13 +135,13 @@ internal static class CharacterCreationLifeModuleAttributeRules
 
     // Explicitly bounded to the source compilers used above. A newly supported
     // attribute/cost modifier must be implemented here, not silently ignored.
-    private static bool IsAttributeIndependent(string type) => type is
+    private static bool IsAttributeIndependent(string type) => CharacterCreationSkillKarmaModifierRules.IsSupportedType(type) || type is
         "SkillLevel" or "SkillGroupLevel" or "FreeKnowledgeSkills" or "FreePositiveQualities" or "FreeNegativeQualities"
         or "QualityLevel" or "SpecificQuality" or "Notoriety" or "TrustFund" or "DamageResistance"
         or "NuyenMaxBP" or "SkillCategory"
         or "BlockSkillCategoryDefault" or "SkillGroupCategoryDisable" or "SkillCategoryKarmaCostMultiplier"
         or "SkillCategorySpecializationKarmaCostMultiplier" or "SkillGroupCategoryKarmaCostMultiplier"
-        or "SkillCategoryPointCostMultiplier" or "Armor" or "Reach" or "LifestyleCost" or "Gear" or "Skill"
+        or "SkillCategoryPointCostMultiplier" or "Armor" or "SpellResistance" or "Reach" or "LifestyleCost" or "Gear" or "Skill"
         or "PathogenContactResist" or "PathogenIngestionResist" or "PathogenInhalationResist" or "PathogenInjectionResist"
         or "ToxinContactResist" or "ToxinIngestionResist" or "ToxinInhalationResist" or "ToxinInjectionResist"
         or "SpecialTab" or "SpecialSkills" or "BlockSpellDescriptor" or "LimitSpellCategory" or "LimitSpiritCategory";

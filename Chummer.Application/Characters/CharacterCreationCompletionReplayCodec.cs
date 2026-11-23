@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -14,8 +15,11 @@ namespace Chummer.Application.Characters;
 /// the caller must independently validate their source, history and replay.
 /// This does not replace the enclosing continuation transport's byte limit.
 /// </summary>
-internal static class CharacterCreationCompletionReplayCodec
+internal static partial class CharacterCreationCompletionReplayCodec
 {
+    private static readonly ActivitySource Activities =
+        new(CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ActivitySourceName);
+
     internal const string SchemaV1 = CharacterCreationCompletionReplayArchive.SchemaV1;
     internal const string EncodingName = "br-base64";
     internal const string LoadoutEncodingName = "br-base64url";
@@ -112,6 +116,7 @@ internal static class CharacterCreationCompletionReplayCodec
             BrotliDecoder decoder = default;
             try
             {
+                using var brotliTiming = Activities.StartActivity("replay-brotli-decode");
                 OperationStatus status = decoder.Decompress(compressed.AsSpan(0, compressedLength), serialized,
                     out int consumed, out int written);
                 if (status != OperationStatus.Done || consumed != compressedLength || written != serialized.Length)
@@ -124,7 +129,7 @@ internal static class CharacterCreationCompletionReplayCodec
             // Done alone is insufficient: exact consumption rejects trailing
             // bytes and concatenated streams; exact output rejects length lies.
             if (!string.Equals(archive.UncompressedDigest, Digest(serialized), StringComparison.Ordinal)
-                || !TryReadPayload(serialized, out var payload)
+                || !TryReadPayload(serialized, out var payload, observeDecode: true)
                 || urlEncoding && payload.Witness.Schema is not (CharacterCreationSelectedCompletionWitness.SchemaV2
                     or CharacterCreationSelectedCompletionWitness.SchemaV3 or CharacterCreationSelectedCompletionWitness.SchemaV4
                     or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6))
@@ -141,19 +146,27 @@ internal static class CharacterCreationCompletionReplayCodec
 
     private static string ToBase64Url(string base64) => base64.TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    private static bool TryReadPayload(byte[] serialized, [NotNullWhen(true)] out Payload? payload)
+    private static bool TryReadPayload(byte[] serialized, [NotNullWhen(true)] out Payload? payload, bool observeDecode = false)
     {
         payload = null;
         if (serialized.Length is <= 0 or > MaximumUncompressedBytes)
             return false;
+        // Encoder self-checks retain the same path without consuming decode timing events.
+        using var shapeTiming = observeDecode ? Activities.StartActivity("replay-json-shape") : null;
         using JsonDocument document = JsonDocument.Parse(serialized,
             new JsonDocumentOptions { MaxDepth = MaximumJsonDepth });
         RejectDuplicateProperties(document.RootElement);
+        shapeTiming?.Stop();
+        using var deserializeTiming = observeDecode ? Activities.StartActivity("replay-typed-deserialize") : null;
         Payload? decoded = document.RootElement.Deserialize<Payload>(Options);
+        deserializeTiming?.Stop();
         if (decoded?.Bootstrap is null || decoded.Witness is null
-            || !decoded.Witness.HasVersionedShape()
-            || !serialized.AsSpan().SequenceEqual(Serialize(decoded)))
+            || !decoded.Witness.HasVersionedShape())
             return false;
+        using var compareTiming = observeDecode ? Activities.StartActivity("replay-typed-compare") : null;
+        if (!serialized.AsSpan().SequenceEqual(Serialize(decoded)))
+            return false;
+        compareTiming?.Stop();
         // Exact typed reserialization rejects ignored/defaulted fields and
         // altered computed values, not just unknown or duplicate properties.
         payload = decoded;
@@ -176,11 +189,20 @@ internal static class CharacterCreationCompletionReplayCodec
             RespectNullableAnnotations = true,
             RespectRequiredConstructorParameters = true,
             MaxDepth = MaximumJsonDepth,
+            TypeInfoResolver = new ReplayJsonContext(),
             Converters = { new StrictStringConverter() }
         };
-        options.MakeReadOnly(populateMissingResolver: true);
+        options.MakeReadOnly();
         return options;
     }
+
+    // This is a separate strict wire contract, not the default workspace
+    // contract. Generate metadata only: retain the string converter, required
+    // constructor/nullability checks, depth limit and exact typed byte check.
+    // No reflection fallback or decoded payload is cached.
+    [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
+    [JsonSerializable(typeof(Payload))]
+    private sealed partial class ReplayJsonContext : JsonSerializerContext;
 
     private static void RejectDuplicateProperties(JsonElement element)
     {

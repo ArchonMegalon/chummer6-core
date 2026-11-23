@@ -11,12 +11,15 @@ namespace Chummer.Application.Characters;
 /// operation scope and one actual workspace observation. It never creates drafts
 /// or writes a runner; the detached bundle must still pass the combined review.
 /// </summary>
-public sealed class OwnerBoundCharacterCreationCompletionReader(
+public sealed partial class OwnerBoundCharacterCreationCompletionReader(
     IWorkspaceStore store,
     IOwnerContextAccessor ownerContext,
     ICharacterSourceDataResolver sourceResolver,
     ICharacterFileQueries characterQueries) : IOwnerBoundCharacterCreationCompletionReader
 {
+    private static readonly System.Diagnostics.ActivitySource CompositeInputActivities =
+        new(CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ActivitySourceName);
+
     public CharacterCreationFoundationResult<CharacterCreationRuleSourcePreparation> LoadCompletionInputsWithRuleSourceExecution(
         OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request, bool includeLoadout = false,
         CancellationToken cancellationToken = default)
@@ -197,7 +200,8 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
         CharacterCreationRuleSourceCapture? retainedCapture = null, string? expectedCaptureDigest = null,
         Action<CharacterCreationRuleSourceCapture>? captured = null,
         string ruleSourceExecutionSchema = CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1,
-        bool includeSourcebooks = false, CharacterCreationSourcebookSelectionAuthority? expectedSourcebooks = null)
+        bool includeSourcebooks = false, CharacterCreationSourcebookSelectionAuthority? expectedSourcebooks = null,
+        CharacterCreationContactsService.CompletionPreviewReuse? contactsPreviewReuse = null)
     {
         if (includeRuleSourceExecution && ruleSourceExecutionSchema is not
             (CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV2 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV3 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4))
@@ -214,7 +218,7 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
             view = new WorkspaceContinuationReadView(observation.Value);
         }
         // Admit before capture as well as catalogue/prerequisite/quality reads.
-        // Sourcebook capture may replace this with its accounting-enabled resolver.
+        // A new source capture replaces this with its accounting-enabled resolver.
         var versionedResolver = resolver.ForCreationSourceExecution(includeRuleSourceExecution ? ruleSourceExecutionSchema : null);
         if (versionedResolver is null) return Reject([CharacterCreationCompletionReviewSchemas.SnapshotConflict]);
         resolver = versionedResolver;
@@ -250,25 +254,56 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
         }
         else if (retainedCapture?.SourcebookSelection is not null || expectedSourcebooks is not null)
             return Reject([CharacterCreationSourcebookSelectionAuthority.Invalid]);
+        else if (includeRuleSourceExecution && retainedCapture is null)
+        {
+            // Build the original authority from the same retained interpretation that
+            // Resolve will execute. Live manual lifestyle parsing can admit stock scalar
+            // expressions that historical source execution intentionally does not admit.
+            // Capturing only after the domain reads would bind those two interpretations
+            // to one source digest while producing different quality/policy digests.
+            if (!includeOriginalCharacter || sourcebookCharacterXml is null
+                || resolver is not ICharacterCreationRuleSourceCapture producer
+                || !producer.TryCaptureRuleSources(sourcebookCharacterXml, out retainedCapture)
+                || retainedCapture is null || !retainedCapture.MatchesOriginalCharacter(sourcebookCharacterXml)
+                || expectedCaptureDigest is not null && retainedCapture.IntegrityDigest != expectedCaptureDigest)
+                return Reject([CharacterCreationCompletionReviewSchemas.SnapshotConflict]);
+            var sourceResolution = retainedCapture.CreateExecutionResolution(ruleSourceExecutionSchema);
+            if (sourceResolution is null) return Reject([CharacterCreationCompletionReviewSchemas.SnapshotConflict]);
+            resolver = sourceResolution.Resolver;
+        }
 
         using var versionedScope = (resolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
         resolver = versionedScope ?? resolver;
-        var skills = new CharacterCreationSkillsService(view, resolver).LoadCompletionInputs(request);
+        // Fixed diagnostic boundaries for the Contacts composite continuation only.
+        // Each loader still performs its own complete source/history admission.
+        CharacterCreationFoundationResult<CharacterCreationSkillsCompletionInputs> skills;
+        using (contactsPreviewReuse is null ? null : CompositeInputActivities.StartActivity("contacts-input-skills"))
+            skills = new CharacterCreationSkillsService(view, resolver).LoadCompletionInputs(request);
         if (skills.Value is null) return Reject(skills.Blockers);
         cancellationToken.ThrowIfCancellationRequested();
-        var magic = new CharacterCreationMagicResonanceService(view, resolver)
-            .LoadCompletionInputs(new(request.WorkspaceId));
+        CharacterCreationFoundationResult<CharacterCreationMagicResonanceCompletionInputs> magic;
+        using (contactsPreviewReuse is null ? null : CompositeInputActivities.StartActivity("contacts-input-magic"))
+            magic = new CharacterCreationMagicResonanceService(view, resolver)
+                .LoadCompletionInputs(new(request.WorkspaceId));
         if (magic.Value is null) return Reject(magic.Blockers);
         cancellationToken.ThrowIfCancellationRequested();
-        var lifestyles = new CharacterCreationLifestylesService(view, resolver, characterQueries)
-            .LoadCompletionInputs(new(request.WorkspaceId), knowledgeModifiers);
+        CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionInputs> lifestyles;
+        using (contactsPreviewReuse is null ? null : CompositeInputActivities.StartActivity("contacts-input-lifestyles"))
+            lifestyles = new CharacterCreationLifestylesService(view, resolver, characterQueries)
+                .LoadCompletionInputs(new(request.WorkspaceId), knowledgeModifiers, contactsPreviewReuse);
         if (lifestyles.Value is null) return Reject(lifestyles.Blockers);
         cancellationToken.ThrowIfCancellationRequested();
-        var contacts = new CharacterCreationContactsService(view, resolver, characterQueries)
-            .LoadCompletionInputs(new(request.WorkspaceId), knowledgeModifiers);
+        CharacterCreationContactResult<CharacterCreationContactsCompletionInputs> contacts;
+        using (contactsPreviewReuse is null ? null : CompositeInputActivities.StartActivity("contacts-input-contacts"))
+            contacts = new CharacterCreationContactsService(view, resolver, characterQueries)
+                .LoadCompletionInputs(new(request.WorkspaceId), knowledgeModifiers, contactsPreviewReuse);
         if (contacts.Value is null) return Reject(contacts.Blockers);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Includes optional loadout/policy reads, final input digest and detachment.
+        // Disposal of versionedScope follows this span and remains in the parent.
+        using var composeTiming = contactsPreviewReuse is null ? null
+            : CompositeInputActivities.StartActivity("contacts-input-compose");
         CharacterCreationLoadoutCompletionInputs? loadout = null;
         // A saved typed purchase cannot disappear through the older entry point.
         if (!includeLoadout)
@@ -401,13 +436,14 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
             return Reject([CharacterCreationCompletionReviewSchemas.SnapshotConflict], CharacterCreationFoundationOutcomes.Conflict);
         }
         return new(CharacterCreationFoundationOutcomes.Success,
-            JsonSerializer.Deserialize<CharacterCreationCompletionReviewInputs>(JsonSerializer.SerializeToUtf8Bytes(inputs))!, []);
+            WorkspaceDocumentAuxiliaryStateJsonConverter.DetachCreationCompletion(inputs), []);
     }
 
     // Explicit queries and an already owner-bound observation are mandatory.
     // A source resolver is never used to discover an ambient query service.
     internal static CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> LoadForCompositeEdit(
-        WorkspaceStoredDocument workspace, ICharacterSourceDataResolver resolver, ICharacterFileQueries? queries)
+        WorkspaceStoredDocument workspace, ICharacterSourceDataResolver resolver, ICharacterFileQueries? queries,
+        CharacterCreationContactsService.CompletionPreviewReuse? contactsPreviewReuse = null)
     {
         using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         if (queries is null || !CharacterCreationCompositeBaselineReader.TryRead(workspace, out var composite)
@@ -424,7 +460,8 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
             includeEffectivePolicy: historical.EffectivePolicy is not null,
             includeConsumerPolicy: historical.EffectivePolicy?.Consumers is not null,
             knowledgeModifiers: historical.EffectivePolicy?.Consumers?.Schema == CharacterCreationCompletionConsumerPolicy.SchemaV5,
-            policyConsumption: historical.EffectivePolicy?.SettingObservations is not null);
+            policyConsumption: historical.EffectivePolicy?.SettingObservations is not null,
+            contactsPreviewReuse: contactsPreviewReuse);
     }
 
     // Caller already owns the exact lease and validated history/recovery scope.
@@ -474,7 +511,8 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
 
     internal static CharacterCreationFoundationResult<CharacterCreationCompletionReview> ReviewCompositeEdit(
         WorkspaceStoredDocument workspace, CharacterCreationCompletionReviewInputs inputs,
-        CharacterCreationCompletionSelections choices, CharacterCreationCompositeEditStage stage)
+        CharacterCreationCompletionSelections choices, CharacterCreationCompositeEditStage stage,
+        CharacterCreationContactsService.CompletionPreviewReuse? contactsPreviewReuse = null)
     {
         if (inputs.Skills.CompositeBaseline?.Selections is not { } original)
             return new(CharacterCreationFoundationOutcomes.Blocked, null, [CharacterCreationCompositeBaselineReader.Invalid]);
@@ -502,7 +540,7 @@ public sealed class OwnerBoundCharacterCreationCompletionReader(
         {
             InputsSnapshotDigest = inputs.SnapshotDigest, Selections = choices,
             EffectivePolicyDigest = inputs.EffectivePolicy?.PolicyDigest
-        }, stage);
+        }, stage, contactsPreviewReuse);
     }
 
     private static bool TryResolvePolicy(ICharacterSourceDataContext context, bool consumption,

@@ -19,19 +19,25 @@ public static class CharacterCreationLoadoutCompletionService
             if (root?.Name != "character") return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.RequestInvalid);
             if (workspace.Document.RulesetId != "sr5" || bool.TryParse(root.Element("created")?.Value, out bool created) && created)
                 return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.RequestInvalid);
-            // Existing imported/purchased graphs are not safely representable by
-            // this acquisition tranche. Never replace or silently omit their cost.
+            // Observe existing stock owners through the private live source reader.
+            // This does not turn their historical cost into a new purchase.
             foreach (string name in new[] { "weapons", "armors" })
             {
                 XElement[] containers = root.Elements(name).ToArray();
-                if (containers.Length > 1 || containers.Any(value => value.HasElements
-                        || value.HasAttributes || !string.IsNullOrWhiteSpace(value.Value)))
+                if (containers.Length > 1 || containers.Any(value => value.HasAttributes
+                        || value.Nodes().Any(node => node is not XElement
+                            && (node.GetType() != typeof(XText) || !string.IsNullOrWhiteSpace(((XText)node).Value)))))
                     return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.ExistingGraphUnsupported);
             }
+            CharacterCreationOriginalInventory3475? original3497 = null;
+            if ((root.Element("weapons")?.HasElements == true || root.Element("armors")?.HasElements == true)
+                && !CharacterCreationOriginalInventory3475.TryCapture(root, resolver, out original3497,
+                    CharacterCreationPriorityGrantAuthority3563.Capture(workspace, resolver)))
+                return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.ExistingGraphUnsupported);
             var context = resolver.TryCreateContext(workspace.Document.Content);
             if (context is null || !context.TryResolveCreationLoadoutAuthority(out var authority)
                 || !CharacterCreationLoadoutRules.IsValidAuthority(authority))
-                return requireAuthority ? RejectedInputs(CharacterCreationLoadoutCompletionSchemas.AuthorityUnavailable)
+                return requireAuthority || original3497 is not null ? RejectedInputs(CharacterCreationLoadoutCompletionSchemas.AuthorityUnavailable)
                     : new(CharacterCreationFoundationOutcomes.Success, null, []);
             var binding = new CharacterCreationLoadoutBinding(workspace.Id, workspace.ContentRevision,
                 workspace.SavedRevision, CharacterCreationFinalizationDigest.ComputeUtf8(workspace.Document.Content),
@@ -49,7 +55,8 @@ public static class CharacterCreationLoadoutCompletionService
                 binding, authority, draft?.Selections ?? CharacterCreationLoadoutSelections.Empty, string.Empty)
             { PendingDraft = draft, Receipts = state.CharacterCreationLoadoutReceipts };
             inputs = inputs with { SnapshotDigest = CharacterCreationLoadoutCompletionRules.ComputeInputsDigest(inputs) };
-            if (!IsValidInputs(inputs) || !context.TryResolveCreationLoadoutAuthority(out var after)
+            if (!IsValidInputs(inputs) || original3497 is not null && !original3497.MatchesLoadout3478(root)
+                || !context.TryResolveCreationLoadoutAuthority(out var after)
                 || after.AuthorityDigest != authority.AuthorityDigest)
                 return RejectedInputs(CharacterCreationLoadoutCompletionSchemas.SnapshotConflict);
             return new(CharacterCreationFoundationOutcomes.Success, Detach(inputs), []);

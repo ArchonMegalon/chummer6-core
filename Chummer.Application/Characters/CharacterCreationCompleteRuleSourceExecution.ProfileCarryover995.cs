@@ -25,7 +25,7 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
                 Phase: CharacterCreationCompletePhase.Authority }
             || !CanAttemptSourceScopes696(request) || funding is null || contacts is null
             || !original.MatchesInputs(Inputs.SnapshotDigest)
-            || Inputs.SnapshotDigest != CharacterCreationCompletionReviewRules.ComputeInputsDigest(Inputs)
+            || !CharacterCreationProfileInputRead8576.Matches(Inputs)
             || authority.InputsSnapshotDigest != Inputs.SnapshotDigest || request.InputsSnapshotDigest != Inputs.SnapshotDigest
             || authority.RequestDigest != requestDigest || requestDigest != CharacterCreationFinalizationDigest.Compute(request)
             || authority.SelectionsDigest != CharacterCreationFinalizationDigest.Compute(request.Selections)
@@ -65,19 +65,31 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
         // This runs before source coverage/Complete admission; it grants neither.
         int remaining = CharacterCreationKarmaFinalizationBudgetRules.RemainingCreationKarma995(
             resources, skills.Skills.Sum(row => row.KarmaCost), contactCost);
+        if (!ApplySharedWallet1239(authority, invocation, ref remaining, out string? sharedWallet1239)) return;
         if (remaining < 0 || request.Selections.KarmaToReserve < 0 || remaining < request.Selections.KarmaToReserve) return;
         int carried = CharacterCreationKarmaFinalizationBudgetRules.CarryCreationKarma995(remaining, policy);
         string profileXml = CharacterCreationFinalizationDigest.Compute(profile.ToString(SaveOptions.DisableFormatting));
         string leafXml = CharacterCreationFinalizationDigest.Compute(leaf.ToString(SaveOptions.DisableFormatting));
         string binding = CarryoverInvocationDigest995(invocation);
-        string execution = CharacterCreationFinalizationDigest.Compute(new
-        {
-            Operation = "canonical-creation-karma-carryover", Authority = CharacterCreationFinalizationDigest.Compute(authority),
-            Inputs.SnapshotDigest, Policy = policy, ProfileXml = profileXml, LeafXml = leafXml, Invocation = binding,
-            Funding = funding.EvaluationDigest, Contacts = contacts.DigestFor(authority),
-            Resources = resources, Skills = skills.Skills.Sum(row => row.KarmaCost), ContactsKarma = contactCost,
-            Remaining = remaining, Carried = carried
-        });
+        // Historical captures have no shared wallet and retain the original payload.
+        // A present wallet remains bound even when its charges are zero.
+        string execution = sharedWallet1239 is null
+            ? CharacterCreationFinalizationDigest.Compute(new
+            {
+                Operation = "canonical-creation-karma-carryover", Authority = CharacterCreationFinalizationDigest.Compute(authority),
+                Inputs.SnapshotDigest, Policy = policy, ProfileXml = profileXml, LeafXml = leafXml, Invocation = binding,
+                Funding = funding.EvaluationDigest, Contacts = contacts.DigestFor(authority),
+                Resources = resources, Skills = skills.Skills.Sum(row => row.KarmaCost), ContactsKarma = contactCost,
+                Remaining = remaining, Carried = carried
+            })
+            : CharacterCreationFinalizationDigest.Compute(new
+            {
+                Operation = "canonical-creation-karma-carryover", Authority = CharacterCreationFinalizationDigest.Compute(authority),
+                Inputs.SnapshotDigest, Policy = policy, ProfileXml = profileXml, LeafXml = leafXml, Invocation = binding,
+                Funding = funding.EvaluationDigest, Contacts = contacts.DigestFor(authority),
+                Resources = resources, Skills = skills.Skills.Sum(row => row.KarmaCost), ContactsKarma = contactCost,
+                Remaining = remaining, Carried = carried, SharedWallet = sharedWallet1239
+            });
         carryoverInvocations995.Add(invocation, new(CharacterCreationFinalizationDigest.Compute(policy),
             profileXml, leafXml, binding, remaining, carried, execution));
     }

@@ -44,6 +44,12 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
         _buildLabService = buildLabService ?? new DefaultBuildLabService();
     }
 
+    public object ParseSection(string sectionId, Chummer.Application.Workspaces.WorkspaceStoredDocument observation)
+        => string.Equals(sectionId?.Trim(), "sheetderived", StringComparison.OrdinalIgnoreCase)
+            ? (_statsQueries as ICharacterSheetDerivedQueries)?.ParseSheetDerived(observation)
+                ?? CharacterSheetDerivedSection.Unavailable("The workspace-bound sheet read authority is unavailable.")
+            : ParseSection(sectionId!, new CharacterDocument(observation.Document.Content));
+
     public object ParseSection(string sectionId, CharacterDocument document)
     {
         string key = (sectionId ?? string.Empty).Trim().ToLowerInvariant();
@@ -71,6 +77,8 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
             "attributes" => _statsQueries.ParseAttributes(document),
             "attributedetails" => _statsQueries.ParseAttributeDetails(document),
             "limitmodifiers" => _statsQueries.ParseLimitModifiers(document),
+            "sheetderived" => (_statsQueries as ICharacterSheetDerivedQueries)?.ParseSheetDerived(document)
+                ?? CharacterSheetDerivedSection.Unavailable("The source-bound sheet read authority is unavailable."),
 
             "inventory" => _inventoryQueries.ParseInventory(document),
             "gear" => _inventoryQueries.ParseGear(document),

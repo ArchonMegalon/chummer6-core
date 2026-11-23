@@ -30,7 +30,16 @@
     <InternalsVisibleTo Include="Chummer.FeatureSlice.Tests" />
     <InternalsVisibleTo Include="Chummer.Tests" />
     <InternalsVisibleTo Include="Chummer.CreationFinalization.Tests" />
-    <InternalsVisibleTo Include="Chummer.CreationRacial.Tests" />
     <InternalsVisibleTo Include="Chummer.CreationBootstrap.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Chummer/Backend/Attributes/PortableCyberlimbAttributeRules.cs" Link="Characters/PortableCyberlimbAttributeRules.cs" />
+  </ItemGroup>
+  <Import Project="Build/RetainedSr5Compatibility1241.targets" />
+  <Import Project="Build/NativeMagic1430.targets" />
+  <Import Project="Build/MatrixLifecycle.targets" />
+  <Import Project="Build/NativeCompatibility1430.targets" />
+  <Import Project="Build/NativeSettings1420.targets" />
+  <Import Project="Build/NativeContactSpecialty.targets" />
+  <Import Project="Build/NativeLoadout1432.targets" />
 </Project>

@@ -33,6 +33,7 @@ public sealed record CharacterCareerCalendarSourceAuthority(
 
 public sealed record CharacterCareerCalendarWeekIdentity(Guid WeekId);
 
+[method: System.Text.Json.Serialization.JsonConstructor]
 public sealed record CharacterCareerCalendarWeekState(
     CharacterCareerCalendarWeekIdentity Identity,
     int Year,

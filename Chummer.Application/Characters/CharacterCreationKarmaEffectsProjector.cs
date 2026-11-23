@@ -16,10 +16,7 @@ internal static class CharacterCreationKarmaEffectsProjector
         improvements = new(grants.Single(item => item.Name == "improvements"));
         foreach (var option in foundation.Qualities!.Selections)
         {
-            var selection = new CharacterCreationQualitySelection(option.OptionId, option.SourceId, option.SelectionKey,
-                option.Name, option.Type, option.Rating, option.KarmaCost, option.IsMetagenic, option.CountsAgainstQualityLimit,
-                option.CountsAgainstKarma, false, null, null, option.SourceAnchorIds, option.SourceNodeXml,
-                option.SourceNodeDigest, option.OptionDigest);
+            var selection = CharacterCreationKarmaQualityPrompts.Selection(option, retainSourceExecution: false);
             if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, foundation.QuoteDigest,
                     out _, out var effects)) return false;
             improvements.Add(effects);

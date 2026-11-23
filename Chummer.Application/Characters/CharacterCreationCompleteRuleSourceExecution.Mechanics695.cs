@@ -29,7 +29,7 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
             || authority.InputsSnapshotDigest != Inputs.SnapshotDigest
             || authority.RequestDigest != requestDigest
             || requestDigest != CharacterCreationFinalizationDigest.Compute(request)
-            || Inputs.SnapshotDigest != CharacterCreationCompletionReviewRules.ComputeInputsDigest(Inputs)
+            || !CharacterCreationProfileInputRead8576.Matches(Inputs)
             || authority.PolicyDigest != Inputs.EffectivePolicy?.PolicyDigest
             || !original.MatchesInputs(Inputs.SnapshotDigest)
             || original.CreationLifecycleDigestFor(authority) is not { } lifecycle
@@ -119,12 +119,25 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
                 { authority.Schema, authority.InputsSnapshotDigest, authority.SelectionsDigest });
             if (!Mechanics695Execution.TryExecute711(graph, Inputs, actualSkills, magicResult,
                     evaluatedQualities, compilationSeed, context, out var extension711)) return null;
+            var nativeMatrix = request.LifecycleResultSchema == CharacterCreationCompletionReviewSchemas.LifecycleResultV1
+                ? effects.MatrixInitiative(authority) : null;
+            if (request.LifecycleResultSchema == CharacterCreationCompletionReviewSchemas.LifecycleResultV1
+                && nativeMatrix != CharacterCreationMatrixInitiative.Evaluate(graph,
+                    Inputs.Magic.Authority.MysticAdeptPowerPointPolicy, Inputs.Skills.PrerequisiteDraft)) return null;
             var consumers = new Mechanics695Execution.DomainExecutions(
                 replay.PurchasesDigest, lifestyles.EvaluationDigest, funding.EvaluationDigest,
                 gear.EvaluationDigest, magicDigest, contactsDigest, reputation!, magicResult, prerequisiteChecks,
-                Inputs.Skills.MovementCapability, lifestyleResult, contactResult, extension711);
+                Inputs.Skills.MovementCapability, lifestyleResult, contactResult, extension711) { MatrixInitiative = nativeMatrix };
             if (!Mechanics695Execution.TryEvaluateGraph(graph, actualSkills, Inputs.Skills.Authority,
                     evaluatedQualities, consumers, compilationSeed, out var calculation)) return null;
+            if (request.LifecycleResultSchema == CharacterCreationCompletionReviewSchemas.LifecycleResultV1)
+            {
+                var nativeAstral = effects.AstralInitiative1249(authority);
+                var expectedAstral = CharacterCreationAstralInitiative1249.Evaluate(graph,
+                    Inputs.Magic.Authority.MysticAdeptPowerPointPolicy, Inputs.Skills.PrerequisiteDraft);
+                if (nativeAstral is null || nativeAstral != expectedAstral) return null;
+                calculation = calculation! with { AstralInitiative1249 = nativeAstral, MatrixInitiative = nativeMatrix };
+            }
             // The private source scope must still resolve the same rule state.
             if (!context.TryResolveCareerReputationSettings(out var finalSettings, out var finalRuleState)
                 || reputationSettings != finalSettings || ruleState != finalRuleState
@@ -164,12 +177,22 @@ internal sealed partial class Mechanics695Execution
         IReadOnlyList<CharacterCreationSelectedPrerequisiteCheck> Prerequisites,
         CharacterCreationMovementCapability Movement,
         CharacterCreationLifestylesCompletionProjection? LifestyleResult,
-        CharacterCreationContactsCompletionProjection? ContactResult, Extension711? Extension = null);
+        CharacterCreationContactsCompletionProjection? ContactResult, Extension711? Extension = null)
+    {
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public CharacterMatrixInitiativeDiceProjection? MatrixInitiative { get; init; }
+    }
     internal sealed record SkillResult(string SourceId, string Kind, string Name,
         int LearnedRating, string Attribute, CharacterCreationActionPoolRules695.Result Action);
     internal sealed record EffectResult(int Index, string Type, string NodeDigest, string Consumer, object Result);
     internal sealed record Calculation(Handedness Hands, IReadOnlyList<SkillResult> Skills,
-        IReadOnlyList<EffectResult> Effects);
+        IReadOnlyList<EffectResult> Effects)
+    {
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public CharacterAstralInitiativeDiceProjection? AstralInitiative1249 { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public CharacterMatrixInitiativeDiceProjection? MatrixInitiative { get; init; }
+    }
     private readonly string authorityDigest;
     private readonly string evaluationDigest;
     internal Calculation Result { get; }
@@ -250,14 +273,24 @@ internal sealed partial class Mechanics695Execution
             for (int index = 0; index < improvements.Length; index++)
             {
                 XElement effect = improvements[index];
-                ValidateImprovement(effect);
                 string type = Scalar(effect, "improvementttype");
+                ValidateImprovement(effect, consumers.MatrixInitiative is not null && type == "MatrixInitiativeDice");
                 string name = Scalar(effect, "improvedname");
                 bool enabled = Integer(effect, "enabled") == 1;
                 // Recognition alone never consumes a row. Each branch below
                 // invokes a rule or requires an already completed exact consumer.
                 switch (type)
                 {
+                    case "MatrixInitiativeDice":
+                    case "MatrixInitiativeDiceAdd":
+                        // The purchased-source reconciliation above binds every
+                        // occurrence to the real literal source compiler.
+                        if (!purchasedQualityIds.Contains(Scalar(effect, "sourcename"))
+                            || consumers.MatrixInitiative is not { Created: false } matrix
+                            || matrix.GraphDigest != CharacterCreationFinalizationDigest.Compute(graph.ToString(SaveOptions.DisableFormatting))
+                            || matrix.SourceInputs.ImprovementsXml != graph.Element("improvements")!.ToString(SaveOptions.DisableFormatting)) return false;
+                        Add(index, effect, "matrix-initiative", matrix);
+                        break;
                     case "Ambidextrous":
                         Marker(effect);
                         if (!purchasedQualityIds.Contains(Scalar(effect, "sourcename"))) return false;
@@ -523,7 +556,7 @@ internal sealed partial class Mechanics695Execution
             || Integer(node, "val") != 0 || Integer(node, "addtorating") != 0
             || Integer(node, "min") != 0 || Integer(node, "max") != 0) throw new InvalidDataException();
     }
-    private static void ValidateImprovement(XElement node)
+    private static void ValidateImprovement(XElement node, bool executedMatrixDice = false)
     {
         string[] fields = ["target", "unique", "improvedname", "sourcename", "min", "max", "aug", "augmax",
             "val", "rating", "exclude", "condition", "improvementttype", "improvementsource", "custom",
@@ -537,12 +570,14 @@ internal sealed partial class Mechanics695Execution
             || Scalar(node, "custom") != "False" || Scalar(node, "target") != ""
             || Scalar(node, "exclude") != ""
             || (node.Element("unique")?.Value ?? "") is not ("" or "enableattribute" or "enabletab")
+                && !(executedMatrixDice && node.Element("unique")?.Value == "matrixinitiativepass")
             || Integer(node, "aug") != 0 || Integer(node, "augmax") != 0
             || Integer(node, "order") != 0 || Integer(node, "rating") is not (0 or 1))
             throw new InvalidDataException();
         string type = Scalar(node, "improvementttype");
         if (type is not ("Attribute" or "SpecialTab")
-            && (Integer(node, "rating") != 1 || (node.Element("unique")?.Value ?? "") != "")) throw new InvalidDataException();
+            && (Integer(node, "rating") != 1 || (node.Element("unique")?.Value ?? "") != ""
+                && !(executedMatrixDice && node.Element("unique")?.Value == "matrixinitiativepass"))) throw new InvalidDataException();
         if (!CharacterCreationKnowledgeCategoryRules.IsSupportedType(type)
             && (Integer(node, "min") != 0 || Integer(node, "max") != 0 || Integer(node, "addtorating") != 0))
             throw new InvalidDataException();

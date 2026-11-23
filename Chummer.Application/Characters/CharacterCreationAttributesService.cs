@@ -26,13 +26,25 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
     }
 
     public CharacterCreationFoundationResult<CharacterCreationAttributesState> Load(
+        CharacterCreationAttributesLoadRequest request) => Load(request, false);
+
+    internal CharacterCreationFoundationResult<CharacterCreationAttributesState> LoadCurrentObservation3053(
         CharacterCreationAttributesLoadRequest request)
+    {
+        if (_workspaceStore is not WorkspaceContinuationReadView)
+            return Blocked<CharacterCreationAttributesState>(CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationAttributesBlockers.PersistenceAuthorityRequired);
+        return Load(request, true);
+    }
+
+    private CharacterCreationFoundationResult<CharacterCreationAttributesState> Load(
+        CharacterCreationAttributesLoadRequest request, bool currentObservation)
     {
         using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         ArgumentNullException.ThrowIfNull(request);
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         return read.Success && read.Value is WorkspaceStoredDocument workspace
-            ? BuildState(workspace)
+            ? BuildState(workspace, currentObservation)
             : Blocked<CharacterCreationAttributesState>(
                 read.Outcome == WorkspaceOperationOutcome.Missing
                     ? CharacterCreationFoundationOutcomes.Missing
@@ -348,7 +360,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
     }
 
     private CharacterCreationFoundationResult<CharacterCreationAttributesState> BuildState(
-        WorkspaceStoredDocument workspace)
+        WorkspaceStoredDocument workspace, bool currentObservation = false)
     {
         var blockers = new List<string>();
         if (_workspaceStore is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -373,12 +385,11 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
                 ? CharacterCreationAttributesBlockers.PrerequisiteDraftRequired
                 : CharacterCreationAttributesBlockers.AuthorityUnavailable);
         }
-        else if (!CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
-                     prerequisite,
-                     workspace.Id,
-                     workspace.ContentRevision,
-                     rawDigest,
-                     authority))
+        else if (currentObservation
+            ? !CharacterCreationPrerequisiteDraftIntegrity.TryEvaluateCurrentPending3053(
+                prerequisite, workspace.Id, workspace.ContentRevision, rawDigest, authority, sourceContext!, out _)
+            : !CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                prerequisite, workspace.Id, workspace.ContentRevision, rawDigest, authority))
         {
             blockers.Add(CharacterCreationAttributesBlockers.PrerequisiteSourceDrift);
             prerequisite = null;
@@ -532,7 +543,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             || heritage.Kind != CharacterCreationPriorityChildKinds.Metatype
             || heritage.MetavariantSourceId is not null
             || (heritage.MetatypeName != "Human"
-                && (heritage.MetatypeName is not ("Elf" or "Ork" or "Dwarf")
+                && (heritage.MetatypeName is not ("Elf" or "Ork")
                     || !CharacterCreationPriorityRacialQualities.TryProject(heritage.RacialQualitySources,
                         prerequisite.DraftDigest, out _)))
             || heritage.Attributes.Count != 13

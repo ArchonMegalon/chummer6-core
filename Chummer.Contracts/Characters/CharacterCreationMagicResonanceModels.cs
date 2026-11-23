@@ -199,6 +199,11 @@ public sealed record CharacterCreationMagicResonanceCatalogOption(
     public string CanonicalSourceXml { get; init; } = string.Empty;
 
     public string CanonicalSourceXmlDigest { get; init; } = string.Empty;
+
+    /// <summary>Exact selected skill sources for literal adept pool bonuses.
+    /// Null keeps unrelated options and their existing digests unchanged.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AdeptSkillSourceXml { get; init; }
 }
 
 public sealed record CharacterCreationMagicResonanceAuthority(
@@ -291,7 +296,11 @@ public sealed record CharacterCreationMagicResonanceOptionFinalizationSource(
     string CanonicalSourceXml,
     string CanonicalSourceXmlDigest,
     IReadOnlyList<string> SourceAnchorIds,
-    string ProjectionDigest);
+    string ProjectionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AdeptSkillSourceXml { get; init; }
+}
 
 /// <summary>Derived from the independently validated, digest-bound attribute draft;
 /// distinct from the immutable source talent grants.</summary>

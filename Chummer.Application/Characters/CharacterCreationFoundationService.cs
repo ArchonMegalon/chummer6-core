@@ -47,7 +47,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             workspace,
             request.EnabledSources,
             sourceFilterApplied: request.EnabledSources is not null,
-            out _, out _, foundationDisplayOnly: true);
+            out _, out _, out _, foundationDisplayOnly: true);
     }
 
     public CharacterCreationFoundationResult<CharacterCreationFoundationPreview> Preview(
@@ -86,7 +86,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         {
             PreviewEvaluation evaluation = EvaluatePreview(
                 new CharacterCreationFoundationPreviewRequest(
-                    state.Binding, draft.RequestedMetatype, draft.Selection, draft.FollowUpValues),
+                    state.Binding, draft.RequestedMetatype, draft.Selection, draft.FollowUpValues)
+                { MetatypeIdentity = draft.MetatypeIdentity },
                 workspace);
             blockers.AddRange(evaluation.Result.Blockers.Where(IsContinuationSemanticBlocker));
             if (evaluation.Context is not CharacterCreationFoundationAuthorityContext context
@@ -130,7 +131,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             Binding: request.Binding,
             RequestedMetatype: request.RequestedMetatype,
             Selection: request.Selection,
-            FollowUpValues: request.FollowUpValues));
+            FollowUpValues: request.FollowUpValues) { MetatypeIdentity = request.MetatypeIdentity });
         if (evaluation.Result.Value is not CharacterCreationFoundationPreview preview
             || evaluation.Context is not CharacterCreationFoundationAuthorityContext context)
         {
@@ -224,7 +225,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     : null,
                 request.Binding.SourceFilterApplied,
                 out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
-                out string capturedCatalogDigest, requireDraftPersistence: false);
+                out string capturedCatalogDigest, out _, requireDraftPersistence: false);
         if (stateResult.Value is not CharacterCreationFoundationState state)
         {
             return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
@@ -320,7 +321,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             _lifeModulesCatalog.ReadSourceBytes(capturedCatalogDigest), capturedCatalogDigest, skills, qualities, qualityLevels);
         CharacterCreationLifeModuleMetatypeWritePlanResult? metatypePlan = null;
         if (writePlan.Plan is { } effects && sourceContext is not null
-            && state.MetatypeOptions.SingleOrDefault(option => option.Label == draft.RequestedMetatype) is { } selectedMetatype)
+            && ResolveMetatypeOption(state.MetatypeOptions, draft.RequestedMetatype, new List<string>(), draft.MetatypeIdentity) is { } selectedMetatype)
             metatypePlan = CharacterCreationLifeModuleMetatypeWritePlanner.Build(workspace, draft, effects, selectedMetatype, sourceContext);
         CharacterCreationLifeModuleTalentWritePlanResult? talentPlan = null;
         if (writePlan.Plan is { } talentEffects && metatypePlan?.Plan is { } talentRacial && sourceContext is not null)
@@ -526,7 +527,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             BuildState(
                 workspace,
                 request.Binding.EnabledSources,
-                request.Binding.SourceFilterApplied);
+                request.Binding.SourceFilterApplied,
+                out _, out _, out ICharacterSourceDataContext? sourceContext);
         if (stateResult.Value is not CharacterCreationFoundationState state)
         {
             return new PreviewEvaluation(
@@ -569,7 +571,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         CharacterCreationLegalOption? selectedMetatype = ResolveMetatypeOption(
             state.MetatypeOptions,
             request.RequestedMetatype,
-            selectionBlockers);
+            selectionBlockers, request.MetatypeIdentity);
         if (selectedMetatype is null)
         {
             string[] unresolvedMetatypeBlockers = state.AuthorityBlockers
@@ -605,7 +607,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             selectionBlockers);
         LifeModuleRequirementProjectionDto[] requirementEvaluations = nationality.Requirements
             .Concat(version?.Requirements ?? [])
-            .Select(requirement => EvaluateRequirement(requirement, requestedMetatype))
+            .Select(requirement => EvaluateRequirement(requirement, requestedMetatype, selectedMetatype.ParentMetatypeLabel))
             .ToArray();
         selectionBlockers.AddRange(requirementEvaluations
             .Where(requirement => !requirement.IsMet)
@@ -717,6 +719,23 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             Blockers = blockers,
             authorityPreview.AuthorityPlanDigest
         });
+        if (selectedMetatype.MetatypeIdentity is { MetavariantOptionId: not null } identity)
+        {
+            // A supported quality edit can leave the metatype projection and
+            // draft plan unchanged. Bind this child quote to its complete racial
+            // sources from the same context that projected its metatype catalog.
+            // Confirm recomputes this digest before the atomic draft checkpoint.
+            if (sourceContext is null
+                || !sourceContext.TryResolveCreationLifeModuleMetatypeSources(identity, out var racialSources))
+            {
+                return new PreviewEvaluation(
+                    Blocked<CharacterCreationFoundationPreview>(
+                        CharacterCreationFoundationOutcomes.Blocked,
+                        CharacterCreationFoundationBlockers.MetatypeLegalityAuthorityRequired),
+                    null);
+            }
+            previewDigest = Digest(new { PreviewDigest = previewDigest, RacialQualitySources = racialSources });
+        }
         var preview = new CharacterCreationFoundationPreview(
             Schema: CharacterCreationFoundationSchemas.PreviewV1,
             Binding: state.Binding,
@@ -735,7 +754,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             CanConfirm: canApply,
             CanApply: canApply,
             CharacterEffectsApplied: false,
-            PreviewDigest: previewDigest);
+            PreviewDigest: previewDigest) { MetatypeIdentity = selectedMetatype.MetatypeIdentity };
         return new PreviewEvaluation(
             new CharacterCreationFoundationResult<CharacterCreationFoundationPreview>(
                 Outcome: blockers.Length == 0
@@ -750,7 +769,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         WorkspaceStoredDocument workspace,
         IReadOnlyCollection<string>? requestedSources,
         bool sourceFilterApplied)
-        => BuildState(workspace, requestedSources, sourceFilterApplied, out _, out _);
+        => BuildState(workspace, requestedSources, sourceFilterApplied, out _, out _, out _);
 
     private CharacterCreationFoundationResult<CharacterCreationFoundationState> BuildState(
         WorkspaceStoredDocument workspace,
@@ -758,11 +777,13 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         bool sourceFilterApplied,
         out IReadOnlyList<LifeModuleLegalOptionDto> capturedModules,
         out string capturedCatalogDigest,
+        out ICharacterSourceDataContext? sourceContext,
         bool requireDraftPersistence = true,
         bool foundationDisplayOnly = false)
     {
         capturedModules = [];
         capturedCatalogDigest = string.Empty;
+        sourceContext = null;
         CharacterDocument characterDocument = new(workspace.Document.Content);
         CharacterValidationResult validation;
         CharacterFileSummary summary;
@@ -806,8 +827,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         }
         CharacterCreationSourceProfileAuthority sourceProfile =
             CharacterCreationSourceProfileAuthority.Unavailable;
-        ICharacterSourceDataContext? sourceContext =
-            _sourceDataResolver.TryCreateContext(workspace.Document.Content);
+        sourceContext = _sourceDataResolver.TryCreateContext(workspace.Document.Content);
         bool hasSourceProfileAuthority = sourceContext is not null
             && sourceContext.TryResolveCreationSourceProfile(out sourceProfile)
             && !string.IsNullOrWhiteSpace(sourceProfile.RawProfileInputsDigest);
@@ -1046,11 +1066,12 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
     private static CharacterCreationLegalOption? ResolveMetatypeOption(
         IReadOnlyList<CharacterCreationLegalOption> options,
         string? requestedMetatype,
-        ICollection<string> blockers)
+        ICollection<string> blockers, CharacterCreationMetatypeSelectionIdentity? identity = null)
     {
         string requested = (requestedMetatype ?? string.Empty).Trim();
         CharacterCreationLegalOption[] matches = options
-            .Where(option => string.Equals(option.Label, requested, StringComparison.Ordinal))
+            .Where(option => string.Equals(option.Label, requested, StringComparison.Ordinal)
+                && CharacterCreationMetatypeSelectionRules.Matches(identity, option.MetatypeIdentity, option.OptionId))
             .Take(2)
             .ToArray();
         if (matches.Length == 0
@@ -1062,7 +1083,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 .Where(option => string.Equals(
                     option.OptionId,
                     canonicalId,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal)
+                    && CharacterCreationMetatypeSelectionRules.Matches(identity, option.MetatypeIdentity, option.OptionId))
                 .Take(2)
                 .ToArray();
         }
@@ -1118,7 +1140,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             || !NormalizeSources(sourceContext.EnabledSourcebooks)
                 .SequenceEqual(authoritativeSources, StringComparer.OrdinalIgnoreCase)
             || authority.Options is null
-            || authority.Options.Count == 0)
+            || authority.Options.Count == 0
+            || authority.Options.Any(option => option?.MetatypeIdentity is not null)
+            || authority.MetavariantOptions?.Any(option => option?.MetatypeIdentity?.MetavariantOptionId is null) == true)
         {
             return false;
         }
@@ -1126,7 +1150,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var labels = new HashSet<string>(StringComparer.Ordinal);
         var mapped = new List<CharacterCreationLegalOption>(authority.Options.Count);
-        foreach (CharacterCreationMetatypeOptionProjection? option in authority.Options)
+        foreach (CharacterCreationMetatypeOptionProjection? option in authority.Options.Concat(authority.MetavariantOptions ?? []))
         {
             if (option is null
                 || !Guid.TryParseExact(option.OptionId, "D", out Guid optionId)
@@ -1134,9 +1158,29 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 || !string.Equals(option.OptionId, optionId.ToString("D"), StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(option.Label)
                 || !string.Equals(option.Label, option.Label.Trim(), StringComparison.Ordinal)
-                || !option.IsEnabled
                 || option.Blockers is null
-                || option.Blockers.Count != 0
+                || option.SourceAnchorIds is null
+                || option.SourceAnchorIds.Count == 0
+                || option.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
+                || !ids.Add(option.OptionId)
+                || !labels.Add(option.Label))
+            {
+                return false;
+            }
+
+            // Current catalogs retain explicitly unavailable source rows. Validate
+            // every locator above, but expose only admitted choices to Foundation.
+            if (!option.IsEnabled)
+            {
+                if (option.Blockers.Count == 0 || option.Blockers.Any(string.IsNullOrWhiteSpace))
+                    return false;
+                continue;
+            }
+
+            if (option.MetatypeIdentity is not null
+                && CharacterCreationMetatypeSelectionRules.Resolve(authority, option.OptionId, option.MetatypeIdentity) is null)
+                return false;
+            if (option.Blockers.Count != 0
                 || option.KarmaCost < 0
                 || string.IsNullOrWhiteSpace(option.SourceBook)
                 || !string.Equals(option.SourceBook, option.SourceBook.Trim(), StringComparison.Ordinal)
@@ -1172,12 +1216,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                     || string.IsNullOrWhiteSpace(excluded.Label)
                     || excluded.SourceAnchorIds is null
                     || excluded.SourceAnchorIds.Count == 0
-                    || excluded.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
-                || option.SourceAnchorIds is null
-                || option.SourceAnchorIds.Count == 0
-                || option.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
-                || !ids.Add(option.OptionId)
-                || !labels.Add(option.Label))
+                    || excluded.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)))
             {
                 return false;
             }
@@ -1186,7 +1225,7 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         }
 
         options = mapped.ToArray();
-        return true;
+        return options.Length != 0;
     }
 
     internal static CharacterCreationLegalOption MapMetatypeOption(
@@ -1259,15 +1298,17 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
             Consequences: consequences,
             SourceAnchorIds: option.SourceAnchorIds,
             SourceId: option.SourceBook,
-            SourcePage: option.SourcePage);
+            SourcePage: option.SourcePage)
+        { MetatypeIdentity = option.MetatypeIdentity, ParentMetatypeLabel = option.ParentMetatypeLabel };
     }
 
     private static LifeModuleRequirementProjectionDto EvaluateRequirement(
         LifeModuleRequirementProjectionDto requirement,
-        string requestedMetatype)
+        string requestedMetatype, string? parentMetatype = null)
     {
         bool canEvaluate = requirement.Operator.Equals("oneof", StringComparison.OrdinalIgnoreCase)
-                           && requirement.SubjectKind.Equals("metatype", StringComparison.OrdinalIgnoreCase)
+                           && (requirement.SubjectKind.Equals("metatype", StringComparison.OrdinalIgnoreCase)
+                               || requirement.SubjectKind.Equals("metavariant", StringComparison.OrdinalIgnoreCase))
                            && !string.IsNullOrWhiteSpace(requestedMetatype);
         if (!canEvaluate)
         {
@@ -1280,7 +1321,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         }
 
         bool isMet = requirement.AcceptedValues.Contains(
-            requestedMetatype.Trim(),
+            requirement.SubjectKind.Equals("metavariant", StringComparison.OrdinalIgnoreCase)
+                ? parentMetatype is null ? string.Empty : requestedMetatype.Trim()
+                : (parentMetatype ?? requestedMetatype).Trim(),
             StringComparer.OrdinalIgnoreCase);
         return requirement with
         {
@@ -1426,8 +1469,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
     {
         cost = 0;
         costIsExact = false;
-        CharacterCreationLegalOption? metatype = metatypes.FirstOrDefault(option =>
-            string.Equals(option.Label, draft.RequestedMetatype, StringComparison.Ordinal));
+        CharacterCreationLegalOption? metatype = ResolveMetatypeOption(metatypes, draft.RequestedMetatype,
+            new List<string>(), draft.MetatypeIdentity);
+        if (metatype?.ParentMetatypeLabel != draft.ParentMetatypeLabel) return false;
         if (metatype is null || !TryResolveMetatypeCost(metatype, out decimal metatypeCost))
             return false;
 

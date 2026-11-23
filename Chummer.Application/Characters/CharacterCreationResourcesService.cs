@@ -39,16 +39,32 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
     }
 
     public CharacterCreationResourcesResult<CharacterCreationResourcesState> Load(
+        CharacterCreationResourcesLoadRequest request) => Load(request, false);
+
+    internal CharacterCreationResourcesResult<CharacterCreationResourcesState> LoadCurrentObservation3053(
         CharacterCreationResourcesLoadRequest request)
     {
+        if (_workspaceStore is not WorkspaceContinuationReadView)
+            return Blocked<CharacterCreationResourcesState>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.PersistenceAuthorityRequired);
+        return Load(request, true);
+    }
+
+    private CharacterCreationResourcesResult<CharacterCreationResourcesState> Load(
+        CharacterCreationResourcesLoadRequest request, bool currentObservation)
+    {
         ArgumentNullException.ThrowIfNull(request);
+        // The store read and composite projection validate the same saved history.
+        // Reuse only freshly hashed historical inputs within this synchronous load;
+        // current workspace, source and budget authority still run on every read.
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationResourcesState>(read);
 
         if (workspace.Document.AuxiliaryState.CharacterCreationCompletionDrafts is not null)
             return LoadComposite(workspace);
-        AuthorityContext context = BuildContext(workspace);
+        AuthorityContext context = BuildContext(workspace, currentObservation);
         string[] blockers = Normalize(context.Blockers.Concat(context.Budget.Blockers));
         var candidate = new CharacterCreationResourcesState(
             CharacterCreationResourcesSchemas.StateV1,
@@ -459,7 +475,7 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
             workspace);
     }
 
-    private AuthorityContext BuildContext(WorkspaceStoredDocument workspace)
+    private AuthorityContext BuildContext(WorkspaceStoredDocument workspace, bool currentObservation = false)
     {
         var blockers = new List<string>();
         XDocument document;
@@ -504,18 +520,25 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
             workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft;
         if (prerequisite is null)
             blockers.Add(CharacterCreationResourcesBlockers.PrerequisiteDraftRequired);
-        else if (!CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
-                     prerequisite,
-                     workspace.Id,
-                     workspace.ContentRevision,
-                     rawDigest,
-                     prerequisiteAuthority))
-            blockers.Add(CharacterCreationResourcesBlockers.PrerequisiteDraftStale);
-
-        CharacterCreationResourcePriorityOption? priorityOption = null;
+        CharacterCreationPrerequisiteDraft? selectedPrerequisite = prerequisite;
         if (prerequisite is not null)
         {
-            CharacterCreationPriorityAssignment? assignment = prerequisite.Assignments
+            if (currentObservation)
+            {
+                if (source is null || !CharacterCreationPrerequisiteDraftIntegrity.TryEvaluateCurrentPending3053(
+                        prerequisite, workspace.Id, workspace.ContentRevision, rawDigest,
+                        prerequisiteAuthority, source, out selectedPrerequisite))
+                    blockers.Add(CharacterCreationResourcesBlockers.PrerequisiteDraftStale);
+            }
+            else if (!CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                    prerequisite, workspace.Id, workspace.ContentRevision, rawDigest, prerequisiteAuthority))
+                blockers.Add(CharacterCreationResourcesBlockers.PrerequisiteDraftStale);
+        }
+
+        CharacterCreationResourcePriorityOption? priorityOption = null;
+        if (selectedPrerequisite is not null)
+        {
+            CharacterCreationPriorityAssignment? assignment = selectedPrerequisite.Assignments
                 .SingleOrDefault(item => string.Equals(
                     item.CategoryId,
                     CharacterCreationPriorityCategoryIds.Resources,
@@ -599,13 +622,13 @@ public sealed partial class CharacterCreationResourcesService : ICharacterCreati
             blockers.Add(CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
         int availableKarma = ResolveAvailableCreationKarma(
             workspace.Document.AuxiliaryState,
-            prerequisite,
+            selectedPrerequisite,
             blockers);
         CharacterCreationResourceAllocationOption[] options = BuildOptions(
             authority,
             priorityOption,
             availableKarma,
-            prerequisite?.CreationKarmaTotal);
+            selectedPrerequisite?.CreationKarmaTotal);
         CharacterCreationResourceAllocationOption? selected = FindAllocationOption(
             authority, priorityOption, availableKarma, pending?.SelectedOptionId ?? "karma:0");
         if (pending is not null && selected is null)

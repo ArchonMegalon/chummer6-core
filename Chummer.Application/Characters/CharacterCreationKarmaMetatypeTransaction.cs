@@ -40,6 +40,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
             && (request.QualityOptionIds is null || request.AttributeAllocations is not null
                 && Digest(binding.QualitiesPolicyDigest) && Digest(binding.QualitiesCatalogDigest)
                 && CharacterCreationKarmaQualitiesRules.TryFreeze(request.QualityOptionIds, out _))
+            && (request.QualityPromptValues is null || request.QualityOptionIds is not null
+                && CharacterCreationKarmaQualityPrompts.TryFreeze(request.QualityPromptValues, out _))
             && (binding.GearAuthorityDigest is null || Digest(binding.GearAuthorityDigest))
             && (request.GearSelections is null || request.ResourceKarmaInvestment is not null
                 && Digest(binding.GearAuthorityDigest)
@@ -119,7 +121,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || quote.Attributes is { } attributes && (attributes.Policy.AuthorityDigest != quote.Binding.AttributePolicyDigest
                         || attributes.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
                     || !CharacterCreationKarmaQualitiesRules.IsValid(quote.Qualities, metatype, quote.Talent,
-                        decision.Command.QualityOptionIds)
+                        decision.Command.QualityOptionIds, decision.Command.QualityPromptValues)
                     || quote.Qualities is { } qualities && (qualities.Policy.AuthorityDigest != quote.Binding.QualitiesPolicyDigest
                         || qualities.CatalogDigest != quote.Binding.QualitiesCatalogDigest
                         || qualities.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
@@ -210,9 +212,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
         // Isolated view prevents a nested store read/lease or caller-provided quote.
         var view = new WorkspaceContinuationReadView(owner, workspace);
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
-            .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
-                request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds, request.GearSelections,
-                request.ContactSelections, request.LifestyleSelections, request.StartingLifestyleId, request.MagicSelections);
+            .PreviewCommand(request);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -244,6 +244,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
             CharacterCreationKarmaSkillsSelection? skills = null;
             if (request.SkillsSelection is not null && !CharacterCreationKarmaSkillsRules.TryFreeze(request.SkillsSelection, out skills))
                 return false;
+            if (!CharacterCreationKarmaQualityPrompts.TryFreeze(request.QualityPromptValues, out var promptValues)) return false;
             string[]? qualities = null;
             if (request.QualityOptionIds is not null
                 && !CharacterCreationKarmaQualitiesRules.TryFreeze(request.QualityOptionIds, out qualities)) return false;
@@ -260,7 +261,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
             if (request.MagicSelections is not null
                 && !CharacterCreationKarmaMagicSelectionRules.TryFreeze(request.MagicSelections, out magic)) return false;
             frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(),
-                SkillsSelection = skills, QualityOptionIds = qualities, GearSelections = gear, ContactSelections = contacts,
+                SkillsSelection = skills, QualityOptionIds = qualities, QualityPromptValues = promptValues, GearSelections = gear, ContactSelections = contacts,
                 LifestyleSelections = lifestyles, MagicSelections = magic };
             return IsConfirmed(frozen);
         }

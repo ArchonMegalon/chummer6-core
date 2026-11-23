@@ -38,40 +38,9 @@ internal static class CharacterCreationPurchasedSkillsLegacyProjector
                     ? source.Specializations.Single(item => item.OptionId == specializationId) : null;
                 string identity = $"{identityPrefix}-skill:{source.Kind}:{source.SourceSkillId}"
                     + (source.IsExotic ? $":{allocation.SpecializationOptionId}" : string.Empty);
-                var node = new XElement("skill",
-                    new XElement("guid", StableId(identity)),
-                    new XElement("suid", sourceId),
-                    new XElement("isknowledge", Boolean(isKnowledge)),
-                    new XElement("skillcategory", source.Category),
-                    new XElement("requiresgroundmovement", Boolean(source.RequiresGroundMovement)),
-                    new XElement("requiresswimmovement", Boolean(source.RequiresSwimMovement)),
-                    new XElement("requiresflymovement", Boolean(source.RequiresFlyMovement)),
-                    // Only paid personal levels belong here. Group purchases live
-                    // in groups/group/karma; Life Module grants stay Improvements.
-                    new XElement("karma", allocation.KarmaLevels),
-                    new XElement("base", allocation.KnowledgePointLevels),
-                    new XElement("notes"),
-                    new XElement("name", source.Name),
-                    new XElement("buywithkarma", Boolean(
-                        allocation.SpecializationPayment == CharacterCreationKarmaSpecializationPayments.Karma)));
-                if (source.IsExotic)
-                {
-                    // A weapon identity is not a +2 specialization. Distinct
-                    // identities sharing a source skill require distinct GUIDs.
-                    if (specialization is null) return false;
-                    node.Add(new XElement("specific", specialization.Name));
-                }
-                else if (specialization is not null)
-                {
-                    node.Add(new XElement("specs", new XElement("spec",
-                        new XElement("guid", StableId($"{identity}:spec:{specialization.OptionId}")),
-                        new XElement("name", specialization.Name),
-                        new XElement("free", "False"),
-                        new XElement("expertise", "False"))));
-                }
-                if (isKnowledge)
-                    node.Add(new XElement("type", source.Category),
-                        new XElement("isnativelanguage", Boolean(allocation.IsNativeLanguage)));
+                if (source.IsExotic && specialization is null) return false;
+                var node = BuildSkill(source, allocation, StableId(identity),
+                    specialization is null ? Guid.Empty : StableId($"{identity}:spec:{specialization.OptionId}"));
                 (isKnowledge ? knowledge : active).Add(node);
                 var anchors = source.SourceAnchorIds.Concat(specialization is null
                     ? [] : new[] { specialization.SourceAnchorId });
@@ -116,6 +85,68 @@ internal static class CharacterCreationPurchasedSkillsLegacyProjector
             return false;
         }
     }
+
+    // Pure serialization only. Both callers establish their own purchase authority.
+    // Creation continues to pass the exact same IDs, allocation and source fields.
+    internal static XElement BuildSkill(CharacterCreationSkillCatalogEntry source,
+        CharacterCreationKarmaSkillAllocation allocation, Guid instanceId, Guid specializationInstanceId)
+    {
+        if (!Guid.TryParseExact(source.SourceSkillId, "D", out Guid sourceId) || sourceId == Guid.Empty)
+            throw new ArgumentException("A canonical skill source ID is required.");
+        var specialization = allocation.SpecializationOptionId is { } specializationId
+            ? source.Specializations.Single(item => item.OptionId == specializationId) : null;
+        var node = BuildSkillScalars(instanceId, sourceId, source.Kind == CharacterCreationSkillKinds.Knowledge,
+            source.Name, source.Category, source.RequiresGroundMovement, source.RequiresSwimMovement,
+            source.RequiresFlyMovement, allocation.KarmaLevels, allocation.KnowledgePointLevels,
+            allocation.SpecializationPayment == CharacterCreationKarmaSpecializationPayments.Karma);
+        if (source.IsExotic)
+        {
+            // A weapon identity is not a +2 specialization. Distinct
+            // identities sharing a source skill require distinct GUIDs.
+            if (specialization is null) throw new ArgumentException("An exotic skill requires its specific identity.");
+            node.Add(new XElement("specific", specialization.Name));
+        }
+        else if (specialization is not null)
+        {
+            node.Add(new XElement("specs", new XElement("spec",
+                new XElement("guid", specializationInstanceId),
+                new XElement("name", specialization.Name),
+                new XElement("free", "False"),
+                new XElement("expertise", "False"))));
+        }
+        if (source.Kind == CharacterCreationSkillKinds.Knowledge)
+            node.Add(new XElement("type", source.Category),
+                new XElement("isnativelanguage", Boolean(allocation.IsNativeLanguage)));
+        return node;
+    }
+
+    // The caller has already resolved the category and admitted the canonical plan.
+    // Custom Knowledge has no source catalog row; do not manufacture one.
+    internal static XElement BuildCustomKnowledgeSkill(Guid instanceId, string name, string category, int karmaLevels)
+    {
+        var node = BuildSkillScalars(instanceId, Guid.Empty, true, name, category,
+            false, false, false, karmaLevels, 0, false);
+        node.Add(new XElement("type", category), new XElement("isnativelanguage", "False"));
+        return node;
+    }
+
+    private static XElement BuildSkillScalars(Guid instanceId, Guid sourceId, bool knowledge,
+        string name, string category, bool ground, bool swim, bool fly, int karma, int points, bool buyWithKarma)
+        => new("skill",
+            new XElement("guid", instanceId),
+            new XElement("suid", sourceId),
+            new XElement("isknowledge", Boolean(knowledge)),
+            new XElement("skillcategory", category),
+            new XElement("requiresgroundmovement", Boolean(ground)),
+            new XElement("requiresswimmovement", Boolean(swim)),
+            new XElement("requiresflymovement", Boolean(fly)),
+            // Only paid personal levels belong here. Group purchases live
+            // in groups/group/karma; Life Module grants stay Improvements.
+            new XElement("karma", karma),
+            new XElement("base", points),
+            new XElement("notes"),
+            new XElement("name", name),
+            new XElement("buywithkarma", Boolean(buyWithKarma)));
 
     private static string Boolean(bool value) => value ? "True" : "False";
     private static string[] Anchors(IEnumerable<string> anchors) => anchors

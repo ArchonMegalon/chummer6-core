@@ -40,6 +40,11 @@ public sealed record CharacterCreationCompletionPlanRequest(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationCampaignBinding? CampaignAuthority { get; init; }
 
+    /// <summary>Explicit finalization-only round allocation. Null preserves historical
+    /// bytes. This neither purchases rounds nor relaxes original equipment locks.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationInitialAmmunitionLoad3847>? InitialAmmunitionLoads3847 { get; init; }
+
     /// <summary>The caller's coverage requirement, retained by every candidate
     /// and review. None preserves legacy behavior; it does not imply coverage.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
@@ -99,6 +104,13 @@ public sealed record CharacterCreationCompletionPlanRequest(
     // Explicit profile execution selection, never a private capability.
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? ProfileSettingsExecutionSchema { get; init; }
+
+    // Explicit result selections; null retains historical plan bytes.
+    // Neither Complete nor a different result selection implies these versions.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? EssenceResultSchema { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? LifecycleResultSchema { get; init; }
 }
 
 /// <summary>

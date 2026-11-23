@@ -23,11 +23,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     || text.GetType() != typeof(XText) || !TryReadKarmaCost(profile, field, out int sourceValue)
                     || !invocation.TryGetExecutedProfileSkillCost972(_settingsProfileId, authority.RawProfileInputsDigest,
                         profileDigest, field, CharacterCreationFinalizationDigest.Compute(leaf.ToString(SaveOptions.DisableFormatting)),
-                        out int value, out var execution) || sourceValue != value || _sourceInputs.HasSourceDrift) continue;
+                        out int value, out var execution, out bool inactive)
+                    || sourceValue != value || _sourceInputs.HasSourceDrift) continue;
                 // Account only this scalar's element/text, never its container or siblings.
-                ledger.Tree(leaf, D.Compiled, new
+                ledger.Tree(leaf, inactive ? D.NotSelected : D.Compiled, new
                 {
-                    Operation = "canonical-skill-Karma-price", Field = field, Input = leaf.Value,
+                    Operation = inactive ? "canonical-empty-skill-purchase-scope" : "canonical-skill-Karma-price", Field = field, Input = leaf.Value,
                     Result = value, CanonicalExecution = execution
                 });
             }

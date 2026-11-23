@@ -202,6 +202,8 @@ public sealed record CharacterCreationLifestyleQualityCatalogOption(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifestyleQualitySelectionSemantics? SelectionSemantics { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleQualityMechanics? Mechanics { get; init; }
 }
 
 // The native effect type fixes its scope: ordinary costs cover every supported
@@ -230,7 +232,14 @@ public sealed record CharacterCreationLifestyleQualityCostOccurrence(
 
 public sealed record CharacterCreationLifestylePurchasedQualityCosts(
     IReadOnlyList<CharacterCreationQualitySelection> Sources,
-    IReadOnlyList<CharacterCreationLifestyleQualityCostOccurrence> Occurrences);
+    IReadOnlyList<CharacterCreationLifestyleQualityCostOccurrence> Occurrences)
+{
+    // Null retains historical JSON and digests. Only explicit V7 source authority sets a mode.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterLifestyleSourceMode? SourceMode { get; init; }
+}
+
+public enum CharacterLifestyleSourceMode { Creation, Career }
 
 public enum CharacterCreationFreeGridsActivationReason
 {
@@ -281,6 +290,8 @@ public sealed record CharacterCreationLifestylesAuthority(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationLifestyleCategory>? Categories { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleMechanicsContext? Mechanics { get; init; }
 
     public static CharacterCreationLifestylesAuthority Unavailable { get; } = new(
         CharacterCreationLifestylesSchemas.AuthorityV1,
@@ -306,7 +317,11 @@ public sealed record CharacterCreationLifestyleQualitySelection(
     string Extra,
     bool UseLifestylePoints,
     bool IsFree,
-    bool IsBuiltIn);
+    bool IsBuiltIn)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleTextSelection? TextSelection { get; init; }
+}
 
 public sealed record CharacterCreationLifestyleConfiguration(
     Guid LifestyleId,
@@ -373,6 +388,8 @@ public sealed record CharacterCreationLifestyleProjection(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationLifestyleLocationSelection? Location { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationLifestyleAspectProjection? Aspects { get; init; }
 }
 
 public sealed record CharacterCreationLifestyleBudget(

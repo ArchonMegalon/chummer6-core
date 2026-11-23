@@ -39,6 +39,17 @@ public static partial class CharacterCreationLegacySourceProjector
         if (selections is not { Count: <= 256 } || selections.Any(s => s is null || s.Rating is < 1 or > 256)
             || selections.Sum(s => (long)s.Rating) > 256
             || !TryProjectCompletionQualityEffects(selections, out var compiled)) return false;
+        return TryBindSkillKarmaModifiers(compiled, active, knowledge, groups, out effects);
+    }
+
+    // Both paid quality occurrences and source-compiled native grants use the same
+    // catalog target binding. This does not admit grants as purchased qualities.
+    internal static bool TryBindSkillKarmaModifiers(IReadOnlyList<SourceQualityEffect> compiled,
+        IReadOnlyList<CharacterCreationSkillCatalogEntry> active, IReadOnlyList<CharacterCreationSkillCatalogEntry> knowledge,
+        IReadOnlyList<CharacterCreationSkillGroupCatalogEntry> groups, out IReadOnlyList<CharacterCreationSkillKarmaEffect> effects,
+        bool allowActiveCategoryPointCosts = false)
+    {
+        effects = [];
         var result = new List<CharacterCreationSkillKarmaEffect>();
         foreach (var effect in compiled.Where(e => CharacterCreationSkillKarmaModifierRules.IsSupportedType(e.ImprovementType)))
         {
@@ -62,8 +73,11 @@ public static partial class CharacterCreationLegacySourceProjector
             {
                 var a = active.Where(s => s.Category == effect.ImprovedName).ToArray();
                 var k = knowledge.Where(s => s.Category == effect.ImprovedName).ToArray();
+                // A native LifeModule quote has no active skill point allocation.
+                // Retain its bound point-cost effects; the Karma kernel does not apply
+                // them. Other callers still require an active point-cost consumer.
                 if (a.Length + k.Length == 0 || a.Length != 0 && k.Length != 0
-                    || type == "SkillCategoryPointCostMultiplier" && a.Length != 0) return false;
+                    || !allowActiveCategoryPointCosts && type == "SkillCategoryPointCostMultiplier" && a.Length != 0) return false;
                 targets = a.Concat(k).Select(Target).ToArray();
             }
             else

@@ -8,7 +8,8 @@ namespace Chummer.Application.Characters;
 /// instantiate completed coverage. The graph still comes from the original compiler.</summary>
 internal sealed partial class CharacterCreationCompleteRuleSourceExecution(
     CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
-    CharacterCreationRuleSourceResolution resolution, CharacterCreationOriginalCharacterSource original)
+    CharacterCreationRuleSourceResolution resolution, CharacterCreationOriginalCharacterSource original,
+    string capturePolicyDigest1222)
 {
     internal CharacterCreationCompletionReviewInputs Inputs { get; } = inputs;
     private readonly string requestDigest = CharacterCreationFinalizationDigest.Compute(request);
@@ -24,23 +25,36 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution(
         CharacterCreationCompleteConsumerExecution? consumers955 = null,
         CharacterCreationCompleteContactsExecution? contacts = null)
     {
+        ammunitionEvaluation = null;
+        ammunitionAuthorityDigest = null;
+        ResetProfileInvocation3212();
+        karmaInvocation1208 = null;
+        karmaSourceReturned1208 = false;
+        karmaReports1208 = [];
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         if (skills is not { Completed: true } || effects is null
             || !original.MatchesInputs(Inputs.SnapshotDigest)
             || authority.InputsSnapshotDigest != Inputs.SnapshotDigest || authority.RequestDigest != requestDigest
             || authority.PolicyDigest != Inputs.EffectivePolicy?.PolicyDigest
             || effects.DigestFor(authority) is not { } effectsDigest) return result;
+        CharacterCreationCompletionCost3340.Log.Checkpoint(53);
         IReadOnlyDictionary<string, string> consumed;
         try { consumed = resolution.ConsumeSkillLimits(skills.Scopes.ToDictionary(row => row.SettingId, row => row.Limit)); }
         catch (Exception error) when (error is IOException or InvalidOperationException or ArgumentException or OverflowException)
         { return result; }
+        CharacterCreationCompletionCost3340.Log.Checkpoint(54);
         var graph = effects.CopyCompiledGraph();
         var deltas = effects.CopyDeltas();
         var purchases = ExecutePurchases(authority, gear, qualities, graph, deltas);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(55);
         var skillSources = ExecuteSkillsSource(actualSkills, qualities);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(56);
         // Execute once before profile accounting; retain the private typed result.
         var sourcebooks = ExecuteSourcebooks800(authority);
-        var sourceScopes = ExecuteRemainingSourceScopes(authority, effects, magic, funding, actualSkills, lifestyles, sourcebooks, profileSettings, qualityLimit947, qualities, contacts);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(57);
+        var sourceScopes = ExecuteRemainingSourceScopes(authority, effects, magic, funding, actualSkills, lifestyles, sourcebooks, profileSettings, qualityLimit947, qualities, contacts, gear,
+            out var profileSettingExecutions1203);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(58);
         consumed = consumed.Concat(purchases).Concat(skillSources).Concat(sourceScopes)
             .ToDictionary(row => row.Key, row => row.Value, StringComparer.Ordinal);
         string Bind(object execution) => CharacterCreationFinalizationDigest.Compute(new
@@ -54,6 +68,7 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution(
             if (row.Evaluability == CharacterCreationCompleteEvaluability.CandidateDependent
                 && consumed.TryGetValue(row.Id, out string? trace))
                 result.Add(row.Id, Bind(new { row.AuthorityDigest, Trace = trace }));
+        CharacterCreationCompletionCost3340.Log.Checkpoint(59);
         var amendments = authority.Obligations.Where(row => row.Kind == CharacterCreationCompleteObligationKind.Source
             && row.SourceKind is CharacterCreationPolicySourceKind.GlobalAmend or CharacterCreationPolicySourceKind.SelectedAmend).ToArray();
         // A nonempty, exhaustively executed inventory is required. Never infer inactivity.
@@ -71,7 +86,16 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution(
         CompleteAmendmentAbsence954(authority, result);
         CompleteErrata(authority, effects, result);
         CompleteSourcebooks800(authority, result, sourcebooks);
+        foreach (var setting in profileSettingExecutions1203) result.Add(setting.Key, setting.Value);
+        CompleteKarmaSettings1208(authority, result);
+        CompleteProfileMetadata1209(authority, result);
+        CompleteEssence1222(authority, result);
+        CompleteRetainedMagicSettings1221(authority, result);
+        CompleteFocusSettings1220(authority, result);
         CompleteOtherSettings955(authority, consumers955, sourceScopes, result);
+        ammunitionEvaluation = EvaluateAmmunition(authority, effects);
+        ammunitionAuthorityDigest = CharacterCreationFinalizationDigest.Compute(authority);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(60);
         return result;
     }
 }

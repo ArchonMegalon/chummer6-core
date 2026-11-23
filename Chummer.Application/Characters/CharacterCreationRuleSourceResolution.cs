@@ -8,18 +8,55 @@ namespace Chummer.Application.Characters;
 
 /// <summary>One fresh, retained-only resolution. Implemented by the source engine,
 /// never deserialized from an assessment. Its accounting observes the existing merger.</summary>
-public abstract class CharacterCreationRuleSourceResolution
+public abstract partial class CharacterCreationRuleSourceResolution
 {
+    // Independent current-state catalog and canonical consumption; old adapters fail closed.
+    public virtual CharacterCurrentRuleCatalogValidation? ValidateCurrentRuleCatalog(
+        CharacterCurrentRuleEnvironmentContext current, CharacterCurrentRuleDomain domain,
+        CancellationToken cancellationToken = default) => null;
+
+    public virtual bool HasValidatedCurrentRuleCatalog(CharacterCurrentRuleEnvironmentContext current,
+        CharacterCurrentRuleCatalogValidation validation) => false;
+
+    public virtual CharacterCurrentRuleDomainExecution? ExecuteCurrentRuleDomain(
+        CharacterCurrentRuleEnvironmentContext current, CharacterCurrentRuleCatalogValidation validation,
+        CancellationToken cancellationToken = default) => null;
+
+    public virtual bool HasExecutedCurrentRuleDomain(CharacterCurrentRuleEnvironmentContext current,
+        CharacterCurrentRuleCatalogValidation validation, CharacterCurrentRuleDomainExecution execution) => false;
+
     [JsonIgnore]
     public abstract ICharacterSourceDataResolver Resolver { get; }
+
+    // Separate exact-candidate read capability. Older adapters keep refusing;
+    // the original resolver's captured-character admission remains unchanged.
+    public virtual ICharacterSourceDataResolver? CreateCompiledGraphRead(CharacterCreationCompiledGraphRead invocation)
+        => null;
 
     // In-process output checks only. Complete invokes this after canonical
     // pricing/effects execution against this resolution's retained full inputs.
     // No public observation or digest is accepted as a replacement for that call.
     public virtual bool EnablePurchaseSourceExecution() => false;
 
-    // Fresh in-process Complete/V2 opt-in, before retained source observation.
-    // Historical V2 purchase capture alone must retain its original accounting.
+    // Opt-in observation for the current fixed-gear amendment consumer. This
+    // grants no current-environment activation or whole-profile authority.
+    public virtual bool EnableCurrentGearSourceExecution() => false;
+
+    // Must precede first resolver access. Selects interpretation only, never
+    // retroactively upgrades a capture, consumer report or activation permission.
+    public virtual bool EnableCurrentEnvironmentSourceSemantics(string profile, string fingerprint) => false;
+
+    // Implementations must repeat canonical pricing and bind its actual result
+    // to their private merger observations. A caller-supplied budget is not proof.
+    public virtual IReadOnlyDictionary<string, string> ConsumeCurrentGearSource(
+        CharacterCreationGearAuthority authority,
+        IReadOnlyList<CharacterCreationGearLine> lines,
+        CharacterCreationGearBudget budget)
+        => new Dictionary<string, string>(StringComparer.Ordinal);
+
+    // Fresh in-process opt-in, before retained source observation, for Complete
+    // source scopes or explicit Essence. Historical purchase capture alone must
+    // retain its original accounting.
     public virtual bool EnableCompleteSkillCapSourceExecution() => false;
 
     // Activate only after the original persisted inputs have been admitted.
@@ -36,6 +73,11 @@ public abstract class CharacterCreationRuleSourceResolution
     // Default-deny keeps existing adapters from acquiring new aggregate authority.
     public virtual bool HasExecutedSourceScope955(CharacterCreationRuleSourceScopeInvocation invocation,
         CharacterCreationRuleSourceScopeResult report) => false;
+
+    // Original private invocation/result only; a partial profile report never
+    // proves the whole source. Application still selects its exact typed leaf.
+    public virtual bool HasExecutedProfileSetting1203(CharacterCreationRuleSourceScopeInvocation invocation,
+        CharacterCreationRuleSourceScopeResult report, int operationOrder) => false;
 
     public virtual IReadOnlyDictionary<string, string> ConsumeGearAndQualitySources(
         CharacterCreationGearAuthority gear, CharacterCreationQualitiesAuthority qualities,
@@ -78,20 +120,25 @@ public sealed class CharacterCreationRuleSourceExecutionContext(
 {
     public byte[] ExportPrivateInputs() => capture.ExportPrivateInputs();
 
+    internal bool UsesReputationCapture8562(CharacterCreationRuleSourceCapture expected, ICharacterFileQueries expectedQueries)
+        => ReferenceEquals(capture, expected) && ReferenceEquals(queries, expectedQueries);
+
     internal bool TryEvaluateReputation(WorkspaceStoredDocument original,
         CharacterCreationCompletionBootstrapSnapshot bootstrap,
         CharacterCreationCompletionReviewRequest request,
         CharacterCreationOriginalCharacterSource originalSource,
         CharacterCreationCompleteAssessment authority, CharacterCreationSelectedEffectsConsumer effects,
         out CharacterCreationReputationEffectsExecution? execution, out string error,
-        CancellationToken cancellationToken, CharacterCreationCampaignExecutionContext? campaign = null)
+        CancellationToken cancellationToken, CharacterCreationCampaignExecutionContext? campaign = null,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8562 = null)
         => CharacterCreationReputationEffectsExecution.TryEvaluate(original, bootstrap, request,
-            capture, queries, originalSource, authority, effects, out execution, out error, cancellationToken, campaign);
+            capture, queries, originalSource, authority, effects, out execution, out error, cancellationToken, campaign, currentReview8562);
 
     internal CharacterCreationCompleteRuleSourceExecution? Resolve(
         WorkspaceStoredDocument original, CharacterCreationCompletionReviewRequest request,
         CancellationToken cancellationToken)
     {
+        CharacterCreationCompletionCost3340.Log.Checkpoint(20); // cost3340 resolve.begin
         cancellationToken.ThrowIfCancellationRequested();
         if (!CharacterCreationCompletionReviewRules.HasValidRuleSourceExecution(request)
             || request.RuleSourceExecutionSchema is null
@@ -104,16 +151,22 @@ public sealed class CharacterCreationRuleSourceExecutionContext(
             if (resolution is null) return null;
             if (request.RuleSourceExecutionSchema is (CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV2 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV3 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
                 && !resolution.EnablePurchaseSourceExecution()) return null;
-            if (CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+            // Schema admission above validates explicit Essence independently of
+            // policy coverage. Its retained executor needs this capability too.
+            if ((CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+                    || request.EssenceResultSchema == CharacterCreationCompletionReviewSchemas.EssenceResultV1)
                 && !resolution.EnableCompleteSkillCapSourceExecution()) return null;
             using var scope = (resolution.Resolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            CharacterCreationCompletionCost3340.Log.Checkpoint(21); // cost3340 resolve.load.begin
             var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForProposal(
                 new WorkspaceContinuationReadView(original), scope ?? resolution.Resolver, queries,
                 new(original.Id) { IncludeKarmaPurchasePolicy = true }, request, cancellationToken, capture);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(22); // cost3340 resolve.load.returned
             if (loaded.Outcome != CharacterCreationFoundationOutcomes.Success || loaded.Value is not { } inputs
                 || !CharacterCreationOriginalCharacterSource.TryFromFull(inputs, out var source, cancellationToken)) return null;
+            CharacterCreationCompletionCost3340.Log.Checkpoint(23); // cost3340 resolve.original.returned
             if (request.SourcebookSelection is not null && !resolution.EnableCandidateSourcebookSelection()) return null;
-            return new(inputs, request, resolution, source!);
+            return new(inputs, request, resolution, source!, capture.EffectivePolicyDigest);
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or ArgumentException or OverflowException)
         { return null; }
@@ -123,6 +176,7 @@ public sealed class CharacterCreationRuleSourceExecutionContext(
         CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
         CancellationToken cancellationToken)
     {
+        CharacterCreationCompletionCost3340.Log.Checkpoint(19); // cost3340 resolve.inputs.begin
         if (inputs.OriginalCharacter is not { } captured
             || !CharacterCreationOriginalCharacterSource.TryFromFull(inputs, out _, cancellationToken)) return null;
         var document = new WorkspaceDocument(captured.RawCharacterXml, RulesetDefaults.Sr5);
@@ -131,8 +185,11 @@ public sealed class CharacterCreationRuleSourceExecutionContext(
         var original = new WorkspaceStoredDocument(captured.WorkspaceId, document,
             captured.ContentRevision, captured.SavedRevision, DateTimeOffset.UnixEpoch);
         var result = Resolve(original, request, cancellationToken);
-        return result is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(inputs, result.Inputs)
+        CharacterCreationCompletionCost3340.Log.Checkpoint(24); // cost3340 resolve.comparison.begin
+        var matched = result is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(inputs, result.Inputs)
             ? result : null;
+        CharacterCreationCompletionCost3340.Log.Checkpoint(25); // cost3340 resolve.comparison.returned
+        return matched;
     }
 
     public override string ToString() => nameof(CharacterCreationRuleSourceExecutionContext);

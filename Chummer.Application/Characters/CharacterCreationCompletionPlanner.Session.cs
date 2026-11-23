@@ -104,6 +104,8 @@ public static partial class CharacterCreationCompletionPlanner
                 MaximumAttributesDefaultExecutionSchema = execution?.MaximumAttributesDefaultExecutionSchema,
                 AdditionalConsumerExecutionSchema = execution?.AdditionalConsumerExecutionSchema,
                 ProfileSettingsExecutionSchema = execution?.ProfileSettingsExecutionSchema,
+                EssenceResultSchema = execution?.EssenceResultSchema,
+                LifecycleResultSchema = execution?.LifecycleResultSchema,
                 OriginalCharacterExecutionSchema = execution?.OriginalCharacterExecutionSchema,
                 RuleSourceExecutionSchema = execution?.RuleSourceExecutionSchema,
                 RuleSourceCaptureDigest = execution?.RuleSourceCaptureDigest,
@@ -133,6 +135,8 @@ public static partial class CharacterCreationCompletionPlanner
         private readonly string? _maximumAttributesDefaultExecutionSchema;
         private readonly string? _additionalConsumerExecutionSchema;
         private readonly string? _profileSettingsExecutionSchema;
+        private readonly string? _essenceResultSchema;
+        private readonly string? _lifecycleResultSchema;
         private readonly string? _originalCharacterExecutionSchema;
         private readonly string? _ruleSourceExecutionSchema;
         private readonly string? _ruleSourceCaptureDigest;
@@ -156,6 +160,8 @@ public static partial class CharacterCreationCompletionPlanner
             _maximumAttributesDefaultExecutionSchema = execution.MaximumAttributesDefaultExecutionSchema;
             _additionalConsumerExecutionSchema = execution.AdditionalConsumerExecutionSchema;
             _profileSettingsExecutionSchema = execution.ProfileSettingsExecutionSchema;
+            _essenceResultSchema = execution.EssenceResultSchema;
+            _lifecycleResultSchema = execution.LifecycleResultSchema;
             _originalCharacterExecutionSchema = execution.OriginalCharacterExecutionSchema;
             _ruleSourceExecutionSchema = execution.RuleSourceExecutionSchema;
             _ruleSourceCaptureDigest = execution.RuleSourceCaptureDigest;
@@ -167,6 +173,14 @@ public static partial class CharacterCreationCompletionPlanner
 
         public CharacterCreationFoundationResult<CharacterCreationCompletionPlan> Plan(
             CharacterCreationCompletionPlanRequest request, CancellationToken cancellationToken = default)
+            => PlanRequest(request, false, cancellationToken);
+
+        internal CharacterCreationFoundationResult<CharacterCreationCompletionPlan> PlanBaseline(
+            CharacterCreationCompletionPlanRequest request, CancellationToken cancellationToken)
+            => PlanRequest(request, true, cancellationToken);
+
+        private CharacterCreationFoundationResult<CharacterCreationCompletionPlan> PlanRequest(
+            CharacterCreationCompletionPlanRequest request, bool completeBaseline, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
@@ -178,6 +192,8 @@ public static partial class CharacterCreationCompletionPlanner
                 || request.MaximumAttributesDefaultExecutionSchema != _maximumAttributesDefaultExecutionSchema
                 || request.AdditionalConsumerExecutionSchema != _additionalConsumerExecutionSchema
                 || request.ProfileSettingsExecutionSchema != _profileSettingsExecutionSchema
+                || request.EssenceResultSchema != _essenceResultSchema
+                || request.LifecycleResultSchema != _lifecycleResultSchema
                 || request.OriginalCharacterExecutionSchema != _originalCharacterExecutionSchema
                 || request.RuleSourceExecutionSchema != _ruleSourceExecutionSchema
                 || request.RuleSourceCaptureDigest != _ruleSourceCaptureDigest
@@ -192,7 +208,7 @@ public static partial class CharacterCreationCompletionPlanner
             if (!Digest(_inputs.SnapshotDigest, request.InputsSnapshotDigest))
                 return Reject(CharacterCreationFoundationOutcomes.Conflict,
                     CharacterCreationCompletionReviewSchemas.SnapshotConflict);
-            return PlanAdmitted(_inputs, request, _original, cancellationToken, _ruleSources, _campaign);
+            return PlanAdmitted(_inputs, request, _original, cancellationToken, _ruleSources, _campaign, completeBaseline);
         }
     }
 }

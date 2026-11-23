@@ -1,4 +1,4 @@
-﻿using System.Xml.Linq;
+using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Application.Characters;
@@ -138,7 +138,7 @@ public static partial class CharacterCreationLegacySourceProjector
     /// </summary>
     internal static bool TryProjectCompletionQualityEffects(
         IReadOnlyList<CharacterCreationQualitySelection> sourceAdmittedSelections,
-        out IReadOnlyList<SourceQualityEffect> effects)
+        out IReadOnlyList<SourceQualityEffect> effects, bool lifestyleSourceMode = false)
     {
         effects = [];
         if (sourceAdmittedSelections is null)
@@ -148,9 +148,9 @@ public static partial class CharacterCreationLegacySourceProjector
         foreach (CharacterCreationQualitySelection selection in sourceAdmittedSelections)
         {
             if (selection is null
-                || selection.SourceExecutionSchema is not (null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
+                || selection.SourceExecutionSchema is not (null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 or CharacterCreationKarmaQualityPrompts.SourceSchema)
                 || !TryReadSelectedQualityDefinition(selection, selection.ResolvedArmCount,
-                    out _, out QualityDefinition definition))
+                    out _, out QualityDefinition definition, lifestyleSourceMode))
                 return false;
 
             // Match ordinary graph order and multiplicity, including first-level
@@ -187,10 +187,13 @@ public static partial class CharacterCreationLegacySourceProjector
         CharacterCreationQualitySelection selection,
         int? armCount,
         out XElement source,
-        out QualityDefinition definition)
+        out QualityDefinition definition, bool lifestyleSourceMode = false)
     {
         source = null!;
         definition = null!;
+        if (selection?.SourceExecutionSchema == CharacterCreationKarmaQualityPrompts.SourceSchema)
+            return CharacterCreationKarmaQualityPrompts.TryPrepare(selection, out var plain, out _, requireAnswer: false)
+                && TryReadSelectedQualityDefinition(plain, armCount, out source, out definition, lifestyleSourceMode);
         if (selection is null
             || selection.SourceExecutionSchema is not (null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
             || selection.SourceNodeXml is not
@@ -205,7 +208,7 @@ public static partial class CharacterCreationLegacySourceProjector
             "quality",
             s_QualitySourceChildren);
         if (parsedSource is null
-            || !TryReadQualityDefinition(parsedSource, out QualityDefinition parsedDefinition, armCount, selection.SourceExecutionSchema)
+            || !TryReadQualityDefinition(parsedSource, out QualityDefinition parsedDefinition, armCount, selection.SourceExecutionSchema, lifestyleSourceMode)
             || parsedDefinition.SourceId != selection.SourceId
             || !string.Equals(parsedDefinition.Name, selection.Name, StringComparison.Ordinal)
             || parsedDefinition.Type != selection.Type

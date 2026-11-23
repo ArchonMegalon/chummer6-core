@@ -1,4 +1,5 @@
 using Chummer.Application.Characters;
+using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -6,13 +7,20 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Infrastructure.Workspaces;
 
 public sealed class WorkspaceCharacterCareerReputationService(
-    IWorkspaceStore store, ICharacterSourceDataResolver sourceResolver) : ICharacterCareerReputationService
+    IWorkspaceStore store, ICharacterSourceDataResolver sourceResolver, IOwnerContextLeaseAccessor? owners = null) : ICharacterCareerReputationService
 {
+    // Preserve the existing two-argument ABI for independently compiled clients.
+    public WorkspaceCharacterCareerReputationService(IWorkspaceStore store, ICharacterSourceDataResolver sourceResolver)
+        : this(store, sourceResolver, null) { }
+
     private readonly IWorkspaceStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly ICharacterSourceDataResolver _sources = sourceResolver ?? throw new ArgumentNullException(nameof(sourceResolver));
 
     public CharacterCareerReputationReadResult Read(CharacterWorkspaceId workspaceId)
     {
+        if (owners is not null)
+            return Current((capability, lease) => capability.ReadCareerReputation(owners, lease, workspaceId, _sources),
+                error => new CharacterCareerReputationReadResult(CharacterCareerReputationOutcome.Unavailable, Error: error));
         var read = ReadStore(workspaceId);
         if (!read.Success || read.Value is not { } saved)
         {
@@ -28,6 +36,9 @@ public sealed class WorkspaceCharacterCareerReputationService(
 
     public CharacterCareerReputationPreviewResult Preview(CharacterCareerReputationRequest request)
     {
+        if (owners is not null)
+            return Current((capability, lease) => capability.PreviewCareerReputation(owners, lease, request, _sources),
+                error => new CharacterCareerReputationPreviewResult(CharacterCareerReputationOutcome.Unavailable, Error: error));
         if (!CharacterCareerReputationTransaction.IsValidRequest(request))
             return new(CharacterCareerReputationOutcome.Conflict, Error: "reputation_request_invalid");
         if (_store is not ICharacterCareerReputationAtomicCommitCapability atomic)
@@ -65,7 +76,10 @@ public sealed class WorkspaceCharacterCareerReputationService(
             return new(CharacterCareerReputationOutcome.Unavailable, Error: "reputation_atomic_commit_unavailable");
         try
         {
-            var reported = atomic.CommitCareerReputation(command, _sources, cancellationToken);
+            var reported = owners is null
+                ? atomic.CommitCareerReputation(command, _sources, cancellationToken)
+                : Current((capability, lease) => capability.CommitCareerReputation(owners, lease, command, _sources, cancellationToken),
+                    error => new CharacterCareerReputationResult(CharacterCareerReputationOutcome.Unavailable, Error: error));
             // An alternative host adapter must not manufacture a saved outcome.
             // Read the durable ledger independently, without the canceled token.
             var recovered = Lookup(command.Request.WorkspaceId, command.Request.OperationId, digest);
@@ -92,12 +106,36 @@ public sealed class WorkspaceCharacterCareerReputationService(
 
     public CharacterCareerReputationResult Lookup(CharacterWorkspaceId workspaceId, Guid operationId, string commandDigest)
     {
+        if (owners is not null)
+            return Current((capability, lease) => capability.LookupCareerReputation(owners, lease, workspaceId, operationId, commandDigest),
+                error => new CharacterCareerReputationResult(CharacterCareerReputationOutcome.Unavailable, Error: error));
         if (operationId == Guid.Empty || !CharacterCareerReputationTransaction.IsDigest(commandDigest))
             return new(CharacterCareerReputationOutcome.Corrupt, Error: "reputation_lookup_invalid");
         var read = ReadStore(workspaceId);
         return read.Success && read.Value is { } saved
             ? CharacterCareerReputationTransaction.Lookup(saved, operationId, commandDigest)
             : MapReadFailure(read);
+    }
+
+    private T Current<T>(Func<ICharacterCareerReputationCurrentCapability, IOwnerContextLease, T> action,
+        Func<string, T> unavailable)
+    {
+        if (_store is not ICharacterCareerReputationCurrentCapability capability)
+            return unavailable("reputation_current_capability_unavailable");
+        try
+        {
+            var stamp = owners!.Capture();
+            if (!stamp.IsValid || !owners.TryAcquire(stamp, out var lease) || lease is null)
+                return unavailable("reputation_owner_lease_unavailable");
+            using (lease)
+            {
+                if (lease.Stamp != stamp || owners.Capture() != stamp)
+                    return unavailable("reputation_owner_changed");
+                return action(capability, lease);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        { return unavailable("reputation_current_unavailable"); }
     }
 
     private WorkspaceStoreReadResult ReadStore(CharacterWorkspaceId id)

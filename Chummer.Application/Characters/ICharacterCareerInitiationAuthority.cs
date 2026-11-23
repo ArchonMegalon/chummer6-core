@@ -7,7 +7,11 @@ namespace Chummer.Application.Characters;
 
 public sealed record CharacterCareerInitiationSourceRow(string Xml, bool Enabled);
 public sealed record CharacterCareerInitiationSources(
-    string SettingsXml, string AuthorityState, IReadOnlyList<CharacterCareerInitiationSourceRow> Metamagics);
+    string SettingsXml, string AuthorityState, IReadOnlyList<CharacterCareerInitiationSourceRow> Metamagics)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerInitiationSourceRow>? Echoes { get; init; }
+}
 
 /// <summary>Implemented by a source context; not a permission supplied by a client.</summary>
 public interface ICharacterCareerInitiationSourceContext

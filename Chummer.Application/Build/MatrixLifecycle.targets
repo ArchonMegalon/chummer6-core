@@ -1,0 +1,40 @@
+<Project>
+  <ItemGroup>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Character.cs">
+      <ExpectedSha256>f3dcea63f4ae7a20ede033913f8012f1d5e755af0e09723f21c3f17387d52b26</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs">
+      <ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Managers/ImprovementManager.cs">
+      <ExpectedSha256>f340f698c87376328d7b6a01b13f4d81c6ebcc636b21b0102d3ff44052cfe156</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Extensions/DecimalExtensions.cs">
+      <ExpectedSha256>b60e05f94606721cd4ef8087ef9d2ea9b3bda2aabd3371c8f699d0e083cd1ffd</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Improvements/Improvement.cs">
+      <ExpectedSha256>0cd64c47b433b4f0985dfbf073c765eafaef8290eeff5b72d663f7d68f9a7bc8</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Improvements/AddImprovementCollection.cs">
+      <ExpectedSha256>863b260423103c017a24f881ed36567e00888636b2e51de342b6d3c36a2176a7</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Attributes/Attribute.Core.cs">
+      <ExpectedSha256>c868b8d87d036ef9170a90d463b9508dd4ac99b25f0c3b9b39d44eedcacc1573</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Equipment/Gear.cs">
+      <ExpectedSha256>8048f07b6fe798d5f7d678427412727a560a267cac7701c6082a32a24b84dfc2</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Equipment/Vehicle.cs">
+      <ExpectedSha256>58e3673e6a41a17bf68037077931d04e1f1d0f56237ef6a072440dd401e3f832</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+    <MatrixLifecycleNativeSource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Interfaces/IHasMatrixAttributes.cs">
+      <ExpectedSha256>457c21dd917939545358ad077c8026632a30b1b9519cba9dde1c92b6fc5c3963</ExpectedSha256>
+    </MatrixLifecycleNativeSource>
+  </ItemGroup>
+  <Target Name="VerifyMatrixLifecycleNativeSources" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(MatrixLifecycleNativeSource)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedMatrixLifecycleNativeSource" />
+    </GetFileHash>
+    <Error Condition="'%(HashedMatrixLifecycleNativeSource.FileHash)' != '%(HashedMatrixLifecycleNativeSource.ExpectedSha256)'" Text="Native matrix initiative source drift: %(HashedMatrixLifecycleNativeSource.Identity). Re-review formula, AI, channel and active-persona semantics before updating pins." />
+  </Target>
+</Project>

@@ -42,6 +42,7 @@ public sealed partial class CharacterCreationSkillsService
         var baseline = prepared.Value.Preview(allocations, groups, cancellationToken, knowledgeEffects: knowledgeEffects, completeTrace: completeTrace);
         if (baseline.Value is { Blockers.Count: 0 } original && inputs.KarmaPurchasePolicy!.AllowSkillRegrouping.HasValue
             && (inputs.KarmaPurchasePolicy.CompensateSkillGroupKarmaDifference
+                || original.SkillGroups.Any(group => group.Rating > 0)
                 || original.Skills.Any(row => row.GroupRating > 0)
                 || purchases.Any(p => p.Kind == CharacterCreationSkillKinds.Active
                     && original.SkillGroups.Any(g => g.MemberSkillSourceIds.Contains(p.SourceSkillId, StringComparer.Ordinal)))))

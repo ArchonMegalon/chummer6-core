@@ -69,8 +69,8 @@ namespace Chummer.Backend.Equipment
         private string _strPage = string.Empty;
         private int _intMatrixCMFilled;
         private int _intRating;
-        private int _intMinStrength = 3;
-        private int _intMinAgility = 3;
+        private int _intMinStrength = PortableCyberlimbAttributeRules.DefaultBaseAttribute;
+        private int _intMinAgility = PortableCyberlimbAttributeRules.DefaultBaseAttribute;
         private string _strMinRating = string.Empty;
         private string _strMaxRating = string.Empty;
         private string _strRatingLabel = "String_Rating";
@@ -4447,10 +4447,9 @@ namespace Chummer.Backend.Equipment
                     {
                         using (objCurrentParent.LockObject.EnterReadLock())
                         {
-                            if (!string.IsNullOrEmpty(objCurrentParent.HasModularMount))
-                                blnReturn = true;
-                            if (!string.IsNullOrEmpty(objCurrentParent.PlugsIntoModularMount))
-                                blnReturn = false;
+                            blnReturn = PortableCyberlimbAttributeRules.ApplyParentMount(blnReturn,
+                                !string.IsNullOrEmpty(objCurrentParent.HasModularMount),
+                                !string.IsNullOrEmpty(objCurrentParent.PlugsIntoModularMount));
                             objCurrentParent = objCurrentParent.Parent;
                         }
                     }
@@ -4479,10 +4478,9 @@ namespace Chummer.Backend.Equipment
                     try
                     {
                         token.ThrowIfCancellationRequested();
-                        if (!string.IsNullOrEmpty(await objCurrentParent.GetHasModularMountAsync(token).ConfigureAwait(false)))
-                            blnReturn = true;
-                        if (!string.IsNullOrEmpty(await objCurrentParent.GetPlugsIntoModularMountAsync(token).ConfigureAwait(false)))
-                            blnReturn = false;
+                        blnReturn = PortableCyberlimbAttributeRules.ApplyParentMount(blnReturn,
+                            !string.IsNullOrEmpty(await objCurrentParent.GetHasModularMountAsync(token).ConfigureAwait(false)),
+                            !string.IsNullOrEmpty(await objCurrentParent.GetPlugsIntoModularMountAsync(token).ConfigureAwait(false)));
                         objCurrentParent = await objCurrentParent.GetParentAsync(token).ConfigureAwait(false);
                     }
                     finally
@@ -10717,7 +10715,7 @@ namespace Chummer.Backend.Equipment
                 }
 
                 return ParentVehicle == null
-                    ? Math.Min(intValue, _objCharacter.GetAttribute(strAbbrev)?.TotalMaximum ?? 0)
+                    ? PortableCyberlimbAttributeRules.AttributeValue(intValue, _objCharacter.GetAttribute(strAbbrev)?.TotalMaximum ?? 0)
                     : Math.Min(intValue, Math.Max(ParentVehicle.TotalBody * 2, 1));
             }
         }
@@ -10765,7 +10763,7 @@ namespace Chummer.Backend.Equipment
                 {
                     CharacterAttrib objAttribute = await _objCharacter.GetAttributeAsync(strAbbrev, token: token)
                                                                       .ConfigureAwait(false);
-                    return Math.Min(
+                    return PortableCyberlimbAttributeRules.AttributeValue(
                         intValue,
                         objAttribute != null
                             ? await objAttribute.GetTotalMaximumAsync(token).ConfigureAwait(false)
@@ -10805,7 +10803,7 @@ namespace Chummer.Backend.Equipment
                     if (intCyberlimbChildrenNumber == 0)
                         intCyberlimbChildrenNumber = 1;
 
-                    return intAverageAttribute / intCyberlimbChildrenNumber;
+                    return PortableCyberlimbAttributeRules.InheritedValue(intAverageAttribute, intCyberlimbChildrenNumber);
                 }
 
                 if (Category != "Cyberlimb" && !IsLimb)
@@ -10839,12 +10837,11 @@ namespace Chummer.Backend.Equipment
                     intBonus += ImprovementManager.ValueOf(_objCharacter, Improvement.ImprovementType.CyberlimbAttributeBonus, strImprovedName: strAbbrev).StandardRound();
                 }
 
-                intBonus = Math.Min(intBonus, _objCharacter.Settings.CyberlimbAttributeBonusCap);
-
-                int intReturn = GetAttributeValue(strAbbrev) + intBonus;
-                return ParentVehicle == null
-                    ? Math.Min(intReturn, _objCharacter.GetAttribute(strAbbrev)?.TotalAugmentedMaximum ?? 0)
-                    : Math.Min(intReturn, Math.Max(ParentVehicle.TotalBody * 2, 1));
+                int intCap = ParentVehicle == null
+                    ? _objCharacter.GetAttribute(strAbbrev)?.TotalAugmentedMaximum ?? 0
+                    : Math.Max(ParentVehicle.TotalBody * 2, 1);
+                return PortableCyberlimbAttributeRules.AttributeTotal(
+                    GetAttributeValue(strAbbrev), intBonus, _objCharacter.Settings.CyberlimbAttributeBonusCap, intCap);
             }
         }
 
@@ -10876,7 +10873,7 @@ namespace Chummer.Backend.Equipment
                     if (intCyberlimbChildrenNumber == 0)
                         intCyberlimbChildrenNumber = 1;
 
-                    return intAverageAttribute / intCyberlimbChildrenNumber;
+                    return PortableCyberlimbAttributeRules.InheritedValue(intAverageAttribute, intCyberlimbChildrenNumber);
                 }
 
                 if (Category != "Cyberlimb" && !await GetIsLimbAsync(token).ConfigureAwait(false))
@@ -10910,22 +10907,20 @@ namespace Chummer.Backend.Equipment
                     intBonus += (await ImprovementManager.ValueOfAsync(_objCharacter, Improvement.ImprovementType.CyberlimbAttributeBonus, strImprovedName: strAbbrev, token: token).ConfigureAwait(false)).StandardRound();
                 }
 
-                intBonus = Math.Min(intBonus, await (await _objCharacter.GetSettingsAsync(token).ConfigureAwait(false)).GetCyberlimbAttributeBonusCapAsync(token).ConfigureAwait(false));
-
-                int intReturn = await GetAttributeValueAsync(strAbbrev, token).ConfigureAwait(false) + intBonus;
+                int intBonusCap = await (await _objCharacter.GetSettingsAsync(token).ConfigureAwait(false))
+                    .GetCyberlimbAttributeBonusCapAsync(token).ConfigureAwait(false);
+                int intValue = await GetAttributeValueAsync(strAbbrev, token).ConfigureAwait(false);
+                int intCap;
                 if (ParentVehicle == null)
                 {
                     CharacterAttrib objAttribute = await _objCharacter.GetAttributeAsync(strAbbrev, token: token)
-                                                                      .ConfigureAwait(false);
-                    return Math.Min(
-                        intReturn,
-                        objAttribute != null
-                            ? await objAttribute.GetTotalAugmentedMaximumAsync(token).ConfigureAwait(false)
-                            : 0);
+                        .ConfigureAwait(false);
+                    intCap = objAttribute != null
+                        ? await objAttribute.GetTotalAugmentedMaximumAsync(token).ConfigureAwait(false) : 0;
                 }
-
-                return Math.Min(
-                    intReturn, Math.Max(await ParentVehicle.GetTotalBodyAsync(token).ConfigureAwait(false) * 2, 1));
+                else
+                    intCap = Math.Max(await ParentVehicle.GetTotalBodyAsync(token).ConfigureAwait(false) * 2, 1);
+                return PortableCyberlimbAttributeRules.AttributeTotal(intValue, intBonus, intBonusCap, intCap);
             }
             finally
             {

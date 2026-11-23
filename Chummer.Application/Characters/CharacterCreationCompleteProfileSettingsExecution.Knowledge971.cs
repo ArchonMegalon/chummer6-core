@@ -51,7 +51,7 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
             || !CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
             || authorityDigest != CharacterCreationFinalizationDigest.Compute(authority)
             || authority.InputsSnapshotDigest != inputs.SnapshotDigest
-            || inputs.SnapshotDigest != CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs)
+            || !CharacterCreationProfileInputRead8576.Matches(inputs)
             || request.InputsSnapshotDigest != inputs.SnapshotDigest
             || authority.RequestDigest != CharacterCreationFinalizationDigest.Compute(request)
             || invocation.RequestDigest != authority.RequestDigest

@@ -8,7 +8,7 @@ namespace Chummer.Application.Characters;
 /// input or save authority. Replay requires its independently admitted original
 /// selections and source effects; this helper cannot reconstruct an archive.
 /// </summary>
-internal sealed class CharacterCreationCompleteMagicExecution
+internal sealed partial class CharacterCreationCompleteMagicExecution
 {
     private readonly string authorityDigest;
     private readonly string evaluationDigest;
@@ -18,6 +18,7 @@ internal sealed class CharacterCreationCompleteMagicExecution
         IReadOnlyList<CharacterCreationAttributeProjection> attributes,
         CharacterCreationSelectedMagicEvaluation result)
     {
+        RetainKarma1208(source, result);
         authorityDigest = CharacterCreationFinalizationDigest.Compute(authority);
         evaluationDigest = CharacterCreationFinalizationDigest.Compute(new
         {

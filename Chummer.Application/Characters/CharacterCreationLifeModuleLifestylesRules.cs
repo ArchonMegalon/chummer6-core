@@ -55,8 +55,16 @@ internal static class CharacterCreationLifeModuleLifestylesRules
                 || !CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(
                     effects.ImprovementXml.Concat(racial.ImprovementXml).Concat(talent.ImprovementXml).Select(xml => XElement.Parse(xml)),
                     authority.TrustFundLevel, out int trust, out decimal racialPercent, out _)) return false;
+            // Evaluate reaches this boundary with the admitted final plans. Keep the
+            // source authority (and its saved-document facts) separate: the projector
+            // replaces qualities with precisely these three plan contributions.
+            var mechanics = authority.Mechanics;
+            if (mechanics is not null && !CharacterCreationLifestyleFinalQualityFacts2698.TryCreate(
+                    effects.QualityXml.Concat(racial.QualityXml).Concat(talent.QualityXml).Select(XElement.Parse),
+                    out mechanics)) return false;
             var result = authority with
             {
+                Mechanics = mechanics,
                 TrustFundLevel = trust, MetatypeCostPercent = checked(authority.MetatypeCostPercent + racialPercent),
                 GmPolicyDigest = Hash(new { authority.GmPolicyDigest, Effects = effects.PlanDigest,
                     Racial = racial.PlanDigest, Talent = talent.PlanDigest, TrustFundLevel = trust, MetatypeCostPercent = racialPercent }),
@@ -128,3 +136,32 @@ internal static class CharacterCreationLifeModuleLifestylesRules
 
 internal sealed record CharacterCreationLifeModuleLifestylesQuoteResult(CharacterCreationLifestylesAuthority? Authority,
     CharacterCreationLifeModuleLifestylesQuote? Quote, IReadOnlyList<string> Blockers);
+
+// This is a projection of already admitted quality graphs, never a source
+// admission API. Callers retain their source/plan bindings and revalidation.
+internal static class CharacterCreationLifestyleFinalQualityFacts2698
+{
+    internal static bool TryCreate(IEnumerable<XElement> qualities,
+        out CharacterCreationLifestyleMechanicsContext? context)
+    {
+        context = null;
+        var facts = new List<CharacterCreationLifestyleCharacterFact>();
+        foreach (var quality in qualities)
+        {
+            if (quality.Name != "quality" || facts.Count >= 4096) return false;
+            var names = quality.Elements("name").ToArray();
+            var ids = quality.Elements("sourceid").ToArray();
+            var extras = quality.Elements("extra").ToArray();
+            Guid id = Guid.Empty;
+            if (names is not [var name] || name.HasAttributes || name.HasElements || string.IsNullOrWhiteSpace(name.Value)
+                || ids.Length > 1 || extras.Length > 1
+                || ids.Concat(extras).Any(field => field.HasAttributes || field.HasElements)
+                || ids.Length == 1 && !string.IsNullOrWhiteSpace(ids[0].Value) && !Guid.TryParse(ids[0].Value, out id)) return false;
+            facts.Add(new(id, name.Value, extras.FirstOrDefault()?.Value ?? string.Empty));
+        }
+        context = new(CharacterCreationLifestyleMechanicsRules.Capability, true,
+            facts.OrderBy(fact => fact.SourceId).ThenBy(fact => fact.Name, StringComparer.Ordinal)
+                .ThenBy(fact => fact.Extra, StringComparer.Ordinal).ToArray());
+        return true;
+    }
+}

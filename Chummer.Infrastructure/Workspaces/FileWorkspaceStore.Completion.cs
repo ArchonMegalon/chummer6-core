@@ -68,9 +68,11 @@ public sealed partial class FileWorkspaceStore
                 || campaign is not null && !campaign.AuthorizesApplyBinding(owner.Value, request.Binding,
                     request.Proposal.CampaignAuthority, cancellationToken))
                 return CharacterCreationCompletionTransaction.Blocked(CharacterCreationCampaignExecutionContext.Blocker);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(857701);
             if (!CharacterCreationCompletionTransaction.TryBuild(this, owner, saved, sourceResolver, characterQueries,
                     request, cancellationToken, out var replacement, out var receipt, value => captured = value, authorityRecovery, campaign))
                 return CharacterCreationCompletionTransaction.Blocked(CharacterCreationCompletionReviewSchemas.SnapshotConflict);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(857702);
             if (request.Proposal.RuleSourceExecutionSchema is not null)
             {
                 if (captured is null || recovery is null) throw RetainedRuleSourceRejected();
@@ -81,26 +83,32 @@ public sealed partial class FileWorkspaceStore
                 if (recovery is null) throw RetainedRuleSourceRejected();
                 recovery.RetainCommittedCampaign(campaign.CaptureCommitted(receipt!, cancellationToken));
             }
+            CharacterCreationCompletionCost3340.Log.Checkpoint(857703);
             var record = BuildPersistedRecord(replacement!, receipt!.ContentRevision, receipt.SavedRevision,
                 saved.LocalHistory!, delegatedLedger, saved.DelegatedGmHistorySegmentStarts);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(857704);
             if (recovery is not null)
                 record = record with { RetainedRuleSources = BuildRetainedManifest(owner, id,
                     saved.LocalHistory!, replacement!, recovery) };
             cancellationToken.ThrowIfCancellationRequested();
+            CharacterCreationCompletionCost3340.Log.Checkpoint(857705);
             WriteRecordAtomically(path, record, WorkspaceWriteDisposition.ReplaceExisting,
                 beforeTargetReplace: () =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     // Resolve live sources again after the temporary record is
                     // flushed, under the same actual owner/workspace lease.
+                    CharacterCreationCompletionCost3340.Log.Checkpoint(857706);
                     if (!CharacterCreationCompletionTransaction.TryBuild(this, owner, saved, sourceResolver, characterQueries,
                             request, cancellationToken, out var current, out var finalReceipt, recovery: authorityRecovery, campaign: campaign)
                         || finalReceipt!.ReceiptDigest != receipt.ReceiptDigest
                         || current!.Content != replacement!.Content
                         || current.AuxiliaryStateDigest != replacement.AuxiliaryStateDigest)
                         throw new IOException("Completion source changed before commit.");
+                    CharacterCreationCompletionCost3340.Log.Checkpoint(857707);
                     cancellationToken.ThrowIfCancellationRequested();
-                });
+                }, cancellation: cancellationToken);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(857708);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException
             or InvalidOperationException or OperationCanceledException)
@@ -110,6 +118,7 @@ public sealed partial class FileWorkspaceStore
         }
         // Do not check cancellation after rename: the committed result must be
         // reconciled even if the caller departed during the atomic write.
+        CharacterCreationCompletionCost3340.Log.Checkpoint(857709);
         try
         {
             using var operation = AcquireWorkspaceOperation(path);

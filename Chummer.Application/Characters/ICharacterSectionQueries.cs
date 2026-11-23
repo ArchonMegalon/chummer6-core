@@ -16,6 +16,9 @@ public interface ICharacterSectionQueries
 
     object ParseSection(string sectionId, CharacterDocument document);
 
+    object ParseSection(string sectionId, Chummer.Application.Workspaces.WorkspaceStoredDocument observation)
+        => ParseSection(sectionId, new CharacterDocument(observation.Document.Content));
+
     private TSection Require<TSection>(string sectionId, CharacterDocument document)
         where TSection : class
         => ParseSection(sectionId, document) as TSection

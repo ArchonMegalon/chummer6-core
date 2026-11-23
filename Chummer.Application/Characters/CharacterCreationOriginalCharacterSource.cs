@@ -18,15 +18,19 @@ namespace Chummer.Application.Characters;
 internal sealed class CharacterCreationOriginalCharacterSource
 {
     private readonly XDocument document;
+    internal CharacterWorkspaceId WorkspaceId1233 { get; }
     private readonly string inputsDigest;
     private readonly string observationDigest;
     private readonly string bootstrapDigest;
     private readonly string rawCharacterXmlDigest;
+    private readonly WorkspaceStoredDocument priorityObservation3563;
 
     private CharacterCreationOriginalCharacterSource(XDocument document, string inputsDigest,
         WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap)
     {
         this.document = document;
+        priorityObservation3563 = original;
+        WorkspaceId1233 = original.Id;
         this.inputsDigest = inputsDigest;
         observationDigest = ObservationDigest(original);
         bootstrapDigest = bootstrap.SnapshotDigest;
@@ -35,6 +39,15 @@ internal sealed class CharacterCreationOriginalCharacterSource
     }
 
     internal XDocument CopyDocument() => new(document);
+    internal CharacterCreationPriorityGrantAuthority3563? PriorityGrants3563(ICharacterSourceDataResolver? resolver)
+        => ObservationDigest(priorityObservation3563) != observationDigest
+            ? throw new InvalidDataException("Original Priority observation changed.")
+            : CharacterCreationPriorityGrantAuthority3563.Capture(priorityObservation3563, resolver);
+
+    internal CharacterCreationPriorityGrantAuthority3563? PriorityGrants3563(ICharacterSourceDataContext context)
+        => ObservationDigest(priorityObservation3563) != observationDigest
+            ? throw new InvalidDataException("Original Priority observation changed.")
+            : CharacterCreationPriorityGrantAuthority3563.Capture(priorityObservation3563, context);
     internal bool MatchesInputs(string digest) => inputsDigest == digest;
     internal bool MatchesObservation(WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap)
         => observationDigest == ObservationDigest(original) && bootstrapDigest == bootstrap.SnapshotDigest;
@@ -94,12 +107,24 @@ internal sealed class CharacterCreationOriginalCharacterSource
             if (inputs.OriginalCharacter is not { } captured
                 || captured.Schema != CharacterCreationCompletionReviewSchemas.OriginalCharacterExecutionV1
                 || captured.AuxiliaryState is null || captured.BootstrapSourceSnapshot.ValueKind != JsonValueKind.Object
-                || !TryParse(captured.RawCharacterXml, out var graph, cancellationToken)
+                || !HasBoundedXml(captured.RawCharacterXml)
                 || inputs.Schema != CharacterCreationCompletionReviewSchemas.InputsV3
                 || inputs.EffectivePolicy?.Consumers?.Schema != CharacterCreationCompletionConsumerPolicy.SchemaV5
                 || inputs.EffectivePolicy.SettingObservations is null
-                || !CharacterCreationFinalizationDigest.IsCanonical(inputs.SnapshotDigest)
-                || inputs.SnapshotDigest != CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs)
+                || !CharacterCreationFinalizationDigest.IsCanonical(inputs.SnapshotDigest))
+                return false;
+            // Hash the complete current payload every time, including original XML,
+            // auxiliary state, bootstrap, source pins, books, initiative and loadout.
+            // Public digest equality or object identity alone never admits reuse.
+            string computedInputsDigest = CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs);
+            if (inputs.SnapshotDigest != computedInputsDigest) return false;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (CharacterCreationCompletionDraftTransaction.FindValidatedOriginal(computedInputsDigest) is { } validated)
+            {
+                source = validated;
+                return true;
+            }
+            if (!TryParse(captured.RawCharacterXml, out var graph, cancellationToken)
                 || !CharacterCreationCompletionReviewService.HasInputsShape(inputs)
                 || !CharacterCreationCompletionReviewService.HasCoherentInputs(inputs)
                 || !CharacterCreationEffectivePolicyValidation.IsValid(inputs.EffectivePolicy, inputs))
@@ -120,6 +145,7 @@ internal sealed class CharacterCreationOriginalCharacterSource
                 return false;
             source = new(graph!, inputs.SnapshotDigest, original, bootstrap);
             cancellationToken.ThrowIfCancellationRequested();
+            CharacterCreationCompletionDraftTransaction.RememberValidatedOriginal(source);
             return true;
         }
         catch (Exception error) when (IsMalformed(error)) { return false; }

@@ -251,12 +251,62 @@ public sealed partial class CharacterCreationResourcesService
     internal static CharacterCreationResourcesBudget? ReadSavedPurchaseBudget(
         CharacterCreationResourcesCompletionInputs inputs)
     {
-        if (!IsValidCompletionInputs(inputs) || inputs.PendingDraft is not { } saved)
+        return inputs is null ? null : ProjectSavedPurchaseBudget(inputs, inputs.KnownPurchaseCost);
+    }
+
+    private static CharacterCreationResourcesBudget? ProjectSavedPurchaseBudget(
+        CharacterCreationResourcesCompletionInputs inputs, decimal purchaseCost)
+    {
+        if (!IsValidCompletionInputs(inputs) || inputs.PendingDraft is not { } saved || purchaseCost < 0m)
             return null;
         var option = FindAllocationOption(inputs.Authority, inputs.PriorityOption,
             int.MaxValue, saved.SelectedOptionId);
         return option is null ? null : BuildBudget(inputs.Authority, inputs.PriorityOption,
-            option, inputs.PurchaseAuthorityExact, inputs.KnownPurchaseCost, null);
+            option, inputs.PurchaseAuthorityExact, purchaseCost, null);
+    }
+
+    // Read only from the Gear invocation's owner-scoped observation. Do not reread
+    // an unscoped store, mutate a saved funding choice, or rebind retained history.
+    internal CharacterCreationResourcesResult<CharacterCreationResourcesBudget> QuoteGearPurchaseBudget(
+        WorkspaceStoredDocument workspace, CharacterCreationGearBinding gearBinding, decimal proposedGearCost)
+    {
+        var loaded = LoadCompletionInputsFromObservation(workspace);
+        if (loaded.Value is not { } inputs)
+            return new(loaded.Outcome, null, loaded.Blockers);
+        var binding = inputs.Binding;
+        var saved = inputs.PendingDraft;
+        if (saved is null || proposedGearCost < 0m
+            || binding.WorkspaceId != gearBinding.WorkspaceId
+            || binding.WorkspaceRevision != gearBinding.WorkspaceRevision
+            || binding.ContentRevision != gearBinding.ContentRevision
+            || binding.SavedRevision != gearBinding.SavedRevision
+            || !SameCompletionDigest(binding.RawCharacterXmlDigest, gearBinding.RawCharacterXmlDigest)
+            || !SameCompletionDigest(binding.AuxiliaryStateDigest, gearBinding.AuxiliaryStateDigest)
+            || saved.DraftRevision != gearBinding.ResourcesDraftRevision
+            || !SameCompletionDigest(saved.DraftDigest, gearBinding.ResourcesDraftDigest))
+            return Blocked<CharacterCreationResourcesBudget>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
+
+        // The admitted total already includes general gear. Replace it exactly
+        // once; retain every other category counted by the canonical reader.
+        decimal cost;
+        try
+        {
+            cost = checked(inputs.KnownPurchaseCost
+                - (workspace.Document.AuxiliaryState.CharacterCreationGearDraft?.Budget.BasketCost ?? 0m)
+                + proposedGearCost);
+        }
+        catch (OverflowException)
+        {
+            return Blocked<CharacterCreationResourcesBudget>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
+        }
+        var budget = ProjectSavedPurchaseBudget(inputs, cost);
+        return budget is null
+            ? Blocked<CharacterCreationResourcesBudget>(CharacterCreationResourcesOutcomes.Blocked,
+                CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired)
+            : new(budget.IsExact ? CharacterCreationResourcesOutcomes.Available : CharacterCreationResourcesOutcomes.Blocked,
+                budget, budget.Blockers);
     }
 
     // Invocation-local evidence. Only successful canonical pricing can construct
@@ -345,13 +395,32 @@ public sealed partial class CharacterCreationResourcesService
             var profile = XElement.Parse(source!.CanonicalSourceXml, LoadOptions.PreserveWhitespace);
             if (profile.HasAttributes) return;
             var leaves = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (string field in new[] { "chargenkarmatonuyenexpression", "nuyenmaxbp" })
+            string[] fields = request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                && CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                ? ["chargenkarmatonuyenexpression", "nuyenmaxbp", "nuyenperbpwftm", "unrestrictednuyen"]
+                : ["chargenkarmatonuyenexpression", "nuyenmaxbp"];
+            foreach (string field in fields)
             {
                 var nodes = profile.Elements().Where(node => node.Name.LocalName == field).ToArray();
                 if (nodes is not [var leaf] || leaf.Name != field || leaf.HasAttributes
                     || leaf.Nodes().ToArray() is not [XText text] || text.GetType() != typeof(XText)) continue;
+                // Malformed, duplicate and unknown observations never acquire a
+                // capability, even when an explicit expression shadows a rate.
+                if (field is "nuyenperbpwftm" or "unrestrictednuyen")
+                {
+                    if (policy.SettingObservations is not { } observations) continue;
+                    var definition = CharacterCreationSettingDefinitions.ForSchema(observations.Schema)!
+                        .Single(row => row.Element == field);
+                    var matching = observations.Settings.Where(row => row.Key == definition.Key).ToArray();
+                    if (matching is not [var observation]
+                        || observation.State != CharacterCreationSettingObservationState.Present
+                        || observation.SourceValueDigest != FundingXmlDigest994(leaf)) continue;
+                }
                 leaves.Add(field, FundingXmlDigest994(leaf));
             }
+            if (profile.Elements().Any(node => node.Name.LocalName == "chargenkarmatonuyenexpression")
+                && !leaves.ContainsKey("chargenkarmatonuyenexpression"))
+                leaves.Remove("nuyenperbpwftm");
             if (leaves.Count != 0)
                 fundingInvocations994.Add(invocation, new(this, FundingInvocationDigest994(invocation),
                     FundingXmlDigest994(profile), leaves));
@@ -374,6 +443,22 @@ public sealed partial class CharacterCreationResourcesService
                 bound.Completed.EvaluationDigest, bound.InvocationDigest, bound.ProfileXmlDigest,
                 Authority = bound.Completed.input.Authority, Field = field, Leaf = leaf
             });
+            return true;
+        }
+
+        internal static bool TryReadSettingSource3185(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationCompleteAssessment assessment, CharacterCreationResourcesAuthority authority,
+            string profileXmlDigest, string field, string leafXmlDigest,
+            out string? result, out string? executionDigest, out bool inactive)
+        {
+            result = null; executionDigest = null; inactive = false;
+            if (!CanExecute(assessment) || !fundingInvocations994.TryGetValue(invocation, out var bound)
+                || bound.Completed.authorityDigest != CharacterCreationFinalizationDigest.Compute(assessment)
+                || !TryReadSource994(invocation, authority, profileXmlDigest, field, leafXmlDigest,
+                    out result, out executionDigest)) return false;
+            // The canonical profile reader selects the expression before the
+            // legacy fallback rate, regardless of selected Karma or basket size.
+            inactive = field == "nuyenperbpwftm" && bound.Leaves.ContainsKey("chargenkarmatonuyenexpression");
             return true;
         }
 

@@ -46,7 +46,11 @@ public sealed partial class CharacterCreationSkillsService
     internal sealed partial class CompleteSkillTrace
     {
         internal sealed record SkillCostExecution972(string ProfileId, string ProfileInputsDigest,
-            string PolicyDigest, string PurchasesDigest, string ResultDigest, IReadOnlyDictionary<string, int> Leaves);
+            string PolicyDigest, string PurchasesDigest, string ResultDigest, IReadOnlyDictionary<string, int> Leaves)
+        {
+            [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+            public bool EmptyPurchaseScope { get; init; }
+        }
         internal SkillCostExecution972? SkillCosts972 { get; private set; }
 
         internal void FinishSkillCosts972(CharacterCreationKarmaSkillsPolicy policy,
@@ -55,13 +59,32 @@ public sealed partial class CharacterCreationSkillsService
         {
             // FinishPurchases already requires a completed canonical allocation and
             // successful interval, specialization, modifier and compensation checks.
-            if (!Completed || PurchasesDigest is null || used.Count == 0
+            if (!Completed || PurchasesDigest is null
                 || PurchasesDigest != CharacterCreationFinalizationDigest.Compute(new
                 { Policy = policy, Purchases = purchases, Result = result })) return;
+            // This is the end of the real purchase consumer, after automatic
+            // members/grants, baseline charges and final pricing. A missing
+            // purchase request or a point-only preview never reaches this seal.
+            // Only this fully empty executed scope proves all eight price
+            // branches inactive; unused terms in a nonempty scope stay unproven.
+            bool empty = purchases.Count == 0 && used.Count == 0
+                && result.Skills.All(row => row.KarmaLevels == 0 && row.KarmaCost == 0 && !row.KarmaSpecialization);
+            if (used.Count == 0 && !empty) return;
+            IReadOnlyDictionary<string, int> leaves = empty ? new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["karmanewactiveskill"] = policy.KarmaNewActiveSkill,
+                ["karmaimproveactiveskill"] = policy.KarmaImproveActiveSkill,
+                ["karmanewknowledgeskill"] = policy.KarmaNewKnowledgeSkill,
+                ["karmaimproveknowledgeskill"] = policy.KarmaImproveKnowledgeSkill,
+                ["karmanewskillgroup"] = policy.KarmaNewSkillGroup,
+                ["karmaimproveskillgroup"] = policy.KarmaImproveSkillGroup,
+                ["karmaspecialization"] = policy.KarmaSpecialization,
+                ["karmaknospecialization"] = policy.KarmaKnowledgeSpecialization
+            } : used;
             SkillCosts972 = new(policy.SettingsProfileId, policy.RawProfileInputsDigest,
                 policy.AuthorityDigest, PurchasesDigest, CharacterCreationFinalizationDigest.Compute(result),
-                new ReadOnlyDictionary<string, int>(used.ToDictionary(pair => pair.Key, pair => pair.Value,
-                    StringComparer.Ordinal)));
+                new ReadOnlyDictionary<string, int>(leaves.ToDictionary(pair => pair.Key, pair => pair.Value,
+                    StringComparer.Ordinal))) { EmptyPurchaseScope = empty };
         }
     }
 }

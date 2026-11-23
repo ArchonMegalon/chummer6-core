@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
+using Chummer.Application.Characters;
 
 namespace Chummer.Infrastructure.Xml;
 
-internal static class CharacterCreationMetatypeCatalogProjector
+internal static partial class CharacterCreationMetatypeCatalogProjector
 {
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
     private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
@@ -50,6 +51,79 @@ internal static class CharacterCreationMetatypeCatalogProjector
             $"{field.Prefix}aug"
         })),
         StringComparer.Ordinal);
+
+    // Current v2 catalog observation. Every source row remains visible, while
+    // unsupported rows and every variant remain explicitly unselectable. The
+    // historical Project method below keeps its original admission contract.
+    internal static CharacterCreationMetatypeCatalogAuthority ProjectCurrent(
+        XDocument document, CharacterCreationMetatypeSourceContextAuthority sourceContext, string? sourceExecutionSchema = null,
+        bool careerCondition5497 = false, bool importedSprite5732 = false)
+    {
+        if (!sourceContext.IsAuthoritative || sourceContext.Blockers.Count != 0
+            || sourceContext.MetatypeKarmaMultiplier is not int multiplier || multiplier < 0
+            || sourceContext.MinimumInitiativeDiceFallback is not int dice || dice < 0
+            || document.Root is not { Name.LocalName: "chummer" } root
+            || root.Name.Namespace != XNamespace.None
+            || !root.Attributes().All(CurrentStockXmlMetadata.IsSupported)
+            || root.Elements("metatypes").ToArray() is not [var container]
+            || container.HasAttributes || container.Elements().Any(row => row.Name != "metatype"))
+            return Blocked(sourceContext, CharacterCreationMetatypeCatalogBlockers.AuthorityUnavailable);
+        var ids = new HashSet<Guid>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var options = new List<CharacterCreationMetatypeOptionProjection>();
+        foreach (var row in container.Elements())
+        {
+            // Malformed/ambiguous locators cannot be safely made unavailable.
+            if (!TryReadSingle(row, "id", out string id) || !Guid.TryParseExact(id, "D", out var guid)
+                || guid == Guid.Empty || !ids.Add(guid) || !TryReadSingle(row, "name", out string name)
+                || string.IsNullOrWhiteSpace(name) || !names.Add(name))
+                return Blocked(sourceContext, CharacterCreationMetatypeCatalogBlockers.BaseEntryDuplicate);
+            if (TryProjectCurrentOption(row, multiplier, dice, sourceContext.EnabledSourcebooks,
+                    out var option, sourceExecutionSchema, careerCondition5497, importedSprite5732))
+                options.Add(option);
+            else
+                options.Add(new(guid.ToString("D"), name, Read(row, "category"), Read(row, "source"),
+                    0, 0, 0, [], new(0, 0, 0, 0), CharacterCreationMetatypeMovementProjection.Unavailable,
+                    [], [], false, [CharacterCreationMetatypeCatalogBlockers.SpecialSemanticsUnsupported],
+                    [$"metatypes.xml#metatype:{guid:D}"]));
+        }
+        return new(CharacterCreationMetatypeCatalogSchemas.CatalogV1, sourceContext,
+            options.ToArray(), [], IsAuthoritative: true);
+    }
+
+    internal static bool TryProjectCurrentOption(XElement entry, int multiplier, int dice,
+        IReadOnlyList<string> books, out CharacterCreationMetatypeOptionProjection option,
+        string? sourceExecutionSchema = null, bool careerCondition5497 = false, bool importedSprite5732 = false)
+    {
+        option = null!;
+        string name = Read(entry, "name");
+        string id = name switch
+        { "Human" => HumanId, "Elf" => ElfId, "Ork" => OrkId, "Dwarf" => DwarfId, "Troll" => TrollId, _ => string.Empty };
+        bool sprite = importedSprite5732 && Read(entry, "category").EndsWith("Sprites", StringComparison.Ordinal);
+        if (sprite && Guid.TryParseExact(Read(entry, "id"), "D", out var sourceId) && sourceId != Guid.Empty)
+            id = sourceId.ToString("D");
+        return id.Length != 0 && entry.Name == "metatype" && multiplier >= 0 && dice >= 0
+            && !entry.DescendantsAndSelf().Any(node => node.Name.Namespace != XNamespace.None
+                || node.Nodes().Any(item => item is not XElement && item is not XComment
+                    && (item is not XText text || text.GetType() != typeof(XText)))
+                || node.HasElements && node.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+            && !entry.Elements().Any(element => !SupportedBaseFields.Contains(element.Name.LocalName)
+                && !(sourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 && element.Name == "initiativedice"))
+            && !entry.Elements().GroupBy(element => element.Name).Any(group => group.Count() != 1)
+            && TryProjectOption(entry, id, name, multiplier, dice, books, id is DwarfId or TrollId,
+                out option, sourceExecutionSchema, careerCondition5497, sprite);
+    }
+
+    // Life Modules materializes the same source-defined base racial bonuses as
+    // Karma through its own whole-character planner. Keep the legacy default
+    // and Priority/Sum-to-Ten admission unchanged.
+    internal static CharacterCreationMetatypeCatalogAuthority ProjectLegacyForBuildMethod(
+        XDocument document, CharacterCreationMetatypeSourceContextAuthority sourceContext,
+        string buildMethod, string? sourceExecutionSchema = null)
+        => Project(document, sourceContext,
+            includeKarmaBaseBonuses: buildMethod is CharacterCreationBuildMethods.Karma
+                or CharacterCreationBuildMethods.LifeModules,
+            sourceExecutionSchema: sourceExecutionSchema);
 
     public static CharacterCreationMetatypeCatalogAuthority Project(
         XDocument document,
@@ -191,6 +265,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
         {
             return true;
         }
+        option = null!;
         return false;
     }
 
@@ -201,7 +276,8 @@ internal static class CharacterCreationMetatypeCatalogProjector
     {
         return bonuses.Armor == 0
             && bonuses.Reach == 0
-            && bonuses.LifestyleCostPercent == 20;
+            && bonuses.LifestyleCostPercent == 20
+            && bonuses.ConditionOverflow5497 is null;
     }
 
     private static bool TryProjectOption(
@@ -212,7 +288,8 @@ internal static class CharacterCreationMetatypeCatalogProjector
         int initiativeFallback,
         IReadOnlyList<string> enabledSourcebooks,
         bool allowBaseBonuses,
-        out CharacterCreationMetatypeOptionProjection option, string? sourceExecutionSchema = null)
+        out CharacterCreationMetatypeOptionProjection option, string? sourceExecutionSchema = null,
+        bool careerCondition5497 = false, bool importedSprite5732 = false, bool metavariant = false)
     {
         option = null!;
         var blockers = new List<string>();
@@ -223,7 +300,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
             || !string.Equals(id, expectedId, StringComparison.OrdinalIgnoreCase)
             || !TryReadSingle(entry, "name", out string name)
             || !string.Equals(name, expectedName, StringComparison.Ordinal)
-            || !TryReadSourceReference999(entry, out string category, out string sourceBook, out int sourcePage)
+            || !TryReadSourceReference999(entry, out string category, out string sourceBook, out int sourcePage, importedSprite5732, metavariant)
             || !TryReadNonNegativeInt(entry, "karma", out int baseKarma)
             || !TryReadAttributes(entry, out CharacterCreationMetatypeAttributeProjection[] attributes)
             || !TryReadAttributeRange(entry, "ini", out int initiativeMinimum, out int initiativeMaximum, out int initiativeAugmented)
@@ -245,7 +322,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
         }
         XElement[] bonuses = entry.Elements("bonus").Take(2).ToArray();
         CharacterCreationMetatypeBaseBonuses? baseBonuses = null;
-        if (bonuses.Length != 1 || !TryReadBaseBonuses(bonuses[0], allowBaseBonuses, out baseBonuses))
+        if (bonuses.Length != 1 || !TryReadBaseBonuses(bonuses[0], allowBaseBonuses, out baseBonuses, careerCondition5497))
         {
             blockers.Add(CharacterCreationMetatypeCatalogBlockers.SpecialSemanticsUnsupported);
         }
@@ -297,25 +374,25 @@ internal static class CharacterCreationMetatypeCatalogProjector
     }
 
     private static bool TryReadBaseBonuses(XElement bonus, bool allowed,
-        out CharacterCreationMetatypeBaseBonuses? projection)
+        out CharacterCreationMetatypeBaseBonuses? projection, bool careerCondition5497 = false)
     {
         projection = null;
         if (bonus.HasAttributes || bonus.Name != "bonus"
             || bonus.Nodes().Any(node => node is not XElement && (node is not XText text || !string.IsNullOrWhiteSpace(text.Value))))
             return false;
-        // An empty bonus element is only a legitimate null projection for
-        // metatypes whose bonuses carry no admitted semantics (Human/Elf/Ork).
-        // For allowed paths (Dwarf/Troll) the claimed surcharge is required:
-        // an empty shape must fail closed, never admit via a null short-circuit.
-        if (!bonus.HasElements)
-        {
-            if (allowed) return false;
-            return true;
-        }
-        if (!allowed || bonus.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)) return false;
+        if (!bonus.HasElements) return true;
+        if (bonus.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)) return false;
         int armor = 0, reach = 0, lifestyle = 0;
+        int? overflow = null;
         foreach (var effect in bonus.Elements())
         {
+            if (careerCondition5497 && effect.Name == "conditionmonitor")
+            {
+                if (!CharacterCareerMetatypeConditionSource5497.TryReadOverflow(effect, out int overflowValue)) return false;
+                overflow = overflowValue;
+                continue;
+            }
+            if (!allowed) return false;
             if (effect.Name.Namespace != XNamespace.None || effect.HasElements
                 || !int.TryParse(effect.Value, NumberStyles.None, CultureInfo.InvariantCulture, out int value)
                 || value < 0) return false;
@@ -333,7 +410,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
                 else return false;
             }
         }
-        projection = new(armor, reach, lifestyle);
+        projection = new(armor, reach, lifestyle) { ConditionOverflow5497 = overflow };
         return true;
     }
 
@@ -550,12 +627,14 @@ internal static class CharacterCreationMetatypeCatalogProjector
     // category and citation readers. This does not project a Karma-method cost
     // or reinterpret the versioned initiative fields for a Priority character.
     internal static bool TryReadSourceReference999(XElement entry,
-        out string category, out string sourceBook, out int sourcePage)
+        out string category, out string sourceBook, out int sourcePage, bool importedSprite5732 = false, bool metavariant = false)
     {
         category = sourceBook = string.Empty;
         sourcePage = 0;
         return TryReadSingle(entry, "category", out category)
-            && string.Equals(category, "Metahuman", StringComparison.Ordinal)
+            && (string.Equals(category, "Metahuman", StringComparison.Ordinal)
+                || importedSprite5732 && category.EndsWith("Sprites", StringComparison.Ordinal)
+                || metavariant && category == "Metavariant")
             && TryReadSingle(entry, "source", out sourceBook)
             && TryReadPositiveInt(entry, "page", out sourcePage);
     }

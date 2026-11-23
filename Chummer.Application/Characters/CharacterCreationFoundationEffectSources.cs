@@ -93,14 +93,39 @@ public sealed record CharacterCreationFoundationEffectSources(
             qualityLevels = null;
             return false;
         }
-        contextDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
+        contextDigest = ContextDigest(ProfileInputsDigest, orderedBooks, skillsDigest, qualitiesDigest, levelsDigest);
+        return true;
+    }
+
+    // Historical replay is distinct from current source admission. Recompute the
+    // archived context from actual catalog bytes and enabled books plus the profile
+    // identity authenticated by finalization. Never relabel the current snapshot's
+    // ProfileInputsDigest or accept the archived context digest without this match.
+    internal bool TryMatchFinalizedContext(string settingsProfileId, string historicalProfileDigest,
+        string expectedContextDigest, out string historicalContextDigest)
+    {
+        historicalContextDigest = string.Empty;
+        if (SettingsProfileId != settingsProfileId
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(historicalProfileDigest)
+            || !TryCreateAuthorities(out _, out _, out _, out _)) return false;
+        string rebuilt = ContextDigest(historicalProfileDigest,
+            EnabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray(),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(SkillsXml),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(QualitiesXml),
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(QualityLevelsXml));
+        if (rebuilt != expectedContextDigest) return false;
+        historicalContextDigest = rebuilt;
+        return true;
+    }
+
+    private string ContextDigest(string profileInputsDigest, string[] orderedBooks,
+        string skillsDigest, string qualitiesDigest, string levelsDigest)
+        => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
         {
-            SettingsProfileId, ProfileInputsDigest,
+            SettingsProfileId, ProfileInputsDigest = profileInputsDigest,
             Books = orderedBooks,
             SkillsDigest = skillsDigest, QualitiesDigest = qualitiesDigest, QualityLevelsDigest = levelsDigest
         });
-        return true;
-    }
 
     private sealed class CompilationSlot
     {

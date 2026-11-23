@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
@@ -11,7 +10,7 @@ namespace Chummer.Infrastructure.Xml;
 
 /// <summary>
 /// Fail-closed filesystem authority for the bounded Career purchase/install
-/// lane. It does not expose dynamic-rating, generated, child, gear, vehicle,
+/// lane. It does not expose character-dependent ratings, generated, child, gear, vehicle,
 /// prompt, improvement, custom-directory, or overlay semantics.
 /// </summary>
 public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
@@ -23,7 +22,7 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
     private static readonly HashSet<string> s_AdmittedSourceFields = new(StringComparer.Ordinal)
     {
         "id", "name", "translate", "category", "ess", "capacity", "avail", "cost",
-        "source", "page", "forcegrade", "bannedgrades"
+        "source", "page", "forcegrade", "bannedgrades", "rating", "minrating"
     };
 
     private readonly IContentOverlayCatalogService _overlays;
@@ -48,6 +47,9 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
     }
 
     public CharacterCyberwarePurchasePreparation Prepare(string characterXml, long contentRevision)
+        => Prepare(characterXml, contentRevision, legacyV1: false);
+
+    private CharacterCyberwarePurchasePreparation Prepare(string characterXml, long contentRevision, bool legacyV1, bool installedCommerce = false)
     {
         string characterDigest = CharacterCyberwarePurchaseRules.ComputeCharacterDigest(characterXml);
         var blockers = new List<string>();
@@ -55,6 +57,7 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
         var exclusions = new List<CharacterCyberwarePurchaseCatalogExclusion>();
         string profileId = string.Empty;
         string cyberwareDigest = string.Empty;
+        string settingsAuthority = string.Empty;
         decimal nuyen = 0m;
         bool exCon = false;
         int? hole = null;
@@ -76,10 +79,12 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             if (!TryReadBoolean(root, "excon", out exCon))
                 blockers.Add("The saved character has no unique Ex-Con availability state.");
             if (root.Elements("improvements").Take(2).Count() > 1
-                || root.Elements("improvements").Any(container => container.Elements().Any()))
+                || !installedCommerce && root.Elements("improvements").Any(container => container.Elements().Any()))
             {
                 blockers.Add(CharacterCyberwarePurchaseBlockers.ImprovementsUnsupported);
             }
+            if (installedCommerce && CommerceImprovementStateBlocker(root) is string effectBlocker)
+                blockers.Add(effectBlocker);
             if (!TryReadEssenceHole(root, EssenceHoleSourceId, out hole)
                 || !TryReadEssenceHole(root, EssenceAntiHoleSourceId, out antiHole))
             {
@@ -154,20 +159,26 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             && context is not null
             && !string.IsNullOrWhiteSpace(profileId))
         {
-            if (!TryResolveSettings(catalog.BaseDataPath, profileId, out settings))
+            // Existing settings.xml receipts retain their original projection and digest.
+            // Newly supported profiles use the same source-bound selection as Bioware.
+            bool sourceBoundSettings = !legacyV1
+                && CharacterCreationBootstrapProfiles.SettingsSourceFile(profileId) != "settings.xml";
+            if ((sourceBoundSettings && HasSelectedAugmentationCustomData(root!))
+                || !TryResolveSettings(catalog.BaseDataPath, profileId, context, sourceBoundSettings,
+                    out settings, out settingsAuthority))
             {
                 blockers.Add("The exact Cyberware purchase settings could not be projected.");
             }
-            else if (!TryProjectCatalog(
-                         sourceDocument,
-                         context,
-                         settings,
-                         exCon,
-                         out entries,
-                         out exclusions,
-                         out string? catalogBlocker))
+            else
             {
-                blockers.Add(catalogBlocker ?? CharacterCyberwarePurchaseBlockers.SourceAuthorityUnavailable);
+                string? catalogBlocker;
+                bool projected = legacyV1
+                    ? LegacyV1ReceiptAuthority.TryProjectCatalog(sourceDocument, context, settings, exCon,
+                        out entries, out exclusions, out catalogBlocker)
+                    : TryProjectCatalog(sourceDocument, context, settings, exCon,
+                        out entries, out exclusions, out catalogBlocker, installedCommerce);
+                if (!projected)
+                    blockers.Add(catalogBlocker ?? CharacterCyberwarePurchaseBlockers.SourceAuthorityUnavailable);
             }
         }
 
@@ -176,7 +187,9 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
         string[] normalizedBlockers = Normalize(blockers);
         entries.Sort((left, right) => left.SourceId.Value.CompareTo(right.SourceId.Value));
         exclusions.Sort((left, right) => left.SourceId.Value.CompareTo(right.SourceId.Value));
-        string catalogDigest = ComputeCatalogDigest(profileId, cyberwareDigest, settings, entries, exclusions);
+        string catalogDigest = legacyV1
+            ? LegacyV1ReceiptAuthority.ComputeCatalogDigest(profileId, cyberwareDigest, settings, entries, exclusions)
+            : ComputeCatalogDigest(profileId, cyberwareDigest, settings, entries, exclusions, settingsAuthority);
         return new CharacterCyberwarePurchasePreparation(
             Exact: normalizedBlockers.Length == 0,
             Blockers: normalizedBlockers,
@@ -328,9 +341,27 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             || !FixedEquals(receipt.CharacterDigest, preparation.CharacterDigest))
             return Blocked(characterXml, currentContentRevision, instanceId, expenseId,
                 CharacterCyberwarePurchaseBlockers.StaleCharacter);
+        bool legacyV1Receipt = false;
         if (!FixedEquals(receipt.CatalogDigest, preparation.CatalogDigest))
-            return Blocked(characterXml, currentContentRevision, instanceId, expenseId,
-                CharacterCyberwarePurchaseBlockers.StaleCatalog);
+        {
+            // Only an already-issued fixed-row receipt may use the frozen v1 authority.
+            // New purchases and undispatched quotes always require current review.
+            if (receipt.Selection is not { Rating: 0 }
+                || !CharacterCyberwarePurchaseRules.IsCanonicalDigest(receipt.CatalogDigest))
+                return Blocked(characterXml, currentContentRevision, instanceId, expenseId,
+                    CharacterCyberwarePurchaseBlockers.StaleCatalog);
+            CharacterCyberwarePurchasePreparation legacy = Prepare(characterXml, currentContentRevision, legacyV1: true);
+            if (!legacy.Exact)
+                return Blocked(characterXml, currentContentRevision, instanceId, expenseId,
+                    legacy.Blockers.Count == 0
+                        ? CharacterCyberwarePurchaseBlockers.SourceAuthorityUnavailable
+                        : legacy.Blockers[0]);
+            if (!FixedEquals(receipt.CatalogDigest, legacy.CatalogDigest))
+                return Blocked(characterXml, currentContentRevision, instanceId, expenseId,
+                    CharacterCyberwarePurchaseBlockers.StaleCatalog);
+            preparation = legacy;
+            legacyV1Receipt = true;
+        }
         if (receipt.Selection is null
             || !CharacterCyberwarePurchaseRules.IsCanonicalDigest(receipt.PreviousCharacterDigest)
             || !FixedEquals(receipt.ReceiptDigest, CharacterCyberwarePurchaseRules.ComputeUndoReceiptDigest(receipt))
@@ -369,7 +400,9 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             EssenceHoleRating = receipt.PreviousEssenceHoleRating,
             EssenceAntiHoleRating = receipt.PreviousEssenceAntiHoleRating
         };
-        CharacterCyberwarePurchaseQuote receiptQuote = Quote(purchasePreparation, receipt.Selection);
+        CharacterCyberwarePurchaseQuote receiptQuote = legacyV1Receipt
+            ? LegacyV1ReceiptAuthority.Quote(purchasePreparation, receipt.Selection)
+            : Quote(purchasePreparation, receipt.Selection);
         if (!TryAdd(receipt.PreviousAvailableNuyen, receipt.NuyenDelta, out decimal expectedCurrentNuyen)
             || !receiptQuote.Exact
             || !FixedEquals(receiptQuote.QuoteDigest, receipt.QuoteDigest)
@@ -534,7 +567,7 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
         bool exCon,
         out List<CharacterCyberwarePurchaseCatalogEntry> entries,
         out List<CharacterCyberwarePurchaseCatalogExclusion> exclusions,
-        out string? blocker)
+        out string? blocker, bool installedCommerce = false)
     {
         entries = [];
         exclusions = [];
@@ -583,13 +616,20 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
         {
             string name = ReadOptionalScalar(row, "name");
             var sourceId = new CharacterCyberwareSourceId(id);
-            string? reason = SourceExclusionReason(row, id, name, exCon);
+            string? reason = installedCommerce
+                ? CommerceSourceExclusionReason(row, id, name, exCon)
+                : SourceExclusionReason(row, id, name, exCon);
             CharacterCyberwareCommerceSource resolved = CharacterCyberwareCommerceSource.Unavailable;
             if (reason is null
                 && (!context.TryResolveCyberwareCommerceSource(id.ToString("D"), name, "Cyberware", out resolved)
-                    || resolved.SourceEntryUsesGeneratedOrImprovementSemantics
+                    || !installedCommerce && resolved.SourceEntryUsesGeneratedOrImprovementSemantics
                     || !string.Equals(resolved.SourceId, id.ToString("D"), StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(resolved.Name, name, StringComparison.Ordinal)))
+                    || !string.Equals(resolved.Name, name, StringComparison.Ordinal)
+                    || !string.Equals(resolved.MinimumRatingExpression, ReadOptionalScalar(row, "minrating"), StringComparison.Ordinal)
+                    || !string.Equals(resolved.MaximumRatingExpression, ReadOptionalScalar(row, "rating"), StringComparison.Ordinal)
+                    || !string.Equals(resolved.CostExpression, ReadOptionalScalar(row, "cost"), StringComparison.Ordinal)
+                    || !string.Equals(resolved.EssenceExpression, ReadOptionalScalar(row, "ess"), StringComparison.Ordinal)
+                    || !string.Equals(resolved.CapacityExpression, ReadOptionalScalar(row, "capacity"), StringComparison.Ordinal)))
             {
                 reason = "Exact enabled-book/profile source resolution failed.";
             }
@@ -630,6 +670,8 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             }
             grades.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
             string category = ReadOptionalScalar(row, "category");
+            // SourceExclusionReason has already required exact integer bounds.
+            TryReadRatingBounds(row, out int minimumRating, out int maximumRating);
             entries.Add(new CharacterCyberwarePurchaseCatalogEntry(
                 sourceId,
                 name,
@@ -643,7 +685,9 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
                 blackMarketCategories.Contains(category),
                 resolved.ForcedGrade,
                 resolved.BannedGrades.OrderBy(value => value, StringComparer.Ordinal).ToArray(),
-                grades.ToArray()));
+                grades.ToArray(),
+                minimumRating,
+                maximumRating));
         }
         return true;
     }
@@ -667,30 +711,70 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             || row.Elements("bannedgrades").Any(container => container.HasAttributes
                 || container.Elements().Any(node => node.Name.LocalName != "grade" || node.HasAttributes || node.HasElements)))
             return "The source grade constraints are ambiguous.";
-        if (!decimal.TryParse(ReadOptionalScalar(row, "cost"), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal cost)
-            || !decimal.TryParse(ReadOptionalScalar(row, "ess"), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal essence)
-            || cost < 0m || essence < 0m)
-            return "Dynamic or negative cost/Essence expressions are outside the fixed-value slice.";
-        if (!FixedAvailability().IsMatch(ReadOptionalScalar(row, "avail")))
-            return "Dynamic availability expressions are outside the fixed-value slice.";
+        if (!TryReadRatingBounds(row, out int minimumRating, out int maximumRating))
+            return "The source rating bounds are unsupported, invalid, or ambiguous.";
+        foreach (int rating in new[] { minimumRating, maximumRating })
+        {
+            if (!CharacterCyberwarePurchaseRules.TryEvaluateSourceExpression(ReadOptionalScalar(row, "cost"), rating, out _)
+                || !CharacterCyberwarePurchaseRules.TryEvaluateSourceExpression(ReadOptionalScalar(row, "ess"), rating, out _))
+                return "Unsupported or negative cost/Essence expressions are outside the exact purchase slice.";
+            if (!CharacterCyberwarePurchaseRules.TryEvaluateAvailability(ReadOptionalScalar(row, "avail"), rating, out _))
+                return "Unsupported availability expressions are outside the exact purchase slice.";
+        }
         if (exCon && (ReadOptionalScalar(row, "avail").EndsWith('R')
                       || ReadOptionalScalar(row, "avail").EndsWith('F')))
             return "Ex-Con characters cannot buy restricted or forbidden Cyberware in the bounded lane.";
         return null;
     }
 
+    private static bool TryReadRatingBounds(XElement row, out int minimumRating, out int maximumRating)
+    {
+        minimumRating = maximumRating = 0;
+        if (!row.Elements("rating").Any())
+            return !row.Elements("minrating").Any();
+        if (!TryReadInteger(row, "rating", out maximumRating) || maximumRating < 0)
+            return false;
+        // Legacy SelectCyberware uses 1 when a rated row omits minrating.
+        // An explicit zero rating denotes a non-rated row, not a fallback.
+        minimumRating = maximumRating == 0 ? 0 : 1;
+        if (row.Elements("minrating").Any() && !TryReadInteger(row, "minrating", out minimumRating))
+            return false;
+        return minimumRating >= 0 && minimumRating <= maximumRating;
+    }
+
     private static bool TryResolveSettings(
         string baseDataPath,
         string profileId,
-        out CharacterCyberwarePurchaseSettings settings)
+        ICharacterSourceDataContext context,
+        bool sourceBoundSettings,
+        out CharacterCyberwarePurchaseSettings settings,
+        out string settingsAuthority)
     {
         settings = new CharacterCyberwarePurchaseSettings(false, false, 0m, false, 0m, 0, false, []);
+        settingsAuthority = string.Empty;
         try
         {
-            XDocument document = XDocument.Load(Path.Combine(baseDataPath, "settings.xml"), LoadOptions.None);
-            XElement[] matches = document.Root?.Element("settings")?.Elements("setting").Where(node =>
-                    string.Equals(ReadOptionalScalar(node, "id"), profileId, StringComparison.OrdinalIgnoreCase))
-                .Take(2).ToArray() ?? [];
+            XElement[] matches;
+            if (sourceBoundSettings)
+            {
+                if (!context.TryResolveCareerSettingsProfile(out string profileXml, out settingsAuthority)
+                    || string.IsNullOrWhiteSpace(settingsAuthority))
+                    return false;
+                XElement profile = XElement.Parse(profileXml, LoadOptions.None);
+                if (!TryReadScalar(profile, "id", out string selectedId)
+                    || !string.Equals(selectedId, profileId, StringComparison.Ordinal)
+                    || HasSelectedAugmentationCustomData(profile))
+                    return false;
+                matches = [profile];
+            }
+            else
+            {
+                // Frozen v1 and already-issued legacy-profile v2 receipts used this exact path.
+                XDocument document = XDocument.Load(Path.Combine(baseDataPath, "settings.xml"), LoadOptions.None);
+                matches = document.Root?.Element("settings")?.Elements("setting").Where(node =>
+                        string.Equals(ReadOptionalScalar(node, "id"), profileId, StringComparison.OrdinalIgnoreCase))
+                    .Take(2).ToArray() ?? [];
+            }
             if (matches.Length != 1
                 || !TryReadBoolean(matches[0], "allowcyberwareessdiscounts", out bool allowDiscounts)
                 || !TryReadBoolean(matches[0], "multiplyrestrictedcost", out bool multiplyRestricted)
@@ -750,11 +834,12 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
         string cyberwareDigest,
         CharacterCyberwarePurchaseSettings settings,
         IEnumerable<CharacterCyberwarePurchaseCatalogEntry> entries,
-        IEnumerable<CharacterCyberwarePurchaseCatalogExclusion> exclusions)
+        IEnumerable<CharacterCyberwarePurchaseCatalogExclusion> exclusions,
+        string settingsAuthority)
     {
         var lines = new List<string>
         {
-            "career-cyberware-purchase-catalog-v1",
+            "career-cyberware-purchase-catalog-v2",
             profileId,
             cyberwareDigest,
             settings.AllowEssenceDiscounts.ToString(CultureInfo.InvariantCulture),
@@ -765,6 +850,9 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             settings.EssenceDecimals.ToString(CultureInfo.InvariantCulture),
             settings.DoNotRoundEssenceInternally.ToString(CultureInfo.InvariantCulture)
         };
+        if (!string.IsNullOrEmpty(settingsAuthority))
+            lines.Add("settings-authority:" + Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(settingsAuthority))).ToLowerInvariant());
         lines.AddRange(settings.BannedGrades.Select(value => $"profile-banned-grade:{value}"));
         lines.AddRange(CharacterCyberwarePurchaseLegacyAuthority.CanonicalInputs);
         foreach (CharacterCyberwarePurchaseCatalogEntry entry in entries.OrderBy(item => item.SourceId.Value))
@@ -773,6 +861,8 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
                 "entry", entry.SourceId.Value.ToString("D"), entry.Name, entry.Category,
                 entry.EssenceExpression, entry.CapacityExpression, entry.AvailabilityExpression,
                 entry.CostExpression, entry.SourceBook, entry.Page,
+                entry.MinimumRating.ToString(CultureInfo.InvariantCulture),
+                entry.MaximumRating.ToString(CultureInfo.InvariantCulture),
                 entry.BlackMarketEligible.ToString(CultureInfo.InvariantCulture), entry.ForcedGrade,
                 string.Join(",", entry.BannedGrades)));
             lines.AddRange(entry.Grades.OrderBy(item => item.Id.Value).Select(grade => string.Join("|",
@@ -815,8 +905,8 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
             Scalar("rating", selection.Rating.ToString(CultureInfo.InvariantCulture)),
             Scalar("minagility", "0"),
             Scalar("minstrength", "0"),
-            Scalar("minrating", string.Empty),
-            Scalar("maxrating", string.Empty),
+            Scalar("minrating", entry.MaximumRating == 0 ? string.Empty : entry.MinimumRating.ToString(CultureInfo.InvariantCulture)),
+            Scalar("maxrating", entry.MaximumRating == 0 ? string.Empty : entry.MaximumRating.ToString(CultureInfo.InvariantCulture)),
             Scalar("ratinglabel", string.Empty),
             Scalar("subsystems", string.Empty),
             Scalar("wirelesson", "False"),
@@ -1049,6 +1139,4 @@ public sealed partial class FileSystemCharacterCyberwarePurchaseAuthority :
     private static bool IsReadFailure(Exception exception)
         => exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
 
-    [GeneratedRegex("^[0-9]+[RF]?$", RegexOptions.CultureInvariant)]
-    private static partial Regex FixedAvailability();
 }

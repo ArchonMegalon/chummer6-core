@@ -50,7 +50,11 @@ public sealed record SessionProfileCatalog(
 public sealed record SessionPatchRequest(
     string OverlayId,
     CharacterVersionReference BaseCharacterVersion,
-    IReadOnlyList<SessionEventEnvelope> Events);
+    IReadOnlyList<SessionEventEnvelope> Events)
+{
+    // Caller persists this identity and the exact request before dispatch; recovery never creates another ID.
+    public string? OperationId { get; init; }
+}
 
 public sealed record SessionPinUpdateRequest(
     string OverlayId,
@@ -166,6 +170,8 @@ public sealed record SessionApiResult<T>(
     SessionOperationObservability? Observability = null)
 {
     public bool IsImplemented => NotImplemented is null;
+    public SessionPlayFailure? Failure { get; init; }
+    public static SessionApiResult<T> Failed(SessionPlayFailure failure) => new() { Failure = failure };
 
     public static SessionApiResult<T> Implemented(T payload, SessionOperationObservability? observability = null)
         => new(payload, null, observability);

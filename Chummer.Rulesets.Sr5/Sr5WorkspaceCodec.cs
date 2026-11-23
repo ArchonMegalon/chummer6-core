@@ -54,6 +54,11 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
         return _characterSectionQueries.ParseSection(sectionId, new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
     }
 
+    public object ParseSection(string sectionId, WorkspaceStoredDocument observation)
+        => string.Equals(sectionId?.Trim(), "sheetderived", StringComparison.OrdinalIgnoreCase)
+            ? _characterSectionQueries.ParseSection(sectionId!, observation)
+            : ParseSection(sectionId!, observation.Document.PayloadEnvelope);
+
     public CharacterOverviewProjection ParseOverview(WorkspacePayloadEnvelope envelope)
         => _characterSectionQueries.ParseOverview(
             new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
@@ -245,8 +250,9 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
     {
         CharacterSkillSummary[] skills = character
             .Element("newskills")?
-            .Element("skills")?
-            .Elements("skill")
+            .Elements()
+            .Where(section => section.Name == "skills" || section.Name == "knoskills")
+            .SelectMany(section => section.Elements("skill"))
             .Select(skill => new CharacterSkillSummary(
                 Guid: ReadValue(skill, "guid"),
                 Suid: ReadValue(skill, "suid"),

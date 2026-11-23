@@ -1,7 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
+using System.Xml.Linq;
 using Chummer.Application.Content;
+using Chummer.Application.Characters;
+using Chummer.Contracts.Content;
 
 namespace Chummer.Infrastructure.Xml;
 
@@ -17,6 +20,8 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
     internal const int MaximumTextBytes = 64 * 1024;
     internal const long MaximumXmlCharacters = 16L * 1024 * 1024;
     internal const int MaximumXmlDepth = 128;
+    internal const int MaximumPreparedXmlFiles3275 = 32;
+    internal const int MaximumPreparedXmlBytes3275 = 4 * 1024 * 1024;
     private const string Format = "chummer-private-rule-inputs-v1";
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
@@ -29,16 +34,27 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
     private readonly Dictionary<string, byte[]> _files;
     private readonly Dictionary<string, bool> _existence;
     private readonly Dictionary<InventoryKey, Inventory> _inventories;
+    private readonly PreparedXmlScope4505 _preparedXml3275;
     internal string CharacterXml { get; }
     internal string PolicyDigest { get; }
     internal string ProfileId { get; }
+    // Private, digest-bound projection identity, not execution or save authority.
+    // Historical formats omit it and retain their exact catalog and serialization.
+    internal bool NativeFocusGearCatalog1339 { get; }
 
     internal RetainedCharacterRuleSourceInputs(ContentOverlayCatalog catalog, string characterXml,
         string policyDigest, string profileId, IEnumerable<Selection> selection,
         IReadOnlyDictionary<string, byte[]> files, IReadOnlyDictionary<string, bool> existence,
-        IEnumerable<Inventory> inventories, bool portable = false, char? sourcePathSeparator = null)
+        IEnumerable<Inventory> inventories, bool portable = false, char? sourcePathSeparator = null,
+        string dependencyRecipe1244 = LegacyDependencyRecipe1244,
+        bool nativeFocusGearCatalog1339 = false, string? compatibilityProfile = null,
+        PreparedXmlScope4505? preparedXmlScope = null)
     {
+        _preparedXml3275 = preparedXmlScope ?? new PreparedXmlScope4505();
         _portable = portable;
+        CompatibilityProfile = compatibilityProfile;
+        NativeFocusGearCatalog1339 = nativeFocusGearCatalog1339;
+        DependencyRecipe1244 = ValidateDependencyRecipe1244(dependencyRecipe1244);
         SourcePathSeparator = sourcePathSeparator ?? Path.DirectorySeparatorChar;
         if (SourcePathSeparator is not ('/' or '\\')
             || (!portable && SourcePathSeparator != Path.DirectorySeparatorChar)) throw Rejected();
@@ -86,6 +102,12 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         }
         ValidateText(policyDigest); ValidateText(profileId);
         if (_portable) ValidatePortablePrivacy();
+        if (compatibilityProfile is not null)
+        {
+            CompatibilityDiagnostics = InspectLegacyImport();
+            if (CompatibilityDiagnostics.Any(row => row.Severity == RulePackResolutionSeverityLevels.Error))
+                throw new CompatibilityRejection(CompatibilityDiagnostics);
+        }
     }
 
     internal IReadOnlyList<Selection> SelectionInputs => Array.AsReadOnly(_selection.ToArray());
@@ -96,6 +118,79 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
 
     internal byte[] ReadAllBytes(string path)
         => _files.TryGetValue(path, out byte[]? bytes) ? bytes.ToArray() : throw Rejected();
+
+    // Raw parsing only: no selected profile, merged tree, projection, consumer
+    // observation or authority enters this preparation. The sealed capture owns
+    // detached bytes; each independent reconstruction still reads/admits its bytes
+    // and receives its own mutable tree. A private workspace may lend a bounded
+    // parsing scope to its imports; ordinary captures keep an input-local scope.
+    // No policy/admission result or parsing preparation enters the archive.
+    internal bool TryReadPreparedXml3275(string path, ReadOnlySpan<byte> expectedBytes,
+        out XDocument? document, out bool parsed)
+    {
+        document = null;
+        parsed = false;
+        if (!_files.TryGetValue(path, out byte[]? bytes)
+            || !expectedBytes.SequenceEqual(bytes)) return false;
+        return _preparedXml3275.TryRead(path, bytes, out document, out parsed);
+    }
+
+    // Owned by one RetainedRuleSourceWorkspace (or one unshared input). The key
+    // includes the reader's exact base URI and bytes, not an archive/policy digest.
+    // Entries contain only raw parsing results; resolvers and accounting stay fresh.
+    // A changed file, full scope or retired scope takes the ordinary parsing path.
+    internal sealed class PreparedXmlScope4505 : IDisposable
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, (byte[] Bytes, XDocument Document)> _documents = new(StringComparer.Ordinal);
+        private int _bytes;
+        private bool _active = true;
+
+        internal bool TryRead(string path, byte[] bytes, out XDocument? document, out bool parsed)
+        {
+            document = null;
+            parsed = false;
+            lock (_sync)
+            {
+                if (!_active) return false;
+                if (_documents.TryGetValue(path, out var prepared))
+                {
+                    if (!bytes.AsSpan().SequenceEqual(prepared.Bytes)) return false;
+                    document = new XDocument(prepared.Document);
+                    return true;
+                }
+                if (_documents.Count >= MaximumPreparedXmlFiles3275
+                    || bytes.Length > MaximumPreparedXmlBytes3275 - _bytes) return false;
+
+                // Same parser/options as SourceInputSnapshot. Retain an owned byte
+                // copy for exact comparisons; neither it nor this tree escapes.
+                byte[] owned = bytes.ToArray();
+                using var stream = new MemoryStream(owned, writable: false);
+                using XmlReader reader = XmlReader.Create(stream, new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Prohibit,
+                    XmlResolver = null
+                }, path);
+                XDocument tree = XDocument.Load(reader, LoadOptions.None);
+                if (tree.Root is null) return false;
+                _documents.Add(path, (owned, tree));
+                _bytes += owned.Length;
+                document = new XDocument(tree);
+                parsed = true;
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_sync)
+            {
+                _active = false;
+                _documents.Clear();
+                _bytes = 0;
+            }
+        }
+    }
 
     internal bool FileExists(string path)
         => _existence.TryGetValue(path, out bool exists) ? exists : throw Rejected();
@@ -133,7 +228,7 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         if (xml.Length > MaximumXmlCharacters) throw Rejected();
         using var input = new StringReader(xml);
         using var reader = XmlReader.Create(input, XmlSettings());
-        ValidateReader(reader);
+        ValidateReader(reader, "character", Digest(Utf8.GetBytes(xml)));
     }
 
     internal static XmlReaderSettings XmlSettings() => new()
@@ -148,10 +243,10 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         if (!string.Equals(Path.GetExtension(path), ".xml", StringComparison.OrdinalIgnoreCase)) return;
         using var stream = new MemoryStream(bytes, writable: false);
         using var reader = XmlReader.Create(stream, XmlSettings());
-        ValidateReader(reader);
+        ValidateReader(reader, path, Digest(bytes));
     }
 
-    private static void ValidateReader(XmlReader reader)
+    private static void ValidateReader(XmlReader reader, string source, string digest)
     {
         while (reader.Read())
         {
@@ -162,7 +257,10 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
             if (reader.NodeType == XmlNodeType.Element && reader.HasAttributes)
             {
                 while (reader.MoveToNextAttribute())
-                    if (reader.LocalName is "xpathfilter" or "regexpattern") throw Rejected();
+                    if (reader.LocalName is "xpathfilter" or "regexpattern")
+                        throw new CompatibilityRejection([CompatibilityDiagnostic("unsupported-" + reader.LocalName,
+                            source, digest, reader as IXmlLineInfo,
+                            "Retained capture forbids XPath and regex directives; original input was not rewritten.")]);
                 reader.MoveToElement();
             }
         }
@@ -173,9 +271,11 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         // Count first, including metadata, before allocating the archive buffer.
         using var counter = new BoundedCountingStream();
         using (var writer = new BinaryWriter(counter, Utf8, leaveOpen: true)) Write(writer);
-        using var stream = new MemoryStream(checked((int)counter.Length));
+        byte[] archive = new byte[checked((int)counter.Length)];
+        using var stream = new MemoryStream(archive, writable: true);
         using (var writer = new BinaryWriter(stream, Utf8, leaveOpen: true)) Write(writer);
-        return stream.ToArray();
+        if (stream.Position != archive.Length) throw Rejected();
+        return archive;
     }
 
     internal static string Digest(ReadOnlySpan<byte> bytes)
@@ -183,8 +283,15 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
 
     private void Write(BinaryWriter writer)
     {
-        WriteText(writer, _portable ? PortableFormat : Format);
-        if (_portable) writer.Write((byte)SourcePathSeparator); WriteText(writer, CharacterXml, MaximumArchiveBytes);
+        WriteCaptureHeader1244(writer);
+        WriteText(writer, CharacterXml, MaximumArchiveBytes);
+        WriteEnvironmentInputs(writer);
+    }
+
+    // Reuse the archive's canonical encoding for the environment binding. Character
+    // bytes remain separately bound by the existing whole-capture IntegrityDigest.
+    private void WriteEnvironmentInputs(BinaryWriter writer)
+    {
         WriteText(writer, PolicyDigest); WriteText(writer, ProfileId);
         WriteArchivePath(writer, _catalog.BaseDataPath); WriteArchivePath(writer, _catalog.BaseLanguagePath);
         writer.Write(_catalog.Overlays.Count);
@@ -220,18 +327,16 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         }
     }
 
-    internal static RetainedCharacterRuleSourceInputs Import(ReadOnlySpan<byte> bytes, string expectedDigest)
+    internal static RetainedCharacterRuleSourceInputs Import(ReadOnlySpan<byte> bytes, string expectedDigest,
+        PreparedXmlScope4505? preparedXmlScope = null)
     {
         if (bytes.Length > MaximumArchiveBytes) throw Rejected();
         byte[] detached = bytes.ToArray();
         if (Digest(detached) != expectedDigest) throw Rejected();
         using var stream = new MemoryStream(detached, writable: false);
         using var reader = new BinaryReader(stream, Utf8);
-        string format = ReadText(reader);
-        bool portable = format == PortableFormat;
-        char separator = portable ? (char)reader.ReadByte() : Path.DirectorySeparatorChar;
-        if (separator is not ('/' or '\\')) throw Rejected();
-        if (!portable && format != Format) throw Rejected();
+        ReadCaptureHeader1244(reader, out bool portable, out char separator, out string recipe1244,
+            out bool nativeFocusGearCatalog1339, out string? compatibilityProfile);
         string ReadPath() => portable ? FromAddress(ReadText(reader)) : ReadText(reader);
         string character = ReadText(reader, checked((int)MaximumXmlCharacters * 4));
         ValidateCharacter(character);
@@ -252,7 +357,9 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
             int length = ReadCount(reader, MaximumFileBytes);
             if (total + length > MaximumTotalBytes) throw Rejected();
             byte[] content = ReadBytes(reader, length);
-            ValidateFile(path, content, ref total);
+            // Keep allocation bounds here; the constructor below validates every detached
+            // file's XML before retaining it. Do not parse those same bytes twice.
+            total += content.LongLength;
             if (!files.TryAdd(path, content)) throw Rejected();
         }
         var existence = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -272,10 +379,18 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         }
         if (stream.Position != stream.Length) throw Rejected();
         var result = new RetainedCharacterRuleSourceInputs(new(data, language, packs), character,
-            policy, profile, selection, files, existence, inventories, portable, separator);
+            policy, profile, selection, files, existence, inventories, portable, separator, recipe1244,
+            nativeFocusGearCatalog1339, compatibilityProfile, preparedXmlScope);
         // Canonical encoding rejects alternate ordering, duplicate/ambiguous address encodings,
         // trailing fields and alternate spellings. V1 remains byte-compatible for local recovery.
-        if (portable && !result.Export().AsSpan().SequenceEqual(detached)) throw Rejected();
+        if (portable || recipe1244 != LegacyDependencyRecipe1244 || nativeFocusGearCatalog1339 || compatibilityProfile is not null)
+        {
+            // Compare the same canonical writer directly with the owned input.
+            // No admission result is cached and alternate encodings still fail.
+            using var comparison = new CanonicalComparisonStream(detached);
+            using (var writer = new BinaryWriter(comparison, Utf8, leaveOpen: true)) result.Write(writer);
+            if (comparison.Position != comparison.Length) throw Rejected();
+        }
         return result;
     }
 
@@ -297,7 +412,32 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
     {
         int length = Utf8.GetByteCount(value);
         if (length > maximum) throw Rejected();
-        writer.Write(length); writer.Write(Utf8.GetBytes(value));
+        writer.Write(length);
+        // GetByteCount already checks the strict UTF-8 encoding. The sizing pass
+        // needs its length, not a second temporary encoded copy of every string.
+        if (writer.BaseStream is BoundedCountingStream counter) counter.Advance(length);
+        else writer.Write(Utf8.GetBytes(value));
+    }
+
+    private sealed class CanonicalComparisonStream(byte[] expected) : Stream
+    {
+        private int _position;
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => expected.Length;
+        public override long Position { get => _position; set => throw new NotSupportedException(); }
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            if (buffer.Length > expected.Length - _position
+                || !buffer.SequenceEqual(expected.AsSpan(_position, buffer.Length))) throw Rejected();
+            _position += buffer.Length;
+        }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     private sealed class BoundedCountingStream : Stream
@@ -309,9 +449,10 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         public override long Length => _length;
         public override long Position { get => _length; set => throw new NotSupportedException(); }
         public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
-        public override void Write(ReadOnlySpan<byte> buffer)
+        public override void Write(ReadOnlySpan<byte> buffer) => Advance(buffer.Length);
+        internal void Advance(int count)
         {
-            if ((_length += buffer.Length) > MaximumArchiveBytes) throw Rejected();
+            if ((_length += count) > MaximumArchiveBytes) throw Rejected();
         }
         public override void Flush() { }
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();

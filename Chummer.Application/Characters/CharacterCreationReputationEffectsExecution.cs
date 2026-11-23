@@ -53,7 +53,8 @@ internal sealed class CharacterCreationReputationEffectsExecution
         CharacterCreationOriginalCharacterSource original,
         CharacterCreationCompleteAssessment authority, CharacterCreationSelectedEffectsConsumer effects,
         out CharacterCreationReputationEffectsExecution? execution, out string error,
-        CancellationToken cancellationToken = default, CharacterCreationCampaignExecutionContext? campaign = null)
+        CancellationToken cancellationToken = default, CharacterCreationCampaignExecutionContext? campaign = null,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8562 = null)
     {
         execution = null;
         error = "creation_reputation_inputs_unavailable";
@@ -111,12 +112,22 @@ internal sealed class CharacterCreationReputationEffectsExecution
             // Review evaluates creation only. Its admitted selections and finalization
             // seed determine native provenance; caller-supplied final IDs never do.
             var ruleSources = new CharacterCreationRuleSourceExecutionContext(capture, queries);
-            var reviewed = campaign is { IsCommittedReplay: true }
-                ? CharacterCreationCompletionReviewService.ReplayCommittedCampaign(
-                    admitted.Inputs, request, observation, ruleSources, campaign, cancellationToken)
-                : CharacterCreationCompletionReviewService.Review(admitted.Inputs, request,
-                    cancellationToken, ruleSources, campaign);
-            if (reviewed.Outcome != CharacterCreationFoundationOutcomes.Success || reviewed.Value is not { } review
+            var review = currentReview8562?.CopyReputationReview8562(
+                capture, queries, admitted.Inputs, request, campaign, cancellationToken);
+            if (review is not null) CharacterCreationCompletionCost3340.Log.Checkpoint(8562);
+            if (review is null)
+            {
+                // Independent selected/committed replay and any changed inputs
+                // retain the original full admission/evaluation path.
+                var reviewed = campaign is { IsCommittedReplay: true }
+                    ? CharacterCreationCompletionReviewService.ReplayCommittedCampaign(
+                        admitted.Inputs, request, observation, ruleSources, campaign, cancellationToken)
+                    : CharacterCreationCompletionReviewService.Review(admitted.Inputs, request,
+                        cancellationToken, ruleSources, campaign);
+                if (reviewed.Outcome != CharacterCreationFoundationOutcomes.Success) return false;
+                review = reviewed.Value;
+            }
+            if (review is null
                 || !TryBuildFinalImprovements(admitted.Inputs, review, original, out var finalImprovements, cancellationToken)
                 || !TryBindAmmunition(review, request, authority, candidate,
                     out var ammunitionIdentities, cancellationToken)

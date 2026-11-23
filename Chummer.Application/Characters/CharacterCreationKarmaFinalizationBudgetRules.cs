@@ -144,7 +144,8 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
             || !CharacterCreationKarmaSkillsRules.IsValid(quote.Skills, quote.Metatype, quote.Talent, quote.Attributes, quote.Skills.Selection)
             || quote.Qualities.Selections is null || quote.Qualities.Selections.Any(item => item is null)
             || !CharacterCreationKarmaQualitiesRules.IsValid(quote.Qualities, quote.Metatype, quote.Talent,
-                quote.Qualities.Selections.Select(item => item.OptionId).ToArray())
+                quote.Qualities.Selections.Select(item => item.OptionId).ToArray(),
+                    CharacterCreationKarmaQualityPrompts.RetainedValues(quote.Qualities))
             || quote.Contacts is { } contacts && (contacts.Lines is null || contacts.Lines.Any(line => line?.Selection is null))
             || !CharacterCreationKarmaContactsRules.IsValid(CharacterCreationKarmaMagicSelectionRules.WithoutMagic(quote),
                 quote.Contacts?.Lines?.Select(line => line.Selection).ToArray())

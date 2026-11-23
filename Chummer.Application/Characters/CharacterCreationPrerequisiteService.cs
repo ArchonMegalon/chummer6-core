@@ -45,6 +45,145 @@ public sealed partial class CharacterCreationPrerequisiteService :
                               ?? throw new ArgumentNullException(nameof(sourceDataResolver));
     }
 
+    // A read-only current-environment bridge to the same selection kernels as
+    // Preview. The returned value is an observation, never a persisted draft or
+    // completion request. Null means the original character has no choice.
+    internal static bool TryEvaluateCurrentSelection1949(CharacterCreationPrerequisiteAuthority authority,
+        CharacterCreationPrerequisiteDraft? original, out CharacterCreationPrerequisiteDraft? evaluated,
+        out IReadOnlyList<string> blockers)
+    {
+        evaluated = null;
+        var findings = new List<string>();
+        blockers = findings;
+        if (!IsValidAuthority(authority))
+        { findings.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable); return false; }
+        if (original is null) return true;
+        if (original.Schema != CharacterCreationPrerequisiteSchemas.DraftV1
+            || original.DraftDigest != CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(original)
+            || original.BuildMethod != authority.BuildMethod || original.SettingsProfileId != authority.SettingsProfileId
+            || original.Assignments is null || original.HeritageSelection is null || original.TalentSelection is null
+            || original.Assignments.Any(row => row is null)
+            || original.Assignments.Select(row => row.CategoryId).Distinct(StringComparer.Ordinal).Count() != original.Assignments.Count)
+        { findings.Add(CharacterCreationPrerequisiteBlockers.DraftInvalid); return false; }
+        try
+        {
+            var assignments = ResolveAssignments(authority,
+                original.Assignments.ToDictionary(row => row.CategoryId, row => row.Rank, StringComparer.Ordinal), findings);
+            ValidateSelectedRanks(authority, assignments, checked(assignments.Sum(row => row.SumToTenValue)), findings);
+            var heritage = ResolveHeritageSelection(authority, assignments, original.HeritageSelection.SelectionId, findings);
+            var talent = ResolveTalentSelection(authority, assignments, original.TalentSelection.SelectionId,
+                original.TalentSelection.GrantPlan?.ActiveSkills.Select(row => row.SelectionId).ToArray(),
+                original.TalentSelection.GrantPlan?.SkillGroups.Select(row => row.SelectionId).ToArray(), findings);
+            int normal = assignments.SingleOrDefault(row => row.CategoryId == CharacterCreationPriorityCategoryIds.Attributes)
+                ?.BaseNormalAttributePoints ?? -1;
+            if (findings.Count != 0 || normal < 0 || heritage is null || talent is null
+                || authority.CreationKarmaTotal is not int karma) return false;
+            ResolveAttributePointPools718(heritage, talent, normal, findings, out int effective, out int special);
+            var result = original with
+            {
+                AuthorityDigest = authority.AuthorityDigest,
+                PriorityTable = authority.PriorityTable,
+                PriorityArray = authority.PriorityArray.ToArray(),
+                SumToTenTarget = authority.SumToTenTarget,
+                Assignments = assignments,
+                HeritageSelection = heritage,
+                TalentSelection = talent,
+                CreationKarmaTotal = karma,
+                CreationKarmaUsed = heritage.KarmaCost,
+                EffectiveNormalAttributePoints = effective,
+                TotalSpecialAttributePoints = special,
+                DraftDigest = string.Empty
+            };
+            findings.AddRange(BuildBudget(authority, result, false).Blockers);
+            if (findings.Count != 0) return false;
+            evaluated = result with { DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(result) };
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException or FormatException)
+        { findings.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid); return false; }
+    }
+
+    internal sealed record CurrentPartialSelection1949(
+        IReadOnlyList<CharacterCreationPriorityAssignment> Assignments,
+        CharacterCreationPriorityHeritageSelection? Heritage,
+        CharacterCreationPriorityTalentSelection? Talent,
+        IReadOnlyList<string> MissingChoices)
+    {
+        public int? EffectiveNormalAttributePoints { get; init; }
+        public int? TotalSpecialAttributePoints { get; init; }
+    }
+
+    // The caller supplies only choices present in the original XML/auxiliary
+    // state. This shares the individual kernels and never fills missing ranks.
+    internal static bool TryEvaluatePartialCurrentSelection1949(CharacterCreationPrerequisiteAuthority authority,
+        IReadOnlyDictionary<string, string> ranks, string? heritageSelectionId, string? talentSelectionId,
+        out CurrentPartialSelection1949? result, out IReadOnlyList<string> blockers)
+    {
+        result = null;
+        var findings = new List<string>();
+        var missing = new List<string>();
+        blockers = findings;
+        if (!IsValidAuthority(authority))
+        { findings.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable); return false; }
+        if (ranks.Keys.Any(key => !CharacterCreationPriorityCategoryIds.Ordered.Contains(key, StringComparer.Ordinal)))
+        { findings.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid); return false; }
+        var assignments = new List<CharacterCreationPriorityAssignment>();
+        for (int order = 0; order < CharacterCreationPriorityCategoryIds.Ordered.Count; order++)
+        {
+            string category = CharacterCreationPriorityCategoryIds.Ordered[order];
+            if (!ranks.TryGetValue(category, out string? rank)) { missing.Add(category); continue; }
+            var assignment = ResolveAssignment1949(authority, category, rank, order, findings);
+            if (assignment is not null) assignments.Add(assignment);
+        }
+        try
+        {
+            int used = checked(assignments.Sum(row => row.SumToTenValue));
+            ValidateSelectedRanks(authority, assignments, used, findings);
+            if (authority.BuildMethod == CharacterCreationBuildMethods.Priority
+                && assignments.GroupBy(row => row.Rank).Any(group => group.Count() > authority.PriorityArray.Count(rank => rank == group.Key))
+                || authority.BuildMethod == CharacterCreationBuildMethods.SumToTen && used > authority.SumToTenTarget)
+                findings.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
+            CharacterCreationPriorityHeritageSelection? heritage = null;
+            CharacterCreationPriorityTalentSelection? talent = null;
+            if (heritageSelectionId is not null)
+                heritage = ResolveHeritageSelection(authority, assignments, heritageSelectionId, findings);
+            else missing.Add("heritage-selection");
+            if (talentSelectionId is not null)
+                talent = ResolveTalentSelection(authority, assignments, talentSelectionId, null, null, findings);
+            else missing.Add("talent-selection");
+            int? effectiveNormal = null, effectiveSpecial = null;
+            if (heritage is not null && authority.CreationKarmaTotal is int karma && heritage.KarmaCost > karma)
+                findings.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
+            if (heritage is not null && talent is not null
+                && assignments.SingleOrDefault(row => row.CategoryId == CharacterCreationPriorityCategoryIds.Attributes)
+                    ?.BaseNormalAttributePoints is int normal)
+            {
+                ResolveAttributePointPools718(heritage, talent, normal, findings, out int effective, out int special);
+                effectiveNormal = effective;
+                effectiveSpecial = special;
+            }
+            if (findings.Count != 0) return false;
+            result = new(assignments.ToArray(), heritage, talent, missing.ToArray())
+            { EffectiveNormalAttributePoints = effectiveNormal, TotalSpecialAttributePoints = effectiveSpecial };
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
+        { findings.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid); return false; }
+    }
+
+    private static CharacterCreationPriorityAssignment? ResolveAssignment1949(
+        CharacterCreationPrerequisiteAuthority authority, string category, string? rank, int order,
+        ICollection<string> blockers)
+    {
+        if (string.IsNullOrWhiteSpace(rank) || !string.Equals(rank, rank.Trim(), StringComparison.Ordinal))
+        { blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid); return null; }
+        var matches = authority.Options.Where(option => option.CategoryId == category && option.Rank == rank).Take(2).ToArray();
+        if (matches is not [var option])
+        { blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid); return null; }
+        return new(order, category, option.Rank, option.SourceId, option.SourceNodeDigest,
+            option.SumToTenValue, option.BaseNormalAttributePoints, option.SourceAnchorIds.ToArray());
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> Load(
         CharacterCreationPrerequisiteLoadRequest request)
     {
@@ -505,33 +644,8 @@ public sealed partial class CharacterCreationPrerequisiteService :
         for (int order = 0; order < CharacterCreationPriorityCategoryIds.Ordered.Count; order++)
         {
             string category = CharacterCreationPriorityCategoryIds.Ordered[order];
-            string? rank = requested[category];
-            if (string.IsNullOrWhiteSpace(rank)
-                || !string.Equals(rank, rank.Trim(), StringComparison.Ordinal))
-            {
-                blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
-                continue;
-            }
-            CharacterCreationPriorityOptionProjection[] matches = authority.Options
-                .Where(option => string.Equals(option.CategoryId, category, StringComparison.Ordinal)
-                                 && string.Equals(option.Rank, rank, StringComparison.Ordinal))
-                .Take(2)
-                .ToArray();
-            if (matches.Length != 1)
-            {
-                blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
-                continue;
-            }
-            CharacterCreationPriorityOptionProjection option = matches[0];
-            assignments.Add(new CharacterCreationPriorityAssignment(
-                order,
-                category,
-                option.Rank,
-                option.SourceId,
-                option.SourceNodeDigest,
-                option.SumToTenValue,
-                option.BaseNormalAttributePoints,
-                option.SourceAnchorIds.ToArray()));
+            var assignment = ResolveAssignment1949(authority, category, requested[category], order, blockers);
+            if (assignment is not null) assignments.Add(assignment);
         }
         return assignments.ToArray();
     }
@@ -648,7 +762,9 @@ public sealed partial class CharacterCreationPrerequisiteService :
         };
     }
 
-    private static CharacterCreationTalentGrantPlanContribution? ResolveTalentGrantPlan(
+    // The imported-current adapter supplies choices actually persisted by Windows.
+    // Keep the same typed grant planner; this method creates no prerequisite/history.
+    internal static CharacterCreationTalentGrantPlanContribution? ResolveTalentGrantPlan(
         CharacterCreationPriorityTalentOptionProjection talent,
         IReadOnlyList<string>? activeSkillSelectionIds,
         IReadOnlyList<string>? skillGroupSelectionIds,

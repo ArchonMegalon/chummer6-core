@@ -43,9 +43,12 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
             // Purchased catalogue selection is not proof for additional active
             // origin/grant instances. Keep those source obligations unresolved
             // until their own origin-aware selector joins the same trace.
-            var root = XDocument.Parse(Inputs.OriginalCharacter!.RawCharacterXml).Root!;
-            bool gearOrigins = !grantedGearExecuted || root.Elements("gears").Any(node => node.HasAttributes || node.HasElements
-                || !string.IsNullOrWhiteSpace(node.Value));
+            var root = XDocument.Parse(Inputs.OriginalCharacter!.RawCharacterXml, LoadOptions.PreserveWhitespace).Root!;
+            bool ownedAdmitted1253 = CharacterCreationOwnedGearGraph1233.TryPrepare(root,
+                Inputs.OriginalCharacter.WorkspaceId, lines, out var owned1253, resolution.Resolver,
+                original.PriorityGrants3563(resolution.Resolver))
+                && owned1253!.RetainedNodesMatch1253(compiledGraph);
+            bool gearOrigins = !grantedGearExecuted || !ownedAdmitted1253;
             bool qualityGrants = evaluated.GrantedQualities.Count != 0
                 || Inputs.Magic.SelectedTalent.GrantedQualitySources is { Count: > 0 }
                 || Inputs.Skills.PrerequisiteDraft.HeritageSelection?.RacialQualitySources is { Count: > 0 };

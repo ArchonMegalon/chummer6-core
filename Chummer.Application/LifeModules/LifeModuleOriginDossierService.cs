@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Chummer.Application.Characters;
 using Chummer.Contracts.LifeModules;
 
 namespace Chummer.Application.LifeModules;
@@ -666,7 +667,7 @@ public sealed partial class LifeModuleOriginDossierService
             item?.AfterValue?.Trim() ?? string.Empty,
             item?.BudgetDelta ?? 0,
             NormalizeStrings(item?.SourceAnchorIds),
-            string.Empty);
+            string.Empty) { ParentOptionId = item?.ParentOptionId };
         return sealedItem with { ItemDigest = ComputeMechanicsPreviewItemDigest(sealedItem, digests) };
     }
 
@@ -823,6 +824,7 @@ public sealed partial class LifeModuleOriginDossierService
            && IsCanonicalDigest(choice.DecisionCommandDigest)
            && choice.MechanicsPreview is not null
            && choice.MechanicsPreview.Items is not null
+           && HasValidMetavariantItems8582(choice.MechanicsPreview.Items)
            && choice.MechanicsPreview.PendingFollowUpIds is not null
            && choice.MechanicsPreview.SourceAnchorIds is not null
            && choice.MechanicsPreview.SourceAnchorIds.Count != 0
@@ -832,6 +834,24 @@ public sealed partial class LifeModuleOriginDossierService
            && choice.Blockers.Count == 0
            && choice.IsLegal
            && LifeModuleDecisionInputIntegrity.ValidForms(choice.FollowUps);
+
+    private static bool HasValidMetavariantItems8582(IReadOnlyList<LifeModuleMechanicsPreviewItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (item is null) return false;
+            if (item.Domain != "metavariant-choice")
+            {
+                if (item.ParentOptionId is not null) return false;
+                continue;
+            }
+            if (item.ParentOptionId is null
+                || !CharacterCreationMetatypeSelectionRules.IsValid(new(item.ParentOptionId, item.TargetId))
+                || items.Count(parent => parent?.Domain == "metatype-choice" && parent.TargetId == item.ParentOptionId) != 1
+                || items.Count(child => child?.Domain == "metavariant-choice") != 1) return false;
+        }
+        return true;
+    }
 
     private static string ComputeArcSeedId(LifeModuleNarrativeTurnSeed turn)
         => ComputeDigest(writer =>
@@ -866,6 +886,8 @@ public sealed partial class LifeModuleOriginDossierService
             writer.WriteString("domain", item.Domain);
             writer.WriteString("effectId", item.EffectId);
             writer.WriteString("targetId", item.TargetId);
+            // Absent metadata contributes no new bytes to historical base-only digests.
+            if (item.ParentOptionId is not null) writer.WriteString("parentOptionId", item.ParentOptionId);
             writer.WriteString("beforeValue", item.BeforeValue);
             writer.WriteString("afterValue", item.AfterValue);
             WriteStringArray(writer, "sourceAnchorIds", item.SourceAnchorIds);

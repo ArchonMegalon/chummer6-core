@@ -11,6 +11,40 @@ namespace Chummer.Application.Workspaces;
 public sealed class WorkspaceContinuationExportService(
     IWorkspaceStore store, IOwnerContextAccessor ownerContext)
 {
+    /// <summary>Observe local storage provenance for this exact admitted export.
+    /// Fresh owner authority and the store's complete read admission are required;
+    /// no storage identity is accepted from portable continuation bytes.</summary>
+    public CommandResult<WorkspaceContinuationRestoreTarget> ObserveStorage(
+        OwnerContextStamp expectedOwner, WorkspaceContinuationExport admitted)
+    {
+        CommandResult<WorkspaceContinuationRestoreTarget> UnavailableTarget() =>
+            new(false, null, "The admitted continuation's storage identity is unavailable.",
+                WorkspaceOperationOutcome.Unavailable);
+        if (!OwnerContextAdmission.TryAcquire(ownerContext, expectedOwner, out var lease))
+            return UnavailableTarget();
+        using (lease)
+        {
+            if (store is not IWorkspaceContinuationReadCapability { SupportsWorkspaceContinuationRead: true } capability
+                || admitted.Snapshot.OwnerId != expectedOwner.Owner.NormalizedValue)
+                return UnavailableTarget();
+            var workspace = admitted.Snapshot.Workspace;
+            var read = capability.ReadContinuationStorageTarget(expectedOwner.Owner, workspace.Id);
+            if (!read.Success || read.Outcome != WorkspaceOperationOutcome.Success
+                || read.Value is not { Exists: true } target || target.OwnerId != admitted.Snapshot.OwnerId
+                || target.WorkspaceId != workspace.Id || string.IsNullOrWhiteSpace(target.IncarnationId)
+                || !Guid.TryParseExact(target.SlotGeneration, "N", out var slot) || slot == Guid.Empty
+                || target.ContentRevision != workspace.ContentRevision || target.SavedRevision != workspace.SavedRevision
+                || target.SnapshotDigest != admitted.SnapshotDigest)
+                return UnavailableTarget();
+            try
+            {
+                return WorkspaceContinuationSnapshotDigest.Compute(admitted.Snapshot) == target.SnapshotDigest
+                    ? read : UnavailableTarget();
+            }
+            catch (JsonException) { return UnavailableTarget(); }
+        }
+    }
+
     public CommandResult<WorkspaceContinuationExport> Export(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId id)
     {

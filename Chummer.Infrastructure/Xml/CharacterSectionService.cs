@@ -5,7 +5,7 @@ using Chummer.Contracts.Characters;
 
 namespace Chummer.Infrastructure.Xml;
 
-public sealed class CharacterSectionService : ICharacterSectionService
+public sealed class CharacterSectionService : ICharacterSectionService, ICharacterSheetDerivedQueries
 {
     private readonly ICharacterSourceDataResolver? _sourceDataResolver;
 
@@ -21,6 +21,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
     {
         _sourceDataResolver = sourceDataResolver;
     }
+
+    public CharacterSheetDerivedSection ParseSheetDerived(CharacterDocument document) =>
+        CharacterSheetDerivedQuery.Parse(document.Content, _sourceDataResolver);
+
+    public CharacterSheetDerivedSection ParseSheetDerived(Chummer.Application.Workspaces.WorkspaceStoredDocument observation)
+        => CharacterSheetDerivedQuery.Parse(observation, _sourceDataResolver);
 
     public CharacterOverviewProjection ParseOverview(string xml)
     {
@@ -43,7 +49,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         IReadOnlyList<CharacterAttributeSummary> attributes = character
             .Element("attributes")?
             .Elements("attribute")
-            .Select(attribute => BuildAttributeSummary(attribute, created, availableKarma, IsSr6(character)))
+            .Select(attribute => BuildAttributeSummary(attribute, created, availableKarma))
             .ToArray()
             ?? Array.Empty<CharacterAttributeSummary>();
 
@@ -60,7 +66,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         IReadOnlyList<CharacterAttributeDetailSummary> attributes = character
             .Element("attributes")?
             .Elements("attribute")
-            .Select(attribute => BuildAttributeDetailSummary(attribute, created, availableKarma, IsSr6(character)))
+            .Select(attribute => BuildAttributeDetailSummary(attribute, created, availableKarma))
             .ToArray()
             ?? Array.Empty<CharacterAttributeDetailSummary>();
 
@@ -69,16 +75,13 @@ public sealed class CharacterSectionService : ICharacterSectionService
             Attributes: attributes);
     }
 
-    private static bool IsSr6(XElement character) => ReadValue(character, "gameedition").Trim() is
-        "SR6" or "sr6" or "Shadowrun 6" or "Shadowrun 6th Edition";
-
-    private static CharacterAttributeSummary BuildAttributeSummary(XElement attribute, bool created, int availableKarma, bool sr6)
+    private static CharacterAttributeSummary BuildAttributeSummary(XElement attribute, bool created, int availableKarma)
     {
         string name = ReadValue(attribute, "name");
         int baseValue = ParseInt(ReadValue(attribute, "base"));
         int karmaValue = ParseInt(ReadValue(attribute, "karma"));
         int totalValue = ParseInt(FirstNonBlank(ReadValue(attribute, "totalvalue"), ReadValue(attribute, "value")));
-        if (!sr6 && karmaValue == 0 && totalValue >= baseValue)
+        if (karmaValue == 0 && totalValue >= baseValue)
         {
             karmaValue = totalValue - baseValue;
         }
@@ -87,9 +90,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
         int metatypeMax = Math.Max(metatypeMin, ParseInt(ReadValue(attribute, "metatypemax")));
         int metatypeAugMax = Math.Max(metatypeMax, ParseInt(ReadValue(attribute, "metatypeaugmax")));
         int priorityMaximum = Math.Max(baseValue, metatypeMax);
-        int karmaMaximum = Math.Max(0, (sr6 ? metatypeMax : metatypeAugMax) - baseValue);
-        // XML alone cannot establish SR6 natural-limit or modifier authority.
-        int upgradeKarmaCost = sr6 ? -1 : ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
+        int karmaMaximum = Math.Max(0, metatypeAugMax - baseValue);
+        int upgradeKarmaCost = ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
 
         return new CharacterAttributeSummary(
             Name: name,
@@ -110,7 +112,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         };
     }
 
-    private static CharacterAttributeDetailSummary BuildAttributeDetailSummary(XElement attribute, bool created, int availableKarma, bool sr6)
+    private static CharacterAttributeDetailSummary BuildAttributeDetailSummary(XElement attribute, bool created, int availableKarma)
     {
         string name = ReadValue(attribute, "name");
         int metatypeMin = ParseInt(ReadValue(attribute, "metatypemin"));
@@ -119,15 +121,14 @@ public sealed class CharacterSectionService : ICharacterSectionService
         int baseValue = ParseInt(ReadValue(attribute, "base"));
         int karmaValue = ParseInt(ReadValue(attribute, "karma"));
         int totalValue = ParseInt(ReadValue(attribute, "totalvalue"));
-        if (!sr6 && karmaValue == 0 && totalValue >= baseValue)
+        if (karmaValue == 0 && totalValue >= baseValue)
         {
             karmaValue = totalValue - baseValue;
         }
 
         int priorityMaximum = Math.Max(baseValue, metatypeMax);
-        int karmaMaximum = Math.Max(0, (sr6 ? metatypeMax : metatypeAugMax) - baseValue);
-        // XML alone cannot establish SR6 natural-limit or modifier authority.
-        int upgradeKarmaCost = sr6 ? -1 : ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
+        int karmaMaximum = Math.Max(0, metatypeAugMax - baseValue);
+        int upgradeKarmaCost = ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
 
         return new CharacterAttributeDetailSummary(
             Name: name,
@@ -251,7 +252,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             PublicAwareness: ParseInt(ReadValue(character, "publicawareness")),
             BurntStreetCred: ParseInt(ReadValue(character, "burntstreetcred")),
             BuildKarma: ParseInt(ReadValue(character, "buildkarma")),
-            TotalAttributes: ReadTotalAttributes(character),
+            TotalAttributes: ParseInt(ReadValue(character, "totalattributes")),
             TotalSpecial: ParseInt(ReadValue(character, "totalspecial")),
             PhysicalCmFilled: ParseInt(ReadValue(character, "physicalcmfilled")),
             StunCmFilled: ParseInt(ReadValue(character, "stuncmfilled")),
@@ -328,24 +329,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
             SumToTen: ParseInt(ReadValue(character, "sumtoten")),
             Special: ParseInt(ReadValue(character, "special")),
             TotalSpecial: ParseInt(ReadValue(character, "totalspecial")),
-            TotalAttributes: ReadTotalAttributes(character),
+            TotalAttributes: ParseInt(ReadValue(character, "totalattributes")),
             ContactPoints: ParseInt(ReadValue(character, "contactpoints")),
             ContactPointsUsed: ParseInt(ReadValue(character, "contactpointsused")));
-    }
-
-    private static int ReadTotalAttributes(XElement character)
-    {
-        // The legacy field is the creation attribute-point budget, not a sum of
-        // natural or augmented ratings. A supplied value (including zero) wins.
-        if (character.Element("totalattributes") is not null)
-            return ParseInt(ReadValue(character, "totalattributes"));
-        if (!IsSr6(character))
-            return 0;
-
-        // SR6 materializes the edition-owned budget here and retains it when
-        // finalization renames the projection. Do not infer it from attributes.
-        XElement? creation = character.Element("sr6creation") ?? character.Element("sr6creationprojection");
-        return ParseInt(creation?.Element("budget")?.Element("attributes")?.Value.Trim() ?? string.Empty);
     }
 
     public CharacterMovementSection ParseMovement(string xml)
@@ -1609,8 +1595,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
     {
         IReadOnlyList<CharacterSkillSummary> skills = character
             .Element("newskills")?
-            .Element("skills")?
-            .Elements("skill")
+            .Elements()
+            .Where(section => section.Name == "skills" || section.Name == "knoskills")
+            .SelectMany(section => section.Elements("skill"))
             .Select(skill => new CharacterSkillSummary(
                 Guid: ReadValue(skill, "guid"),
                 Suid: ReadValue(skill, "suid"),

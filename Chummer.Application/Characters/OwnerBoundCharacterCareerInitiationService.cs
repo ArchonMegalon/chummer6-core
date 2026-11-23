@@ -16,6 +16,9 @@ public sealed class OwnerBoundCharacterCareerInitiationService(IWorkspaceStore s
         {
             try
             {
+                if (store is ICharacterCareerInitiationCurrentEnvironmentCapability retained
+                    && owners is IOwnerContextLeaseAccessor leaseOwners)
+                    return retained.QuoteCareerInitiation(leaseOwners, lease, workspace, selection, authority);
                 if (store is not ICharacterCareerInitiationAtomicCommitCapability atomic) return null;
                 var read = atomic.ReadCareerInitiationWorkspace(owner, workspace);
                 if (!read.Success || read.Value is not { } saved
@@ -39,7 +42,7 @@ public sealed class OwnerBoundCharacterCareerInitiationService(IWorkspaceStore s
         {
             // Exact operation lookup comes BEFORE fresh revision, source, affordability or transition checks.
             // A reopened session may recover its durable result; it cannot revive an uncommitted old quote.
-            var prior = Lookup(owner, plan);
+            var prior = LookupAdmitted(owner, lease, plan);
             if (prior.Outcome != CharacterCareerInitiationOutcome.NotFound) return prior;
             if (owner.AuthorityInstanceId != plan.Quote.Binding.OwnerAuthorityInstanceId
                 || owner.TransitionRevision != plan.Quote.Binding.OwnerTransitionRevision)
@@ -48,8 +51,11 @@ public sealed class OwnerBoundCharacterCareerInitiationService(IWorkspaceStore s
                 return new(CharacterCareerInitiationOutcome.Unavailable, Error: "initiation_atomic_commit_unavailable");
             try
             {
-                var result = atomic.CommitCareerInitiation(owner, plan, authority, cancellationToken);
-                var observed = Lookup(owner, plan);
+                var result = store is ICharacterCareerInitiationCurrentEnvironmentCapability retained
+                    && owners is IOwnerContextLeaseAccessor leaseOwners
+                    ? retained.CommitCareerInitiation(leaseOwners, lease, plan, authority, cancellationToken)
+                    : atomic.CommitCareerInitiation(owner, plan, authority, cancellationToken);
+                var observed = LookupAdmitted(owner, lease, plan);
                 if (observed.Outcome == CharacterCareerInitiationOutcome.Replayed)
                     return observed with { Outcome = result.Outcome == CharacterCareerInitiationOutcome.Applied
                         && CharacterCareerInitiationRules.Same(result.Entry, observed.Entry)
@@ -61,19 +67,31 @@ public sealed class OwnerBoundCharacterCareerInitiationService(IWorkspaceStore s
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or OperationCanceledException)
             {
-                var observed = Lookup(owner, plan);
+                var observed = LookupAdmitted(owner, lease, plan);
                 return observed.Outcome == CharacterCareerInitiationOutcome.NotFound
                     ? new(CharacterCareerInitiationOutcome.Unavailable, Error: "initiation_commit_result_unknown") : observed;
             }
         }
     }
 
-    private CharacterCareerInitiationResult Lookup(OwnerContextStamp owner, CharacterCareerInitiationPlan plan)
+    public CharacterCareerInitiationResult Lookup(OwnerContextStamp owner, CharacterCareerInitiationPlan plan)
+    {
+        if (!CharacterCareerInitiationRules.IsValid(plan) || plan.OwnerId != owner.Owner.NormalizedValue
+            || !OwnerContextAdmission.TryAcquire(owners, owner, out var lease))
+            return new(CharacterCareerInitiationOutcome.Conflict, Error: "initiation_owner_admission_rejected");
+        using (lease) return LookupAdmitted(owner, lease, plan);
+    }
+
+    private CharacterCareerInitiationResult LookupAdmitted(OwnerContextStamp owner, IOwnerContextLease lease,
+        CharacterCareerInitiationPlan plan)
     {
         try
         {
             var id = new CharacterWorkspaceId(plan.WorkspaceId);
-            var read = owner.Owner.IsLocalSingleUser ? store.Get(id) : store.Get(owner.Owner, id);
+            var read = store is ICharacterCareerInitiationCurrentEnvironmentCapability retained
+                && owners is IOwnerContextLeaseAccessor leaseOwners
+                ? retained.ReadCareerInitiationWorkspace(leaseOwners, lease, id)
+                : owner.Owner.IsLocalSingleUser ? store.Get(id) : store.Get(owner.Owner, id);
             return read.Success && read.Value is { } saved
                 ? CharacterCareerInitiationTransaction.Lookup(owner.Owner, saved, plan)
                 : new(read.Outcome switch

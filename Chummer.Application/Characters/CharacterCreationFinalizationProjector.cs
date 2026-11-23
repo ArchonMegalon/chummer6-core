@@ -143,7 +143,7 @@ public static class CharacterCreationFinalizationProjector
 
         try
         {
-            XDocument document = XDocument.Parse(workspace.Document.Content, LoadOptions.None);
+            XDocument document = XDocument.Parse(workspace.Document.Content, LoadOptions.PreserveWhitespace);
             XElement root = document.Root
                 ?? throw new InvalidDataException("Character root is missing.");
             if (root.Name != "character"
@@ -186,6 +186,7 @@ public static class CharacterCreationFinalizationProjector
                 ReadDirect(root, "metatype"), heritage.MetatypeName, heritage.KarmaCost, 0,
                 heritage.SourceAnchorIds, heritage.MetatypeName);
 
+            SetDirect(root, "metatypeguid", heritage.MetatypeSourceId);
             SetDirect(root, "metatype", heritage.MetatypeName);
             SetDirect(root, "metavariant", heritage.MetavariantName ?? string.Empty);
             SetDirect(root, "metatypebp", heritage.KarmaCost.ToString(CultureInfo.InvariantCulture));
@@ -213,22 +214,13 @@ public static class CharacterCreationFinalizationProjector
             SetDirect(root, "sumtoten", prerequisite.SumToTenTarget.GetValueOrDefault()
                 .ToString(CultureInfo.InvariantCulture));
 
-            // Metatype base bonuses (Priority Dwarf admission: 20% lifestyle
-            // surcharge) materialize through the shared strict source-bound
-            // materializer, identical to the completion/selected graph path.
             if (!CharacterCreationMetatypeBaseBonusMaterializer.TryApply(heritage, root, projected, ref order,
                     (element, name) => GetOrCreateDirectContainer(element, name)))
             {
                 blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
                 return false;
             }
-
-            // Admitted heritage movement (Priority metatype source-bound rates)
-            // persists exactly like the completion-graph path: the shared
-            // materializer writes walk/run/sprint and no-ops for special
-            // movement. Never relies on local-source fallback as saved authority.
             CharacterCreationHeritageGraph832.ApplyMovement(root, heritage);
-
             ReplaceDirect(root, BuildAttributes(attributes!, projected, ref order));
             ReplaceDirect(root, BuildSkills(skills!, projected, ref order));
             SetDirect(root, "magenabled", "False");
@@ -250,6 +242,8 @@ public static class CharacterCreationFinalizationProjector
                 blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
                 return false;
             }
+            if (gear.Lines.Any(line => line.Focus is not null))
+                throw new InvalidDataException("Typed focus selections require the whole completion graph compiler.");
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
             if (loadout is not null)
             {

@@ -12,13 +12,21 @@ namespace Chummer.Application.Characters;
 /// Career-only projection. Unsupported effects/prerequisite vocabulary block the affected
 /// choice; derived display totals and Creation admission never confer purchase authority.
 /// </summary>
-public static class CharacterCareerInitiationProjection
+public static partial class CharacterCareerInitiationProjection
 {
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
     public static bool TryQuote(OwnerContextStamp owner, WorkspaceStoredDocument saved,
         CharacterCareerInitiationSelection selection, string runtime, CharacterCareerInitiationSources sources,
         out CharacterCareerInitiationQuote? quote)
+        => TryQuote(owner, saved, selection, runtime, sources, null, out quote);
+
+    // Only the resolver admission supplies retained source context in production.
+    // The original context-free projection remains fail-closed for implants.
+    internal static bool TryQuote(OwnerContextStamp owner, WorkspaceStoredDocument saved,
+        CharacterCareerInitiationSelection selection, string runtime, CharacterCareerInitiationSources sources,
+        ICharacterSourceDataContext? context, out CharacterCareerInitiationQuote? quote,
+        CharacterCurrentRuleEnvironmentConsumers.LearningAuthority5703? current = null)
     {
         quote = null;
         try
@@ -31,26 +39,28 @@ public static class CharacterCareerInitiationProjection
                 || !CharacterCareerInitiationRules.IsDigest(runtime)
                 || saved.Document.AuxiliaryState.CharacterCreationFinalizationArchive?.CompletionAuthority?.Proposal.CampaignAuthority is not null)
                 return false;
-            XElement root = Parse(saved.Document.Content, "character");
+            if (current is not null && (context is null || !current.Matches(saved, context))) return false;
+            XElement root = current is null ? Parse(saved.Document.Content, "character") : new XElement(current.Graph);
             XElement settings = Parse(sources.SettingsXml, "settings");
-            if (!Boolean(root, "created") || !Boolean(root, "magenabled")) return false;
+            if (!Boolean(root, "created")) return false;
+            if (Boolean(root, "resenabled", false))
+                return TrySubmersionQuote(owner, saved, selection, runtime, sources, context, root, settings, out quote, current);
+            if (!Boolean(root, "magenabled", false)) return false;
             var blockers = new List<string>();
+            if (selection.Mode != CharacterCareerInitiationMode.GradeAndBenefit || selection.TargetGradeId is not null)
+                blockers.Add("initiation_mode_unsupported");
             // No silent substitution for a campaign authority that this source path cannot resolve.
             if (root.Elements().Any(x => x.Name.LocalName.Contains("campaign", StringComparison.OrdinalIgnoreCase)
                     && (x.HasElements || !string.IsNullOrWhiteSpace(x.Value))))
                 blockers.Add("initiation_campaign_authority_unavailable");
             if (!Boolean(settings, "careerinitiationenabled", true))
                 blockers.Add("initiation_profile_disabled");
-            var magicState = CharacterCareerMagicEvaluator.Evaluate(root, settings);
+            var magicState = current is null ? CharacterCareerMagicEvaluator.Evaluate(root, settings, sourceContext: context)
+                : current.Magic ?? throw new InvalidDataException("initiation_imported_magic_unavailable");
             blockers.AddRange(magicState.Blockers);
             if (magicState.Blockers.Contains("magic_saved_grade_inconsistent"))
                 blockers.Add("initiation_saved_grade_inconsistent");
             if (magicState.InitiationDisabled) blockers.Add("initiation_disabled");
-            // Legacy rebuilds Rating-dependent metamagic improvements when grade changes.
-            // Until the source effect compiler can do that, retaining stale values is not legal.
-            if (Container(root, "metamagics").Elements("metamagic")
-                .Any(x => x.Elements("bonus").Any(b => b.ToString().Contains("Rating", StringComparison.Ordinal))))
-                blockers.Add("initiation_grade_dependent_effect_unsupported");
             bool adept = magicState.IsAdept, magician = magicState.IsMagician;
             bool separate = magicState.SeparateAdeptMagic;
             int grade = Integer(root, "initiategrade");
@@ -98,6 +108,7 @@ public static class CharacterCareerInitiationProjection
             bool allowPowerPoint = Boolean(settings, "careerinitiationpowerpointenabled", true);
             var benefits = sources.Metamagics.Select(x => Benefit(x, root, adept, magician, grade, ignoreArt, allowPowerPoint)).ToArray();
             if (benefits.Length > 4096 || benefits.Select(x => x.SourceId).Distinct().Count() != benefits.Length) return false;
+            var recompilations = RecompileOwnedMetamagics(root, benefits, grade, next, blockers);
             var selected = benefits.SingleOrDefault(x => x.SourceId == selection.BenefitSourceId);
             if (selection.BenefitSourceId == Guid.Empty) blockers.Add("initiation_benefit_choice_required");
             else if (selected is null) blockers.Add("initiation_benefit_unavailable");
@@ -106,8 +117,11 @@ public static class CharacterCareerInitiationProjection
                 owner.AuthorityInstanceId, owner.TransitionRevision, saved.ContentRevision, saved.SavedRevision,
                 CharacterCareerInitiationRules.Hash(saved.Document.Content), saved.Document.AuxiliaryStateDigest, runtime);
             quote = new(binding, selection, grade, next, magic, adeptMagic, separate, karma, nuyen,
-                cost, nuyenCost, CharacterCareerInitiationRules.Digest(sources), adjustments, benefits,
-                obligations.AsReadOnly(), blockers.Distinct(StringComparer.Ordinal).ToArray());
+                cost, nuyenCost, magicState.EssenceSourceDigest is { } essenceDigest
+                    ? CharacterCareerInitiationRules.Digest(new { Sources = sources, EssenceSourceDigest = essenceDigest })
+                    : CharacterCareerInitiationRules.Digest(sources), adjustments, benefits,
+                obligations.AsReadOnly(), blockers.Distinct(StringComparer.Ordinal).ToArray())
+            { RecompiledMetamagics = recompilations.Count == 0 ? null : recompilations };
             return true;
         }
         catch (Exception e) when (e is XmlException or InvalidDataException or FormatException
@@ -142,7 +156,7 @@ public static class CharacterCareerInitiationProjection
     }
 
     private static CharacterCareerInitiationBenefit Benefit(CharacterCareerInitiationSourceRow row, XElement root,
-        bool adept, bool magician, int grade, bool ignoreArt, bool allowPowerPoint)
+        bool adept, bool magician, int grade, bool ignoreArt, bool allowPowerPoint, bool adding = true)
     {
         XElement source = Parse(row.Xml, "metamagic");
         var blockers = new List<string>();
@@ -159,7 +173,7 @@ public static class CharacterCareerInitiationProjection
         {
             if (!int.TryParse(limit, NumberStyles.None, Invariant, out int maximum) || maximum < 1)
                 blockers.Add("initiation_benefit_limit_unsupported");
-            else if (count >= maximum) blockers.Add("initiation_benefit_duplicate");
+            else if (adding ? count >= maximum : count > maximum) blockers.Add("initiation_benefit_duplicate");
         }
         // A false branch cannot conceal unsupported prerequisite vocabulary.
         foreach (string kind in new[] { "required", "forbidden" })
@@ -196,11 +210,177 @@ public static class CharacterCareerInitiationProjection
         else if (effects.Length > 0)
         {
             points = 0;
-            // A source effect evaluator may extend this whitelist in a separate change.
-            // Until then, do not silently buy a metamagic without its improvements.
-            blockers.Add("initiation_benefit_effect_unsupported");
+            if (!TryCompileMetamagicEffects(source, id, checked(grade + 1), out _))
+                blockers.Add("initiation_benefit_effect_unsupported");
         }
         return new(id, name, book, page, row.Xml, benefitKind, points, blockers.AsReadOnly());
+    }
+
+    private static IReadOnlyList<CharacterCareerInitiationMetamagicRecompilation> RecompileOwnedMetamagics(
+        XElement root, CharacterCareerInitiationBenefit[] benefits,
+        int grade, int next, List<string> blockers)
+    {
+        var result = new List<CharacterCareerInitiationMetamagicRecompilation>();
+        var ids = new HashSet<Guid>();
+        XElement container = Container(root, "metamagics");
+        if (container.Elements().Count() > 4096 || container.Elements().Any(x => x.Name != "metamagic")
+            || container.Nodes().OfType<XText>().Any(x => !string.IsNullOrWhiteSpace(x.Value)))
+        {
+            blockers.Add("initiation_existing_metamagic_shape_unsupported");
+            return result;
+        }
+        foreach (var owned in container.Elements("metamagic"))
+        {
+            try
+            {
+                Guid instance = Guid.Parse(Scalar(owned, "guid"));
+                if (instance == Guid.Empty || !ids.Add(instance))
+                    throw new InvalidDataException("initiation_existing_metamagic_identity_invalid");
+                XElement copied = Container(owned, "bonus");
+                // Older native saves omit sourceid on effect-free metamagics. They
+                // need no recompilation and must not become invented source bindings.
+                if (Scalar(owned, "sourceid", "").Length == 0 && !copied.HasElements
+                    && string.IsNullOrWhiteSpace(copied.Value) && OwnedEffects(root, instance).Length == 0)
+                    continue;
+                Guid sourceId = Guid.Parse(Scalar(owned, "sourceid"));
+                var benefit = benefits.SingleOrDefault(x => x.SourceId == sourceId);
+                if (benefit is null
+                    || benefit.Blockers.Any(x => x is "initiation_source_disabled" or "initiation_source_semantics_unsupported"
+                        or "initiation_benefit_effect_unsupported" or "initiation_benefit_talent_ineligible")
+                    || owned.HasAttributes || Scalar(owned, "improvementsource", "Metamagic") != "Metamagic"
+                    || Scalar(owned, "name") != benefit.Name || Scalar(owned, "source") != benefit.Book
+                    || Scalar(owned, "extra", "").Length != 0 || Scalar(owned, "forced", "").Length != 0)
+                    throw new InvalidDataException("initiation_existing_metamagic_source_unavailable");
+                XElement source = Parse(benefit.SourceXml, "metamagic");
+                XElement authoritative = Container(source, "bonus");
+                if (!MatchesMetamagicBonus(copied, authoritative))
+                    throw new InvalidDataException("initiation_existing_metamagic_bonus_mismatch");
+                bool dependent = authoritative.DescendantNodes().OfType<XText>()
+                    .Any(x => x.Value.Contains("Rating", StringComparison.Ordinal));
+                // Fixed PP grants retain their existing serializer and pool semantics.
+                if (benefit.Kind == CharacterCareerInitiationBenefitKind.PowerPoint && !dependent) continue;
+                if (!TryCompileMetamagicEffects(source, instance, grade, out var before)
+                    || !TryCompileMetamagicEffects(source, instance, next, out var after))
+                    throw new InvalidDataException("initiation_grade_dependent_effect_unsupported");
+                XElement[] actual = OwnedEffects(root, instance);
+                if (!EquivalentMetamagicEffects(actual, before))
+                    throw new InvalidDataException("initiation_existing_metamagic_effect_mismatch");
+                if (!dependent) continue;
+                string[] fields = ["guid", "sourceid", "name", "source", "page", "grade", "bonus",
+                    "improvementsource", "paidwithkarma", "extra", "forced", "notes", "notesColor"];
+                if (owned.Elements().Any(x => x.Name.Namespace != XNamespace.None || !fields.Contains(x.Name.LocalName)
+                    || x.HasAttributes || x.Name != "bonus" && x.HasElements)
+                    || owned.Elements().GroupBy(x => x.Name).Any(x => x.Count() != 1))
+                    throw new InvalidDataException("initiation_existing_metamagic_shape_unsupported");
+                int acquired = Integer(owned, "grade");
+                if (acquired < 1 || acquired > grade)
+                    throw new InvalidDataException("initiation_existing_metamagic_grade_invalid");
+                result.Add(new(instance, sourceId, owned.ToString(SaveOptions.DisableFormatting), benefit.SourceXml,
+                    actual.Select(x => x.ToString(SaveOptions.DisableFormatting)).ToArray(),
+                    after.Select(x => x.ToString(SaveOptions.DisableFormatting)).ToArray()));
+            }
+            catch (Exception e) when (e is InvalidDataException or FormatException or InvalidOperationException or ArgumentException)
+            {
+                blockers.Add(e is InvalidDataException && e.Message.StartsWith("initiation_", StringComparison.Ordinal)
+                    ? e.Message : "initiation_existing_metamagic_source_unavailable");
+                if (owned.Elements("bonus").Any(x => x.ToString().Contains("Rating", StringComparison.Ordinal)))
+                    blockers.Add("initiation_grade_dependent_effect_unsupported");
+            }
+        }
+        return result.AsReadOnly();
+    }
+
+    // Native readers retain source indentation through XmlReader or discard it
+    // through XElement.Parse. Admit only those two exact source representations;
+    // never normalize the owned bonus, scalar values, fields, or source identity.
+    internal static bool MatchesMetamagicBonus(XElement copied, XElement authoritative)
+        => XNode.DeepEquals(copied, authoritative)
+            || XNode.DeepEquals(copied, XElement.Parse(authoritative.ToString(SaveOptions.DisableFormatting)));
+
+    // Bind the native metamagic Rating parameter only at understood numeric leaves.
+    // The shared compiler still owns effect parsing, type mapping and serialization;
+    // this adapter neither evaluates arbitrary expressions nor grants a talent/quality.
+    internal static bool TryCompileMetamagicEffects(XElement source, Guid instance, int grade, out XElement[] effects)
+    {
+        effects = [];
+        try
+        {
+            if (instance == Guid.Empty || grade is < 0 or > CharacterCareerInitiationRules.MaximumGrade) return false;
+            XElement bonus = new(Container(source, "bonus"));
+            if (bonus.Elements().Count() > 128 || bonus.DescendantsAndSelf().Any(x => x.HasAttributes
+                || x.Name.Namespace != XNamespace.None || x.Nodes().OfType<XProcessingInstruction>().Any())) return false;
+            foreach (var effect in bonus.Elements())
+            {
+                XElement numeric;
+                if (effect.Name == "specificskill")
+                {
+                    if (effect.Elements().Any(x => x.Name.LocalName is not ("name" or "bonus" or "condition" or "applytorating"))
+                        || Scalar(effect, "condition", "").Length != 0
+                        || Boolean(effect, "applytorating", false)) return false;
+                    numeric = effect.Elements("bonus").Single();
+                }
+                else if (effect.Name.LocalName is "pathogencontactresist" or "pathogeningestionresist"
+                    or "pathogeninhalationresist" or "pathogeninjectionresist" or "toxincontactresist"
+                    or "toxiningestionresist" or "toxininhalationresist" or "toxininjectionresist") numeric = effect;
+                else return false;
+                if (numeric.HasElements) return false;
+                if (numeric.Value == "Rating") numeric.Value = grade.ToString(Invariant);
+            }
+            string xml = source.ToString(SaveOptions.DisableFormatting);
+            string digest = CharacterCareerInitiationRules.Hash(xml);
+            // CompileBonus's source carrier is shared with talent bonuses. No quality
+            // instance, access flag, choice or generated gear is admitted here.
+            var carrier = new CharacterCreationTalentQualitySource(Scalar(source, "id"), "", Scalar(source, "id"),
+                Scalar(source, "name"), Scalar(source, "source"), Scalar(source, "page"), digest, digest, xml, digest, []);
+            var compiled = new List<XElement>();
+            var flags = new HashSet<string>(StringComparer.Ordinal);
+            var gear = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
+            string extra = CharacterCreationAwakenedLegacyProjector.CompileBonus(bonus, "", [], carrier,
+                instance.ToString("D"), flags, compiled, gear);
+            if (extra.Length != 0 || flags.Count != 0 || gear.Count != 0) return false;
+            foreach (var effect in compiled) effect.SetElementValue("improvementsource", "Metamagic");
+            if (compiled.Any(x => x.ToString(SaveOptions.DisableFormatting).Length > 65536)) return false;
+            effects = compiled.ToArray();
+            return true;
+        }
+        catch (Exception e) when (e is InvalidDataException or FormatException or InvalidOperationException
+            or ArgumentException or OverflowException) { return false; }
+    }
+
+    internal static XElement[] OwnedEffects(XElement root, Guid instance)
+        => Container(root, "improvements").Elements("improvement")
+            .Where(x => Guid.TryParse(Scalar(x, "sourcename", ""), out var id) && id == instance).ToArray();
+
+    internal static bool EquivalentMetamagicEffects(IEnumerable<XElement> actual, IEnumerable<XElement> expected)
+    {
+        // Normalize native boolean/numeric spelling and presentation metadata only.
+        // Extra behavioral fields, duplicate leaves, disabled or foreign-source rows fail.
+        string Key(XElement original)
+        {
+            XElement row = new(original);
+            string[] numbers = ["min", "max", "aug", "augmax", "val", "rating"];
+            string[] booleans = ["custom", "addtorating", "enabled"];
+            string[] fields = ["target", "unique", "improvedname", "sourcename", "exclude", "condition",
+                "improvementttype", "improvementsource", "customname", "customid", "customgroup"];
+            if (row.Name != "improvement" || row.HasAttributes || row.Elements().Any(x => x.HasAttributes || x.HasElements
+                || x.Name.Namespace != XNamespace.None) || row.Elements().GroupBy(x => x.Name).Any(x => x.Count() != 1)
+                || row.Nodes().OfType<XText>().Any(x => !string.IsNullOrWhiteSpace(x.Value))) throw new InvalidDataException();
+            row.Elements().Where(x => x.Name.LocalName is "order" or "notes" or "notesColor").Remove();
+            if (row.Elements().Any(x => !numbers.Contains(x.Name.LocalName) && !booleans.Contains(x.Name.LocalName)
+                && !fields.Contains(x.Name.LocalName))) throw new InvalidDataException();
+            if (row.Element("unique") is null) row.Add(new XElement("unique", ""));
+            foreach (string name in numbers) row.SetElementValue(name, Number(row, name).ToString("G29", Invariant));
+            foreach (string name in booleans)
+            {
+                string value = Scalar(row, name);
+                row.SetElementValue(name, value is "0" or "1" ? value == "1" : bool.Parse(value));
+            }
+            row.SetElementValue("sourcename", Guid.Parse(Scalar(row, "sourcename")).ToString("D"));
+            return new XElement("improvement", numbers.Concat(booleans).Concat(fields).Order(StringComparer.Ordinal)
+                .Select(name => new XElement(name, Scalar(row, name))))
+                .ToString(SaveOptions.DisableFormatting);
+        }
+        return actual.Select(Key).Order(StringComparer.Ordinal).SequenceEqual(expected.Select(Key).Order(StringComparer.Ordinal));
     }
 
     private static bool? Requirement(XElement node, XElement root, int grade, bool ignoreArt, int depth)

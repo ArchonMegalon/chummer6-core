@@ -48,12 +48,16 @@ public static class CharacterCreationKarmaSkillsRules
         CharacterCreationMetatypeOptionProjection metatype, string talentId,
         CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
         CharacterCreationKarmaSkillsSelection selection,
-        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null)
+        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null,
+        CharacterCreationNativeSkillCostSources? nativeSources = null)
     {
         // Access evaluation admits the complete catalog (including unselected
         // rows) before projecting permissions. Do not hash every source row a
         // second time immediately before that same mandatory admission.
-        if (!TryFreeze(selection, out var frozen)
+        if (metatype?.GrantedQualities is null
+            || nativeSources is null && (metatype.GrantedQualities.Count != 0
+                || talentId != CharacterCreationKarmaTalentCatalog.MundaneOptionId)
+            || !TryFreeze(selection, out var frozen)
             || CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, metatype, talentId, frozen.TalentUnlock) is null)
             return null;
         var activeIds = frozen.Skills.Where(item => item.Kind == CharacterCreationSkillKinds.Active)
@@ -61,23 +65,63 @@ public static class CharacterCreationKarmaSkillsRules
         var knowledgeIds = frozen.Skills.Where(item => item.Kind == CharacterCreationSkillKinds.Knowledge)
             .Select(item => item.SourceSkillId).ToHashSet(StringComparer.Ordinal);
         var groupIds = frozen.Groups.Select(item => item.GroupId).ToHashSet(StringComparer.Ordinal);
-        var groups = catalog.SkillGroups.Where(group => groupIds.Contains(group.GroupId)
-            || group.MemberSkillSourceIds.Any(activeIds.Contains)).ToArray();
-        foreach (var group in groups) activeIds.UnionWith(group.MemberSkillSourceIds);
+        // Include every member needed by a selected skill/group before choosing a
+        // representative for any otherwise unselected category cost target.
+        IncludeGroups();
+        IReadOnlyList<CharacterCreationSkillKarmaEffect> nativeEffects = [];
+        IReadOnlyList<CharacterCreationSkillKarmaEffect> selectedEffects = [];
+        // Validate against the complete admitted catalog first. The retained basis
+        // needs target witnesses, not thousands of unrelated specialization choices.
+        if (nativeSources is not null)
+        {
+            if (!CharacterCreationKarmaGrantsLegacyProjector.TryCompileSkillCosts2568(metatype,
+                    talents.Options.Single(option => option.OptionId == talentId), frozen.TalentUnlock, nativeSources, out var native)
+                || !CharacterCreationLegacySourceProjector.TryBindSkillKarmaModifiers(native,
+                    catalog.ActiveSkills, catalog.KnowledgeSkills, catalog.SkillGroups, out nativeEffects)) return null;
+            if (nativeEffects.Count == 0) nativeSources = null;
+        }
+        if (modifierSelections is not null)
+        {
+            if (!CharacterCreationLegacySourceProjector.TrySkillKarmaModifiers(modifierSelections,
+                    catalog.ActiveSkills, catalog.KnowledgeSkills, catalog.SkillGroups, out selectedEffects)) return null;
+            if (selectedEffects.Count == 0) modifierSelections = null;
+        }
+        foreach (var effect in selectedEffects.Concat(nativeEffects))
+        {
+            bool Retained(CharacterCreationSkillKarmaTarget candidate) => candidate.Kind switch
+            {
+                CharacterCreationSkillKinds.Active => activeIds.Contains(candidate.SourceId),
+                CharacterCreationSkillKinds.Knowledge => knowledgeIds.Contains(candidate.SourceId),
+                _ => groupIds.Contains(candidate.SourceId)
+            };
+            if (effect.Targets.Any(Retained)) continue;
+            var target = effect.Targets[0];
+            if (target.Kind == CharacterCreationSkillKinds.Active) activeIds.Add(target.SourceId);
+            else if (target.Kind == CharacterCreationSkillKinds.Knowledge) knowledgeIds.Add(target.SourceId);
+            else groupIds.Add(target.SourceId);
+        }
+        IncludeGroups();
         var subset = catalog with
         {
             ActiveSkills = catalog.ActiveSkills.Where(item => activeIds.Contains(item.SourceSkillId)).ToArray(),
             KnowledgeSkills = catalog.KnowledgeSkills.Where(item => knowledgeIds.Contains(item.SourceSkillId)).ToArray(),
-            SkillGroups = groups,
+            SkillGroups = catalog.SkillGroups.Where(group => groupIds.Contains(group.GroupId)).ToArray(),
             ActiveSkillSourceOrder = catalog.ActiveSkillSourceOrder.Where(activeIds.Contains).ToArray()
         };
         subset = subset with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(subset) };
-        // Literal targets must resolve even when unpurchased; retain this catalog for cold replay.
-        if (modifierSelections is not null) subset = catalog;
+        void IncludeGroups()
+        {
+            foreach (var group in catalog.SkillGroups.Where(group => groupIds.Contains(group.GroupId)
+                         || group.MemberSkillSourceIds.Any(activeIds.Contains)))
+            {
+                groupIds.Add(group.GroupId);
+                activeIds.UnionWith(group.MemberSkillSourceIds);
+            }
+        }
         var selectedTalents = talents with { Options = talents.Options.Where(item => item.OptionId == talentId).ToArray() };
         selectedTalents = selectedTalents with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(selectedTalents) };
         return EvaluateCore(subset, policy, selectedTalents, metatype, talentId, attributes, karmaAvailable, frozen, catalog.CatalogDigest,
-            modifierSelections);
+            modifierSelections, nativeSources);
     }
 
     public static bool IsValid(CharacterCreationKarmaSkillsQuote? quote,
@@ -90,16 +134,32 @@ public static class CharacterCreationKarmaSkillsRules
             || talent is null || attributes is null || selection is null
             || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(talent, quote.Basis.Talents.Options[0])) return false;
         var expected = EvaluateCore(quote.Basis.Catalog, quote.Policy, quote.Basis.Talents, metatype, talent.OptionId,
-            attributes, quote.KarmaAvailable, selection, quote.CatalogDigest, quote.SkillKarmaQualitySelections);
+            attributes, quote.KarmaAvailable, selection, quote.CatalogDigest, quote.SkillKarmaQualitySelections, quote.NativeSkillCostSources);
         return expected is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected, quote);
     }
+
+    internal static bool MatchesSources2568(CharacterCreationKarmaSkillsQuote quote,
+        CharacterCreationMetatypeOptionProjection metatype, CharacterCreationKarmaTalentOption talent,
+        CharacterCreationKarmaAttributesQuote attributes, CharacterCreationKarmaQualitiesQuote? qualities,
+        CharacterCreationNativeSkillCostSources sources)
+    {
+        var expected = EvaluateCore(quote.Basis.Catalog, quote.Policy, quote.Basis.Talents, metatype, talent.OptionId,
+            attributes, quote.KarmaAvailable, quote.Selection, quote.CatalogDigest,
+            QualitySelections2568(qualities), sources);
+        return expected is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected, quote);
+    }
+
+    internal static CharacterCreationQualitySelection[]? QualitySelections2568(CharacterCreationKarmaQualitiesQuote? qualities)
+        => qualities is not { Selections.Count: > 0 } ? null
+            : qualities.Selections.Select(option => CharacterCreationKarmaQualityPrompts.Selection(option, retainSourceExecution: false)).ToArray();
 
     private static CharacterCreationKarmaSkillsQuote? EvaluateCore(CharacterCreationSkillsCatalog catalog,
         CharacterCreationKarmaSkillsPolicy policy, CharacterCreationKarmaTalentCatalog talents,
         CharacterCreationMetatypeOptionProjection metatype, string talentId,
         CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
         CharacterCreationKarmaSkillsSelection selection, string fullCatalogDigest,
-        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null)
+        IReadOnlyList<CharacterCreationQualitySelection>? modifierSelections = null,
+        CharacterCreationNativeSkillCostSources? nativeSources = null)
     {
         if (catalog is null || !TryFreeze(selection, out var frozen) || karmaAvailable < 0 || !IsPolicyValid(policy)
             || !CharacterCreationSkillsDigest.IsCanonical(fullCatalogDigest)
@@ -119,6 +179,19 @@ public static class CharacterCreationKarmaSkillsRules
                 System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(modifierSelections))!;
             if (!CharacterCreationLegacySourceProjector.TrySkillKarmaModifiers(modifierSelections,
                     catalog.ActiveSkills, catalog.KnowledgeSkills, catalog.SkillGroups, out effects)) return null;
+            if (effects.Count == 0) modifierSelections = null;
+        }
+        if (nativeSources is not null)
+        {
+            nativeSources = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationNativeSkillCostSources>(
+                System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(nativeSources))!;
+            if (!CharacterCreationKarmaGrantsLegacyProjector.TryCompileSkillCosts2568(metatype,
+                    talents.Options.Single(option => option.OptionId == talentId), frozen.TalentUnlock, nativeSources, out var native)
+                || !CharacterCreationLegacySourceProjector.TryBindSkillKarmaModifiers(native,
+                    catalog.ActiveSkills, catalog.KnowledgeSkills, catalog.SkillGroups, out var nativeEffects)) return null;
+            effects = effects.Concat(nativeEffects).ToArray();
+            if (!CharacterCreationSkillKarmaModifierRules.IsValid(effects)) return null;
+            if (nativeEffects.Count == 0) nativeSources = null;
         }
         if (!TryKnowledgePoints(policy.KnowledgePointsExpression, attributes, out int knowledgeTotal))
             blockers.Add(KnowledgeExpressionUnresolved);
@@ -308,7 +381,7 @@ public static class CharacterCreationKarmaSkillsRules
             policy, fullCatalogDigest, attributes.QuoteDigest, access, frozen,
             projectedSkills.ToArray(), projectedGroups.OrderBy(group => group.Allocation.GroupId, StringComparer.Ordinal).ToArray(),
             knowledgeTotal, knowledgeUsed, natives, karmaAvailable, used, Ordered(blockers), string.Empty, new(catalog, talents))
-            { SkillKarmaQualitySelections = modifierSelections };
+            { SkillKarmaQualitySelections = modifierSelections, NativeSkillCostSources = nativeSources };
         return quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
     }
 

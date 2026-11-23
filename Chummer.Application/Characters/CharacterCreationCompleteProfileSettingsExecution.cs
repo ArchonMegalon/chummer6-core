@@ -15,7 +15,8 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
     private CharacterCreationCompleteProfileSettingsExecution(CharacterCreationCompleteAssessment authority,
         IReadOnlyDictionary<string, string> evaluations, IReadOnlySet<string> inactive, CompletedBrokenGroup940? brokenGroup,
         CompletedKnowledge971? knowledge, CompletedSkillCosts972? skillCosts,
-        CompletedAttributeHouseRules993? attributeHouseRules, CompletedCompensation1015? compensation)
+        CompletedAttributeHouseRules993? attributeHouseRules, CompletedCompensation1015? compensation,
+        CompletedSkillGroupSettings3207? skillGroupSettings)
     {
         authorityDigest = CharacterCreationFinalizationDigest.Compute(authority);
         this.evaluations = evaluations;
@@ -25,6 +26,7 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
         this.skillCosts972 = skillCosts;
         this.attributeHouseRules993 = attributeHouseRules;
         this.compensation1015 = compensation;
+        this.skillGroupSettings3207 = skillGroupSettings;
     }
 
     internal static bool CanAttempt(CharacterCreationCompletionReviewRequest request)
@@ -35,6 +37,8 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
         CharacterCreationMysticAdeptPowerPointPolicy? source, CharacterCreationSettingObservation observation,
         CharacterCreationSettingConsumer? consumer, CharacterCreationSelectedConsumerPolicy selected)
     {
+        if (observation.Key == S.AttributeKarma)
+            return SupportsAttributeKarma3201(policy, source, observation, consumer, selected);
         if (observation.Key is not (S.BrokenGroups or S.StrictGroups or S.SpecializationsBreakGroups
                 or S.AlternateAttributeKarma or S.ReverseAttributeOrder)
             || !TrySource(policy, source, out var settings)
@@ -71,9 +75,12 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
     {
         settings = null;
         if (policy.SettingObservations is null
-            || !CharacterCreationCompleteProfileExecution.SupportsDomain(policy, source, CharacterCreationPolicyDomain.Profile)
+            || !CharacterCreationCompleteProfileExecution.SupportsDomain(policy, source,
+                CharacterCreationPolicyDomain.Profile, out var profileSettings)
             || !CharacterCreationPolicyConsumptionProjection.MatchesSource(policy, source)) return false;
-        settings = XElement.Parse(source!.CanonicalSourceXml, LoadOptions.PreserveWhitespace);
+        // SupportsDomain parsed this exact source with PreserveWhitespace in
+        // this call; source matching above still runs independently and fresh.
+        settings = profileSettings!;
         return !settings.HasAttributes;
     }
 
@@ -104,6 +111,8 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
         {
             if (row.Kind != CharacterCreationCompleteObligationKind.Setting || row.Setting is null
                 || row.Evaluability != CharacterCreationCompleteEvaluability.CandidateDependent
+                // Attribute price coverage also requires the retained resolver's exact leaf receipt.
+                || row.Setting.Key == S.AttributeKarma
                 || !SupportsSetting(policy, source, row.Setting, row.Consumer, selected)) continue;
             // The scope comes from the final successful canonical enumeration,
             // including auto-projected group members and grants, not request emptiness.
@@ -123,19 +132,26 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
                 Result = result, DomainEmpty = noTarget
             }));
         }
+        var skillCosts = CompletedSkillCosts972.FromCanonical(policy, source!, trace, result);
+        if (authority.Schema == CharacterCreationCompleteAssessment.SchemaV4
+            && request.PolicyRequirement == CharacterCreationPolicyRequirement.Complete
+            && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
+            AddEmptySkillCostEvaluations972(policy, authority, skillCosts, evaluations, inactive);
         return new(authority, evaluations, inactive,
             CompletedBrokenGroup940.FromCanonical(policy, source!, selected, trace, result),
             CompletedKnowledge971.FromCanonical(policy, source!, selected, trace, result),
-            CompletedSkillCosts972.FromCanonical(policy, source!, trace, result),
+            skillCosts,
             CompletedAttributeHouseRules993.FromCanonical(policy, source!, selected, attributes, result),
-            CompletedCompensation1015.FromCanonical(policy, source!, trace, result));
+            CompletedCompensation1015.FromCanonical(policy, source!, trace, result),
+            CompletedSkillGroupSettings3207.FromCanonical(policy, source!, trace, result));
     }
 
     internal IReadOnlyDictionary<string, string> EvaluationsFor(CharacterCreationCompleteAssessment authority)
         => authority.Phase == CharacterCreationCompletePhase.Authority
             && authorityDigest == CharacterCreationFinalizationDigest.Compute(authority)
-                ? evaluations : new Dictionary<string, string>();
+                ? WithMagicEvaluations3200() : new Dictionary<string, string>();
 
     internal bool IsInactiveFor(CharacterCreationCompleteAssessment authority, string id)
-        => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority) && inactive.Contains(id);
+        => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority)
+            && (inactive.Contains(id) || magicInactive3200.Contains(id));
 }

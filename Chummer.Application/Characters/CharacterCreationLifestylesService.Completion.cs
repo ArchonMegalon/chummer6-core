@@ -14,7 +14,8 @@ public sealed partial class CharacterCreationLifestylesService
         CharacterCreationLifestylesLoadRequest request) => LoadCompletionInputs(request, false);
 
     internal CharacterCreationLifestyleResult<CharacterCreationLifestylesCompletionInputs> LoadCompletionInputs(
-        CharacterCreationLifestylesLoadRequest request, bool knowledgeModifiers)
+        CharacterCreationLifestylesLoadRequest request, bool knowledgeModifiers,
+        CharacterCreationContactsService.CompletionPreviewReuse? contactsPreviewReuse = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (_completionQueries is null)
@@ -84,9 +85,13 @@ public sealed partial class CharacterCreationLifestylesService
             var selected = composite.Selections;
             var current = PreviewCompletion(inputs, magic.Value, selected.AttributeAllocations,
                 selected.MagicSelections, selected.QualityOptionIds, selected.TotalKarmaInvestment,
-                selected.Gear, selected.Lifestyles, selected.StartingLifestyleId);
+                selected.Gear, selected.Lifestyles, selected.StartingLifestyleId, loadout: null,
+                previewReuse: contactsPreviewReuse);
             if (current.Blockers.Count != 0)
                 return new(CharacterCreationLifestyleOutcomes.Blocked, null, current.Blockers);
+            if (current.Value?.Gear.Resources.UpstreamBudget.Qualities is { } upstream)
+                contactsPreviewReuse?.RememberUpstream(inputs.Qualities, selected.AttributeAllocations,
+                    selected.QualityOptionIds, upstream);
         }
         return new(CharacterCreationLifestyleOutcomes.Available, DetachCompletion(inputs), []);
     }
@@ -122,7 +127,8 @@ public sealed partial class CharacterCreationLifestylesService
         CharacterCreationLoadoutCompletionProjection? loadout,
         CancellationToken cancellationToken = default,
         Action<CompleteGraphExecution>? observeCompleteGraph = null,
-        CharacterCreationCompleteAssessment? completeAuthority = null)
+        CharacterCreationCompleteAssessment? completeAuthority = null,
+        CharacterCreationContactsService.CompletionPreviewReuse? previewReuse = null)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(magicInputs);
@@ -141,11 +147,20 @@ public sealed partial class CharacterCreationLifestylesService
         magicSelections = DetachCompletion(magicSelections);
         qualityOptionIds = qualityOptionIds.ToArray();
         basket = basket.ToArray();
+        string? preparationKey = previewReuse?.CreateLifestyleKey(inputs, magicInputs,
+            attributeAllocations, magicSelections, qualityOptionIds, totalKarmaInvestment);
+        if (previewReuse?.TryTakeLifestyle(preparationKey!, cancellationToken) is { } reused)
+            return reused.Preview(basket, frozen, startingLifestyleId, loadout, cancellationToken,
+                observeCompleteGraph, completeAuthority);
         var prepared = PrepareDetachedCompletionPreview(inputs, magicInputs, attributeAllocations,
             magicSelections, qualityOptionIds, totalKarmaInvestment, cancellationToken);
-        return prepared.Value is { } session
-            ? session.Preview(basket, frozen, startingLifestyleId, loadout, cancellationToken, observeCompleteGraph, completeAuthority)
-            : new(prepared.Outcome, null, prepared.Blockers);
+        if (prepared.Value is not { } session)
+            return new(prepared.Outcome, null, prepared.Blockers);
+        var result = session.Preview(basket, frozen, startingLifestyleId, loadout, cancellationToken,
+            observeCompleteGraph, completeAuthority);
+        if (result is { Outcome: CharacterCreationLifestyleOutcomes.Available, Value: not null, Blockers.Count: 0 })
+            previewReuse?.RememberLifestyle(preparationKey!, session);
+        return result;
     }
 
     // Only private copies admitted for this call enter this preparation boundary.
@@ -466,5 +481,5 @@ public sealed partial class CharacterCreationLifestylesService
         => CharacterCreationGearRules.DigestsEqual(left, right);
 
     private static T DetachCompletion<T>(T value)
-        => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))!;
+        => Chummer.Contracts.Workspaces.WorkspaceDocumentAuxiliaryStateJsonConverter.DetachCreationCompletion(value);
 }

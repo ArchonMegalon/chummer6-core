@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Explicitly selected native V7 source amendment, version 1. No global activation.
+     Run Faster pp.224-225: indexed primary-book evidence obtained 2026-10-29.
+     The live PDF fetch returned 404; no successful PDF download is claimed.
+     https://files.spawningpool.net/docs/Vault2.0.-.TTRPG-Gamebooks/Shadowrun%20%5Bmulti%5D/5th%20Edition/Core/Shadowrun%205e%20-%20Run%20Faster%20.pdf
+     chummer-starting-base-lp-v1 is a native extension, NOT an upstream Chummer5a predicate. -->
+<chummer>
+  <qualities>
+    <quality>
+      <id>6c47713d-46ba-495d-800c-f77c306cf9df</id>
+      <comfortsminimum amendoperation="remove" />
+      <securityminimum amendoperation="remove" />
+      <comfortsmaximum amendoperation="replace" addifnotfound="True">1</comfortsmaximum>
+      <securitymaximum amendoperation="replace" addifnotfound="True">1</securitymaximum>
+      <required amendoperation="append">
+        <chummer-starting-base-lp-v1>3</chummer-starting-base-lp-v1>
+      </required>
+    </quality>
+  </qualities>
+</chummer>

@@ -61,7 +61,8 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             context.Budget,
             context.Blockers,
             CanEdit: context.Blockers.Count == 0 && _workspaceStore is not WorkspaceContinuationReadView,
-            SnapshotDigest: string.Empty);
+            SnapshotDigest: string.Empty)
+        { OwnedGear = context.OwnedGear1233, OwnedGearBlockers = context.OwnedGearBlockers1233 };
         return candidate with
         {
             SnapshotDigest = CharacterCreationGearRules.ComputeStateDigest(candidate)
@@ -328,16 +329,29 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             out CharacterCreationGearBudget budgetAfter,
             out string[] projectionBlockers);
         blockers.AddRange(projectionBlockers);
-        if (shared is null && (workspace.Document.AuxiliaryState.CharacterCreationLoadoutDraft is not null
-            || workspace.Document.AuxiliaryState.CharacterCreationLifestylesDraft is not null
-            || workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts is { Count: > 0 }))
+        CharacterCreationResourcesBudget? cumulativeBudgetAfter;
+        if (shared is not null)
         {
-            var retainedResources = new CharacterCreationResourcesService(_workspaceStore, _sourceData)
-                .LoadCompletionInputsFromObservation(workspace);
-            if (retainedResources.Value is not { } purchases) blockers.AddRange(retainedResources.Blockers);
-            else if (purchases.KnownPurchaseCost - (context.PendingDraft?.Budget.BasketCost ?? 0m)
-                    + budgetAfter.BasketCost > (context.ResourcesDraft?.Budget.TotalStartingNuyen ?? 0m))
+            // The owner-bound composite review already priced the full proposed
+            // graph, including loadout and lifestyles. Never subtract it again.
+            cumulativeBudgetAfter = shared.Lifestyles?.Gear.Resources.Budget;
+        }
+        else
+        {
+            var quote = new CharacterCreationResourcesService(_workspaceStore, _sourceData)
+                .QuoteGearPurchaseBudget(workspace, context.Binding, budgetAfter.BasketCost);
+            cumulativeBudgetAfter = quote.Value;
+            blockers.AddRange(quote.Blockers);
+        }
+        if (cumulativeBudgetAfter is null)
+            blockers.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
+        else
+        {
+            blockers.AddRange(cumulativeBudgetAfter.Blockers);
+            if (cumulativeBudgetAfter.Overspend > 0m)
                 blockers.Add(CharacterCreationGearBlockers.InsufficientFunds);
+            if (!cumulativeBudgetAfter.IsExact && cumulativeBudgetAfter.Blockers.Count == 0)
+                blockers.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
         }
         if (baseline is null && context.PendingDraft is not null
                && context.ResourcesDraft is not null
@@ -394,7 +408,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         };
         CharacterCreationSelectedGearAuthority? compositeAuthority = null;
         if (baseline is not null && !CharacterCreationGearRules.TryCaptureSelectedAuthority(
-                context.Authority, [], lines.Select(row => row.OptionId).ToArray(), out compositeAuthority))
+                context.Authority, [], CharacterCreationFocusSelectionRules.RequiredOptionIds(lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity) { Focus = row.Focus?.Selection }).ToArray()), out compositeAuthority))
             blockers.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
         string[] normalized = Normalize(blockers);
         var previewCandidate = new CharacterCreationGearPreview(
@@ -411,7 +425,8 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             CanConfirm: normalized.Length == 0,
             PreviewDigest: string.Empty)
         { CompositePurchase = draftCandidate.CompositePurchase, CompositeReviewDigest = shared?.ReviewDigest,
-            CompositeAuthority = compositeAuthority };
+            CompositeAuthority = compositeAuthority,
+            CumulativeBudgetAfter = cumulativeBudgetAfter };
         CharacterCreationGearPreview preview = previewCandidate with
         {
             PreviewDigest = CharacterCreationGearRules.ComputePreviewDigest(previewCandidate)
@@ -426,7 +441,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             workspace);
     }
 
-    private AuthorityContext BuildContext(WorkspaceStoredDocument workspace)
+    private AuthorityContext BuildContext(WorkspaceStoredDocument workspace, bool originalInventoryRead3475 = false)
     {
         var blockers = new List<string>();
         XElement root;
@@ -564,13 +579,23 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
             authority.SourceDigest,
             authority.RulesDigest,
             authority.RuntimeDigest);
+        bool capturedOwned1233 = CharacterCreationOwnedGearGraph1233.TryCapture(
+            new XElement(root), workspace.Id, authority, out var ownedGear1233);
+        bool hasOwned1233 = new[] { "gears", "foci", "stackedfoci" }.Any(name => root.Elements(name).Any(node => node.HasElements));
         return new AuthorityContext(
             resourcesDraft,
             pending,
             authority,
             budget,
             binding,
-            Normalize(blockers));
+            Normalize(blockers))
+        {
+            OwnedGear1233 = capturedOwned1233 ? ownedGear1233 : null,
+            OwnedGearBlockers1233 = !capturedOwned1233 && hasOwned1233
+                && !(originalInventoryRead3475 && CharacterCreationOriginalInventory3475.TryCapture(root, _sourceData, out _,
+                    CharacterCreationPriorityGrantAuthority3563.Capture(workspace, _sourceData)))
+                ? [CharacterCreationFocusSelectionRules.OwnedInvalid] : null
+        };
     }
 
     private static bool HasCurrentResourcesBinding(
@@ -633,7 +658,7 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         CharacterCreationGearSelection[] requested = pending.Lines
             .Select(static line => new CharacterCreationGearSelection(
                 line.OptionId,
-                line.Quantity))
+                line.Quantity) { Focus = line.Focus?.Selection })
             .ToArray();
         if (!CharacterCreationGearRules.TryProjectBasket(
                 requested,
@@ -787,7 +812,11 @@ public sealed partial class CharacterCreationGearService : ICharacterCreationGea
         CharacterCreationGearAuthority Authority,
         CharacterCreationGearBudget Budget,
         CharacterCreationGearBinding Binding,
-        IReadOnlyList<string> Blockers);
+        IReadOnlyList<string> Blockers)
+    {
+        internal CharacterCreationOwnedGearSelection? OwnedGear1233 { get; init; }
+        internal IReadOnlyList<string>? OwnedGearBlockers1233 { get; init; }
+    }
 
     private sealed record PreviewEvaluation(
         CharacterCreationGearResult<CharacterCreationGearPreview> Result,

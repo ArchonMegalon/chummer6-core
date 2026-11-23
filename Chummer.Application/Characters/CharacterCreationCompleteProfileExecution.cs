@@ -88,9 +88,18 @@ internal sealed class CharacterCreationCompleteProfileExecution
 
     internal static bool SupportsDomain(CharacterCreationEffectivePolicyContext policy,
         CharacterCreationMysticAdeptPowerPointPolicy? source, D domain)
-        => domain is D.Profile or D.Books && HasResolvedDomain(policy, domain)
-            && TryReadProfile(policy, source, out var settings)
+        => SupportsDomain(policy, source, domain, out _);
+
+    // Return this call's freshly parsed tree so a setting check need not parse
+    // the same canonical XML again. No source or policy decision is retained.
+    internal static bool SupportsDomain(CharacterCreationEffectivePolicyContext policy,
+        CharacterCreationMysticAdeptPowerPointPolicy? source, D domain, out XElement? settings)
+    {
+        settings = null;
+        return domain is D.Profile or D.Books && HasResolvedDomain(policy, domain)
+            && TryReadProfile(policy, source, out settings)
             && (domain == D.Profile || TryReadBooks(policy, settings!, out _));
+    }
 
     private static bool HasResolvedDomain(CharacterCreationEffectivePolicyContext policy, D domain)
     {

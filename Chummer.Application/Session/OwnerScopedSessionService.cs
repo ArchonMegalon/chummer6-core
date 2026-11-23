@@ -5,6 +5,7 @@ using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Content;
 using Chummer.Contracts.Owners;
+using Chummer.Application.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Session;
 using Chummer.Contracts.Trackers;
@@ -26,7 +27,9 @@ public sealed class OwnerScopedSessionService : ISessionService
     private readonly ISessionRuntimeBundleStore _runtimeBundleStore;
     private readonly IWorkspaceService _workspaceService;
     private readonly IActiveRuntimeStatusService _activeRuntimeStatusService;
+    private readonly DurableSessionPlayService? _play;
 
+    // Retain the original eight-argument constructor for existing source and binary callers.
     public OwnerScopedSessionService(
         IRuleProfileRegistryService ruleProfileRegistryService,
         IRuleProfileApplicationService ruleProfileApplicationService,
@@ -36,6 +39,20 @@ public sealed class OwnerScopedSessionService : ISessionService
         ISessionRuntimeBundleStore runtimeBundleStore,
         IWorkspaceService workspaceService,
         IActiveRuntimeStatusService activeRuntimeStatusService)
+        : this(ruleProfileRegistryService, ruleProfileApplicationService, rulePackRegistryService,
+            rulesetSelectionPolicy, profileSelectionStore, runtimeBundleStore, workspaceService,
+            activeRuntimeStatusService, null) { }
+
+    public OwnerScopedSessionService(
+        IRuleProfileRegistryService ruleProfileRegistryService,
+        IRuleProfileApplicationService ruleProfileApplicationService,
+        IRulePackRegistryService rulePackRegistryService,
+        IRulesetSelectionPolicy rulesetSelectionPolicy,
+        ISessionProfileSelectionStore profileSelectionStore,
+        ISessionRuntimeBundleStore runtimeBundleStore,
+        IWorkspaceService workspaceService,
+        IActiveRuntimeStatusService activeRuntimeStatusService,
+        DurableSessionPlayService? play)
     {
         _ruleProfileRegistryService = ruleProfileRegistryService;
         _ruleProfileApplicationService = ruleProfileApplicationService;
@@ -45,6 +62,7 @@ public sealed class OwnerScopedSessionService : ISessionService
         _runtimeBundleStore = runtimeBundleStore;
         _workspaceService = workspaceService;
         _activeRuntimeStatusService = activeRuntimeStatusService;
+        _play = play;
     }
 
     public SessionApiResult<SessionCharacterCatalog> ListCharacters(OwnerScope owner)
@@ -66,13 +84,57 @@ public sealed class OwnerScopedSessionService : ISessionService
     }
 
     public SessionApiResult<SessionDashboardProjection> GetCharacterProjection(OwnerScope owner, string characterId)
-        => NotImplemented<SessionDashboardProjection>(owner, SessionApiOperations.GetCharacterProjection, characterId);
+        => _play?.GetCharacterProjection(owner, characterId)
+            ?? SessionApiResult<SessionDashboardProjection>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
 
     public SessionApiResult<SessionOverlaySnapshot> ApplyCharacterPatches(OwnerScope owner, string characterId, SessionPatchRequest? request)
-        => NotImplemented<SessionOverlaySnapshot>(owner, SessionApiOperations.ApplyCharacterPatches, characterId);
+        => _play?.ApplyCharacterPatches(owner, characterId, request)
+            ?? SessionApiResult<SessionOverlaySnapshot>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
 
     public SessionApiResult<SessionSyncReceipt> SyncCharacterLedger(OwnerScope owner, string characterId, SessionSyncBatch? batch)
-        => NotImplemented<SessionSyncReceipt>(owner, SessionApiOperations.SyncCharacterLedger, characterId);
+        => _play?.SyncCharacterLedger(owner, characterId, batch)
+            ?? SessionApiResult<SessionSyncReceipt>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionDashboardProjection> GetCharacterProjectionWithOwnerLease(IOwnerContextLeaseAccessor owners, OwnerContextStamp owner, IOwnerContextLease lease, string characterId)
+        => _play?.WithOwnerLease(owners, owner, lease).GetCharacterProjection(owner.Owner, characterId)
+            ?? SessionApiResult<SessionDashboardProjection>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionOverlaySnapshot> ApplyCharacterPatchesWithOwnerLease(IOwnerContextLeaseAccessor owners, OwnerContextStamp owner, IOwnerContextLease lease, string characterId, SessionPatchRequest request)
+        => _play?.WithOwnerLease(owners, owner, lease).ApplyCharacterPatches(owner.Owner, characterId, request)
+            ?? SessionApiResult<SessionOverlaySnapshot>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionPlaySustainingReview> PreviewCharacterSustainingWithOwnerLease(IOwnerContextLeaseAccessor owners, OwnerContextStamp owner, IOwnerContextLease lease, string characterId, SessionPatchRequest request)
+        => _play?.WithOwnerLease(owners, owner, lease).PreviewCharacterSustaining(owner.Owner, characterId, request)
+            ?? SessionApiResult<SessionPlaySustainingReview>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionPlaySustainingReview> PreviewCharacterSustaining(OwnerScope owner, string characterId, SessionPatchRequest request)
+        => _play?.PreviewCharacterSustaining(owner, characterId, request)
+            ?? SessionApiResult<SessionPlaySustainingReview>.Failed(SessionPlayFailures.Unavailable("sustaining-preview-unavailable"));
+    public SessionApiResult<SessionPlayCastingReview> PreviewCharacterCastingWithOwnerLease(IOwnerContextLeaseAccessor owners, OwnerContextStamp owner, IOwnerContextLease lease, string characterId, SessionPatchRequest request)
+        => _play?.WithOwnerLease(owners, owner, lease).PreviewCharacterCasting(owner.Owner, characterId, request)
+            ?? SessionApiResult<SessionPlayCastingReview>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionPlayCastingReview> PreviewCharacterCasting(OwnerScope owner, string characterId, SessionPatchRequest request)
+        => _play?.PreviewCharacterCasting(owner, characterId, request)
+            ?? SessionApiResult<SessionPlayCastingReview>.Failed(SessionPlayFailures.Unavailable("casting-preview-unavailable"));
+    public SessionApiResult<SessionPlayElementalReview> PreviewCharacterElementalFollowupWithOwnerLease(IOwnerContextLeaseAccessor owners, OwnerContextStamp owner, IOwnerContextLease lease, string characterId, SessionPatchRequest request)
+        => _play?.WithOwnerLease(owners, owner, lease).PreviewCharacterElementalFollowup(owner.Owner, characterId, request)
+            ?? SessionApiResult<SessionPlayElementalReview>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionPlayElementalReview> PreviewCharacterElementalFollowup(OwnerScope owner, string characterId, SessionPatchRequest request)
+        => _play?.PreviewCharacterElementalFollowup(owner, characterId, request)
+            ?? SessionApiResult<SessionPlayElementalReview>.Failed(SessionPlayFailures.Unavailable("elemental-preview-unavailable"));
+    public SessionApiResult<SessionPlayOperationLookup> InspectCharacterOperation(OwnerScope owner, string characterId, SessionPatchRequest request)
+        => _play?.InspectCharacterOperation(owner, characterId, request)
+            ?? SessionApiResult<SessionPlayOperationLookup>.Failed(SessionPlayFailures.Unavailable("read-only-inspection-unavailable"));
+
+    public SessionApiResult<SessionPlayOperationResult> RecoverCharacterOperationWithOwnerLease(IOwnerContextLeaseAccessor owners, OwnerContextStamp owner, IOwnerContextLease lease, string characterId, string operationId)
+        => _play?.WithOwnerLease(owners, owner, lease).RecoverCharacterOperation(owner.Owner, characterId, operationId)
+            ?? SessionApiResult<SessionPlayOperationResult>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
+
+    public SessionApiResult<SessionPlayOperationResult> RecoverCharacterOperation(OwnerScope owner, string characterId, string operationId)
+        => _play?.RecoverCharacterOperation(owner, characterId, operationId)
+            ?? SessionApiResult<SessionPlayOperationResult>.Failed(SessionPlayFailures.Unavailable("durable-session-store-unregistered"));
 
     public SessionApiResult<SessionProfileCatalog> ListProfiles(OwnerScope owner)
     {

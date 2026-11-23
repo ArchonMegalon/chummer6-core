@@ -290,8 +290,19 @@ public static class CharacterCareerReputationProjector
     // The initiative consumer shares the inspected enabled/lifecycle/unique resolver.
     // The existing reputation callers still supply their original type set and phase.
     internal static decimal ResolvePhysicalChannel886(XElement root, string type, bool created)
-        => SelectAndSum(ReadImprovements(root, created ? CharacterReputationPhase.Career : CharacterReputationPhase.Creation,
-            new[] { type }).Where(row => row.Applicable), []);
+        => ResolvePhysicalChannel886(root, type, created, out _);
+
+    // Sheet anatomy needs the same selected contributors, not every enabled row.
+    // Indices address the supplied improvements container; original callers keep
+    // exactly the existing selector and result.
+    internal static decimal ResolvePhysicalChannel886(XElement root, string type, bool created,
+        out HashSet<int> selected)
+    {
+        selected = [];
+        return SelectAndSum(ReadImprovements(root,
+            created ? CharacterReputationPhase.Career : CharacterReputationPhase.Creation,
+            new[] { type }).Where(row => row.Applicable), selected);
+    }
 
     private static decimal SelectAndSum(IEnumerable<Improvement> rows, HashSet<int> selected)
     {

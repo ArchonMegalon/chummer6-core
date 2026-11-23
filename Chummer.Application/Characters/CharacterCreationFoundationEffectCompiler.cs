@@ -66,7 +66,10 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                 QualitySourceDigest = qualitySourceAuthority?.SourceDigest ?? string.Empty,
                 SourceContextDigest = sourceContextDigest,
                 QualityLevelsSourceDigest = qualityLevelSourceAuthority?.SourceDigest ?? string.Empty,
-                SupportedRequirementKinds = new[] { "oneof:metatype" }
+                // Preserve the historical compiler namespace for base-only archives.
+                SupportedRequirementKinds = ledger.MetatypeIdentity?.MetavariantOptionId is null
+                    ? new[] { "oneof:metatype" }
+                    : new[] { "oneof:metatype-parent-v1", "oneof:metavariant-v1" }
             });
 
         LifeModuleEffectProjectionDto[] authoritativeEffects =
@@ -112,7 +115,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                 index < authoritativeRequirements.Length
                     ? authoritativeRequirements[index]
                     : null,
-                ledger.RequestedMetatype))
+                ledger.RequestedMetatype, ledger.ParentMetatypeLabel))
             .ToArray();
         if (requirements.Length != authoritativeRequirements.Length
             || requirements.Any(item => !string.Equals(
@@ -213,7 +216,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
         int index,
         LifeModuleRequirementProjectionDto requirement,
         LifeModuleRequirementProjectionDto? authoritative,
-        string requestedMetatype)
+        string requestedMetatype, string? parentMetatype = null)
     {
         bool sourceMatches = authoritative is not null
                              && string.Equals(
@@ -239,7 +242,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                                  authoritative.SourceAnchorIds,
                                  StringComparer.Ordinal);
         bool supported = sourceMatches
-                         && IsExactMetatypeOneOf(requirement, requestedMetatype)
+                         && IsExactMetatypeOneOf(requirement, requestedMetatype, parentMetatype)
                          && requirement.IsMet
                          && requirement.DisableReasonKey is null
                          && !requirement.RequiresCharacterAuthority;
@@ -1439,12 +1442,16 @@ internal static partial class CharacterCreationFoundationEffectCompiler
 
     private static bool IsExactMetatypeOneOf(
         LifeModuleRequirementProjectionDto requirement,
-        string requestedMetatype)
+        string requestedMetatype, string? parentMetatype = null)
     {
+        bool variant = requirement.SubjectKind.Equals("metavariant", StringComparison.OrdinalIgnoreCase);
+        string selected = variant ? parentMetatype is null ? string.Empty : requestedMetatype
+            : parentMetatype ?? requestedMetatype;
         if (!string.Equals(requirement.Operator, "oneof", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(requirement.SubjectKind, "metatype", StringComparison.OrdinalIgnoreCase)
+            || !(variant || string.Equals(requirement.SubjectKind, "metatype", StringComparison.OrdinalIgnoreCase))
+            || selected.Length == 0
             || !requirement.AcceptedValues.Contains(
-                requestedMetatype,
+                selected,
                 StringComparer.OrdinalIgnoreCase))
         {
             return false;
@@ -1460,7 +1467,7 @@ internal static partial class CharacterCreationFoundationEffectCompiler
                        element.Name.NamespaceName.Length == 0
                        && string.Equals(
                            element.Name.LocalName,
-                           "metatype",
+                           variant ? "metavariant" : "metatype",
                            StringComparison.OrdinalIgnoreCase)
                        && !element.HasElements
                        && !element.HasAttributes)

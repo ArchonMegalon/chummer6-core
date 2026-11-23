@@ -1,0 +1,46 @@
+<Project>
+  <ItemGroup>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs">
+      <ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Managers/SettingsManager.cs">
+      <ExpectedSha256>d37c6c26476ff90ee6c361452622aa060408aef608a0f5d49226826c95e2f6e8</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Extensions/XPathNavigatorExtensions.cs">
+      <ExpectedSha256>95d89e8d30c5f8b5283ea9556baa72a44f83860c0fe6e5a631857aeeb1f0aa57</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Extensions/DecimalExtensions.cs">
+      <ExpectedSha256>b60e05f94606721cd4ef8087ef9d2ea9b3bda2aabd3371c8f699d0e083cd1ffd</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Character.cs">
+      <ExpectedSha256>f3dcea63f4ae7a20ede033913f8012f1d5e755af0e09723f21c3f17387d52b26</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Uniques/ComplexForm.cs">
+      <ExpectedSha256>36bdb9df496f9f6b0c17b79299c515ddfcafabe6b2eb70fa4b7684e33bd9e0d8</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/EditCharacterSettings.cs">
+      <ExpectedSha256>f9a969ae64ef12693d428377ab96f41caa1e1e68e6e3fb38f2ce7e408fffbfa9</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/EditCharacterSettings.Designer.cs">
+      <ExpectedSha256>29ccb1445a5d7822cd4bc90ea5bc9fa2aeabca45e54ec6571d005a90c19e4b4f</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCreate.cs">
+      <ExpectedSha256>78816501a56194ecc9d757c58c2a4e4e0b7916f55944d58b7d9a3b16761563db</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCareer.cs">
+      <ExpectedSha256>5594076cfe19ac8bfe832025040437ba079f46ef75473cfca0315bd6692da859</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Selection Forms/SelectComplexForm.cs">
+      <ExpectedSha256>f048f3161f5126988d16f65f8bf264b7490b3e298ef221fc88cbed269e5aaf7d</ExpectedSha256>
+    </RetainedSr5Source1241>
+    <RetainedSr5Source1241 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterShared.cs">
+      <ExpectedSha256>2335d982b4ebdac1286bf4ed935ed371f6e6474b04d7978e65ec136848c38bfe</ExpectedSha256>
+    </RetainedSr5Source1241>
+  </ItemGroup>
+  <Target Name="VerifyRetainedSr5Source1241" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(RetainedSr5Source1241)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedRetainedSr5Source1241" />
+    </GetFileHash>
+    <Error Condition="'%(HashedRetainedSr5Source1241.FileHash)' != '%(HashedRetainedSr5Source1241.ExpectedSha256)'" Text="Retained SR5 compatibility1241 source drift: %(HashedRetainedSr5Source1241.Identity). Re-review the exact three-field dataflow before updating the pinned source version." />
+  </Target>
+</Project>

@@ -17,10 +17,32 @@ public static class WorkspaceAuxiliaryStateIntegrity
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state,
         ICharacterCreationRuleSourceRecovery? recovery = null)
+        => IsValidShape(workspaceId, currentContentRevision, state, recovery, CancellationToken.None);
+
+    // Preserve the existing public signature and ordinary cold readers. A live
+    // completion transaction forwards its own cancellation through candidate
+    // archive replay, before any atomic publication is attempted.
+    public static bool IsValidShape(CharacterWorkspaceId workspaceId, long currentContentRevision,
+        WorkspaceDocumentAuxiliaryState state, ICharacterCreationRuleSourceRecovery? recovery,
+        CancellationToken cancellationToken)
+        => IsValidShape(workspaceId, currentContentRevision, state, recovery, cancellationToken, null);
+
+    internal static bool IsValidShape(CharacterWorkspaceId workspaceId, long currentContentRevision,
+        WorkspaceDocumentAuxiliaryState state, ICharacterCreationRuleSourceRecovery? recovery,
+        CancellationToken cancellationToken,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8568)
     {
+        using var prelude8991 = CharacterCreationValidationTiming8991.BeginBucket(
+            CharacterCreationValidationTiming8991.Bucket.IntegrityPrelude);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!WorkspaceDocumentAuxiliaryState.HasSafeExtensionData(state)) return false;
+        if (!Chummer.Application.Session.SessionConditionTransferRules.IsValidLedger(workspaceId, currentContentRevision, state)) return false;
         using var validation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         if (recovery is not null && !recovery.ValidateRetainedRuleSources()) return false;
+        cancellationToken.ThrowIfCancellationRequested();
+        prelude8991?.Complete();
         if (!CharacterCreationCompletionDraftTransaction.IsValidLedger(workspaceId, currentContentRevision, state, recovery)) return false;
+        cancellationToken.ThrowIfCancellationRequested();
         if (!CharacterCreationCompositePurchaseEdit.HasValidHistory(state)) return false;
         if (!Sr6CreationFinalizationIntegrity.IsValidArchive(workspaceId, currentContentRevision, state)) return false;
         if (!Sr6CareerAttributeIntegrity.IsValidLedger(workspaceId, currentContentRevision, state)) return false;
@@ -34,10 +56,10 @@ public static class WorkspaceAuxiliaryStateIntegrity
             return false;
         if (state.CharacterCreationFinalizationArchive is { } archive
             && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
-                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts, recovery)
+                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts, recovery, cancellationToken, currentReview8568)
                 || !IsValidShape(workspaceId,
                     state.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision,
-                    archive.State, recovery)))
+                    archive.State, recovery, cancellationToken)))
         {
             // IsValidArchive forbids nesting before this single historical
             // validation. Do not weaken active draft/receipt pairing rules.
@@ -297,6 +319,42 @@ public static class WorkspaceAuxiliaryStateIntegrity
                && qualitiesValid
                && afterRunReceiptsValid
                && afterRunRewardReceiptsValid
+               && CharacterCareerCustomDrugPurchaseTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerCustomDrugPurchaseReceipts)
+               && CharacterCareerImplantCommerceTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerImplantCommerceReceipts)
+               && CharacterCareerGearPurchaseTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerGearPurchaseReceipts)
+               && CharacterCareerComplexFormLearningTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerComplexFormLearningReceipts)
+               && CharacterCareerFreeSpriteConversionTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerFreeSpriteConversionReceipts)
+               && CharacterCareerSpiritFetteringTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerSpiritFetteringReceipts)
+               && CharacterCareerMartialAcquisitionTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerMartialAcquisitionReceipts)
+               && CharacterCareerFocusBondingTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerFocusBondingReceipts)
+               && WorkspaceWizardTransaction.ValidLedger(workspaceId, currentContentRevision, state.WorkspaceWizardReceipts)
+               && CharacterCareerSpellLearningTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerSpellLearningReceipts)
+               && CharacterCareerContactsTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerContactsReceipts)
+               && CharacterCareerLifestyleMaintenanceTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerLifestyleMaintenanceReceipts)
+               && CharacterSustainedSpellTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterSustainedSpellReceipts)
+               && CharacterSr5NaturalRecoveryTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.Sr5NaturalRecovery)
+               && CharacterCareerLifestylePaymentTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerLifestylePaymentReceipts)
+               && CharacterCareerSpecializationTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerSpecializationReceipts)
+               && CharacterCareerGearSaleTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerGearSaleReceipts)
+               && CharacterCareerLoadoutTransaction.IsValid(state.CharacterCareerLoadoutPresets)
+               && CharacterCareerGearEquipmentTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerGearEquipmentReceipts)
                && CharacterCareerReputationTransaction.IsValidLedger(
                    workspaceId, currentContentRevision, state.CharacterCareerReputationReceipts)
                && CharacterCareerInitiationTransaction.IsValidLedger(

@@ -213,7 +213,7 @@ public static class CharacterCreationMagicCompletionPlanner
             && original.Spells.All(item => proposed.Spells.Count(other => item == other) == 1)
             && original.ComplexForms.All(item => proposed.ComplexForms.Count(other => item == other) == 1);
 
-    private static bool ValidShape(CharacterCreationMagicCompletionRequest request)
+    internal static bool ValidShape(CharacterCreationMagicCompletionRequest request)
         => request.MaximumAdditionalPowerPointKarmaSpend >= 0 && request.KarmaToReserve >= 0
             && request.DesiredTotalMysticAdeptPowerPoints is null or >= 0
             && request.EvaluationLimit is >= 3 and <= MaximumEvaluations

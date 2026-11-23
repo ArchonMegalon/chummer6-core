@@ -46,9 +46,20 @@ public sealed partial class FileWorkspaceStore
     public CharacterCareerInitiationResult CommitCareerInitiation(OwnerContextStamp owner,
         CharacterCareerInitiationPlan plan, ICharacterCareerInitiationAuthorityResolver authority,
         CancellationToken cancellationToken = default)
+        => CommitCareerInitiation(owner, plan, authority, null, null, cancellationToken);
+
+    public CharacterCareerInitiationResult CommitCareerInitiation(IOwnerContextLeaseAccessor owners,
+        IOwnerContextLease lease, CharacterCareerInitiationPlan plan, ICharacterCareerInitiationAuthorityResolver authority,
+        CancellationToken cancellationToken = default)
+        => CommitCareerInitiation(lease.Stamp, plan, authority, owners, lease, cancellationToken);
+
+    private CharacterCareerInitiationResult CommitCareerInitiation(OwnerContextStamp owner,
+        CharacterCareerInitiationPlan plan, ICharacterCareerInitiationAuthorityResolver authority,
+        IOwnerContextLeaseAccessor? owners, IOwnerContextLease? lease, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(authority);
-        cancellationToken.ThrowIfCancellationRequested();
+        if (owners is not null && !LearningOwnerCurrent5703(owners, lease, owner))
+            return new(CharacterCareerInitiationOutcome.Conflict, Error: "initiation_owner_changed");
         if (!owner.IsValid || !CharacterCareerQualityTransaction.IsValidOwner(owner.Owner)
             || !CharacterCareerInitiationRules.IsValid(plan) || owner.Owner.NormalizedValue != plan.OwnerId)
             return new(CharacterCareerInitiationOutcome.Conflict, Error: "initiation_command_invalid");
@@ -59,10 +70,13 @@ public sealed partial class FileWorkspaceStore
         try
         {
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            var read = ReadWorkspaceUnderLease(owner.Owner, id, path, out var delegatedLedger);
+            var read = ReadGearWorkspaceUnderLease(owner.Owner, id, path, owners, lease, owner,
+                out var delegatedLedger, out var environment);
+            using var current = environment;
             if (!read.Success || read.Value is not { } saved) return InitiationReadFailure(read);
             var prior = CharacterCareerInitiationTransaction.Lookup(owner.Owner, saved, plan);
             if (prior.Outcome != CharacterCareerInitiationOutcome.NotFound) return prior;
+            cancellationToken.ThrowIfCancellationRequested();
             // Historical receipts remain recoverable; campaign history cannot admit a fresh purchase.
             if (HasCareerInitiationCampaignAuthority(saved, delegatedLedger))
                 return new(CharacterCareerInitiationOutcome.Unavailable, CurrentRevision: saved.ContentRevision,
@@ -71,23 +85,56 @@ public sealed partial class FileWorkspaceStore
                 || saved.ContentRevision != saved.SavedRevision)
                 return new(CharacterCareerInitiationOutcome.Conflict, CurrentRevision: saved.ContentRevision,
                     Error: "initiation_revision_conflict");
-            using var admission = authority.Open(owner, saved, plan.Quote.Selection, CareerInitiationRuntimeFingerprint);
+            string? slot = ReadContinuationSlotUnderLease(path);
+            string beforeDigest = CharacterCreationFinalizationDigest.Compute(ReadPrivateRecord(path));
+            string runtime = LearningRuntime5703(CareerInitiationRuntimeFingerprint, current, slot, owner);
+            using var admission = OpenInitiation5722(owner, saved, plan.Quote.Selection, runtime, authority, current);
             if (admission is null || !CharacterCareerInitiationTransaction.TryBuild(owner, saved, plan, admission,
-                    CareerInitiationRuntimeFingerprint, out var replacement, out var entry))
+                    runtime, out var replacement, out var entry))
                 return new(CharacterCareerInitiationOutcome.Conflict, CurrentRevision: saved.ContentRevision,
                     Error: "initiation_authority_changed_or_unavailable");
-            using var recovery = OpenSavedRuleSources(owner.Owner, id, path, saved);
+            using var recovery = current is null ? OpenSavedRuleSources(owner.Owner, id, path, saved) : null;
             using var historyValidation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
-            if (!IsValidAuxiliaryState(id, entry!.Plan.TargetWorkspaceRevision, replacement!.AuxiliaryState, recovery))
+            if (!IsValidAuxiliaryState(id, entry!.Plan.TargetWorkspaceRevision, replacement!.AuxiliaryState, current?.Recovery ?? recovery))
                 return new(CharacterCareerInitiationOutcome.Corrupt, Error: "initiation_auxiliary_invalid");
             var record = BuildPersistedRecord(replacement, plan.TargetWorkspaceRevision, plan.TargetSavedRevision,
                 saved.LocalHistory!, delegatedLedger, saved.DelegatedGmHistorySegmentStarts);
+            var proposed = saved with { Document = replacement, ContentRevision = plan.TargetWorkspaceRevision,
+                SavedRevision = plan.TargetSavedRevision };
+            CharacterCurrentRuleEnvironmentReadmissionResult? readmission = null;
+            if (current is not null)
+            {
+                readmission = current.Execution.ReadmitProposedCurrentEnvironment(saved, current.Capture,
+                    _retainedCharacterQueries!, proposed, cancellationToken);
+                if (readmission.AfterCapture is not { } capture || readmission.AfterExecution is not { } execution
+                    || readmission.Blockers.Count != 0)
+                    throw new IOException("initiation_proposed_environment_unavailable");
+                current.Recovery.RetainAdmittedCapture(new(capture, _retainedCharacterQueries!), capture.IntegrityDigest);
+                var continuation = new WorkspaceContinuationSnapshot(owner.Owner.NormalizedValue,
+                    new(id, proposed.Document, proposed.LastUpdatedUtc, proposed.ContentRevision, proposed.SavedRevision), []);
+                record = record with
+                {
+                    RecordSchemaVersion = RetainedWorkspaceRecordSchemaVersion,
+                    RetainedRuleSources = current.Record.RetainedRuleSources! with
+                    {
+                        References = current.Recovery.SnapshotReferences(),
+                        CurrentEnvironment = WorkspacePrivateRuleSourceClosure.DescribeCurrentEnvironment(continuation,
+                            capture, execution.ExecutionProfile, execution.ExecutionProfileFingerprint, [])
+                    }
+                };
+            }
             cancellationToken.ThrowIfCancellationRequested();
+            using var writeAdmission = new InitiationWriteAdmission5722(this, path, record, current, proposed, readmission);
             WriteRecordAtomically(path, record, WorkspaceWriteDisposition.ReplaceExisting,
                 beforeTargetReplace: () =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!admission.IsCurrent()) throw new IOException("initiation_authority_changed_before_replace");
+                    if (owners is not null && !LearningOwnerCurrent5703(owners, lease, owner)
+                        || slot != ReadContinuationSlotUnderLease(path)
+                        || beforeDigest != CharacterCreationFinalizationDigest.Compute(ReadPrivateRecord(path))
+                        || !admission.IsCurrent()) throw new IOException("initiation_authority_changed_before_replace");
+                    writeAdmission.ValidateFinalFence(record);
+                    cancellationToken.ThrowIfCancellationRequested();
                 });
             wrote = true;
         }
@@ -97,13 +144,14 @@ public sealed partial class FileWorkspaceStore
             // A throw may follow replacement. Read the durable identity once;
             // never retry a paid/mutating operation with a fresh transaction ID.
         }
-        var observed = GetCore(owner.Owner, id);
-        if (!observed.Success || observed.Value is not { } current) return InitiationReadFailure(observed);
-        var recovered = CharacterCareerInitiationTransaction.Lookup(owner.Owner, current, plan);
+        var observed = owners is not null && lease is not null
+            ? ReadCareerInitiationWorkspace(owners, lease, id) : GetCore(owner.Owner, id);
+        if (!observed.Success || observed.Value is not { } observedWorkspace) return InitiationReadFailure(observed);
+        var recovered = CharacterCareerInitiationTransaction.Lookup(owner.Owner, observedWorkspace, plan);
         if (recovered.Outcome == CharacterCareerInitiationOutcome.Replayed && wrote)
             return recovered with { Outcome = CharacterCareerInitiationOutcome.Applied };
         return recovered.Outcome == CharacterCareerInitiationOutcome.NotFound
-            ? new(CharacterCareerInitiationOutcome.Unavailable, CurrentRevision: current.ContentRevision,
+            ? new(CharacterCareerInitiationOutcome.Unavailable, CurrentRevision: observedWorkspace.ContentRevision,
                 Error: "initiation_commit_not_observed") : recovered;
     }
 

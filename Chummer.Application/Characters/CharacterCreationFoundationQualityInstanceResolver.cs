@@ -171,7 +171,7 @@ internal static class CharacterCreationFoundationQualityInstanceResolver
             out needsText, out _, out bool bonusSupported) && bonusSupported;
     }
 
-    private static bool IsLiteral(string value)
+    internal static bool IsLiteral(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 1024 || value != value.Trim()
             || value.Any(char.IsControl) || value.Contains('$') || value.Contains('[') || value.Contains(']'))

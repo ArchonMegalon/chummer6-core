@@ -98,7 +98,11 @@ public sealed record CharacterCreationGearCatalogOption(
     IReadOnlyList<string> SourceAnchorIds,
     string SourceNodeXml,
     string SourceNodeDigest,
-    string OptionDigest);
+    string OptionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFocusSource? FocusSource { get; init; }
+}
 
 public sealed record CharacterCreationGearAuthority(
     string Schema,
@@ -135,7 +139,11 @@ public sealed record CharacterCreationGearAuthority(
         string.Empty);
 }
 
-public sealed record CharacterCreationGearSelection(string OptionId, int Quantity);
+public sealed record CharacterCreationGearSelection(string OptionId, int Quantity)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFocusSelection? Focus { get; init; }
+}
 
 public sealed record CharacterCreationGearLine(
     string OptionId,
@@ -153,7 +161,11 @@ public sealed record CharacterCreationGearLine(
     IReadOnlyList<string> SourceAnchorIds,
     string SourceNodeXml,
     string SourceNodeDigest,
-    string LineDigest);
+    string LineDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFocusProjection? Focus { get; init; }
+}
 
 public sealed record CharacterCreationGearBudget(
     decimal TotalStartingNuyen,
@@ -243,6 +255,10 @@ public sealed record CharacterCreationGearState(
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationGearSelection>? CompositeSelections { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationOwnedGearSelection? OwnedGear { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? OwnedGearBlockers { get; init; }
 }
 
 public sealed record CharacterCreationGearPreview(
@@ -265,6 +281,15 @@ public sealed record CharacterCreationGearPreview(
     public string? CompositeReviewDigest { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationSelectedGearAuthority? CompositeAuthority { get; init; }
+
+    /// <summary>
+    /// Core's cumulative Resources quote after replacing general gear, including
+    /// every retained purchase admitted by Resources. Bound by this preview's
+    /// Binding and PreviewDigest. Null means no cumulative authority was issued.
+    /// BudgetBefore/BudgetAfter and receipt amounts retain their gear-only meaning.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationResourcesBudget? CumulativeBudgetAfter { get; init; }
 }
 
 public sealed record CharacterCreationGearReceipt(

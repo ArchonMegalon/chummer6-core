@@ -571,7 +571,8 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
         CharacterCreationMagicResonanceTalentOption talent,
         CharacterCreationMagicResonanceEffectiveAttributes effective,
         CharacterCreationMagicResonanceSelections? requested,
-        ICollection<string> blockers)
+        ICollection<string> blockers,
+        decimal? essencePowerPointAdjustment1222 = null)
     {
         CharacterCreationMagicResonanceSelections selections = NormalizeSelections(requested);
         decimal powerPointTotal = effective.AdeptPowerPointBudget;
@@ -582,6 +583,9 @@ public sealed partial class CharacterCreationMagicResonanceService : ICharacterC
             blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
         if (mysticPowerPoints is not null)
             powerPointTotal = mysticPowerPoints.PowerPoints;
+        // Native PowerPointsTotal clamps after all source-backed PP improvements.
+        if (essencePowerPointAdjustment1222 is { } adjustment1222)
+            powerPointTotal = Math.Max(0m, checked(powerPointTotal + adjustment1222));
 
         CharacterCreationMagicResonanceCatalogOption? tradition = ResolveSingle(
             selections.Tradition,

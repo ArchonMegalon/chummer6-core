@@ -12,7 +12,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         if (!LifeModuleDecisionInputIntegrity.TryNormalize(values, out var normalized))
             return Invalid<LifeModuleDecisionInputResolution>();
         var projected = _foundation.Preview(new(state.Binding, candidate.FoundationPreview.RequestedMetatype,
-            candidate.Selection, normalized));
+            candidate.Selection, normalized) { MetatypeIdentity = candidate.FoundationPreview.MetatypeIdentity });
         if (projected.Value is not { CanConfirm: true, CanApply: true } preview || projected.Blockers.Count != 0)
             return FromFoundation<CharacterCreationFoundationPreview, LifeModuleDecisionInputResolution>(projected);
         var mechanics = candidate.Choice.MechanicsPreview with

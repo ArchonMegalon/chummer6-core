@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -156,6 +157,10 @@ public sealed record CharacterAfterRunRewardCommand(
     string? ExpectedPreviewDigest = null,
     CharacterAfterRunRewardKind Kind = CharacterAfterRunRewardKind.Award)
 {
+    /// <summary>Core-derived owner/record/environment binding. Null retains the legacy wire digest.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExpectedCurrentBindingDigest { get; init; }
+
     public string CommandDigest()
         => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
             "chummer.core.sr5-after-run-reward-command/v1\0" + JsonSerializer.Serialize(this))));

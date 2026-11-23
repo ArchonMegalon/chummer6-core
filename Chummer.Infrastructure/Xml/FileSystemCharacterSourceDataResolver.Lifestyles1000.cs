@@ -149,9 +149,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     && allowed.SequenceEqual(option.AllowedFreeLifestyleNames, StringComparer.Ordinal))
                     foreach (var field in row.Elements().Where(field => field.Name == "allowed" || field.Name == "allowedfreelifestyles"))
                         ledger.Tree(field, D.Compiled, new { Operation = "IsAllowedFreeLifestyle-and-TryProject", Allowed = allowed, Results = actual });
-                // bonus/selecttext, allowmultiple and quality area/comforts/
-                // security adjustments are not executed by this calculator.
-                // Their operations deliberately stay open.
+                if (authority.Mechanics is not null && option.Mechanics is not null)
+                {
+                    Scalar718(ledger, row, "area", option.Area, "TryProject-total-aspect-and-delta", result);
+                    Scalar718(ledger, row, "comforts", option.Comforts, "TryProject-total-aspect-and-delta", result);
+                    Scalar718(ledger, row, "security", option.Security, "TryProject-total-aspect-and-delta", result);
+                    foreach (var field in row.Elements().Where(field => field.Name == "required" || field.Name == "forbidden"))
+                        ledger.Tree(field, D.Compiled, new { Operation = "TryProject-selected-prerequisites", option.Mechanics, Results = actual });
+                }
             }
         }
     }

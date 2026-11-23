@@ -120,7 +120,18 @@ public sealed record SessionDashboardProjection(
     IReadOnlyList<SessionTrackerGroup> TrackerGroups,
     IReadOnlyList<SessionQuickActionGroup> QuickActionGroups,
     IReadOnlyList<SessionExplainEntry> ExplainEntries,
-    SessionSyncBanner? SyncBanner = null);
+    SessionSyncBanner? SyncBanner = null)
+{
+    // Review metadata sits outside the immutable/replayed overlay and its receipts.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public SessionPlayInitiativeUpgradeOffer? InitiativeUpgrade { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public SessionPlayMagicUpgradeOffer? MagicUpgrade { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public SessionPlayIndirectUpgradeOffer? IndirectUpgrade { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public SessionPlayElementalProjection? ElementalEffects { get; init; }
+}
 
 public static class SessionProjectionContractLocalization
 {

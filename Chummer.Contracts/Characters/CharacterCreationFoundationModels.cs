@@ -147,6 +147,12 @@ public sealed record CharacterCreationFoundationDraftLedger(
     bool CharacterEffectsApplied,
     string DraftDigest)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeSelectionIdentity? MetatypeIdentity { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentMetatypeLabel { get; init; }
+
     // Omit absent continuation data so existing nationality-only ledger bytes
     // and their canonical hashes remain readable without a migration.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -175,7 +181,11 @@ public sealed record CharacterCreationFoundationPreviewRequest(
     CharacterCreationFoundationBinding Binding,
     string RequestedMetatype,
     CharacterCreationFoundationSelection Selection,
-    IReadOnlyDictionary<string, string>? FollowUpValues = null);
+    IReadOnlyDictionary<string, string>? FollowUpValues = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeSelectionIdentity? MetatypeIdentity { get; init; }
+}
 
 public sealed record CharacterCreationFoundationDiffEntry(
     string DiffId,
@@ -188,7 +198,11 @@ public sealed record CharacterCreationFoundationDiffEntry(
     bool IsAuthoritative,
     bool CanApply,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentOptionId { get; init; }
+}
 
 public sealed record CharacterCreationFoundationPreview(
     string Schema,
@@ -208,7 +222,11 @@ public sealed record CharacterCreationFoundationPreview(
     bool CanConfirm,
     bool CanApply,
     bool CharacterEffectsApplied,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeSelectionIdentity? MetatypeIdentity { get; init; }
+}
 
 public sealed record CharacterCreationFoundationConfirmRequest(
     CharacterCreationFoundationBinding Binding,
@@ -218,6 +236,9 @@ public sealed record CharacterCreationFoundationConfirmRequest(
     bool ExplicitlyConfirmed,
     IReadOnlyDictionary<string, string>? FollowUpValues = null)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeSelectionIdentity? MetatypeIdentity { get; init; }
+
     /// <summary>
     /// Optional sealed Origin decision command.  Foundation remains the sole
     /// mechanics authority; this binding only lets the same atomic commit append

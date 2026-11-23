@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Contracts.Characters;
+using FreshProfileDigest8544 = Chummer.Application.Characters.CharacterCreationCompleteRuleSourceExecution.ProfileSettingInputValidation1203;
 using D = Chummer.Application.Characters.CharacterCreationSourceOperationDisposition;
 
 namespace Chummer.Infrastructure.Xml;
@@ -11,18 +12,154 @@ public sealed partial class FileSystemCharacterSourceDataResolver
 {
     private sealed partial class RuleSourceAccounting
     {
+        partial void ValidateCurrentTalentsLoadoutCatalog(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogInput input, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleCatalogValidation? result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is not SourceDataContext source
+                || !source.MatchesRetainedSelection(inputs)) return;
+            result = CharacterCurrentRuleEnvironmentConsumers.ValidateTalentsLoadoutCatalog(
+                current, input, source, cancellationToken);
+        }
+
+        partial void ExecuteCurrentTalentsLoadout(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogValidation validation, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleDomainExecution? result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is not SourceDataContext source
+                || !source.MatchesRetainedSelection(inputs)) return;
+            result = CharacterCurrentRuleEnvironmentConsumers.ExecuteTalentsLoadout(
+                current, validation, source, cancellationToken);
+        }
+
+        // Created only after the concrete producer detaches Operations. The sealed
+        // report/operation/classification records then contain only immutable
+        // scalars. Invocation header strings and its consumer map are also frozen.
+        private sealed record SourceScopeReceipt1203(bool IsComplete, string ScopeDigest,
+            string? ProfileDigest, FreshProfileDigest8544? Digests);
         private readonly ConditionalWeakTable<CharacterCreationRuleSourceScopeInvocation,
-            Dictionary<CharacterCreationRuleSourceScopeResult, string>> executedScopes955 = new();
+            Dictionary<CharacterCreationRuleSourceScopeResult, SourceScopeReceipt1203>> executedScopes955 = new();
 
         public override bool HasExecutedSourceScope955(CharacterCreationRuleSourceScopeInvocation invocation,
             CharacterCreationRuleSourceScopeResult report)
-            => report.IsComplete && executedScopes955.TryGetValue(invocation, out var results)
-                && results.TryGetValue(report, out var digest)
-                && digest == SourceScopeExecutionDigest955(invocation, report);
+        {
+            return executedScopes955.TryGetValue(invocation, out var results)
+                && results.TryGetValue(report, out var receipt) && receipt.IsComplete;
+        }
+
+        public override bool HasExecutedProfileSetting1203(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, int operationOrder)
+        {
+            if (!(report.Scope == "profile" && operationOrder >= 0 && operationOrder < report.Operations.Count
+                && report.Operations[operationOrder].Order == operationOrder
+                && report.Operations[operationOrder].Disposition is D.Compiled or D.NotSelected
+                && report.Operations[0].Disposition == D.Structural
+                && executedScopes955.TryGetValue(invocation, out var results)
+                && results.TryGetValue(report, out var receipt) && receipt.ProfileDigest is not null)) return false;
+            CharacterCreationCompletionCost3340.Log.Checkpoint(80);
+            try
+            {
+                // Only the concrete producer's immutable source report/header
+                // is reused. Every mutable invocation field is still captured
+                // and hashed afresh, including private operation diagnostics.
+                lock (receipt)
+                    return receipt.ProfileDigest == ProfileSettingExecutionDigest8575(
+                        invocation, report, receipt.Digests, receipt.ScopeDigest);
+            }
+            finally { CharacterCreationCompletionCost3340.Log.Checkpoint(81); }
+        }
+
+        private static string CurrentProfileDigest8544<T>(FreshProfileDigest8544? digests, T value)
+            => digests is null ? CharacterCreationFinalizationDigest.Compute(value) : digests.CanonicalDigest8544(value);
+
+        // Keep an independent cold entry: caller-created or copied reports must
+        // never acquire the producer's retained scope digest.
+        private static string ProfileSettingExecutionDigest1203(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests = null)
+            => ProfileSettingExecutionDigest8575(invocation, report, digests, null);
+
+        private static string ProfileSettingExecutionDigest8575(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => invocation.NativeLoadout1432 is not null && invocation.HasLifecycleResultV1
+                ? CurrentProfileDigest8544(digests, new
+                {
+                    Schema = "chummer.native-loadout-applicability.1432",
+                    Original = PriorProfileSettingExecutionDigest1432(invocation, report, digests, retainedScopeDigest),
+                    invocation.NativeLoadout1432
+                }) : PriorProfileSettingExecutionDigest1432(invocation, report, digests, retainedScopeDigest);
+
+        private static string PriorProfileSettingExecutionDigest1432(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => invocation.NativeMagic1430 is not null && invocation.HasLifecycleResultV1
+                ? CurrentProfileDigest8544(digests, new
+                {
+                    Schema = "chummer.native-magic.1430",
+                    Original = PriorProfileSettingExecutionDigest1430(invocation, report, digests, retainedScopeDigest),
+                    invocation.NativeMagic1430
+                }) : PriorProfileSettingExecutionDigest1430(invocation, report, digests, retainedScopeDigest);
+
+        private static string PriorProfileSettingExecutionDigest1430(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => invocation.MatrixInitiative is not null && invocation.HasLifecycleResultV1
+                ? CurrentProfileDigest8544(digests, new
+                {
+                    Schema = "chummer.matrix-initiative-lifecycle.v1",
+                    Original = BeforeMatrixProfileSettingExecutionDigest(invocation, report, digests, retainedScopeDigest),
+                    invocation.MatrixInitiative
+                }) : BeforeMatrixProfileSettingExecutionDigest(invocation, report, digests, retainedScopeDigest);
+
+        private static string BeforeMatrixProfileSettingExecutionDigest(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => invocation.NativeContactSpecialty is not null && invocation.HasLifecycleResultV1
+                ? CurrentProfileDigest8544(digests, new
+                {
+                    Schema = "chummer.native-contact-specialty-handoff.v1",
+                    Original = NativeSettingsProfileSettingExecutionDigest1420(invocation, report, digests, retainedScopeDigest),
+                    invocation.NativeContactSpecialty
+                }) : NativeSettingsProfileSettingExecutionDigest1420(invocation, report, digests, retainedScopeDigest);
+
+        private static string NativeSettingsProfileSettingExecutionDigest1420(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => invocation.NativeSettings1420 is not null && invocation.HasLifecycleResultV1
+                ? CurrentProfileDigest8544(digests, new
+                {
+                    Schema = "chummer.native-settings-handoff.1420",
+                    Original = LifecycleProfileSettingExecutionDigest1420(invocation, report, digests, retainedScopeDigest),
+                    invocation.NativeSettings1420
+                }) : LifecycleProfileSettingExecutionDigest1420(invocation, report, digests, retainedScopeDigest);
+
+        private static string LifecycleProfileSettingExecutionDigest1420(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => invocation.HasLifecycleResultV1 ? CurrentProfileDigest8544(digests, new
+            {
+                Schema = CharacterCreationCompletionReviewSchemas.LifecycleResultV1,
+                Original = OriginalProfileSettingExecutionDigest1272(invocation, report, digests, retainedScopeDigest),
+                invocation.AstralInitiative1249
+            }) : OriginalProfileSettingExecutionDigest1272(invocation, report, digests, retainedScopeDigest);
+
+        private static string OriginalProfileSettingExecutionDigest1272(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests, string? retainedScopeDigest)
+            => CurrentProfileDigest8544(digests, new
+            {
+                Scope = retainedScopeDigest ?? SourceScopeExecutionDigest955(invocation, report, digests), invocation.CompiledEffects,
+                invocation.CreationDraft718, invocation.WorkspaceId718, invocation.Attributes718,
+                invocation.AttributePolicy718, invocation.Skills718, invocation.ResourcesExecution718,
+                invocation.LifestyleAuthority718, invocation.Lifestyles718, invocation.StartingLifestyleId718,
+                invocation.SourceExecution832, invocation.CompiledMovement832,
+                invocation.PhysicalAuthority886, invocation.PhysicalInitiative886,
+                // These private diagnostics are intentionally excluded from the public
+                // report digest. Freeze them too before admitting individual leaves.
+                Operations = report.Operations.Select(row => new
+                    { row.Order, row.ConsumedValue718, row.OperationResult718 }).ToArray()
+            });
 
         private static string SourceScopeExecutionDigest955(CharacterCreationRuleSourceScopeInvocation invocation,
-            CharacterCreationRuleSourceScopeResult report)
-            => CharacterCreationFinalizationDigest.Compute(new
+            CharacterCreationRuleSourceScopeResult report, FreshProfileDigest8544? digests = null)
+            => CurrentProfileDigest8544(digests, new
             {
                 invocation.PolicyDigest, invocation.CaptureDigest, invocation.RequestDigest, invocation.GraphDigest,
                 Consumer = invocation.TryGetCompletedConsumer(report.Scope, out var consumer) ? consumer : null,
@@ -46,6 +183,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             CharacterCreationRuleSourceScopeInvocation invocation)
         {
             executedScopes955.Remove(invocation);
+            metadataExecutions1209.Remove(invocation);
             if (!CapturePurchases
                 || invocation.CaptureDigest != captureDigest)
                 return [];
@@ -58,6 +196,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 || !context.TryResolveCreationEffectivePolicy(out var policy) || policy is null
                 || policy.PolicyDigest != inputs.PolicyDigest) return [];
 
+            if (captureCompleteSkillCaps && inputs.SelectionInputs.Count == 0)
+                context.BindProfileAmendmentSelection3212(inputs, captureDigest, invocation);
             var result = new List<CharacterCreationRuleSourceScopeResult>();
             foreach (var source in policy.Sources.Where(row => row.Kind == CharacterCreationPolicySourceKind.Rules))
             {
@@ -65,13 +205,25 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     || source.ContentDigest is null) continue;
                 Charge(1);
                 if (context.TryExecuteSourceScope(source, consumer, invocation, out var report))
-                    result.Add(report!);
+                    // The ledger's read-only view still aliases its builder.
+                    // Detach before returning or registering the exact report.
+                    result.Add(report! with { Operations = Array.AsReadOnly(report!.Operations.ToArray()) });
             }
+            RememberMetadata1209(context, invocation);
             // Identity and the frozen contents both matter: neither a record
             // copy nor mutation of an operation list inherits completed execution.
-            var executed = new Dictionary<CharacterCreationRuleSourceScopeResult, string>(ReferenceEqualityComparer.Instance);
+            var executed = new Dictionary<CharacterCreationRuleSourceScopeResult, SourceScopeReceipt1203>(ReferenceEqualityComparer.Instance);
             foreach (var report in result)
-                if (report.IsComplete) executed.Add(report, SourceScopeExecutionDigest955(invocation, report));
+                if (report.IsComplete || report.Scope == "profile")
+                {
+                    // Managed comparison storage dies with this weakly owned
+                    // invocation. Access after publication is receipt-serialized.
+                    var digests = report.Scope == "profile" ? new FreshProfileDigest8544() : null;
+                    string scopeDigest = SourceScopeExecutionDigest955(invocation, report, digests);
+                    executed.Add(report, new(report.IsComplete, scopeDigest,
+                        report.Scope == "profile" ? ProfileSettingExecutionDigest8575(invocation, report, digests, scopeDigest) : null,
+                        digests));
+                }
             lock (executedScopes955)
             {
                 executedScopes955.Remove(invocation);
@@ -153,6 +305,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             };
             if (!resolved || _sourceInputs.HasSourceDrift) return true;
             var active = invocation.CompiledEffects.Where(row => row.Scope == scope).ToArray();
+            bool compiledLoadout = (scope is "weapons" or "armor") && active.Length != 0
+                && active.All(effect => effect.SourceCategoryXml is not null);
             if (active.Select(row => row.SourceId).Distinct(StringComparer.Ordinal).Count() != active.Length)
                 return true;
             var encountered = new HashSet<string>(StringComparer.Ordinal);
@@ -168,8 +322,22 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 foreach (var row in container.Elements())
                 {
                     if (!TryScopeRowIdentity(row, definition, out string identity,
-                        inactiveWeaponCategory832: invocation.SourceExecution832 && scope == "weapons" && definition.Entry == "category" && active.Length == 0)
+                        inactiveWeaponCategory832: invocation.SourceExecution832 && scope == "weapons" && definition.Entry == "category"
+                            && (active.Length == 0 || compiledLoadout && !active.Any(effect => effect.SourceCategory == row.Value)),
+                        compiledLoadoutCategory: compiledLoadout && definition.Container == "categories")
                         || !identities.Add(identity)) continue;
+                    if (compiledLoadout && definition.Container == "categories")
+                    {
+                        var categoryUses = active.Where(effect => effect.SourceCategory == identity).ToArray();
+                        if (categoryUses.Length == 0)
+                            ledger.Tree(row, D.NotSelected, new { Category = identity,
+                                SelectedCategories = active.Select(effect => effect.SourceCategory).ToArray() });
+                        else if (categoryUses.All(effect => effect.SourceCategoryXml == NormalizeSource(row)
+                                && CharacterCreationFinalizationDigest.IsCanonical(effect.ProjectionDigest)))
+                            ledger.Tree(row, D.Compiled, new { Category = identity,
+                                CanonicalLoadoutProjections = categoryUses.Select(effect => effect.ProjectionDigest).ToArray() });
+                        continue;
+                    }
                     var selected = definition.Primary
                         ? active.Where(effect => effect.SourceId == identity).ToArray() : [];
                     if (selected.Length == 0)
@@ -246,7 +414,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
         }
 
         private static bool TryScopeRowIdentity(XElement row, SourceScopeContainer definition, out string identity,
-            bool inactiveWeaponCategory832 = false)
+            bool inactiveWeaponCategory832 = false, bool compiledLoadoutCategory = false)
         {
             identity = string.Empty;
             if (row.Name != definition.Entry) return false;
@@ -256,7 +424,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     || row.Attributes().Any(attribute => attribute.Name.Namespace != XNamespace.None
                         || attribute.Name.LocalName is not ("blackmarket" or "type" or "useskill"
                             or "alchemicalskill" or "barehandedadeptskill")
-                        && !(inactiveWeaponCategory832 && attribute.Name.LocalName == "gunneryspec"))) return false;
+                        && !(inactiveWeaponCategory832 && attribute.Name.LocalName == "gunneryspec")
+                        && !(compiledLoadoutCategory && (attribute.Name.LocalName is "gunneryspec" or "translate")))) return false;
                 identity = row.Value;
                 return true;
             }
@@ -290,7 +459,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
     // Every source element, attribute and non-whitespace text occurrence starts
     // unconsumed. Structural consumption never consumes mixed text. A complete
     // report therefore cannot lose an unknown sibling or silently skip a row.
-    private sealed class SourceScopeLedger
+    private sealed partial class SourceScopeLedger
     {
         private readonly Dictionary<XObject, int> indices = [];
         private readonly CharacterCreationRuleSourceScopeInvocation invocation;

@@ -37,13 +37,18 @@ internal static class CharacterCreationPhysicalInitiative886
     }
 
     internal static CharacterPhysicalInitiativeProjection Evaluate(XElement root,
-        CharacterCreationPhysicalInitiativeAuthority authority)
+        CharacterCreationPhysicalInitiativeAuthority authority,
+        CharacterCreationLoadoutCompletionProjection? loadout = null, string? loadoutInstanceSeed = null,
+        IReadOnlyList<XElement>? nonPhysicalEffects1249 = null,
+        CharacterCreationOriginalInventory3475? originalLoadout3478 = null)
     {
         if (root.Name != "character" || authority.RulesetId != "sr5" || authority.Semantics != CharacterCreationPhysicalInitiativeAuthority.SemanticsV1
             || !bool.TryParse(Scalar(root, "created"), out bool created)
             || Integer(root, "initiativedice") != authority.BaseDice) throw Invalid();
         var improvements = One(root, "improvements") ?? throw Invalid();
         if (improvements.HasAttributes || improvements.Elements().Any(n => n.Name != "improvement")) throw Invalid();
+        if (!CharacterCreationAwakenedLegacyProjector.TryReadPhysicalTalent1279(root, out var talentRows1279)) throw Invalid();
+        var matrixEffects = CharacterCreationMatrixInitiative.ConsumedEffects(root, created);
         foreach (var row in improvements.Elements())
         {
             string type = Scalar(row, "improvementttype");
@@ -53,10 +58,14 @@ internal static class CharacterCreationPhysicalInitiative886
                     or "Ambidextrous" or "FriendsInHighPlaces" or "Erased" or "Overclocker"
                     or "LifestyleCost" or "BasicLifestyleCost" or "TrustFund"
                     or "StreetCredMultiplier" or "StreetCred" or "Notoriety" or "PublicAwareness")
-                && !CharacterCreationSkillKarmaModifierRules.IsSupportedType(type)) throw Invalid();
+                && !CharacterCreationSkillKarmaModifierRules.IsSupportedType(type)
+                && !matrixEffects.Contains(row)
+                && !talentRows1279.Contains(row)
+                && nonPhysicalEffects1249?.Any(executed => XNode.DeepEquals(executed, row)) != true) throw Invalid();
         }
-        foreach (string name in new[] { "cyberwares", "biowares", "drugs", "armors" })
+        foreach (string name in new[] { "cyberwares", "biowares", "drugs" })
             if (One(root, name)?.HasElements == true) throw Invalid();
+        ValidatePlainLoadoutArmor(root, loadout, loadoutInstanceSeed, originalLoadout3478);
         if (!bool.TryParse(Scalar(root, "ai", "False"), out bool ai) || ai) throw Invalid();
         int reaction = Attribute(root, "REA"), intuition = Attribute(root, "INT");
         int physical = Integer(root, "physicalcmfilled", 0), stun = Integer(root, "stuncmfilled", 0);
@@ -74,6 +83,38 @@ internal static class CharacterCreationPhysicalInitiative886
             authority.BaseDice, reaction, intuition, wound, initiative, dice, additive, created,
             CharacterCreationFinalizationDigest.Compute(authority),
             CharacterCreationFinalizationDigest.Compute(improvements.ToString(SaveOptions.DisableFormatting)));
+    }
+
+    private static void ValidatePlainLoadoutArmor(XElement root,
+        CharacterCreationLoadoutCompletionProjection? loadout, string? instanceSeed,
+        CharacterCreationOriginalInventory3475? originalLoadout3478)
+    {
+        if (originalLoadout3478 is not null)
+        {
+            // Validate the entire original graph even when armor was removed.
+            // A failed live proof never falls through to the empty-armor path.
+            if (!CharacterCreationOriginalLoadout3478.TryEvaluate(root, loadout, originalLoadout3478, out var stock, instanceSeed)
+                || stock!.ArmorEncumbrance != 0) throw Invalid();
+            return;
+        }
+        var armor = One(root, "armors");
+        if (armor is null) return;
+        if (!armor.HasElements)
+        {
+            if (armor.HasAttributes || armor.Nodes().Any(node => node.GetType() != typeof(XText)
+                || !string.IsNullOrWhiteSpace(((XText)node).Value))) throw Invalid();
+            return;
+        }
+        // The existing source projector admits one unmodified numeric base armor.
+        // Legacy Armor.GetTotalArmor(forEncumbrance: true) gives this shape zero
+        // encumbrance; signed accessory ratings and modifications are unsupported.
+        // Match the entire emitted graph, including retained or seeded instance IDs.
+        // A shape-only inventory check or a caller's projection digest is insufficient.
+        if (loadout is not { Blockers.Count: 0 } || instanceSeed is null
+            || loadout.ProjectionDigest != CharacterCreationLoadoutCompletionRules.ComputeProjectionDigest(loadout)
+            || !CharacterCreationLoadoutSourceProjector.TryBuildGraph(loadout.Lines, instanceSeed,
+                out _, out var expected, loadout.RetainedInstances)
+            || !XNode.DeepEquals(armor, new XElement("armors", expected))) throw Invalid();
     }
 
     private static int Channel(XElement root, string type, bool created)

@@ -216,7 +216,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 || resolution.ResolutionDigest != command.InputResolution.ResolutionDigest)
                 return Invalid<LifeModuleDecisionAcceptance>();
             resolvedPreview = _foundation.Preview(new(state.Binding, resolvedPreview.RequestedMetatype,
-                candidate.Selection, resolution.Values)).Value!;
+                candidate.Selection, resolution.Values) { MetatypeIdentity = resolvedPreview.MetatypeIdentity }).Value!;
         }
         else if (command.InputResolution is not null)
             return Invalid<LifeModuleDecisionAcceptance>();
@@ -230,6 +230,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 ExplicitlyConfirmed: true,
                 FollowUpValues: resolvedPreview.FollowUpValues)
             {
+                MetatypeIdentity = resolvedPreview.MetatypeIdentity,
                 OriginDecisionCommand = command,
                 OriginDecisionStep = step
             });
@@ -487,11 +488,11 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         var cached = Volatile.Read(ref _candidateSnapshot);
         if (cached?.StateDigest == digest)
         {
-            var labels = state.NationalityOptions.SelectMany(module => module.FollowUps.Concat(
+            var displayPrompts = state.NationalityOptions.SelectMany(module => module.FollowUps.Concat(
                 module.Versions.SelectMany(version => version.FollowUps)))
                 .GroupBy(prompt => prompt.PromptId, StringComparer.Ordinal)
                 .Where(group => group.Count() == 1)
-                .ToDictionary(group => group.Key, group => group.Single().DisplayLabel, StringComparer.Ordinal);
+                .ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal);
             return JsonSerializer.Deserialize<DecisionCandidate[]>(cached.Json)!
                 .Select(candidate => candidate with
                 {
@@ -499,7 +500,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                     {
                         FollowUps = candidate.Choice.FollowUps?.Select(prompt => prompt with
                         {
-                            DisplayLabel = labels.GetValueOrDefault(prompt.PromptId)
+                            DisplayLabel = displayPrompts.GetValueOrDefault(prompt.PromptId)?.DisplayLabel,
+                            AnswerReuse = displayPrompts.GetValueOrDefault(prompt.PromptId)?.AnswerReuse
                         }).ToArray()
                     }
                 }).ToArray();
@@ -507,7 +509,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         var candidates = state.MetatypeOptions
             .Where(option => option.IsEnabled && option.DisableReasonKey is null
                 && (string.IsNullOrEmpty(state.CurrentMetatype)
-                    || string.Equals(option.Label, state.CurrentMetatype, StringComparison.Ordinal)))
+                    || string.Equals(option.ParentMetatypeLabel ?? option.Label, state.CurrentMetatype, StringComparison.Ordinal)))
             .GroupBy(option => option.OptionId, StringComparer.Ordinal)
             .Where(group => group.Count() == 1)
             .Select(group => group.Single())
@@ -548,7 +550,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                         state.Binding,
                         metatype.Label,
                         selection,
-                        new Dictionary<string, string>(StringComparer.Ordinal)));
+                        new Dictionary<string, string>(StringComparer.Ordinal)) { MetatypeIdentity = metatype.MetatypeIdentity });
                 if (projected.Value is not { } preview
                     || preview.AuthorityBlockers.Any(blocker => blocker != CharacterCreationFoundationBlockers.LifeModuleFollowUpRequired)
                     || preview.Nationality is not { IsEnabled: true }
@@ -559,12 +561,14 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                     || !string.Equals(preview.RequestedMetatype, metatype.Label, StringComparison.Ordinal))
                     continue;
                 CharacterCreationFoundationDiffEntry[] metatypeDiff = preview.Diff.Where(item =>
-                    item.Domain == "metatype-choice" && item.TargetId == metatype.OptionId
-                    && item.AfterValue == metatype.Label && item.IsAuthoritative && item.CanApply
+                    item.Domain == "metatype-choice" && item.TargetId == (metatype.MetatypeIdentity?.ParentMetatypeOptionId ?? metatype.OptionId)
+                    && item.AfterValue == (metatype.ParentMetatypeLabel ?? metatype.Label) && item.IsAuthoritative && item.CanApply
                     && item.Blockers.Count == 0 && item.SourceAnchorIds.Count > 0).ToArray();
                 if (metatypeDiff.Length != 1)
                     continue;
-                string choiceId = Digest(new
+                string choiceId = Digest(metatype.MetatypeIdentity is { } pair
+                    ? (object)new { pair.ParentMetatypeOptionId, pair.MetavariantOptionId, module.ModuleId, VersionId = version?.VersionId ?? string.Empty }
+                    : new
                 {
                     MetatypeOptionId = metatype.OptionId,
                     module.ModuleId,
@@ -594,6 +598,10 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                     new(metatypeDiff[0].DiffId, metatypeDiff[0].Domain, metatypeDiff[0].TargetId,
                         metatypeDiff[0].BeforeValue ?? string.Empty, metatypeDiff[0].AfterValue ?? string.Empty,
                         0, metatypeDiff[0].SourceAnchorIds.ToArray(), string.Empty),
+                    .. preview.Diff.Where(item => item.Domain == "metavariant-choice").Select(item =>
+                        new LifeModuleMechanicsPreviewItem(item.DiffId, item.Domain, item.TargetId,
+                            item.BeforeValue ?? string.Empty, item.AfterValue ?? string.Empty, 0,
+                            item.SourceAnchorIds.ToArray(), string.Empty) { ParentOptionId = item.ParentOptionId }),
                     .. effects.Select(effect =>
                         new LifeModuleMechanicsPreviewItem(
                             effect.EffectId,

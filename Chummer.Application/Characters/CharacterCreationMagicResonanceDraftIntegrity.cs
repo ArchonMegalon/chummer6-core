@@ -12,6 +12,10 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
     }
 
     public static bool IsValidAuthority(CharacterCreationMagicResonanceAuthority? authority)
+        => IsValidAuthority(authority, authority?.MysticAdeptPowerPointPolicy?.RetainedSettingsFile);
+
+    internal static bool IsValidAuthority(CharacterCreationMagicResonanceAuthority? authority,
+        CharacterRetainedSettingsFile? retainedFile)
     {
         if (authority is null
             || !string.Equals(authority.Schema, CharacterCreationMagicResonanceSchemas.AuthorityV1, StringComparison.Ordinal)
@@ -39,7 +43,7 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
             return false;
 
         if (authority.MysticAdeptPowerPointPolicy is { } policy
-            && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(policy)
+            && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(policy, retainedFile)
                 || policy.SettingsProfileId != authority.SettingsProfileId
                 || policy.SourceAnchorIds.Any(anchor => !authority.SourceAnchorIds.Contains(anchor, StringComparer.Ordinal))))
             return false;

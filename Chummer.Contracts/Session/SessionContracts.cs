@@ -197,7 +197,10 @@ public sealed record SessionOverlaySnapshot(
     IReadOnlyList<SessionEffectState> ActiveEffects,
     IReadOnlyList<SessionQuickActionPin> PinnedQuickActions,
     IReadOnlyList<string> Notes,
-    SessionSyncState SyncState);
+    SessionSyncState SyncState)
+{
+    public SessionPlayProjection? Play { get; init; }
+}
 
 public sealed record SessionRuntimeBundle(
     string BundleId,
@@ -207,4 +210,8 @@ public sealed record SessionRuntimeBundle(
     string Signature,
     IReadOnlyList<SessionQuickActionPin> QuickActions,
     IReadOnlyList<TrackerDefinition> Trackers,
-    IReadOnlyDictionary<string, string> ReducerBindings);
+    IReadOnlyDictionary<string, string> ReducerBindings)
+{
+    /// <summary>A local dashboard descriptor has no signature and must not be used as a portable execution bundle.</summary>
+    public bool ProjectionOnly { get; init; }
+}

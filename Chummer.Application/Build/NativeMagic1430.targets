@@ -1,0 +1,46 @@
+<Project>
+  <ItemGroup>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs">
+      <ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Character.cs">
+      <ExpectedSha256>f3dcea63f4ae7a20ede033913f8012f1d5e755af0e09723f21c3f17387d52b26</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Attributes/AttributeSection.cs">
+      <ExpectedSha256>474e422b93a933b69dda063079b91556c13392c0d2261c3a0536f9259ffbce64</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/SelectionShared.cs">
+      <ExpectedSha256>8495f4c6d61d1433c4ae9d03deb02ce8e583a23aa65b97de8ff18711277bc851</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Managers/ImprovementManager.cs">
+      <ExpectedSha256>f340f698c87376328d7b6a01b13f4d81c6ebcc636b21b0102d3ff44052cfe156</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Extensions/DoubleExtensions.cs">
+      <ExpectedSha256>ed78f7d2913d077db370038b73f99acb9cd9a05e56736ff6b270495f5494e075</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Uniques/Power.cs">
+      <ExpectedSha256>8069b4cb38f05b9aacee7e5071b9fe7bed02f041f568f231ea602a5f85f1ba5a</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Uniques/CritterPower.cs">
+      <ExpectedSha256>730d194be67fc311b3c2f1bb4ccc08bf1d9a596fd6ab5703ef88e5ec0276e587</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Uniques/SustainedObject.cs">
+      <ExpectedSha256>803bc4d96fb4af37517e261adcc814693cc48f90c017d8f416bcd675023a8897</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCreate.cs">
+      <ExpectedSha256>78816501a56194ecc9d757c58c2a4e4e0b7916f55944d58b7d9a3b16761563db</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCareer.cs">
+      <ExpectedSha256>5594076cfe19ac8bfe832025040437ba079f46ef75473cfca0315bd6692da859</ExpectedSha256>
+    </NativeMagicSource1430>
+    <NativeMagicSource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/CommonFunctions.cs">
+      <ExpectedSha256>ac419ab6f954d0bdb4c6e9c44a35a2959e2f347bac92cb18322b1ab42ba35302</ExpectedSha256>
+    </NativeMagicSource1430>
+  </ItemGroup>
+  <Target Name="VerifyNativeMagic1430" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(NativeMagicSource1430)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedNativeMagicSource1430" />
+    </GetFileHash>
+    <Error Condition="'%(HashedNativeMagicSource1430.FileHash)' != '%(HashedNativeMagicSource1430.ExpectedSha256)'" Text="Native magic1430 consumer drift: %(HashedNativeMagicSource1430.Identity). Re-review native semantics before updating this source pin." />
+  </Target>
+</Project>

@@ -6,7 +6,7 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 /// <summary>Pure whole-proposal review. Original observations never become current owner or save authority.</summary>
-public static class CharacterCreationCompletionReviewService
+public static partial class CharacterCreationCompletionReviewService
 {
     public static CharacterCreationFoundationResult<CharacterCreationCompletionReview> Review(
         CharacterCreationCompletionReviewInputs inputs,
@@ -17,8 +17,9 @@ public static class CharacterCreationCompletionReviewService
 
     internal static CharacterCreationFoundationResult<CharacterCreationCompletionReview> ReviewCompositeEdit(
         CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
-        CharacterCreationCompositeEditStage stage)
-        => ReviewCore(inputs, request, CancellationToken.None, stage);
+        CharacterCreationCompositeEditStage stage,
+        CharacterCreationContactsService.CompletionPreviewReuse? contactsPreviewReuse = null)
+        => ReviewCore(inputs, request, CancellationToken.None, stage, contactsPreviewReuse: contactsPreviewReuse);
 
     // Reconstruct the full arithmetic used by a retained finalization (including
     // native reputation provenance). This is deliberately not the public Review
@@ -58,10 +59,13 @@ public static class CharacterCreationCompletionReviewService
         CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
         CancellationToken cancellationToken, CharacterCreationCompositeEditStage stage,
         CharacterCreationRuleSourceExecutionContext? ruleSources = null, CharacterCreationCampaignExecutionContext? campaign = null,
-        bool committedReplay = false, bool compositeObservation = false)
+        bool committedReplay = false, bool compositeObservation = false,
+        CharacterCreationContactsService.CompletionPreviewReuse? contactsPreviewReuse = null)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(request);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(1); // cost3340 review.begin
+        using var validation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         cancellationToken.ThrowIfCancellationRequested();
         if (inputs.OriginalCharacter is { } originalInput
             && !CharacterCreationOriginalCharacterSource.HasBoundedXml(originalInput.RawCharacterXml))
@@ -121,7 +125,9 @@ public static class CharacterCreationCompletionReviewService
 
         if (request.CompleteAssessmentSchema is not null && stage != CharacterCreationCompositeEditStage.None)
             return Refused(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationCompleteAssessment.Invalid);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(2); // cost3340 review.admission.returned
         var ruleSourceExecution = ruleSources?.Resolve(inputs, request, cancellationToken);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(3); // cost3340 review.resolve.returned
         if (request.RuleSourceExecutionSchema is not null && ruleSourceExecution is null)
             return Refused(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationCompleteAssessment.Invalid);
         if (ruleSourceExecution is not null) inputs = ruleSourceExecution.Inputs;
@@ -129,6 +135,7 @@ public static class CharacterCreationCompletionReviewService
             || campaign?.Phase == CharacterCreationCampaignPhase.Replay && !committedReplay
             || committedReplay && campaign is not { IsCommittedReplay: true, Phase: CharacterCreationCampaignPhase.Replay }))
             return Refused(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationCampaignExecutionContext.Blocker);
+        // Freeze this prefix before Execute can attempt its first currentness callback.
         var campaignExecution = campaign?.Execute(request, inputs.SnapshotDigest,
             inputs.Skills.Binding.RawCharacterXmlDigest, inputs.EffectivePolicy!.PolicyDigest, cancellationToken, committedReplay);
         if (!compositeObservation && request.CampaignAuthority is not null && campaignExecution is null)
@@ -136,6 +143,7 @@ public static class CharacterCreationCompletionReviewService
         var completeAuthority = request.CompleteAssessmentSchema is null ? null
             : CharacterCreationCompleteAssessmentService.FromFullAuthority(inputs, request, ruleSourceExecution);
 
+        CharacterCreationCompletionCost3340.Log.Checkpoint(4); // cost3340 review.authority.returned
         var choices = request.Selections;
         CharacterCreationLoadoutCompletionProjection? loadout = null;
         if (inputs.Loadout is not null)
@@ -151,7 +159,7 @@ public static class CharacterCreationCompletionReviewService
             choices.AttributeAllocations, choices.MagicSelections, choices.QualityOptionIds, choices.TotalKarmaInvestment,
             choices.Gear, choices.Lifestyles, choices.StartingLifestyleId, loadout, cancellationToken,
             completeAuthority?.Schema is CharacterCreationCompleteAssessment.SchemaV3 or CharacterCreationCompleteAssessment.SchemaV4
-                ? execution => lifestyleExecution = execution : null, completeAuthority);
+                ? execution => lifestyleExecution = execution : null, completeAuthority, contactsPreviewReuse);
         if (!CharacterCreationAmmunitionCompletionConsumer.TryValidateAssignments(choices.AmmunitionAssignments,
                 lifestylesResult.Value?.Gear.Lines ?? [], loadout?.Lines ?? [], out var ammunitionBlockers))
             return new(CharacterCreationFoundationOutcomes.Blocked, null, ammunitionBlockers);
@@ -195,7 +203,7 @@ public static class CharacterCreationCompletionReviewService
                     [CharacterCreationSkillKarmaPurchaseBlockers.ModifiersUnsupported]);
         }
         var contactsResult = CharacterCreationContactsService.PreviewCompletion(inputs.Contacts,
-            choices.AttributeAllocations, choices.QualityOptionIds, choices.Contacts, cancellationToken);
+            choices.AttributeAllocations, choices.QualityOptionIds, choices.Contacts, cancellationToken, contactsPreviewReuse);
         cancellationToken.ThrowIfCancellationRequested();
         var blockers = new List<string>(skillsResult.Blockers.Concat(upstreamResult.Blockers)
             .Concat(lifestylesResult.Blockers).Concat(contactsResult.Blockers));
@@ -212,6 +220,9 @@ public static class CharacterCreationCompletionReviewService
             attributesReplacement: !compositeObservation && request.AttributesReplacement is not null));
         var balances = BuildBalances(inputs, skillsResult.Value, upstreamResult.Value,
             lifestylesResult.Value, contactsResult.Value, blockers, loadout);
+        balances = EvaluateSharedCharges1239(inputs, request, completeAuthority, ruleSourceExecution,
+            skillsResult.Value, upstreamResult.Value, lifestylesResult.Value, contactsResult.Value,
+            loadout, balances, blockers, cancellationToken);
         if (choices.KarmaToReserve > 0 && (balances.RemainingCreationKarma is not int remaining || remaining < choices.KarmaToReserve))
             blockers.Add(CharacterCreationCompletionPlanBlockers.KarmaReserveRequired);
         CharacterCreationSelectedPrerequisiteConsumer.Execution? selectedPrerequisites = null;
@@ -235,14 +246,30 @@ public static class CharacterCreationCompletionReviewService
         };
         // This projection sees mechanical blockers ONLY. Adding the coverage
         // verdict first would recursively suppress the actual consumption proof.
+        CharacterCreationCompletionCost3340.Log.Checkpoint(5); // cost3340 review.mechanics.returned
         review = review with { PolicyConsumption = CharacterCreationPolicyConsumptionProjection.FromFull(inputs, review) };
+        CharacterCreationCompletionCost3340.Log.Checkpoint(6); // cost3340 review.policy-consumption.returned
         if (completeAuthority is not null)
         {
+            var consumers1222 = CharacterCreationCompleteConsumerExecution.FromFull(inputs, review, completeAuthority,
+                cancellationToken, lifestyleExecution, ruleSourceExecution);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(7); // cost3340 review.consumers.returned
+            if (ruleSourceExecution?.EssenceValidationFailed1222 == true)
+            {
+                normalized = Normalize(normalized.Append(ruleSourceExecution!.EssenceFailureBlocker1222));
+                review = review with { Blockers = normalized };
+            }
             review = review with { CompleteAssessment = CharacterCreationCompleteAssessmentService.AfterEvaluation(
-                completeAuthority, review.PolicyConsumption, normalized.Length == 0, selectedPrerequisites,
-                CharacterCreationCompleteConsumerExecution.FromFull(inputs, review, completeAuthority, cancellationToken, lifestyleExecution, ruleSourceExecution)) };
+                completeAuthority, review.PolicyConsumption, normalized.Length == 0, selectedPrerequisites, consumers1222) };
+            if (!compositeObservation)
+                review = review with { Identity = consumers1222?.IdentityFor(completeAuthority),
+                    Ammunition = consumers1222?.AmmunitionFor(completeAuthority) };
             if (campaignExecution is not null)
                 review = review with { CompleteAssessment = campaignExecution.Project(review.CompleteAssessment!, cancellationToken) };
+            CharacterCreationCompletionCost3340.Log.Checkpoint(8); // cost3340 review.assessment.returned
+#if CHUMMER_PRIVATE_OPAQUE_POLICY3186
+            ObserveOpaquePolicy3186(inputs, review, ruleSourceExecution);
+#endif
             // Observation executes the same source/effect consumers but cannot
             // assert current campaign policy coverage or authorize completion.
             if (!compositeObservation && !CharacterCreationEffectivePolicyValidation.SatisfiesAfterEvaluation(
@@ -254,10 +281,14 @@ public static class CharacterCreationCompletionReviewService
         }
         if (compositeObservation)
             review = review with { CompleteAssessment = null };
+        CharacterCreationCompletionCost3340.Log.Checkpoint(9); // cost3340 review.coverage.returned
         review = review with { ReviewDigest = CharacterCreationCompletionReviewRules.ComputeReviewDigest(review) };
         cancellationToken.ThrowIfCancellationRequested();
-        return new(normalized.Length == 0 ? CharacterCreationFoundationOutcomes.Success : CharacterCreationFoundationOutcomes.Blocked,
+        var result3340 = new CharacterCreationFoundationResult<CharacterCreationCompletionReview>(
+            normalized.Length == 0 ? CharacterCreationFoundationOutcomes.Success : CharacterCreationFoundationOutcomes.Blocked,
             Detach(review), normalized);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(10); // cost3340 review.digest-detach.returned
+        return result3340;
     }
 
     private static CharacterCreationCompletionPoolBalances BuildBalances(
@@ -472,4 +503,68 @@ public static class CharacterCreationCompletionReviewService
 
     private static CharacterCreationFoundationResult<CharacterCreationCompletionReview> Refused(string outcome, string blocker)
         => new(outcome, null, [blocker]);
+}
+
+// Optional fixed numeric checkpoints for the bounded private cost experiment.
+// No character, source, owner, policy, exception or provider data is emitted.
+// Disabled unless an EventListener explicitly subscribes; no timing/authority cache.
+[System.Diagnostics.Tracing.EventSource(Name = "Chummer-Completion-Cost3340")]
+internal sealed class CharacterCreationCompletionCost3340 : System.Diagnostics.Tracing.EventSource
+{
+    internal static readonly CharacterCreationCompletionCost3340 Log = new();
+    private CharacterCreationCompletionCost3340() { }
+
+    private int settingsInvocations3365;
+
+    [System.Diagnostics.Tracing.NonEvent]
+    internal bool TryBeginSettings3365(out int invocation)
+    {
+        invocation = 0;
+        if (!IsEnabled()) return false;
+        int observed = System.Threading.Volatile.Read(ref settingsInvocations3365);
+        while (observed < 3)
+        {
+            int previous = System.Threading.Interlocked.CompareExchange(
+                ref settingsInvocations3365, observed + 1, observed);
+            if (previous == observed)
+            {
+                invocation = observed + 1;
+                return true;
+            }
+            observed = previous;
+        }
+        return false;
+    }
+
+    [System.Diagnostics.Tracing.Event(2, Level = System.Diagnostics.Tracing.EventLevel.Informational)]
+    public void Settings3365(int invocation, int settingCount, int fallbackCount,
+        long directTicks, long fallbackTicks, long rowTicks)
+    {
+        if (IsEnabled()) WriteEvent(2, invocation, settingCount, fallbackCount,
+            directTicks, fallbackTicks, rowTicks);
+    }
+
+    // Nested totals: serialization is inside Inputs/Comparison, and validated
+    // hashing is inside Comparison. Never add these overlapping totals together.
+    [System.Diagnostics.Tracing.Event(3, Level = System.Diagnostics.Tracing.EventLevel.Informational)]
+    public void ProfileCosts3431(int invocation, int inputCalls, long inputTicks,
+        int comparisonCalls, long comparisonTicks, int serializationCalls,
+        long serializationTicks, long validatedHashTicks)
+    {
+        if (IsEnabled()) WriteEvent(3, invocation, inputCalls, inputTicks,
+            comparisonCalls, comparisonTicks, serializationCalls, serializationTicks, validatedHashTicks);
+    }
+
+    // Bounded numeric diagnostics only; no source values, hashes or identities.
+    [System.Diagnostics.Tracing.Event(4, Level = System.Diagnostics.Tracing.EventLevel.Informational)]
+    public void ProfileDigest8544(int calls, int hits, int serializedBytes, int retainedTypes)
+    {
+        if (IsEnabled()) WriteEvent(4, calls, hits, serializedBytes, retainedTypes);
+    }
+
+    [System.Diagnostics.Tracing.Event(1, Level = System.Diagnostics.Tracing.EventLevel.Informational)]
+    public void Checkpoint(int phase)
+    {
+        if (IsEnabled()) WriteEvent(1, phase);
+    }
 }

@@ -24,6 +24,7 @@ public sealed record CharacterCreationKarmaQualitiesCatalog(
     string CatalogDigest)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_qualities_catalog.v1";
+    public const string SchemaV2 = "chummer.character_creation_karma_qualities_catalog.v2";
 }
 
 public static class CharacterCreationKarmaQualitiesCatalogAuthority
@@ -48,5 +49,6 @@ public sealed record CharacterCreationKarmaQualitiesQuote(
     string QuoteDigest)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_qualities_quote.v1";
+    public const string SchemaV2 = "chummer.character_creation_karma_qualities_quote.v2";
     public bool CanSelect => Blockers.Count == 0;
 }

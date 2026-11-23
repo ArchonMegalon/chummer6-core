@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
+using Chummer.Application.Workspaces;
 
 namespace Chummer.Application.Characters;
 
@@ -18,6 +19,18 @@ internal static partial class CharacterCareerPowerGraph
         CharacterAdeptPowerPointIncreaseQuote Quote, IReadOnlyList<CharacterCareerPowerGrant> Grants);
 
     internal static Projection Build(string xml, ICharacterSourceDataContext context, CharacterCareerPowerCommand command)
+        => BuildCore(xml, context, command, null);
+
+    internal static Projection Build(WorkspaceStoredDocument saved, ICharacterSourceDataContext context,
+        CharacterCareerPowerCommand command)
+    {
+        Need(CharacterFinalizedLifeModuleOwnership.TryObserve(saved, context, out var modules),
+            "power_finalized_module_ownership_unavailable");
+        return BuildCore(saved.Document.Content, context, command, modules);
+    }
+
+    private static Projection BuildCore(string xml, ICharacterSourceDataContext context,
+        CharacterCareerPowerCommand command, CharacterFinalizedLifeModuleOwnership? modules)
     {
         var root = Parse(xml);
         Need(root.Name == "character" && !root.HasAttributes && Bool(root, "created")
@@ -36,7 +49,8 @@ internal static partial class CharacterCareerPowerGraph
         var evidence = new List<string> { "sr5-career-power-owner-managed/v1", settingsState, JsonSerializer.Serialize(catalog) };
         Need(context.TryResolveCareerQualityMetatype(out var metatypeXml, out var metatypeState), "power_metatype_unavailable");
         evidence.Add(metatypeState);
-        var policies = new SourcePolicy(context, root, evidence, catalog);
+        if (modules is not null) evidence.Add(modules.Digest);
+        var policies = new SourcePolicy(context, root, evidence, catalog, modules);
         policies.ValidateOwnedSources();
         var effects = Container(root, "improvements", "improvement");
         var powers = Container(root, "powers", "power");
@@ -123,7 +137,7 @@ internal static partial class CharacterCareerPowerGraph
         if (target.Saved is null)
             powers.Add(SavedPower(target, command.PaidRating));
         else Single(target.Saved, "rating").Value = command.PaidRating.ToString(CultureInfo.InvariantCulture);
-        RecalculateAttributeCaches(root, effects, states, Parse(metatypeXml));
+        RecalculateAttributeCaches(root, effects, states, Parse(metatypeXml), modules);
         return new(root.ToString(SaveOptions.DisableFormatting),
             CharacterCareerPowerTransaction.Hash(JsonSerializer.Serialize(evidence)), quote!, grants);
     }

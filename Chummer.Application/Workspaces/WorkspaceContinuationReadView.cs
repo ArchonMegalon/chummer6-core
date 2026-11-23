@@ -40,8 +40,8 @@ internal sealed class WorkspaceContinuationReadView : IWorkspaceStore
         // Freeze the entire auxiliary graph, including archives and histories.
         // Copy only this graph through JSON: reconstructing the document through
         // its constructors could normalize the candidate's envelope fields.
-        _auxiliaryState = JsonSerializer.SerializeToElement(candidate.Document.State.AuxiliaryState);
-        if (!JsonElement.DeepEquals(_auxiliaryState, JsonSerializer.SerializeToElement(CopyAuxiliaryState())))
+        _auxiliaryState = WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureAuxiliaryState(candidate.Document.State.AuxiliaryState);
+        if (!JsonElement.DeepEquals(_auxiliaryState, WorkspaceDocumentAuxiliaryStateJsonConverter.CaptureAuxiliaryState(CopyAuxiliaryState())))
             throw new InvalidDataException("Candidate auxiliary state cannot be copied losslessly.");
         _candidate = candidate with
         {
@@ -132,8 +132,7 @@ internal sealed class WorkspaceContinuationReadView : IWorkspaceStore
         => UnavailableGmOperation();
 
     private WorkspaceDocumentAuxiliaryState CopyAuxiliaryState()
-        => _auxiliaryState.Deserialize<WorkspaceDocumentAuxiliaryState>()
-            ?? throw new InvalidDataException("Candidate auxiliary state is missing.");
+        => WorkspaceDocumentAuxiliaryStateJsonConverter.RestoreAuxiliaryState(_auxiliaryState);
 
     private WorkspaceStoredDocument CopyCandidate() => _candidate with
     {

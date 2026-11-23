@@ -115,3 +115,147 @@ public static class CharacterCreationLifestyleLocationRules
             && category.Name.Length != 0 && category.QualityType is { Length: > 0 } && category.QualityType == QualityType(category.Name))
         && categories.Select(category => category.Name).Distinct(StringComparer.Ordinal).Count() == categories.Count;
 }
+
+public sealed record CharacterCreationLifestylePredicate(
+    string Kind, string Value, string? Extra, IReadOnlyList<CharacterCreationLifestylePredicate> Children);
+public sealed record CharacterCreationLifestyleTextChoice(string ChoiceId, string Text);
+public sealed record CharacterCreationLifestyleTextPrompt(
+    string SourceFile, string XPath, string SourceDigest, bool AllowCustom,
+    IReadOnlyList<CharacterCreationLifestyleTextChoice> Choices);
+public sealed record CharacterCreationLifestyleTextSelection(string Kind, string? ChoiceId);
+public sealed record CharacterCreationLifestyleQualityMechanics(
+    IReadOnlyList<CharacterCreationLifestylePredicate> Required,
+    IReadOnlyList<CharacterCreationLifestylePredicate> Forbidden,
+    CharacterCreationLifestyleTextPrompt? Prompt);
+public sealed record CharacterCreationLifestyleCharacterFact(Guid SourceId, string Name, string Extra);
+public sealed record CharacterCreationLifestyleMechanicsContext(
+    string Capability, bool CharacterFactsExact,
+    IReadOnlyList<CharacterCreationLifestyleCharacterFact> CharacterQualities);
+public sealed record CharacterCreationLifestyleAspectProjection(
+    int Area, int Comforts, int Security, int MaximumAreaIncrease,
+    int MaximumComfortsIncrease, int MaximumSecurityIncrease);
+
+/// <summary>V7 quote predicates. Data is compiled and rebound to retained sources by the application.</summary>
+public static class CharacterCreationLifestyleMechanicsRules
+{
+    public const string CapabilityElement = "lifestylequalitysemantics";
+    public const string Capability = "source-quality-mechanics-v1";
+    // Native extension v1; deliberately not an upstream Chummer5a predicate.
+    public const string StartingBasePointsPredicate = "chummer-starting-base-lp-v1";
+
+    public static bool TryReadStartingBasePoints(string? value, out int minimum)
+        => int.TryParse(value, System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out minimum)
+            && minimum is >= 0 and <= 65_535
+            && value == minimum.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    public const string PrerequisiteNotMet = "creation-lifestyles-prerequisite-not-met";
+    public const string ExclusionMatched = "creation-lifestyles-exclusion-matched";
+    public const string TextSelectionInvalid = "creation-lifestyles-text-selection-invalid";
+
+    public static bool IsValid(CharacterCreationLifestylesAuthority authority)
+    {
+        if (authority.QualityOptions is null || authority.QualityOptions.Any(option => option is null)) return false;
+        if (authority.Mechanics is null) return authority.QualityOptions.All(option => option.Mechanics is null);
+        var context = authority.Mechanics;
+        return context.Capability == Capability && context.CharacterQualities is { Count: <= 4096 }
+            && context.CharacterQualities.All(fact => fact is not null && Text(fact.Name) && fact.Name.Length != 0 && Text(fact.Extra))
+            && authority.QualityOptions.All(option => option.Mechanics is null || Valid(option.Mechanics));
+    }
+
+    private static bool Text(string? text) => text is not null && text.Length <= 32767
+        && text.All(c => !char.IsControl(c) || c is '\t' or '\r' or '\n');
+    private static bool Valid(CharacterCreationLifestyleQualityMechanics mechanics)
+    {
+        int budget = 256;
+        if (!Predicates(mechanics.Required, 0, ref budget) || !Predicates(mechanics.Forbidden, 0, ref budget)) return false;
+        var prompt = mechanics.Prompt;
+        return prompt is null || prompt.SourceFile == "skills.xml" && Text(prompt.XPath)
+            && CharacterCreationLifestylesRules.IsCanonicalDigest(prompt.SourceDigest)
+            && prompt.Choices is { Count: > 0 and <= 4096 }
+            && prompt.Choices.All(choice => choice is not null && Text(choice.Text) && choice.Text.Length != 0
+                && CharacterCreationLifestylesRules.IsCanonicalDigest(choice.ChoiceId))
+            && prompt.Choices.Select(choice => choice.ChoiceId).Distinct(StringComparer.Ordinal).Count() == prompt.Choices.Count;
+    }
+    private static bool Predicates(IReadOnlyList<CharacterCreationLifestylePredicate>? rows, int depth, ref int budget)
+    {
+        if (rows is null || rows.Count > 256 || depth > 8) return false;
+        foreach (var row in rows)
+        {
+            if (--budget < 0 || row is null || !Text(row.Value) || row.Extra is not null && !Text(row.Extra)) return false;
+            if (row.Kind is "oneof" or "allof")
+            {
+                if (row.Value.Length != 0 || row.Extra is not null || row.Children is null || row.Children.Count == 0
+                    || !Predicates(row.Children, depth + 1, ref budget)) return false;
+            }
+            else if (row.Kind == StartingBasePointsPredicate)
+            {
+                if (row.Extra is not null || row.Children is not { Count: 0 }
+                    || !TryReadStartingBasePoints(row.Value, out _)) return false;
+            }
+            else if (row.Kind is not ("lifestyle" or "lifestylequality" or "characterquality")
+                || row.Value.Length == 0 || row.Children is not { Count: 0 }) return false;
+        }
+        return true;
+    }
+
+    public static IReadOnlyList<string> ValidateSelection(CharacterCreationLifestyleConfiguration configuration,
+        CharacterCreationLifestyleCatalogOption lifestyle, CharacterCreationLifestylesAuthority authority)
+    {
+        var findings = new List<string>();
+        if (authority.Mechanics is not { } context) return findings;
+        var catalog = authority.QualityOptions.ToDictionary(option => option.OptionId, StringComparer.Ordinal);
+        var selected = configuration.Qualities.Where(selection => catalog.ContainsKey(selection.OptionId))
+            .Select(selection => (Selection: selection, Option: catalog[selection.OptionId])).ToArray();
+        foreach (var (selection, option) in selected)
+        {
+            if (selection.IsBuiltIn || option.Mechanics is not { } mechanics) continue;
+            if (option.SelectionSemantics is { AllowMultiple: false }
+                && selected.Count(other => other.Option.Name == option.Name || other.Option.SourceId == option.SourceId) > 1)
+                findings.Add(CharacterCreationLifestylesBlockers.InvalidMutation + ":" + option.OptionId);
+            // Validate every selected row against the final collection, including reverse exclusions.
+            bool Match(CharacterCreationLifestylePredicate predicate) => predicate.Kind switch
+            {
+                "oneof" => predicate.Children.Any(Match),
+                "allof" => predicate.Children.All(Match),
+                "lifestyle" => lifestyle.Name == predicate.Value,
+                // Source base LP only: never remaining LP, quality credits, roommates or bonus rolls.
+                StartingBasePointsPredicate => TryReadStartingBasePoints(predicate.Value, out int minimum)
+                    && lifestyle.LifestylePoints >= minimum,
+                "lifestylequality" => selected.Any(other => other.Selection.InstanceId != selection.InstanceId
+                    && Identity(other.Option.SourceId, other.Option.Name, predicate.Value)
+                    && (predicate.Extra is null || other.Selection.Extra == predicate.Extra)),
+                "characterquality" => context.CharacterQualities.Any(fact => Identity(fact.SourceId, fact.Name, predicate.Value)
+                    && (predicate.Extra is null || fact.Extra == predicate.Extra)),
+                _ => false
+            };
+            bool UsesCharacter(CharacterCreationLifestylePredicate predicate) => predicate.Kind == "characterquality"
+                || predicate.Children.Any(UsesCharacter);
+            if (!context.CharacterFactsExact && mechanics.Required.Concat(mechanics.Forbidden).Any(UsesCharacter))
+                findings.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics + ":" + option.OptionId + ":re-resolve selected character qualities");
+            if (!mechanics.Required.All(Match)) findings.Add(PrerequisiteNotMet + ":" + option.OptionId + ":requires "
+                + string.Join("; ", mechanics.Required.Where(predicate => !Match(predicate)).Select(Explain)));
+            if (mechanics.Forbidden.Any(Match)) findings.Add(ExclusionMatched + ":" + option.OptionId + ":conflicts with "
+                + string.Join("; ", mechanics.Forbidden.Where(Match).Select(Explain)));
+            if (mechanics.Prompt is { } prompt)
+            {
+                bool valid = selection.TextSelection is { Kind: "catalogue", ChoiceId: not null } choice
+                    && prompt.Choices.Any(item => item.ChoiceId == choice.ChoiceId && item.Text == selection.Extra)
+                    || selection.TextSelection is { Kind: "custom", ChoiceId: null }
+                        && prompt.AllowCustom && !string.IsNullOrWhiteSpace(selection.Extra);
+                if (!valid) findings.Add(TextSelectionInvalid + ":" + option.OptionId);
+            }
+            else if (selection.TextSelection is not null) findings.Add(TextSelectionInvalid + ":" + option.OptionId);
+        }
+        return findings;
+    }
+    private static string Explain(CharacterCreationLifestylePredicate predicate) => predicate.Kind switch
+    {
+        StartingBasePointsPredicate => "starting base lifestyle points >= " + predicate.Value,
+        "oneof" => "one of (" + string.Join(", ", predicate.Children.Select(Explain)) + ")",
+        "allof" => "all of (" + string.Join(", ", predicate.Children.Select(Explain)) + ")",
+        _ => predicate.Value + (predicate.Extra is null ? string.Empty : " (" + predicate.Extra + ")")
+    };
+    private static bool Identity(Guid id, string name, string value) => name == value
+        || Guid.TryParse(value, out var parsed) && parsed == id;
+}

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Chummer.Application.LifeModules;
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
@@ -18,6 +19,9 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
     ICharacterSourceDataResolver sourceResolver) : IOwnerBoundCharacterCreationFinalizationService,
     IOwnerBoundCharacterCreationOverviewReader
 {
+    private static readonly ActivitySource OverviewActivities =
+        new(CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ActivitySourceName);
+
     public CharacterCreationOverviewRead? LoadOverview(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId workspaceId, bool includePriorityDrafts)
         => ReadOverview(store, ownerContext, characterQueries, sourceResolver,
@@ -35,9 +39,19 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
 
         using (lease)
         {
+            // Reuse validated history only within this synchronous owner-bound overview.
+            // Each lookup still hashes current inputs; source and owner admission stay live.
+            using var historyScope = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
             using ICharacterSourceDataResolverOperationScope? sourceScope =
                 (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
-            ICharacterSourceDataResolver resolver = sourceScope ?? sourceResolver;
+            // This entire overview is synchronous under the original owner lease.
+            // Compose the resolver's existing bounded read cache with its explicit
+            // operation fence: context requests still admit fresh source bytes,
+            // and disposal rechecks every observed input before returning results.
+            // Ordinary readers and later requests retain their independent scopes.
+            using ICharacterSourceDataResolverOperationScope? evaluationScope =
+                (sourceScope as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            ICharacterSourceDataResolver resolver = evaluationScope ?? sourceScope ?? sourceResolver;
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId,
                 reuseReadObservation: true);
             var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, resolver);
@@ -45,27 +59,52 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
             var qualities = new CharacterCreationQualitiesService(view, resolver, prerequisites, attributes);
             var magic = new CharacterCreationMagicResonanceService(view, resolver);
             var finalization = CreateFinalizer(view, characterQueries, resolver, prerequisites, attributes, qualities, magic);
-            var foundation = foundationCatalog is null ? null
-                : new CharacterCreationFoundationService(view, characterQueries, resolver, foundationCatalog,
+            CharacterCreationFoundationResult<CharacterCreationFoundationState>? foundation = null;
+            if (foundationCatalog is not null)
+            {
+                using var activity = OverviewActivities.StartActivity("overview-foundation");
+                foundation = new CharacterCreationFoundationService(view, characterQueries, resolver, foundationCatalog,
                     new CharacterCreationFoundationDraftApplyAuthority(view)).Load(new(workspaceId));
+            }
 
             // Unscoped evaluator entry points are safe only against this private
             // admitted view: it redirects every read and capability check to the
             // actual owner. Every resolver lookup still validates live sources.
             // No mutation API is invoked and no view/context survives the lease.
-            var contactsRead = new CharacterCreationContactsService(view, resolver).Load(new(workspaceId));
-            var lifestylesRead = new CharacterCreationLifestylesService(view, resolver).Load(new(workspaceId));
-            var finalizationRead = finalization.LoadForOverview(new(workspaceId),
-                out var qualitiesRead, out var magicRead);
+            CharacterCreationContactResult<CharacterCreationContactsState> contactsRead;
+            using (OverviewActivities.StartActivity("overview-contacts"))
+                contactsRead = new CharacterCreationContactsService(view, resolver, characterQueries).Load(new(workspaceId));
+            CharacterCreationLifestyleResult<CharacterCreationLifestylesState> lifestylesRead;
+            using (OverviewActivities.StartActivity("overview-lifestyles"))
+                lifestylesRead = new CharacterCreationLifestylesService(view, resolver).Load(new(workspaceId));
+            CharacterCreationFinalizationResult<CharacterCreationFinalizationState> finalizationRead;
+            CharacterCreationFoundationResult<CharacterCreationQualitiesState>? qualitiesRead;
+            CharacterCreationFoundationResult<CharacterCreationMagicResonanceState>? magicRead;
+            using (OverviewActivities.StartActivity("overview-finalization"))
+                finalizationRead = finalization.LoadForOverview(new(workspaceId),
+                    out qualitiesRead, out magicRead);
             // Present drafts were just evaluated by the full finalizer. Return
             // those exact results, not another expensive pass through the same
             // catalogs. This is local to this admitted read, never a save cache.
             // If finalization did not load a domain, its overview still needs the
             // real domain loader (including its failures and available choices).
+            if (includePriorityDrafts)
+            {
+                if (qualitiesRead is null)
+                {
+                    using var activity = OverviewActivities.StartActivity("overview-qualities");
+                    qualitiesRead = qualities.Load(new(workspaceId));
+                }
+                if (magicRead is null)
+                {
+                    using var activity = OverviewActivities.StartActivity("overview-magic");
+                    magicRead = magic.Load(new(workspaceId));
+                }
+            }
             return new(
                 contactsRead,
-                includePriorityDrafts ? qualitiesRead ?? qualities.Load(new(workspaceId)) : null,
-                includePriorityDrafts ? magicRead ?? magic.Load(new(workspaceId)) : null,
+                includePriorityDrafts ? qualitiesRead : null,
+                includePriorityDrafts ? magicRead : null,
                 lifestylesRead,
                 finalizationRead) { Foundation = foundation };
         }

@@ -4,7 +4,20 @@ using System.Text.Json;
 
 namespace Chummer.Contracts.Characters;
 
-public enum CharacterCareerInitiationBenefitKind { Metamagic, PowerPoint }
+public enum CharacterCareerInitiationBenefitKind { Metamagic, PowerPoint, Echo }
+public enum CharacterCareerInitiationFamily
+{
+    Magic,
+    Resonance
+}
+
+public enum CharacterCareerInitiationMode
+{
+    GradeAndBenefit = 0,
+    GradeOnly = 1,
+    DeferredBenefit = 2
+}
+
 public enum CharacterCareerInitiationOutcome
 {
     NotFound, Applied, Replayed, Missing, Conflict, IdempotencyConflict, Corrupt, Unavailable
@@ -13,7 +26,17 @@ public enum CharacterCareerInitiationOutcome
 /// <summary>A choice, never caller-provided prices, effects, grades or permission.</summary>
 public sealed record CharacterCareerInitiationSelection(
     Guid BenefitSourceId, bool Group = false, bool Ordeal = false,
-    bool Schooling = false, bool AcceptObligations = false);
+    bool Schooling = false, bool AcceptObligations = false)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCareerInitiationMode Mode { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? TargetGradeId { get; init; }
+}
+
+/// <summary>Canonical saved grade and occupancy, not proof of an imported grade's past payment.</summary>
+public sealed record CharacterCareerSubmersionGrade(
+    Guid GradeId, int Grade, string GradeXml, bool FirstBenefitPending, IReadOnlyList<string> Blockers);
 
 public sealed record CharacterCareerInitiationBinding(
     string OwnerId, string WorkspaceId, string OwnerAuthorityInstanceId, long OwnerTransitionRevision,
@@ -29,6 +52,11 @@ public sealed record CharacterCareerInitiationAdjustment(
     string Id, bool Selected, decimal Discount, decimal Nuyen,
     string Obligation, IReadOnlyList<string> Blockers);
 
+/// <summary>Exact owned instance and effect replacement, compiled from retained source at both grades.</summary>
+public sealed record CharacterCareerInitiationMetamagicRecompilation(
+    Guid InstanceId, Guid SourceId, string InstanceXml, string SourceXml,
+    IReadOnlyList<string> EffectsBefore, IReadOnlyList<string> EffectsAfter);
+
 public sealed record CharacterCareerInitiationQuote(
     CharacterCareerInitiationBinding Binding, CharacterCareerInitiationSelection Selection,
     int CurrentGrade, int NextGrade, int EffectiveMagic, int? EffectiveAdeptMagic,
@@ -38,6 +66,16 @@ public sealed record CharacterCareerInitiationQuote(
     IReadOnlyList<CharacterCareerInitiationBenefit> Benefits,
     IReadOnlyList<string> Obligations, IReadOnlyList<string> Blockers)
 {
+    // Omit for historical quotes so pre-extension receipt digests remain stable.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerInitiationMetamagicRecompilation>? RecompiledMetamagics { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCareerInitiationFamily Family { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? EffectiveResonance { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCareerSubmersionGrade>? SubmersionGrades { get; init; }
     public bool CanApply => Blockers.Count == 0;
 }
 
@@ -92,8 +130,10 @@ public static class CharacterCareerInitiationRules
                 || b.WorkspaceRevision <= 0 || b.WorkspaceRevision >= long.MaxValue
                 || b.SavedRevision != b.WorkspaceRevision
                 || !IsDigest(b.DocumentDigest) || !IsDigest(b.AuxiliaryDigest) || !IsDigest(b.RuntimeFingerprint)
-                || !IsDigest(q.SourceAuthorityDigest) || q.NextGrade != q.CurrentGrade + 1
-                || q.CurrentGrade < 0 || q.NextGrade > MaximumGrade || q.NextGrade > q.EffectiveMagic
+                || !IsDigest(q.SourceAuthorityDigest) || !ValidMode(q)
+                || q.CurrentGrade < 0 || q.NextGrade > MaximumGrade || (q.Family == CharacterCareerInitiationFamily.Resonance
+                    ? q.EffectiveResonance is null || q.Selection.Mode != CharacterCareerInitiationMode.DeferredBenefit && q.NextGrade > q.EffectiveResonance
+                    : q.NextGrade > q.EffectiveMagic)
                 || q.SeparateAdeptMagic && (q.EffectiveAdeptMagic is null || q.NextGrade > q.EffectiveAdeptMagic)
                 || q.KarmaCost < 0 || q.KarmaBefore < q.KarmaCost || q.NuyenCost < 0 || q.NuyenBefore < q.NuyenCost
                 || q.Benefits.Count > 4096 || q.Adjustments.Count != 3 || q.Obligations.Count > 32
@@ -101,15 +141,70 @@ public static class CharacterCareerInitiationRules
                 || plan.ExpenseDateLocal.Kind != DateTimeKind.Unspecified
                 || plan.ExpenseDateLocal.Year is < 1753 or > 9998)
                 return false;
+            if (!Enum.IsDefined(q.Family)
+                || q.Family == CharacterCareerInitiationFamily.Magic && q.EffectiveResonance is not null
+                || q.Family == CharacterCareerInitiationFamily.Resonance
+                    && (q.EffectiveMagic != 0 || q.EffectiveResonance is not > 0 || q.EffectiveAdeptMagic is not null
+                        || q.SeparateAdeptMagic || !ValidSubmersionAdjustments(q)
+                        || q.NuyenCost != 0
+                        || q.Obligations.Count != 0 || q.RecompiledMetamagics is not null)) return false;
+            if (q.RecompiledMetamagics is { } updates
+                && (updates.Count is 0 or > 4096
+                    || updates.Select(x => x.InstanceId).Distinct().Count() != updates.Count
+                    || updates.Any(x => x.InstanceId == Guid.Empty || x.SourceId == Guid.Empty
+                        || x.InstanceXml.Length is 0 or > 1_048_576 || x.SourceXml.Length is 0 or > 1_048_576
+                        || x.EffectsBefore.Count is 0 or > 128 || x.EffectsAfter.Count != x.EffectsBefore.Count
+                        || x.EffectsBefore.Concat(x.EffectsAfter).Any(xml => xml.Length is 0 or > 65536))))
+                return false;
+            if (q.Selection.Mode == CharacterCareerInitiationMode.GradeOnly)
+                return q.Selection.BenefitSourceId == Guid.Empty;
             var benefit = q.Benefits.SingleOrDefault(x => x.SourceId == q.Selection.BenefitSourceId);
             return benefit is not null && benefit.Blockers.Count == 0 && benefit.SourceId != Guid.Empty
                 && benefit.SourceXml.Length is > 0 and <= 1_048_576
-                && (benefit.Kind is CharacterCareerInitiationBenefitKind.Metamagic or CharacterCareerInitiationBenefitKind.PowerPoint)
+                && (q.Family == CharacterCareerInitiationFamily.Resonance
+                    ? benefit.Kind == CharacterCareerInitiationBenefitKind.Echo
+                    : benefit.Kind is CharacterCareerInitiationBenefitKind.Metamagic or CharacterCareerInitiationBenefitKind.PowerPoint)
                 && (benefit.Kind == CharacterCareerInitiationBenefitKind.PowerPoint
                     ? benefit.PowerPoints > 0 : benefit.PowerPoints == 0);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or NullReferenceException or OverflowException)
         { return false; }
+    }
+
+    private static bool ValidSubmersionAdjustments(CharacterCareerInitiationQuote q)
+    {
+        var expected = new[] { ("group", q.Selection.Group), ("ordeal", q.Selection.Ordeal), ("schooling", q.Selection.Schooling) };
+        if (q.Selection.Mode == CharacterCareerInitiationMode.DeferredBenefit
+            && expected.Any(x => x.Item2)) return false;
+        foreach (var (id, selected) in expected)
+        {
+            var adjustment = q.Adjustments.SingleOrDefault(a => a.Id == id);
+            if (adjustment is null || adjustment.Selected != selected || adjustment.Discount is < 0 or > 1
+                || adjustment.Nuyen != 0 || adjustment.Obligation.Length != 0
+                || selected && adjustment.Blockers.Count != 0) return false;
+        }
+        // Legacy ordinary/deferred quotes have three zero adjustments; no new
+        // serialized fields or receipt digest versions are needed to accept them.
+        return q.Adjustments.Where(a => a.Selected).Sum(a => a.Discount) <= 1;
+    }
+
+    private static bool ValidMode(CharacterCareerInitiationQuote q)
+    {
+        if (!Enum.IsDefined(q.Selection.Mode)) return false;
+        if (q.Family != CharacterCareerInitiationFamily.Resonance
+            && (q.Selection.Mode != CharacterCareerInitiationMode.GradeAndBenefit
+                || q.Selection.TargetGradeId is not null || q.SubmersionGrades is not null)) return false;
+        if (q.SubmersionGrades is { } grades
+            && (grades.Count != q.CurrentGrade || grades.Count > MaximumGrade
+                || grades.Select(g => g.GradeId).Distinct().Count() != grades.Count
+                || !grades.Select(g => g.Grade).OrderBy(g => g).SequenceEqual(Enumerable.Range(1, grades.Count))
+                || grades.Any(g => g.GradeId == Guid.Empty || g.GradeXml.Length is 0 or > 65536
+                    || g.Blockers.Count > 32))) return false;
+        if (q.Selection.Mode != CharacterCareerInitiationMode.DeferredBenefit)
+            return q.NextGrade == q.CurrentGrade + 1 && q.Selection.TargetGradeId is null;
+        var target = q.SubmersionGrades?.SingleOrDefault(g => g.GradeId == q.Selection.TargetGradeId);
+        return q.CurrentGrade > 0 && q.NextGrade == q.CurrentGrade && q.KarmaCost == 0 && q.NuyenCost == 0
+            && target is { FirstBenefitPending: true } && target.Blockers.Count == 0;
     }
 
     public static Guid Id(Guid transaction, string purpose)

@@ -5,15 +5,75 @@ namespace Chummer.Application.Characters;
 
 internal static partial class CharacterCareerPowerGraph
 {
+    // Native MentorSpirit.Save stores the chosen bonus's children, not its name.
+    // Resolve that payload to exactly one retained choice; it never supplies rules.
+    internal static IReadOnlyList<(string Slot, string Extra, XElement Bonus)> SelectedGrantBonuses5715(
+        string kind, XElement owned, XElement source)
+    {
+        var result = new List<(string, string, XElement)> { ("bonus", Value(owned, "extra", ""), Single(source, "bonus", false)) };
+        if (kind != "MentorSpirit") return result;
+        var used = new HashSet<XElement>(ReferenceEqualityComparer.Instance);
+        foreach (string slot in new[] { "choice1", "choice2" })
+        {
+            var saved = Single(owned, slot, false);
+            Need(!saved.HasAttributes, "power_mentor_choice_shape_unavailable");
+            string extra = Value(owned, "extra" + slot, "");
+            if (!saved.HasElements && saved.Value.Length == 0)
+            {
+                Need(extra.Length == 0, "power_mentor_choice_missing");
+                continue;
+            }
+            var definitions = Single(source, "choices");
+            Need(!definitions.HasAttributes && definitions.Elements().All(e => e.Name == "choice")
+                && definitions.Nodes().All(n => n is XElement || n is XText text && string.IsNullOrWhiteSpace(text.Value)),
+                "power_mentor_choice_shape_unavailable");
+            var choices = definitions.Elements("choice").Where(choice =>
+                saved.HasElements
+                    ? XNode.DeepEquals(new XElement("bonus", saved.Nodes()), Single(choice, "bonus"))
+                    : Value(choice, "name") == saved.Value).ToArray();
+            Need(choices.Length == 1 && used.Add(choices[0]), "power_mentor_choice_missing_or_ambiguous");
+            var selected = choices[0];
+            Need(!selected.HasAttributes && selected.Elements().All(e => e.Name == "name" || e.Name == "bonus")
+                && selected.Elements().GroupBy(e => e.Name).All(g => g.Count() == 1)
+                && selected.Nodes().All(n => n is XElement || n is XText text && string.IsNullOrWhiteSpace(text.Value)),
+                "power_mentor_choice_shape_unavailable");
+            // Additional native prompt choices need their own exact selection
+            // proof. This bounded join supports the selected choice label only.
+            Need(extra.Length == 0 || extra == Value(selected, "name"), "power_mentor_choice_prompt_unavailable");
+            result.Add((slot, extra == Value(selected, "name") ? "" : extra, Single(selected, "bonus")));
+        }
+        return result.AsReadOnly();
+    }
+
     private sealed class SourcePolicy(ICharacterSourceDataContext context, XElement character, List<string> evidence,
-        IReadOnlyList<CharacterCareerPowerSource> powers)
+        IReadOnlyList<CharacterCareerPowerSource> powers, CharacterFinalizedLifeModuleOwnership? modules)
     {
         private readonly Dictionary<(string, Guid), XElement> sources = [];
         private readonly HashSet<string> resolving = [];
+        private readonly Dictionary<Guid, XElement> moduleSources = [];
+        private readonly HashSet<XElement> moduleDefinitions = new(ReferenceEqualityComparer.Instance);
+        internal List<ReadGrant5715> ProvenGrants { get; } = [];
 
         private XElement Source(string kind, XElement owned)
         {
             Guid id = PowerSourceId(owned);
+            if (kind == "Quality" && modules is not null && modules.TryGetModuleDefinition(owned, out var module))
+            {
+                Guid owner = GuidValue(owned, "guid");
+                if (!moduleSources.TryGetValue(owner, out var selected))
+                {
+                    selected = module!;
+                    moduleSources.Add(owner, selected);
+                    moduleDefinitions.Add(selected);
+                }
+                Need(GuidValue(selected, "id") == id && Value(selected, "name") == Value(owned, "name")
+                    && Bool(owned, "implemented", true) && Bool(selected, "implemented", true),
+                    "power_module_identity_unavailable");
+                Need(!Single(character, "improvements").Elements("improvement").Any(e =>
+                    Bool(e, "enabled") && Value(e, "improvementttype") == "DisableQuality"),
+                    "power_disabled_quality_semantics_unavailable");
+                return selected;
+            }
             if (!sources.TryGetValue((kind, id), out var xml))
             {
                 Need(context.TryResolveCareerPowerGrantSource(kind, id, out var source) && source is not null,
@@ -41,6 +101,10 @@ internal static partial class CharacterCareerPowerGraph
 
         public bool Requirements(XElement source)
         {
+            // Module selection prerequisites belong to the validated historical
+            // sequence. Only this proof-issued module object takes that path;
+            // ordinary quality and power requirements keep their current checks.
+            if (moduleDefinitions.Contains(source)) return true;
             string key = source.Name + ":" + Value(source, "id");
             Need(resolving.Add(key), "power_requirement_cycle");
             try
@@ -134,17 +198,7 @@ internal static partial class CharacterCareerPowerGraph
                 var owned = Single(character, container).Elements().Single(r => GuidValue(r, "guid") == instance);
                 var source = Source(kind, owned);
                 Need(Requirements(source), "power_grant_prerequisite_unavailable");
-                var bonuses = new List<XElement> { Single(source, "bonus", false) };
-                if (kind == "MentorSpirit")
-                {
-                    foreach (string key in new[] { "choice1", "choice2" })
-                    {
-                        string selected = Value(owned, key, "");
-                        if (selected.Length == 0) continue;
-                        var choice = Single(source, "choices").Elements("choice").Single(c => Value(c, "name") == selected);
-                        bonuses.Add(Single(choice, "bonus"));
-                    }
-                }
+                var bonuses = SelectedGrantBonuses5715(kind, owned, source).Select(b => b.Bonus).ToArray();
                 string powerName = Value(effect, "improvedname");
                 string extra = Value(effect, "unique", "");
                 int levels = 0, quarters = 0;
@@ -170,7 +224,10 @@ internal static partial class CharacterCareerPowerGraph
                 string keyId = string.Join('\0', kind, instance, type, powerName, extra,
                     matches[0].ToString(SaveOptions.DisableFormatting));
                 Need(used.Add(keyId), "power_duplicate_grant");
-                result.Add(new(kind, instance, PowerSourceId(owned), powerName, extra, levels, quarters, pool));
+                var grant = new CharacterCareerPowerGrant(kind, instance, PowerSourceId(owned), powerName, extra, levels, quarters, pool);
+                result.Add(grant);
+                ProvenGrants.Add(new(grant, type, Int(effect, "rating"),
+                    source.ToString(SaveOptions.DisableFormatting), matches[0].ToString(SaveOptions.DisableFormatting)));
             }
             return Array.AsReadOnly(result.ToArray());
         }

@@ -13,6 +13,7 @@ using System.Xml.XPath;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Content;
 using Chummer.Contracts.Rulesets;
 
 namespace Chummer.Infrastructure.Xml;
@@ -31,12 +32,16 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     [ThreadStatic]
     private static SynchronousOperationScope? _activeSynchronousOperation;
 
-    private sealed class SourceInputSnapshot
+    private sealed partial class SourceInputSnapshot
     {
         private readonly object _sync = new();
         private readonly Dictionary<string, byte[]> _bytes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, XDocument> _documents = new(StringComparer.Ordinal);
         private readonly Dictionary<string, XDocument> _effectiveDocuments = new(StringComparer.Ordinal);
+        // Derived only from this snapshot's private immutable trees. Neither rows
+        // nor lookup decisions are shared with another source snapshot/admission.
+        private readonly Dictionary<XElement, List<(string Entry, string[] Containers, CatalogTargetLookup Lookup)>>
+            _targetLookups = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<string> _selectedProfileFiles = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _digests = new(StringComparer.Ordinal);
         private readonly Dictionary<string, FileSnapshot> _files = new(StringComparer.Ordinal);
@@ -51,6 +56,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         public RuleSourceAccounting? Accounting { get; init; }
         public bool Sourcebooks800 { get; init; }
         public string? CreationSourceExecutionSchema { get; init; }
+        public string? KarmaQualityPromptSchema { get; set; }
+        public CharacterRetainedSettingsFile? StandaloneSettings5691 { get; set; }
+        public XDocument? StandaloneSettingsBase5691 { get; set; }
+        // Only a fresh live observation adopts the current catalog projection.
+        // Request schemas cannot upgrade the semantics of a retained capture.
+        public bool NativeFocusGearCatalog1339 => _retained?.NativeFocusGearCatalog1339 ?? true;
         private bool _captureBounded;
         private long _capturedBytes;
         private readonly long _startedTimestamp = Stopwatch.GetTimestamp();
@@ -61,6 +72,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         private int _directoryValidationCount;
         private int _prerequisiteProjectionCount;
         private int _loadoutProjectionCount;
+        private int _returnedFullDocumentCopyCount;
+        private int _targetLookupBuildCount;
+        private long _targetLookupRowVisitCount;
 
         public SourceInputSnapshot(
             Action<string>? afterSourceBytesRead,
@@ -75,6 +89,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
 
         public string PathOrderKey(string path) => _retained?.PathOrderKey(path) ?? path;
+
+        // Only the private retained resolver can supply this immutable byte and
+        // inventory owner. A digest, public context or live-file snapshot cannot.
+        public bool HasImmutableRetainedInputs7956 => _retained is not null;
 
         public void EnableCaptureBounds()
         {
@@ -109,7 +127,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     _directoryInventories.Select(row => new RetainedCharacterRuleSourceInputs.Inventory(
                         RetainedKey(row.Key), row.Value.Exists, row.Value.Entries)),
                     portable: _retained?.IsPortable == true,
-                    sourcePathSeparator: _retained?.SourcePathSeparator);
+                    sourcePathSeparator: _retained?.SourcePathSeparator, dependencyRecipe1244: DependencyRecipe1244,
+                    nativeFocusGearCatalog1339: NativeFocusGearCatalog1339,
+                    compatibilityProfile: _retained?.CompatibilityProfile);
             }
         }
 
@@ -334,6 +354,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             {
                 bool loaded = TryLoadXmlSnapshot(identity, out var snapshot);
                 document = loaded ? new XDocument(snapshot!) : null;
+                if (loaded) _returnedFullDocumentCopyCount++;
                 return loaded;
             }
         }
@@ -367,6 +388,17 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             try
             {
                 byte[] bytes = ReadAllBytes(identity);
+                if (_retained is not null
+                    && _retained.TryReadPreparedXml3275(identity, bytes, out var prepared, out bool parsedBytes))
+                {
+                    // Only immutable raw input parsing is shared. All merges,
+                    // accounting, policy projections and consumers run afresh.
+                    _documents.Add(identity, prepared!);
+                    if (parsedBytes) _physicalParses[identity] = 1;
+                    else _cacheHits++;
+                    document = prepared;
+                    return true;
+                }
                 XmlReaderSettings settings = new()
                 {
                     DtdProcessing = DtdProcessing.Prohibit,
@@ -428,7 +460,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         {
             lock (_sync)
             {
-                _effectiveDocuments[CreateSourceCacheKey("effective-document", fileName)] = new XDocument(document);
+                SetEffectiveDocument(CreateSourceCacheKey("effective-document", fileName), document);
                 _digests[CreateSourceCacheKey("effective-input-digest", fileName)] = digest;
                 _selectedProfileFiles.Add(fileName);
             }
@@ -447,6 +479,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 {
                     _cacheHits++;
                     document = new XDocument(cached);
+                    _returnedFullDocumentCopyCount++;
                     return true;
                 }
             }
@@ -459,8 +492,49 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         {
             lock (_sync)
             {
-                _effectiveDocuments[key] = new XDocument(document);
+                StoreOwnedEffectiveDocument6236(key, new XDocument(document));
             }
+        }
+
+        // Caller holds _sync. Only snapshot-owned trees enter this cache; the
+        // public setter above still copies caller-owned mutable documents.
+        private void StoreOwnedEffectiveDocument6236(string key, XDocument owned)
+        {
+            if (_effectiveDocuments.TryGetValue(key, out var previous) && previous.Root is { } oldRoot)
+                _targetLookups.Remove(oldRoot);
+            _effectiveDocuments[key] = owned;
+        }
+
+        public bool TryBuildEffectiveDocument6236(ContentOverlayCatalog catalog, string fileName,
+            string cacheKey, out XDocument? document)
+        {
+            if (_retained is null)
+            {
+                // Live/filesystem inputs retain their existing read/copy path.
+                if (!TryBuildEffectiveDocumentCore6236(catalog, fileName,
+                        FileSystemCharacterSourceDataResolver.TryLoadXml, out document))
+                    return false;
+                ActiveSourceInputs.Value?.SetEffectiveDocument(cacheKey, document!);
+                return true;
+            }
+
+            lock (_sync)
+            {
+                // The closed builder only reads its inputs; MergeCatalogDocument
+                // copies before modifying them. Its result is either our private
+                // raw snapshot or a newly owned merge. Keep that ownership here
+                // instead of copying raw -> intermediate -> effective cache.
+                bool loaded = TryBuildEffectiveDocumentCore6236(catalog, fileName, LoadSnapshot, out var built);
+                if (loaded) StoreOwnedEffectiveDocument6236(cacheKey, built!);
+                // Even a failed build can leave an earlier input in its out value.
+                // Neither successful nor failed reads may expose a private tree.
+                document = built is null ? null : new XDocument(built);
+                if (document is not null) _returnedFullDocumentCopyCount++;
+                return loaded;
+            }
+
+            bool LoadSnapshot(string path, out XDocument? snapshot)
+                => TryLoadXmlSnapshot(Path.GetFullPath(path), out snapshot);
         }
 
         public bool TryGetEffectiveTarget(string key, IReadOnlyList<string> containers,
@@ -483,6 +557,138 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
             target = null;
             return false;
+        }
+
+        // Identity-sensitive consumers need both the selected row and ambiguity
+        // across all matching containers. Inspect the same immutable effective
+        // tree under its snapshot lock; only independent copies may escape.
+        // Preserve inherited namespace scope for exact source receipt serialization.
+        public bool TryGetEffectiveIdentityTarget(string key, IReadOnlyList<string> containers,
+            string entryName, TargetLocator locator, out XElement? target, out bool ambiguous)
+        {
+            lock (_sync)
+            {
+                if (_effectiveDocuments.TryGetValue(key, out XDocument? document)
+                    && document.Root is { } root)
+                {
+                    CatalogTargetLookup lookup = TargetLookup(root, containers, entryName);
+                    ambiguous = lookup.Count(locator) > 1;
+                    XElement? selected = lookup.Find(locator);
+                    target = selected is null ? null : CopySourceRowWithAncestorScope(selected);
+                    _cacheHits++;
+                    return true;
+                }
+            }
+            target = null;
+            ambiguous = false;
+            return false;
+        }
+
+        // Raw contributors must still be checked even when an overlay has hidden
+        // their duplicate IDs. No raw document or mutable collection leaves here.
+        public bool TryInspectRawTargetIdentity(string path, IReadOnlyList<string> containers,
+            string entryName, TargetLocator locator, out bool ambiguous)
+        {
+            lock (_sync)
+            {
+                ambiguous = false;
+                if (!TryLoadXmlSnapshot(Path.GetFullPath(path), out var document)
+                    || document?.Root is not { } root) return false;
+                ambiguous = TargetLookup(root, containers, entryName).Count(locator) > 1;
+                return true;
+            }
+        }
+
+        // Caller holds _sync. Shape identity includes order and repetitions;
+        // FindTarget selects only the first container of each requested name,
+        // while ambiguity counts include every container and requested occurrence.
+        private CatalogTargetLookup TargetLookup(XElement root, IReadOnlyList<string> containers, string entryName)
+        {
+            if (!_targetLookups.TryGetValue(root, out var shapes))
+                _targetLookups.Add(root, shapes = []);
+            foreach (var shape in shapes)
+                if (string.Equals(shape.Entry, entryName, StringComparison.Ordinal)
+                    && shape.Containers.SequenceEqual(containers, StringComparer.Ordinal))
+                    return shape.Lookup;
+            string[] ownedContainers = containers.ToArray();
+            var lookup = new CatalogTargetLookup(root, ownedContainers, entryName);
+            shapes.Add((entryName, ownedContainers, lookup));
+            _targetLookupBuildCount++;
+            _targetLookupRowVisitCount += lookup.RowVisitCount;
+            return lookup;
+        }
+
+        // Read only from the existing private effective snapshot. Every returned
+        // row is a fresh subtree, including repeated container selections.
+        public bool TryGetEffectiveTargets1250(string key, IReadOnlyList<string> containers,
+            string entryName, out XElement[] targets)
+        {
+            lock (_sync)
+            {
+                if (_effectiveDocuments.TryGetValue(key, out XDocument? document)
+                    && document.Root is { } root)
+                {
+                    targets = containers.SelectMany(container => root.Element(container)?.Elements(entryName) ?? [])
+                        .Select(row => new XElement(row)).ToArray();
+                    _cacheHits++;
+                    return true;
+                }
+            }
+            targets = [];
+            return false;
+        }
+
+        // Selected directories use locator precedence and sorted identity winners,
+        // not the document-order projection of TryGetEffectiveTargets1250. Only
+        // independent current readers may use these detached copies. No new result
+        // cache: selection is local and the existing private identity index never
+        // exposes its rows. Cold documents and any relevant file use the old path.
+        public bool TryGetUnamendedSelectedCatalogTargets6294(string key, string fileName,
+            IReadOnlyList<CustomDirectory> directories, string container, string entryName, out XElement[] targets)
+        {
+            targets = [];
+            lock (_sync)
+            {
+                if (!_effectiveDocuments.TryGetValue(key, out var document)
+                    || document.Root is not { } root) return false;
+                foreach (CustomDirectory directory in directories)
+                {
+                    // Exactly the amendment branch's query, including recursive
+                    // inventory observation; do not substitute the broader *.xml.
+                    if (EnumerateSourceFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                        .Any(path =>
+                        {
+                            string candidate = Path.GetFileName(path);
+                            return candidate.StartsWith("override_", StringComparison.OrdinalIgnoreCase)
+                                || candidate.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
+                                || candidate.StartsWith("amend_", StringComparison.OrdinalIgnoreCase);
+                        })) return false;
+                }
+
+                CatalogTargetLookup lookup = TargetLookup(root, [container], entryName);
+                var resolved = new Dictionary<string, XElement>(StringComparer.Ordinal);
+                var locators = (root.Element(container)?.Elements(entryName) ?? [])
+                    .Select(row => TargetLocator.Create(ReadValue(row, "id"), ReadValue(row, "name")))
+                    .Where(locator => locator.SourceId.HasValue || !string.IsNullOrWhiteSpace(locator.Name))
+                    .Distinct()
+                    .OrderBy(locator => locator.SourceId?.ToString("D") ?? string.Empty, StringComparer.Ordinal)
+                    .ThenBy(locator => locator.Name, StringComparer.Ordinal);
+                foreach (TargetLocator locator in locators)
+                {
+                    XElement? row = lookup.Find(locator);
+                    if (row is null) continue;
+                    string identity = Guid.TryParse(ReadValue(row, "id"), out Guid id) && id != Guid.Empty
+                        ? $"id:{id:D}" : $"name:{ReadValue(row, "name")}";
+                    if (identity == "name:") return false;
+                    resolved[identity] = row;
+                }
+                // Match the independent branch's detached new XElement/Remove
+                // serialization, including its treatment of ancestor namespaces.
+                targets = resolved.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Select(pair => new XElement(pair.Value)).ToArray();
+                _cacheHits++;
+                return true;
+            }
         }
 
         public void SetDigest(string key, string digest)
@@ -511,7 +717,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     _driftedFiles.OrderBy(path => path, StringComparer.Ordinal).ToArray())
                 {
                     PrerequisiteProjectionCount = _prerequisiteProjectionCount,
-                    LoadoutProjectionCount = _loadoutProjectionCount
+                    LoadoutProjectionCount = _loadoutProjectionCount,
+                    ReturnedFullDocumentCopyCount = _returnedFullDocumentCopyCount,
+                    TargetLookupBuildCount = _targetLookupBuildCount,
+                    TargetLookupRowVisitCount = _targetLookupRowVisitCount
                 };
             }
         }
@@ -680,7 +889,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
 
             IEnumerable<string> entries = key.Kind == DirectoryInventoryKind.Directories
                 ? Directory.EnumerateDirectories(key.Directory, key.SearchPattern, key.SearchOption)
-                : Directory.EnumerateFiles(key.Directory, key.SearchPattern, key.SearchOption);
+                : key.SearchPattern.StartsWith(SettingsInventory5691, StringComparison.Ordinal)
+                    ? EnumerateSettingsFile5691(key.Directory, key.SearchPattern)
+                    : Directory.EnumerateFiles(key.Directory, key.SearchPattern, key.SearchOption);
             if (_captureBounded)
             {
                 long retained = _directoryInventories.Where(row => row.Key != key).Sum(row => (long)row.Value.Entries.Length);
@@ -867,6 +1078,23 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
     }
 
+    // A bare subtree copy loses inherited prefix choices when serialized alone.
+    // Retain the exact ancestor names and attributes in their original order,
+    // without copying catalog siblings or exposing any snapshot-owned nodes.
+    internal static XElement CopySourceRowWithAncestorScope(XElement selected)
+    {
+        var copy = new XElement(selected);
+        XElement branch = copy;
+        foreach (XElement ancestor in selected.Ancestors())
+        {
+            var parent = new XElement(ancestor.Name,
+                ancestor.Attributes().Select(attribute => new XAttribute(attribute)));
+            parent.Add(branch);
+            branch = parent;
+        }
+        return copy;
+    }
+
     internal sealed record SourceInputSnapshotDiagnostics(
         int PhysicalReadCount,
         int PhysicalXmlParseCount,
@@ -882,6 +1110,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     {
         public int PrerequisiteProjectionCount { get; init; }
         public int LoadoutProjectionCount { get; init; }
+        public int ReturnedFullDocumentCopyCount { get; init; }
+        public int TargetLookupBuildCount { get; init; }
+        public long TargetLookupRowVisitCount { get; init; }
     }
 
     private sealed record CustomDirectory(
@@ -896,7 +1127,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         int? Order,
         string Key);
 
-    private readonly record struct LegacyVersion(IReadOnlyList<int> Parts) : IComparable<LegacyVersion>
+    internal readonly record struct LegacyVersion(IReadOnlyList<int> Parts) : IComparable<LegacyVersion>
     {
         public static LegacyVersion Default { get; } = new([1]);
 
@@ -946,12 +1177,16 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     }
 
     private readonly string? _creationSourceExecutionSchema;
+    private readonly string? _karmaQualityPromptSchema;
 
-    private FileSystemCharacterSourceDataResolver(FileSystemCharacterSourceDataResolver original, string? schema)
+    private FileSystemCharacterSourceDataResolver(FileSystemCharacterSourceDataResolver original, string? schema, string? qualityPromptSchema)
         : this(original._overlays, original._afterSourceBytesRead, original._useStrongChangeIdentity)
     {
         _creationSourceExecutionSchema = schema;
+        _karmaQualityPromptSchema = qualityPromptSchema;
         _retainedInputs = original._retainedInputs;
+        _compiledGraphXml = original._compiledGraphXml;
+        _standaloneSettingsExport5691 = original._standaloneSettingsExport5691;
         _ruleSourceAccounting = original._ruleSourceAccounting;
         _sourcebooks800 = original._sourcebooks800;
     }
@@ -964,8 +1199,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)) return null;
         // All historical schemas use the original grammar and cache partition.
         string? admitted = schema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 ? schema : null;
-        return admitted == _creationSourceExecutionSchema ? this : new FileSystemCharacterSourceDataResolver(this, admitted);
+        return admitted == _creationSourceExecutionSchema ? this : new FileSystemCharacterSourceDataResolver(this, admitted, _karmaQualityPromptSchema);
     }
+
+    // Explicit new-profile capability, not inferred from a quality name, saved Extra, or ambient XML.
+    // The common context factory admits both captured declarations before using this clone.
+    public FileSystemCharacterSourceDataResolver? ForKarmaQualityPrompts(string? schema)
+        => schema is not (null or CharacterCreationKarmaQualityPrompts.SourceSchema) ? null
+            : schema == _karmaQualityPromptSchema ? this
+            : new FileSystemCharacterSourceDataResolver(this, _creationSourceExecutionSchema, schema);
 
     private readonly IContentOverlayCatalogService _overlays;
     private readonly Action<string>? _afterSourceBytesRead;
@@ -1009,7 +1251,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     }
 
     private static bool CaptureRuleSources(ValidatedReadScope reads, string characterXml,
-        out CharacterCreationRuleSourceCapture? capture)
+        out CharacterCreationRuleSourceCapture? capture, string? bindLegacyImportProfile = null)
     {
         capture = null;
         try
@@ -1023,10 +1265,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     return false;
                 reads.ValidateOperationBoundary([context]);
                 if (!context.TryCaptureInputs(characterXml, out var inputs) || inputs is null) return false;
-                retained = inputs;
-                if (inputs.TryCreatePortable(out var portable)) retained = portable!;
+                if (!context.SourceInputs.TrySelectCaptureInputs1266(inputs, out retained)) return false;
                 reads.ValidateOperationBoundary([context]);
             }
+            if (bindLegacyImportProfile is not null) retained = retained.BindLegacyImport(bindLegacyImportProfile);
             if (!VerifyRetainedPolicy(retained)) return false;
             capture = new RuleSourceCapture(retained);
             return true;
@@ -1038,13 +1280,20 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     /// policy through a fresh retained-only resolver. The digest confers no write authority.</summary>
     public static bool TryRestoreRuleSourceCapture(ReadOnlySpan<byte> privateInputs, string integrityDigest,
         out CharacterCreationRuleSourceCapture? capture)
+        => TryRestoreRuleSourceCapture(privateInputs, integrityDigest, null, out capture);
+
+    // Only private workspace imports lend a parsing scope. Public/virtual captures
+    // cannot supply one; every call still decodes, validates and verifies policy.
+    internal static bool TryRestoreRuleSourceCapture(ReadOnlySpan<byte> privateInputs, string integrityDigest,
+        RetainedCharacterRuleSourceInputs.PreparedXmlScope4505? preparedXmlScope,
+        out CharacterCreationRuleSourceCapture? capture)
     {
         if (privateInputs.StartsWith(SourcebookEnvelope800))
             return RestoreSourcebooks800(privateInputs, integrityDigest, out capture);
         capture = null;
         try
         {
-            var retained = RetainedCharacterRuleSourceInputs.Import(privateInputs, integrityDigest);
+            var retained = RetainedCharacterRuleSourceInputs.Import(privateInputs, integrityDigest, preparedXmlScope);
             if (!VerifyRetainedPolicy(retained)) return false;
             capture = new RuleSourceCapture(retained);
             return true;
@@ -1056,6 +1305,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         => error is IOException or UnauthorizedAccessException or XmlException or InvalidOperationException
             or ArgumentException or OverflowException;
 
+    // TryCreateContextCore validates and selects the same explicit profile capability
+    // from these retained bytes. No capability or source file is taken from the host.
     private static FileSystemCharacterSourceDataResolver CreateRetainedResolver(RetainedCharacterRuleSourceInputs inputs)
         => new(inputs);
 
@@ -1070,26 +1321,39 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             && policy?.PolicyDigest == inputs.PolicyDigest
             // Re-observe the complete capture recipe, not just the policy subset. Extra,
             // missing or invented inventories/existence entries cannot enter new archives.
-            && (!inputs.IsPortable || context.TryCaptureInputs(inputs.CharacterXml, out var observed)
-                && observed is not null && observed.ToPortable().Export().AsSpan().SequenceEqual(inputs.Export()));
+            && (!(inputs.IsPortable || inputs.CompatibilityProfile is not null
+                || inputs.DependencyRecipe1244 != RetainedCharacterRuleSourceInputs.LegacyDependencyRecipe1244)
+                || context.TryCaptureInputs(inputs.CharacterXml, out var observed)
+                && observed is not null
+                && (inputs.IsPortable ? observed.ToPortable().Export() : observed.Export())
+                    .AsSpan().SequenceEqual(inputs.Export()));
     }
 
-    private sealed class RuleSourceCapture : CharacterCreationRuleSourceCapture
+    private sealed partial class RuleSourceCapture : CharacterCreationRuleSourceCapture
     {
         private readonly RetainedCharacterRuleSourceInputs _inputs;
+        // This concrete capture owns immutable retained inputs. Preserve their exact
+        // bounded encoding once; every caller still receives a detached archive.
+        private readonly byte[] _privateInputs;
         public RuleSourceCapture(RetainedCharacterRuleSourceInputs inputs)
         {
             _inputs = inputs;
-            IntegrityDigest = RetainedCharacterRuleSourceInputs.Digest(inputs.Export());
+            _privateInputs = inputs.Export();
+            IntegrityDigest = RetainedCharacterRuleSourceInputs.Digest(_privateInputs);
+            RequiredPackageSetDigest = inputs.ComputeRequiredPackageSetDigest();
         }
         public override string IntegrityDigest { get; }
         public override string EffectivePolicyDigest => _inputs.PolicyDigest;
-        public override byte[] ExportPrivateInputs() => _inputs.Export();
+        public override byte[] ExportPrivateInputs() => _privateInputs.ToArray();
+        internal override string ComputePrivateInputsDigest() => "sha256:" + Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(_privateInputs));
         public override ICharacterSourceDataResolver CreateReplayResolver() => CreateRetainedResolver(_inputs);
         public override bool MatchesOriginalCharacter(string characterXml) => characterXml == _inputs.CharacterXml;
-        public override CharacterCreationRuleSourceResolution CreateExecutionResolution() => new RuleSourceAccounting(_inputs, IntegrityDigest);
+        public override CharacterCreationRuleSourceResolution? CreateExecutionResolution()
+            => CanCreateCompatibilityExecution ? new RuleSourceAccounting(_inputs, IntegrityDigest) : null;
         public override CharacterCreationRuleSourceResolution? CreateExecutionResolution(string? schema)
-            => schema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+            => !CanCreateCompatibilityExecution ? null
+                : schema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
                 ? new RuleSourceAccounting(_inputs, IntegrityDigest, sourceExecutionSchema: schema)
                 : base.CreateExecutionResolution(schema);
         public override string ToString() => nameof(CharacterCreationRuleSourceCapture);
@@ -1111,19 +1375,22 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             // Keep the originating capture identity, including any admitted carrier envelope.
             this.captureDigest = captureDigest;
             sourcebookSelection800 = sourcebooks800;
-            resolver = new FileSystemCharacterSourceDataResolver(new FileSystemCharacterSourceDataResolver(inputs), sourceExecutionSchema);
+            resolver = new FileSystemCharacterSourceDataResolver(new FileSystemCharacterSourceDataResolver(inputs), sourceExecutionSchema, null);
             resolver._ruleSourceAccounting = this;
         }
 
         [System.Text.Json.Serialization.JsonIgnore]
-        public override ICharacterSourceDataResolver Resolver => resolver;
+        public override ICharacterSourceDataResolver Resolver
+        {
+            get { currentInterpretationLocked = true; return resolver; }
+        }
 
         internal ProfileFileAccounting BeginFile(string path, string prefix, XElement root)
         {
             // Reconstructing the same immutable profile again replaces its trace;
             // call counts are not semantics and must not affect replay identities.
             int order = files.TryGetValue(path, out var previous) ? previous.Order : files.Count;
-            var result = new ProfileFileAccounting(root, prefix, order, Charge)
+            var result = new ProfileFileAccounting(root, prefix, order, Charge, allowLegacyAccounting: !CurrentSourceSemantics)
             { IncludeAdditionalSkillCaps = captureCompleteSkillCaps };
             files[path] = result;
             return result;
@@ -1151,11 +1418,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         internal IReadOnlyList<Operation> Operations => operations;
         internal bool Accounted => amend && unhandledTextOwners.Count == 0 && unhandled.Count == 0 && operations.Count > 0;
 
-        internal ProfileFileAccounting(XElement root, string prefix, int order, Action<int> charge)
+        internal ProfileFileAccounting(XElement root, string prefix, int order, Action<int> charge,
+            bool allowLegacyAccounting = true)
         {
             this.charge = charge;
             Order = order;
-            amend = prefix == "amend_";
+            // A versioned interpretation cannot mint an old unversioned cap receipt.
+            amend = prefix == "amend_" && allowLegacyAccounting;
             unhandled = root.DescendantsAndSelf().ToHashSet();
             // Handling a structural element does not consume its direct text,
             // even when it has no children. Keep each text owner's provenance.
@@ -1261,12 +1530,30 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         public string ResolveDataFile(string fileName) => throw RetainedCharacterRuleSourceInputs.Rejected();
     }
 
-    public ICharacterSourceDataResolverOperationScope CreateOperationScope() => new OperationScope(this);
+    public ICharacterSourceDataResolverOperationScope CreateOperationScope()
+    {
+        if (_currentEvaluationReads2764 is not { } reads) return new OperationScope(this);
+        if (_currentEvaluationThread2764 != Environment.CurrentManagedThreadId)
+            throw new InvalidOperationException("Retained evaluations must remain synchronous.");
+        // Each nested operation still re-admits its exact context and checks its
+        // exit boundary. Only the retained issuer can install these private reads.
+        return reads.CreateOperationScope();
+    }
 
     private sealed class OperationScope(FileSystemCharacterSourceDataResolver resolver)
-        : ICharacterSourceDataResolverOperationScope, ICharacterCreationRuleSourceCapture
+        : ICharacterSourceDataResolverOperationScope, ICharacterCreationRuleSourceCapture,
+          ICharacterCreationRetainedSheetScopeFactory8573, ICharacterSourceDataResolverOperationScopeFactory
     {
         private readonly ValidatedReadScope _reads = new(resolver);
+        // Explicit synchronous composition only: ordinary callers keep their
+        // per-method fences. The nested scope owns the existing entry/exit
+        // validation and must finish before this request's reads are disposed.
+        public ICharacterSourceDataResolverOperationScope CreateOperationScope()
+            => _reads.CreateOperationScope();
+
+        public ICharacterSourceDataResolverOperationScope? CreateRetainedCreationSheetScope8573()
+            => _reads.IsRetainedCreationSheetScope8573() ? _reads.CreateOperationScope() : null;
+
         public ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
         {
             var selected = _reads.ForCreationSourceExecution(schema);
@@ -1276,6 +1563,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         public ICharacterSourceDataContext? TryCreateContext(string characterXml) => _reads.TryCreateContext(characterXml);
         public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
             => _reads.TryCaptureRuleSources(characterXml, out capture);
+        public bool TryCaptureChummer5aRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture,
+            out IReadOnlyList<RulePackResolutionDiagnostic> diagnostics)
+            => _reads.TryCaptureChummer5aRuleSources(characterXml, out capture, out diagnostics);
+        public bool TryCaptureChummer5aRuleSources(string characterXml, string compatibilityProfile,
+            out CharacterCreationRuleSourceCapture? capture, out IReadOnlyList<RulePackResolutionDiagnostic> diagnostics)
+            => _reads.TryCaptureChummer5aRuleSources(characterXml, compatibilityProfile, out capture, out diagnostics);
 
         public bool TryCaptureSourcebookRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
             => _reads.TryCaptureSourcebookRuleSources(characterXml, out capture);
@@ -1301,6 +1594,16 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         private bool _disposed;
 
         internal ValidatedReadScope(FileSystemCharacterSourceDataResolver resolver) => this.resolver = resolver;
+
+        internal bool IsRetainedCreationSheetScope8573()
+        {
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return resolver._retainedInputs is not null
+                    && resolver._ruleSourceAccounting is { CurrentSourceSemantics: false };
+            }
+        }
 
         public ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
         {
@@ -1336,6 +1639,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
 
         public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
             => CaptureRuleSources(this, characterXml, out capture);
+
+        public bool TryCaptureChummer5aRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture,
+            out IReadOnlyList<RulePackResolutionDiagnostic> diagnostics)
+            => CaptureChummer5aRuleSources(this, characterXml, out capture, out diagnostics,
+                resolver._retainedInputs?.CompatibilityProfile ?? Chummer5aLegacyImportCompatibility.ProfileV1);
+
+        public bool TryCaptureChummer5aRuleSources(string characterXml, string compatibilityProfile,
+            out CharacterCreationRuleSourceCapture? capture, out IReadOnlyList<RulePackResolutionDiagnostic> diagnostics)
+            => CaptureChummer5aRuleSources(this, characterXml, out capture, out diagnostics, compatibilityProfile);
 
         public bool TryCaptureSourcebookRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
             => CaptureSourcebookRuleSources800(this, characterXml, out capture);
@@ -1405,7 +1717,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
     }
 
-    private sealed class SynchronousOperationScope : ICharacterSourceDataResolverOperationScope, ICharacterCreationRuleSourceCapture
+    private sealed class SynchronousOperationScope : ICharacterSourceDataResolverOperationScope, ICharacterCreationRuleSourceCapture,
+        ICharacterCreationRetainedSheetScope8573
     {
         private readonly ValidatedReadScope _reads;
         private readonly int _threadId = Environment.CurrentManagedThreadId;
@@ -1433,6 +1746,48 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
 
         public bool Contains(SourceInputSnapshot inputs) => !_disposed && _contexts.ContainsKey(inputs);
+
+        public bool IsRetainedCreationSheetScope8573()
+        {
+            VerifyThread();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _reads.IsRetainedCreationSheetScope8573();
+        }
+
+        public bool TryCaptureChummer5aRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture,
+            out IReadOnlyList<RulePackResolutionDiagnostic> diagnostics)
+        {
+            capture = null;
+            diagnostics = [];
+            try
+            {
+                VerifyThread();
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (TryCreateContext(characterXml, captureBounded: true) is null)
+                { diagnostics = CaptureDiagnostics(null, []); return false; }
+                return _reads.TryCaptureChummer5aRuleSources(characterXml, out capture, out diagnostics);
+            }
+            catch (Exception error) when (IsCaptureRejection(error))
+            { diagnostics = CaptureDiagnostics(null, []); return false; }
+        }
+
+        public bool TryCaptureChummer5aRuleSources(string characterXml, string compatibilityProfile,
+            out CharacterCreationRuleSourceCapture? capture,
+            out IReadOnlyList<RulePackResolutionDiagnostic> diagnostics)
+        {
+            capture = null;
+            diagnostics = [];
+            try
+            {
+                VerifyThread();
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (TryCreateContext(characterXml, captureBounded: true) is null)
+                { diagnostics = CaptureDiagnostics(null, []); return false; }
+                return _reads.TryCaptureChummer5aRuleSources(characterXml, compatibilityProfile, out capture, out diagnostics);
+            }
+            catch (Exception error) when (IsCaptureRejection(error))
+            { diagnostics = CaptureDiagnostics(null, []); return false; }
+        }
 
         public bool TryCaptureRuleSources(string characterXml, out CharacterCreationRuleSourceCapture? capture)
         {
@@ -1506,10 +1861,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     public ICharacterSourceDataContext? TryCreateContext(string characterXml)
         => TryCreateContextCore(characterXml, null);
 
-    private SourceDataContext? TryCreateContextCore(string characterXml, ContentOverlayCatalog? admittedCatalog, bool captureBounded = false)
+    private SourceDataContext? TryCreateContextCore(string characterXml, ContentOverlayCatalog? admittedCatalog,
+        bool captureBounded = false, NativeCreationBootstrapSelection? bootstrap = null)
     {
         if (string.IsNullOrWhiteSpace(characterXml)
-            || _retainedInputs is not null && characterXml != _retainedInputs.CharacterXml)
+            || (_compiledGraphXml is { } compiled
+                ? captureBounded || characterXml != compiled
+                : _retainedInputs is not null && characterXml != _retainedInputs.CharacterXml))
         {
             return null;
         }
@@ -1517,7 +1875,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         var sourceInputs = new SourceInputSnapshot(
             _afterSourceBytesRead,
             _useStrongChangeIdentity, captureBounded, _retainedInputs)
-            { Accounting = characterXml == _retainedInputs?.CharacterXml ? _ruleSourceAccounting : null, Sourcebooks800 = _sourcebooks800, CreationSourceExecutionSchema = _creationSourceExecutionSchema };
+            { Accounting = characterXml == _retainedInputs?.CharacterXml || characterXml == _compiledGraphXml
+                ? _ruleSourceAccounting : null, Sourcebooks800 = _sourcebooks800, CreationSourceExecutionSchema = _creationSourceExecutionSchema };
         using IDisposable sourceInputScope = sourceInputs.Enter();
         try
         {
@@ -1535,37 +1894,39 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             sourceInputs.BindCatalog(catalog);
             string settingsKey = ReadValue(character, "settings");
             string settingsFile = CharacterCreationBootstrapProfiles.SettingsSourceFile(settingsKey);
-            if (!TryLoadEffectiveDocument(catalog, settingsFile, out XDocument? settingsDocument)
-                || settingsDocument?.Root is null)
+            XDocument? settingsDocument;
+            string settingsInputsDigest;
+            XElement settings;
+            if (!Guid.TryParse(settingsKey, out _))
             {
-                return null;
+                // A filename selects a separate namespace, never a catalog row,
+                // display name or native preset. Preserve the original empty GUID.
+                if (character.Elements("settings").ToArray() is not [var selectedFile]
+                    || selectedFile.HasAttributes || selectedFile.HasElements || selectedFile.Value != settingsKey) return null;
+                if (!TryLoadStandaloneSettings5691(sourceInputs, catalog, settingsKey,
+                        out settingsDocument, out settingsInputsDigest)) return null;
+                settings = settingsDocument!.Root!.Element("settings")!.Element("setting")!;
             }
-            if (!TryComputeEffectiveInputDigest(catalog, settingsFile, out string settingsInputsDigest))
+            else
+            {
+                if (!TryLoadEffectiveDocument(catalog, settingsFile, out settingsDocument)
+                    || settingsDocument?.Root is null
+                    || !TryComputeEffectiveInputDigest(catalog, settingsFile, out settingsInputsDigest)) return null;
+                XElement[] settingsMatches = settingsDocument.Root.Element("settings")?.Elements("setting")
+                    .Where(candidate => string.Equals(ReadValue(candidate, "id"), settingsKey, StringComparison.OrdinalIgnoreCase))
+                    .Take(2).ToArray() ?? [];
+                if (settingsMatches.Length != 1) return null;
+                settings = settingsMatches[0];
+            }
+
+            if (!TryResolveProfileDirectories(settings, catalog, out CustomDirectory[] enabledDirectories)
+                || !TryValidateNativeCreationPackage(character, settingsKey, settings, enabledDirectories))
             {
                 return null;
             }
 
-            XElement[] settingsMatches = settingsDocument.Root
-                .Element("settings")?
-                .Elements("setting")
-                .Where(candidate => string.Equals(
-                    ReadValue(candidate, "id"),
-                    settingsKey,
-                    StringComparison.OrdinalIgnoreCase))
-                .Take(2)
-                .ToArray()
-                ?? [];
-            if (settingsMatches.Length != 1)
-            {
+            if (bootstrap is not null && !bootstrap.TrySeed(characterDocument, settingsKey, enabledDirectories, out characterXml))
                 return null;
-            }
-            XElement settings = settingsMatches[0];
-
-            if (!TryResolveProfileDirectories(settings, catalog, out CustomDirectory[] enabledDirectories))
-            {
-                return null;
-            }
-
             string[] savedDirectoryNames = character
                 .Element("customdatadirectorynames")?
                 .Elements("directoryname")
@@ -1583,6 +1944,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             if (!TryResolveSelectedSettings(sourceInputs, settingsDocument, settingsFile, settingsKey,
                     enabledDirectories, ref settings, ref settingsInputsDigest))
                 return null;
+
+            if (!TrySelectKarmaQualityPromptResolver2742(character, settingsKey, settings, out var selectedResolver))
+                return null;
+            // Keep the existing snapshot, read fences and accounting lifetime. The
+            // scoped clone preserves overlays, callbacks, sourcebooks and retained inputs.
+            sourceInputs.KarmaQualityPromptSchema = selectedResolver!._karmaQualityPromptSchema;
 
             string[] enabledSourcebooks = settings
                 .Element("books")?
@@ -1808,14 +2175,19 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         if (directories.Count == 0) return true; // Preserve the original default-profile digest exactly.
         XElement original = settings;
         XElement? selected = new(settings);
-        TargetLocator locator = TargetLocator.Create(profileId, string.Empty);
+        var retainedFile = inputs.StandaloneSettings5691;
+        TargetLocator locator = retainedFile is null ? TargetLocator.Create(profileId, string.Empty)
+            : TargetLocator.Create(retainedFile.AuthorProvidedId, retainedFile.AuthorProvidedName);
         // Match against the immutable selection and validate every mutation, including nested
         // operations in one row. A later operation must never repair a redirected identity/graph.
         bool ValidateSelection(XElement? candidate) => candidate is not null
             && candidate.Name == "setting" && !candidate.HasAttributes
             && candidate.Elements("id").Count() == 1
             && !candidate.Element("id")!.HasElements && !candidate.Element("id")!.HasAttributes
-            && string.Equals(ReadValue(candidate, "id"), profileId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(ReadValue(candidate, "id"), retainedFile?.AuthorProvidedId ?? profileId, StringComparison.OrdinalIgnoreCase)
+            && (retainedFile is null || candidate.Elements("name").Count() == 1
+                && !candidate.Element("name")!.HasElements && !candidate.Element("name")!.HasAttributes
+                && XNode.DeepEquals(original.Element("name"), candidate.Element("name")))
             && XNode.DeepEquals(original.Element("id"), candidate.Element("id"))
             && original.Elements("customdatadirectorynames").Count() <= 1
             && candidate.Elements("customdatadirectorynames").Count() == original.Elements("customdatadirectorynames").Count()
@@ -1854,11 +2226,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                             || (attribute.Name.LocalName is "addifnotfound" or "isidnode") && !bool.TryParse(attribute.Value, out _))
                         || ReadOperation(node) is not ("" or "RECURSE" or "REPLACE" or "APPEND" or "ADDNODE" or "REMOVE"))
                     || HasAmbiguousAmendmentIdentifiers(root)
+                    || retainedFile is not null && root.Element("settings")!.Elements("setting").Any(row => row.Elements("name").Count() > 1)
                     || root.Element("settings")!.Elements("setting").Count(row => LocatorMatches(row, locator)) > 1)
                     return false;
                 if (!TryApplyCustomFile(root, prefix, ["settings"], "setting", locator, ref selected,
                         boundIdentity: original, validateTarget: ValidateSelection,
-                        accounting: inputs.Accounting?.BeginFile(path, prefix, root)))
+                        accounting: inputs.Accounting?.BeginFile(path, prefix, root),
+                        currentSemantics: inputs.Accounting?.CurrentSourceSemantics == true))
                     return false;
                 // Frame exact contributors in application order, including files with no matching row.
                 // Only the hash escapes; paths, imported names and values remain inside the resolver.
@@ -2556,7 +2930,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         return true;
     }
 
-    private sealed partial class SourceDataContext : ICharacterSourceDataContext, ICharacterCreationPolicyConsumptionSource
+    private sealed partial class SourceDataContext : ICharacterLifestyleSourceMode2719, ICharacterSourceDataContext, ICharacterCreationPolicyConsumptionSource, ICharacterCurrentNativeMethodSource1958, ICharacterCareerLifeModuleSource,
+        IRetainedCurrentLoadoutSource7956
     {
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
@@ -2701,6 +3076,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             _rawSkillsXmlDigest = rawSkillsXmlDigest;
             _effectiveSkillsInputsDigest = effectiveSkillsInputsDigest;
             _buildMethod = buildMethod;
+            _sourceInputs.InitializeCaptureDependencyRecipe2040(buildMethod);
             _buildPoints = buildPoints;
             _lifeModuleBudgetBlockers = lifeModuleBudgetBlockers;
             _prerequisiteBuildMethod = prerequisiteBuildMethod;
@@ -2756,6 +3132,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         {
             retained = null;
             using IDisposable scope = _sourceInputs.Enter();
+            // Initial capture and retained replay must observe the same native inputs.
+            if (!CaptureCurrentNativeMethodInputs1958()) return false;
             if (_sourceInputs.HasSourceDrift || !TryResolveCreationEffectivePolicy(out var policy) || policy is null)
                 return false;
 
@@ -2770,6 +3148,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 _ = EnumerateSourceFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories);
 
             if (!_sourceInputs.TryAdmitReuse(_catalog)) return false;
+            if (!CaptureDependencyRecipe1244()) return false;
             retained = _sourceInputs.Export(_catalog, characterXml, policy.PolicyDigest, _settingsProfileId, RetainedSelection());
             return !_sourceInputs.HasSourceDrift;
         }
@@ -2833,7 +3212,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 RawProfileInputsDigest: _rawProfileInputsDigest,
                 SourceAnchorIds: [SettingsAnchor])
             {
-                BootstrapSourceAnchors = bootstrapAnchors
+                BootstrapSourceAnchors = bootstrapAnchors,
+                RetainedSettingsFile = _sourceInputs.StandaloneSettings5691
             };
             return true;
         }
@@ -2842,9 +3222,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
+            bool nativeMethod = _buildMethod is CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules;
             if (_sourceInputs.HasSourceDrift
-                || _buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
-                || !Guid.TryParseExact(_settingsProfileId, "D", out _)
+                || (!nativeMethod && _buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen))
+                || (!Guid.TryParseExact(_settingsProfileId, "D", out _)
+                    && (_sourceInputs.StandaloneSettings5691 is not { } standalone
+                        || !standalone.IsSelectedBy(_settingsProfileId)
+                        || _buildMethod != CharacterCreationBuildMethods.Priority
+                        || !bool.TryParse(ReadValue(_character, "created"), out bool created) || !created))
                 || !TryComputeEffectiveInputDigest(_catalog, SettingsFile, out string profileDigest)
                 || BindSelectedProfile(profileDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId, string.Empty, out var settings)
@@ -2858,27 +3243,40 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 node.Name == "book" && !node.HasElements && !node.HasAttributes)
                 ? CharacterCreationFinalizationDigest.Compute(bookNodes[0].ToString(SaveOptions.DisableFormatting)) : null;
 
-            bool hasSkillConsumer = TryResolveCreationSkillsAuthority(out var skills) && skills.IsAuthoritative;
-            var rows = new List<CharacterCreationPolicySettingCoverage>
+            List<CharacterCreationPolicySettingCoverage> rows;
+            if (nativeMethod)
             {
-                DescribeSkillLimit(settings, CharacterCreationEffectivePolicyContext.ActiveLimit,
-                    "maxskillratingcreate", "maxskillrating", hasSkillConsumer),
-                DescribeSkillLimit(settings, CharacterCreationEffectivePolicyContext.KnowledgeLimit,
-                    "maxknowledgeskillratingcreate", "maxknowledgeskillrating", hasSkillConsumer),
-                new(CharacterCreationPolicyDomain.SkillLimits, CharacterCreationEffectivePolicyContext.GroupLimit,
-                    hasSkillConsumer ? CharacterCreationPolicyDisposition.Effective : CharacterCreationPolicyDisposition.Missing,
-                    hasSkillConsumer ? skills.MaxSkillGroupRatingCreate : null,
-                    hasSkillConsumer ? CharacterCreationPolicyConsumer.StandardPrioritySkills : CharacterCreationPolicyConsumer.None,
-                    hasSkillConsumer
-                        ? skills.MaxSkillGroupRatingCreate == CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation
-                            ? CharacterCreationPolicyReason.ExistingConsumerDefault
-                            : CharacterCreationPolicyReason.ResolvedAuthority
-                        : CharacterCreationPolicyReason.ConsumerUnavailable)
-            };
+                // Capture is a source inventory, not a Priority completion/skills claim.
+                // The existing V3 native consumers execute these exact authorities later.
+                if (!TryResolveNativeCaptureAuthorities1958()) return false;
+                rows = [];
+            }
+            else
+            {
+                bool hasSkillConsumer = TryResolveCreationSkillGroupLimitForPolicy(out int groupLimit);
+                rows = new List<CharacterCreationPolicySettingCoverage>
+                {
+                    DescribeSkillLimit(settings, CharacterCreationEffectivePolicyContext.ActiveLimit,
+                        "maxskillratingcreate", "maxskillrating", hasSkillConsumer),
+                    DescribeSkillLimit(settings, CharacterCreationEffectivePolicyContext.KnowledgeLimit,
+                        "maxknowledgeskillratingcreate", "maxknowledgeskillrating", hasSkillConsumer),
+                    new(CharacterCreationPolicyDomain.SkillLimits, CharacterCreationEffectivePolicyContext.GroupLimit,
+                        hasSkillConsumer ? CharacterCreationPolicyDisposition.Effective : CharacterCreationPolicyDisposition.Missing,
+                        hasSkillConsumer ? groupLimit : null,
+                        hasSkillConsumer ? CharacterCreationPolicyConsumer.StandardPrioritySkills : CharacterCreationPolicyConsumer.None,
+                        hasSkillConsumer
+                            ? groupLimit == CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation
+                                ? CharacterCreationPolicyReason.ExistingConsumerDefault
+                                : CharacterCreationPolicyReason.ResolvedAuthority
+                            : CharacterCreationPolicyReason.ConsumerUnavailable)
+                };
+            }
+
             // Classify every other leaf conservatively. Only identity is exported: arbitrary imported
             // names/values may contain private notes or paths. No retained setting implies execution.
-            string[] represented = ["id", "name", "buildmethod", "books", "customdatadirectorynames",
-                "maxskillratingcreate", "maxskillrating", "maxknowledgeskillratingcreate", "maxknowledgeskillrating"];
+            string[] represented = nativeMethod
+                ? ["id", "name", "buildmethod", "books", "customdatadirectorynames"]
+                : ["id", "name", "buildmethod", "books", "customdatadirectorynames", "maxskillratingcreate", "maxskillrating", "maxknowledgeskillratingcreate", "maxknowledgeskillrating"];
             int settingOrder = 0;
             foreach (XElement node in settings.Elements().Where(node => node.Name.NamespaceName.Length != 0
                              || !represented.Contains(node.Name.LocalName, StringComparer.Ordinal))
@@ -2928,8 +3326,49 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             var result = new CharacterCreationEffectivePolicyContext(CharacterCreationEffectivePolicyContext.SchemaV1,
                 RulesetDefaults.Sr5, _buildMethod, _settingsProfileId, _rawProfileInputsDigest, books, booksDigest,
                 sources.ToArray(), CharacterCreationEffectivePolicyContext.DescribeDomains(rows, sources, booksDigest), rows.ToArray(), string.Empty);
-            policy = result with { PolicyDigest = CharacterCreationEffectivePolicyContext.ComputeDigest(result) };
+            policy = PreserveRetainedKnowledgePolicy6530(
+                result with { PolicyDigest = CharacterCreationEffectivePolicyContext.ComputeDigest(result) });
             return true;
+        }
+
+        private bool TryResolveNativeCaptureAuthorities1958()
+        {
+            // Reuse the profile, attribute and funding authorities consumed by V3.
+            // Unclassified inventory rows remain unclassified; capture grants no execution.
+            if (!TryResolveCreationSourceProfile(out var profile)
+                || profile.BuildMethod != _buildMethod || profile.SettingsProfileId != _settingsProfileId
+                || profile.RawProfileInputsDigest != _rawProfileInputsDigest
+                || profile.SourceAnchorIds.Count == 0 || profile.BuildPoints is not >= 0
+                || (_buildMethod == CharacterCreationBuildMethods.Karma
+                    ? profile.BudgetBlockers.Any(value => value != CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildMethodMismatch)
+                    : !profile.LifeModuleBudgetIsExact || profile.BudgetBlockers.Count != 0)
+                || !TryResolveCreationAttributePolicy(out var attributes) || attributes is null
+                || attributes.BuildMethod != profile.BuildMethod || attributes.SettingsProfileId != profile.SettingsProfileId
+                || attributes.RawProfileInputsDigest != profile.RawProfileInputsDigest
+                || attributes.AuthorityDigest != CharacterCreationAttributePolicyAuthority.ComputeDigest(attributes))
+                return false;
+            CharacterCreationKarmaSkillsPolicy? skills;
+            bool resolvedSkills = _buildMethod == CharacterCreationBuildMethods.Karma
+                ? TryResolveCreationKarmaSkillsPolicy(out skills)
+                : TryResolveCreationLifeModuleSkillsPolicy(out skills);
+            string skillsSchema = _buildMethod == CharacterCreationBuildMethods.Karma
+                ? CharacterCreationKarmaSkillsPolicy.SchemaV1 : CharacterCreationKarmaSkillsPolicy.LifeModulesSchemaV1;
+            if (!resolvedSkills || skills is null || skills.Schema != skillsSchema
+                || skills.SettingsProfileId != profile.SettingsProfileId
+                || skills.RawProfileInputsDigest != profile.RawProfileInputsDigest
+                || skills.AuthorityDigest != CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(skills))
+                return false;
+            CharacterCreationKarmaResourcesPolicy? funding;
+            bool resolved = _buildMethod == CharacterCreationBuildMethods.Karma
+                ? TryResolveCreationKarmaResourcesPolicy(out funding)
+                : TryResolveCreationLifeModuleResourcesPolicy(out funding);
+            string schema = _buildMethod == CharacterCreationBuildMethods.Karma
+                ? CharacterCreationKarmaResourcesPolicy.SchemaV1 : CharacterCreationKarmaResourcesPolicy.LifeModulesSchemaV1;
+            return resolved && funding is not null
+                && CharacterCreationKarmaResourcesRules.IsValidSpendingPolicy(funding, schema)
+                && funding.SettingsProfileId == profile.SettingsProfileId
+                && funding.RawProfileInputsDigest == profile.RawProfileInputsDigest
+                && !_sourceInputs.HasSourceDrift;
         }
 
         public bool TryResolveCreationPolicyConsumption(out CharacterCreationEffectivePolicyContext? policy)
@@ -2990,13 +3429,23 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             sources = null;
+            // Preserve the Creation API's gate for finalized characters. Live
+            // Career consumers use the explicit source-only bridge below.
+            if (!bool.TryParse(_character.Element("created")?.Value, out bool created)
+                || created && _sourceInputs.Accounting?.HasNativeCurrentEnvironmentSemantics1958 != true)
+                return false;
+            return TryReadFoundationEffectSources(out sources);
+        }
+
+        private bool TryReadFoundationEffectSources(out CharacterCreationFoundationEffectSources? sources)
+        {
+            sources = null;
             if (_sourceInputs.HasSourceDrift
                 || _buildMethod != CharacterCreationBuildMethods.LifeModules
                 || _character.Elements("buildmethod").Count() != 1
                 || _character.Element("buildmethod")?.Value != _buildMethod
                 || _character.Elements("created").Count() != 1
-                || !bool.TryParse(_character.Element("created")?.Value, out bool created)
-                || created
+                || !bool.TryParse(_character.Element("created")?.Value, out _)
                 || _character.Elements("ruleset").Count() > 1
                 || (_character.Element("ruleset") is XElement ruleset
                     && ruleset.Value != RulesetDefaults.Sr5)
@@ -3380,7 +3829,11 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 || multiplier <= 0
                 || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var rows)
                 || _character.Element("qualityrestriction") is not null
-                || _character.Element("qualities")?.Elements("quality").Any() == true)
+                // Current V3 reads the talent catalog independently of saved
+                // selections. CompileCurrentCareerEffects1960 authenticates every
+                // selected quality, talent flag and effect before current use.
+                || _character.Element("qualities")?.Elements("quality").Any() == true
+                    && !CanReadCurrentCareerTalentCatalog1983(rows))
                 return false;
             string profileAnchor = SettingsAnchor;
             var options = new List<CharacterCreationKarmaTalentOption>
@@ -3513,7 +3966,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 if (!TryComputeEffectiveInputDigest(_catalog, source.File, out string digest)
                     || !TryEnumerateTargets(source.File, [source.Container], source.Row, out var rows)) return false;
                 var options = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
-                    rows, source.Kind, digest, books, blockers);
+                    rows, source.Kind, digest, books, blockers, ResolveCreationAdeptSkillSource);
                 // A visible choice must be applicable by this purchase lane.
                 // Keep incomplete/custom or unsupported rows visible but disabled.
                 slices.Add(new(source.Kind, digest, options.Select(option => option.IsEnabled
@@ -3588,12 +4041,79 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             return true;
         }
 
-        public bool TryResolveCreationLifeModuleMetatypeSources(string metatypeOptionId,
+        internal bool CaptureCurrentNativeMethodInputs1958()
+        {
+            if (_buildMethod != CharacterCreationBuildMethods.LifeModules)
+                return !_sourceInputs.HasLifeModuleDependencyRecipe2040;
+            // Historical recipes keep their exact created-character skip, including on
+            // portable/profile replay. Only a new recipe requires these reads at capture.
+            if (!_sourceInputs.HasLifeModuleDependencyRecipe2040
+                && bool.TryParse(_character.Element("created")?.Value, out bool created) && created
+                && _sourceInputs.Accounting?.HasNativeCurrentEnvironmentSemantics1958 != true) return true;
+            // Native Career reconstruction needs the same retained module and level bytes as Creation.
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            return !_sourceInputs.HasSourceDrift
+                && TryReadSelectedLifeModulesDocument2852(out var modules) && modules?.Root is not null
+                && TryLoadEffectiveDocument(_catalog, "qualitylevels.xml", out var levels) && levels?.Root is not null
+                && !_sourceInputs.HasSourceDrift;
+        }
+
+        public bool TryResolveCurrentLifeModulesCatalog(out Chummer.Application.LifeModules.ILifeModulesCatalogService? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            return _sourceInputs.Accounting?.HasNativeCurrentEnvironmentSemantics1958 == true
+                && TryReadLifeModulesCatalog(out catalog);
+        }
+
+        public bool TryResolveFinalizedLifeModuleSources(out Chummer.Application.LifeModules.ILifeModulesCatalogService? catalog,
+            out CharacterCreationFoundationEffectSources? effects)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            effects = null;
+            // A live Career context records these reads in its existing drift fence.
+            // Retained legacy execution cannot acquire native semantics through this bridge.
+            if (_sourceInputs.Accounting is not null
+                    && !_sourceInputs.Accounting.HasNativeCurrentEnvironmentSemantics1958
+                || _character.Elements("created").ToArray() is not [var created]
+                || created.HasAttributes || created.HasElements
+                || !bool.TryParse(created.Value, out bool finished) || !finished
+                || _character.Elements("buildmethod").ToArray() is not [var method]
+                || method.HasAttributes || method.HasElements
+                || method.Value != CharacterCreationBuildMethods.LifeModules)
+                return false;
+            return TryReadLifeModulesCatalog(out catalog) && TryReadFoundationEffectSources(out effects);
+        }
+
+        private bool TryReadLifeModulesCatalog(out Chummer.Application.LifeModules.ILifeModulesCatalogService? catalog)
+        {
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || !TryReadSelectedLifeModulesDocument2852(out var effective) || effective?.Root is null)
+                return false;
+            byte[] bytes;
+            string path = Path.Combine(_catalog.BaseDataPath, "lifemodules.xml");
+            if (SourceFileExists(path) && TryLoadXml(path, out var original) && XNode.DeepEquals(original, effective))
+                bytes = _sourceInputs.ReadAllBytes(path);
+            else
+                bytes = System.Text.Encoding.UTF8.GetBytes(effective.ToString(SaveOptions.DisableFormatting));
+            // Same native parser and native authority digest, now over retained bytes.
+            // Preserve original bytes when the ordered effective document is unchanged.
+            var retained = new XmlLifeModulesCatalogService(bytes.AsMemory());
+            _ = retained.GetAuthority();
+            if (_sourceInputs.HasSourceDrift) return false;
+            catalog = retained;
+            return true;
+        }
+
+        public bool TryResolveCurrentMetatypeGrantSources(string metatypeOptionId,
             out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             metatypeQualities = [];
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+            if (_sourceInputs.HasSourceDrift || _sourceInputs.Accounting?.HasNativeCurrentEnvironmentSemantics1958 != true
+                || _buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
                 || !TryResolveCreationMetatypeCatalog(out var metatypes) || !metatypes.IsAuthoritative
                 || metatypes.Options.SingleOrDefault(option => option.OptionId == metatypeOptionId)
                     is not { IsEnabled: true, Blockers.Count: 0 } metatype
@@ -3615,6 +4135,56 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 || sources.Where((source, index) => !string.Equals(
                     XElement.Parse(source.CanonicalSourceXml).Element("category")?.Value,
                     metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase)).Any()) return false;
+            metatypeQualities = sources;
+            return true;
+        }
+
+        public bool TryResolveCreationLifeModuleMetatypeSources(string metatypeOptionId,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+        {
+            return TryResolveLifeModuleMetatypeSources8582(metatypeOptionId, null, out metatypeQualities);
+        }
+
+        public bool TryResolveCreationLifeModuleMetatypeSources(CharacterCreationMetatypeSelectionIdentity identity,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+        {
+            metatypeQualities = [];
+            return identity is not null && CharacterCreationMetatypeSelectionRules.IsValid(identity)
+                && TryResolveLifeModuleMetatypeSources8582(identity.MetavariantOptionId ?? identity.ParentMetatypeOptionId,
+                    identity, out metatypeQualities);
+        }
+
+        private bool TryResolveLifeModuleMetatypeSources8582(string metatypeOptionId,
+            CharacterCreationMetatypeSelectionIdentity? identity,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            metatypeQualities = [];
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || !TryResolveCreationMetatypeCatalog(out var metatypes) || !metatypes.IsAuthoritative
+                || CharacterCreationMetatypeSelectionRules.Resolve(metatypes, metatypeOptionId, identity)
+                    is not { IsEnabled: true, Blockers.Count: 0 } metatype
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities))
+                return false;
+            var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty)).ToArray();
+            bool needsGear = qualities.Any(row => references.Any(reference => row.Element("name")?.Value == reference.Reference)
+                && row.Element("bonus")?.Elements("addgear").Any() == true);
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear))) return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                references, qualities, gear, qualityDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != references.Length
+                || sources.Where((source, index) => !string.Equals(
+                    XElement.Parse(source.CanonicalSourceXml).Element("category")?.Value,
+                    metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase)).Any()) return false;
+            if (metatype.MetatypeIdentity is not null
+                && (!CharacterCreationLifeModuleRacialGrants8590.TryProject(metatype, sources, qualityDigest, out _, out var racialEffects)
+                    || !TryValidateLifeModuleRacialSkillTargets8590(racialEffects))) return false;
             metatypeQualities = sources;
             return true;
         }
@@ -3649,7 +4219,11 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 || !TryReadKarmaCost(settings, "karmaquality", out int multiplier) || multiplier <= 0
                 || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var rows)
                 || _character.Element("qualityrestriction") is not null
-                || _character.Element("qualities")?.Elements("quality").Any() == true)
+                // The current consumer reconciles the retained module archive,
+                // talent/grant owners and saved effects; this is catalog access,
+                // not authorization of those selections or of finalization.
+                || _character.Element("qualities")?.Elements("quality").Any() == true
+                    && !CanReadCurrentCareerTalentCatalog1983(rows))
                 return false;
             string profileAnchor = SettingsAnchor;
             var options = new List<CharacterCreationKarmaTalentOption>
@@ -3689,6 +4263,41 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             if (_sourceInputs.HasSourceDrift) return false;
             catalog = result;
             return true;
+        }
+
+        // Only catalog enumeration is permitted here. The current consumer must
+        // still reconstruct and compare all selected effects before use. Preserve
+        // the empty-quality precondition for every Creation/finalization context.
+        private bool CanReadCurrentCareerTalentCatalog1983(IReadOnlyList<XElement> sources)
+        {
+            if (_sourceInputs.Accounting?.HasNativeCurrentEnvironmentSemantics1958 != true
+                || ReadValue(_character, "buildmethod") != _buildMethod
+                || ReadValue(_character, "settings") != _settingsProfileId
+                || !bool.TryParse(ReadValue(_character, "created"), out bool created) || !created
+                || _character.Elements("qualities").ToArray() is not [var qualities]
+                || qualities.HasAttributes || qualities.Elements().Any(row => row.Name != "quality")) return false;
+            var owners = new HashSet<Guid>();
+            XDocument? modules = null;
+            foreach (var selected in qualities.Elements())
+            {
+                if (!Guid.TryParseExact(ReadValue(selected, "guid"), "D", out var owner) || owner == Guid.Empty
+                    || !owners.Add(owner) || !Guid.TryParseExact(ReadValue(selected, "sourceid"), "D", out var id)
+                    || id == Guid.Empty) return false;
+                IEnumerable<XElement> definitions = sources;
+                if (ReadValue(selected, "qualitysource") == "LifeModule")
+                {
+                    if (_buildMethod != CharacterCreationBuildMethods.LifeModules
+                        || modules is null && (!TryReadSelectedLifeModulesDocument2852(out modules)
+                            || modules?.Root is null)) return false;
+                    // Module owners use the native module/version source ID. Their
+                    // archived sequence, parent and effects are reconciled by the
+                    // current Career compiler, not by a quality catalog lookup.
+                    definitions = modules!.Descendants().Where(row => row.Element("id") is not null);
+                }
+                if (definitions.Count(row => Guid.TryParse(ReadValue(row, "id"), out var sourceId)
+                    && sourceId == id && ReadValue(row, "name") == ReadValue(selected, "name")) != 1) return false;
+            }
+            return !_sourceInputs.HasSourceDrift;
         }
 
         private static CharacterCreationLifeModuleTalentCatalog CopyLifeModuleTalentCatalog(
@@ -3763,16 +4372,39 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
 
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
+            => TryProjectCreationPrerequisiteAuthority3053(UsesCurrentCatalogSemantics, out authority);
+
+        public bool TryResolveHistoricalCreationPrerequisiteAuthority3053(
+            out CharacterCreationPrerequisiteAuthority authority)
         {
+            authority = CharacterCreationPrerequisiteAuthority.Unavailable;
+            // Preserve this context's retained inputs, source execution schema and
+            // drift checks. Only the historical racial-option binder differs.
+            return UsesCurrentCatalogSemantics
+                && TryProjectCreationPrerequisiteAuthority3053(false, out authority);
+        }
+
+        private bool TryProjectCreationPrerequisiteAuthority3053(bool currentCatalogSemantics,
+            out CharacterCreationPrerequisiteAuthority authority)
+        {
+            // A historical provenance read must neither reuse nor overwrite the
+            // current projection cache. Ordinary/V1 projection keeps its old cache.
+            bool cacheProjection = currentCatalogSemantics == UsesCurrentCatalogSemantics;
             authority = CharacterCreationPrerequisiteAuthority.Unavailable;
             PrerequisiteProjectionEntry? retained;
             lock (_prerequisiteProjectionSync) { retained = _prerequisiteProjection; }
             // The context owns frozen character/profile/catalog inputs. Once its
             // projection is admitted, fresh byte/identity/membership validation
             // is sufficient: do not clone three complete XML trees just to find
-            // the same entry again. TryAdmitReuse also validates nested calls,
-            // where Enter alone deliberately skips the already-active snapshot.
-            if (retained is not null && _sourceInputs.TryAdmitReuse(_catalog))
+            // the same entry again. An explicitly admitted synchronous operation
+            // already owns the entry/exit fences, including inputs first read
+            // by this projection. Repeated context methods must not rescan all
+            // files inside that operation. Explicit TryCreateContext admission
+            // remains fresh; ordinary/nested reads outside it still validate.
+            if (cacheProjection && retained is not null
+                && (_activeSynchronousOperation?.Contains(_sourceInputs) == true
+                    ? !_sourceInputs.HasSourceDrift
+                    : _sourceInputs.TryAdmitReuse(_catalog)))
             {
                 var detached = CopyPrerequisiteAuthority(retained.Authority);
                 if (!_sourceInputs.HasSourceDrift)
@@ -3851,6 +4483,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 return false;
             }
 
+            if (!TryProjectCurrentSourceDocument("metatypes.xml", [("metatypes", "metatype")], ref metatypesDocument)
+                || !TryProjectCurrentSourceDocument("skills.xml", [("skills", "skill"), ("knowledgeskills", "skill")], ref skillsDocument))
+                return false;
+
             var blockers = new List<string>(_prerequisiteProfileBlockers);
             if (_sourceInputs.HasSourceDrift)
                 blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
@@ -3897,7 +4533,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.CustomDataDrift);
             }
-            if (hasMetatypeCustomData)
+            if (hasMetatypeCustomData && !UsesCurrentCatalogSemantics)
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeCustomDataUnsupported);
             }
@@ -3916,7 +4552,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeSourceDrift);
             }
-            if (hasSkillCustomData)
+            if (hasSkillCustomData && !UsesCurrentCatalogSemantics)
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.SkillCustomDataUnsupported);
             }
@@ -3979,7 +4615,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 && blockers.Count == 1
                 && blockers[0] == CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported;
             bool reusableContext = blockers.Count == 0 || reusableMethodRejection;
-            if (reusableContext && !_sourceInputs.HasSourceDrift)
+            if (cacheProjection && reusableContext && !_sourceInputs.HasSourceDrift)
             {
                 PrerequisiteProjectionEntry? cached;
                 lock (_prerequisiteProjectionSync) { cached = _prerequisiteProjection; }
@@ -4003,8 +4639,11 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     !_sourceInputs.HasSourceDrift
                     && TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string racialQualityDigest)
                     && TryResolveRacialQualitySources(metatypesDocument, out var racialQualities)
-                        ? CharacterCreationPriorityRacialAuthority.BindOptions(candidate, metatypesDocument,
-                            racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks, projectionContext.SourceExecutionSchema)
+                        ? currentCatalogSemantics
+                            ? BindCurrentCreationRacialOptions1950(candidate, metatypesDocument, racialQualities,
+                                racialQualityDigest, projectionContext.EnabledSourcebooks, projectionContext.SourceExecutionSchema)
+                            : CharacterCreationPriorityRacialAuthority.BindOptions(candidate, metatypesDocument,
+                                racialQualities, racialQualityDigest, projectionContext.EnabledSourcebooks, projectionContext.SourceExecutionSchema)
                         : candidate);
             if ((projected.IsAuthoritative && blockers.Count == 0)
                 || (reusableMethodRejection && !projected.IsAuthoritative
@@ -4018,7 +4657,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     var entry = new PrerequisiteProjectionEntry(CopyPrerequisiteContext(projectionContext), projected);
                     // No IO, source-snapshot lock, or callback under this lock.
                     // Concurrent misses may independently build equivalent entries.
-                    lock (_prerequisiteProjectionSync) { _prerequisiteProjection = entry; }
+                    if (cacheProjection)
+                        lock (_prerequisiteProjectionSync) { _prerequisiteProjection = entry; }
                     if (!_sourceInputs.HasSourceDrift)
                     {
                         authority = detached;
@@ -4339,7 +4979,18 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     _ => CharacterCreationGearLegality.Legal
                 };
                 string sourceNodeXml = row.ToString(SaveOptions.DisableFormatting);
-                bool hasUnsupportedSemantics = row.Element("hide") is not null
+                CharacterCreationFocusSource? focusDefinition = null;
+                bool focusSource = _sourceInputs.NativeFocusGearCatalog1339
+                    && CharacterCreationFocusSelectionRules.TryReadSource(sourceNodeXml, out focusDefinition);
+                if (focusSource)
+                {
+                    fixedRating = true;
+                    fixedCost = CharacterCreationFocusSelectionRules.TryEvaluate(focusDefinition!.CostExpression,
+                        focusDefinition.MinimumRating, out packageCost);
+                    fixedAvailability = CharacterCreationFocusSelectionRules.TryAvailability(focusDefinition.AvailabilityExpression,
+                        focusDefinition.MinimumRating, out availability, out legality);
+                }
+                bool hasUnsupportedSemantics = !focusSource && (row.Element("hide") is not null
                     || row.Element("requireparent") is not null
                     || row.Element("required") is not null
                     || row.Element("forbidden") is not null
@@ -4351,7 +5002,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     || row.Elements().Any(element =>
                         element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase)
                         || element.Name.LocalName.StartsWith("add", StringComparison.OrdinalIgnoreCase))
-                    || !CharacterCreationLegacySourceProjector.IsGearSourceProjectable(sourceNodeXml);
+                    || !CharacterCreationLegacySourceProjector.IsGearSourceProjectable(sourceNodeXml));
                 bool exact = fixedRating
                     && fixedCost
                     && fixedPackage
@@ -4392,7 +5043,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     SourceAnchorIds: [anchor],
                     SourceNodeXml: sourceNodeXml,
                     SourceNodeDigest: nodeDigest,
-                    OptionDigest: string.Empty);
+                    OptionDigest: string.Empty) { FocusSource = focusDefinition };
                 var projectedOption = candidate with
                 {
                     OptionDigest = CharacterCreationGearRules.ComputeOptionDigest(candidate)
@@ -4490,9 +5141,43 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
 
         public bool TryResolveCreationLoadoutAuthority(out CharacterCreationLoadoutAuthority authority)
+            => TryResolveCreationLoadoutAuthority7956(out authority, detach: true);
+
+        bool IRetainedCurrentLoadoutSource7956.TryResolveRetainedLoadoutAuthority7956(
+            out CharacterCreationLoadoutAuthority authority)
+        {
+            authority = CharacterCreationLoadoutAuthority.Unavailable;
+            return _sourceInputs.HasImmutableRetainedInputs7956
+                && TryResolveCreationLoadoutAuthority7956(out authority, detach: false);
+        }
+
+        private bool TryResolveCreationLoadoutAuthority7956(out CharacterCreationLoadoutAuthority authority, bool detach)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationLoadoutAuthority.Unavailable;
+            // Keep a fresh query and its source-scope/drift fences on every call.
+            // Successful projection already admitted ALL settings, ordered custom
+            // inputs and category scopes below. In a private retained snapshot
+            // these bytes/inventories cannot change, nor can this context's frozen
+            // catalog, character, selection or profile-derived fields. Repeating
+            // those pure admission calculations adds no source observation.
+            // Public/live readers retain the original admission and copy path.
+            // The internal caller still verifies its mutable current binding
+            // before and after this query;
+            // this shortcut issues no evaluation, owner or publication authority.
+            if (!detach && _sourceInputs.HasImmutableRetainedInputs7956)
+            {
+                CharacterCreationLoadoutAuthority? retained;
+                lock (_completionProjectionSync) { retained = _creationLoadoutAuthoritySnapshot; }
+                if (_sourceInputs.HasSourceDrift) return false;
+                if (retained is not null)
+                {
+                    // Every nested collection was privately copied and wrapped
+                    // read-only on storage. No caller can mutate this graph.
+                    authority = retained;
+                    return true;
+                }
+            }
             if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _creationMaximumAvailability is not int maximumAvailability || maximumAvailability < 0
                 || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
@@ -4509,7 +5194,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 || !TryValidateLoadoutCustomCategoryScope("weapons.xml")
                 || !TryValidateLoadoutCustomCategoryScope("armor.xml")) return false;
 
-            // Source admission above remains mandatory. The private context is
+            // Cold/public-query source admission above remains mandatory. The context is
             // keyed by exact XML; its source snapshot validates bytes and
             // membership on context entry and synchronous operation exit.
             // Reuse only pure catalog projection, never a retained-read result.
@@ -4575,12 +5260,27 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 }), string.Empty);
             candidate = candidate with { AuthorityDigest = CharacterCreationLoadoutRules.ComputeAuthorityDigest(candidate) };
             if (!CharacterCreationLoadoutRules.IsValidAuthority(candidate) || _sourceInputs.HasSourceDrift) return false;
-            var frozen = CopyLoadoutAuthority(candidate);
+            var frozen = FreezeLoadoutAuthority7956(candidate);
             if (_sourceInputs.HasSourceDrift) return false;
             lock (_completionProjectionSync) { _creationLoadoutAuthoritySnapshot = frozen; }
-            authority = candidate;
+            authority = detach ? candidate : frozen;
             return true;
         }
+
+        private static CharacterCreationLoadoutAuthority FreezeLoadoutAuthority7956(
+            CharacterCreationLoadoutAuthority source) => source with
+        {
+            // Strings and sealed DTO scalars are immutable; own and freeze every
+            // collection before permitting the private retained query to share it.
+            // Keep this and CopyLoadoutAuthority in sync with the DTO graph.
+            Options = Array.AsReadOnly(source.Options.Select(option => option with
+            {
+                Blockers = Array.AsReadOnly(option.Blockers.ToArray()),
+                SourceAnchorIds = Array.AsReadOnly(option.SourceAnchorIds.ToArray())
+            }).ToArray()),
+            SourceAnchorIds = Array.AsReadOnly(source.SourceAnchorIds.ToArray()),
+            Blockers = Array.AsReadOnly(source.Blockers.ToArray())
+        };
 
         private static CharacterCreationLoadoutAuthority CopyLoadoutAuthority(
             CharacterCreationLoadoutAuthority source) => source with
@@ -4717,7 +5417,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 vehiclesDigest,
                 weaponsDigest,
                 gearDigest));
-            return CharacterVehicleWorkshopCatalogProjector.TryProject(
+            bool projected = CharacterVehicleWorkshopCatalogProjector.TryProject(
                 _settingsProfileId,
                 CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
                     '\0',
@@ -4747,6 +5447,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 weaponMountRows,
                 IsEnabledSource,
                 out catalog);
+            if (projected) _sourceInputs.ObserveVehicleWorkshopInputs2330();
+            return projected;
         }
 
         public bool TryResolveCustomDrugCatalog(out CharacterCustomDrugCatalogAuthority authority)
@@ -5020,8 +5722,23 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             .OrderBy(group => group.Name, StringComparer.Ordinal)
             .ThenBy(group => group.GroupId, StringComparer.Ordinal).ToArray();
 
+        // Policy consumes only these scalars. Keep the full resolver's admission
+        // and projection, but do not detach its cached catalog just to discard it.
+        // No cached reference escapes through this private scalar-only reader.
+        private bool TryResolveCreationSkillGroupLimitForPolicy(out int groupLimit)
+        {
+            bool available = TryResolveCreationSkillsAuthorityCore(out var skills, detachCachedAuthority: false)
+                && skills.IsAuthoritative;
+            groupLimit = available ? skills.MaxSkillGroupRatingCreate : default;
+            return available;
+        }
+
         public bool TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority)
+            => TryResolveCreationSkillsAuthorityCore(out authority, detachCachedAuthority: true);
+
+        private bool TryResolveCreationSkillsAuthorityCore(
+            out CharacterCreationSkillsAuthority authority, bool detachCachedAuthority)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationSkillsAuthority.Unavailable;
@@ -5081,9 +5798,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     _customDirectories,
                     "skills.xml",
                     out bool hasSkillCustomData)
-                || hasSkillCustomData)
+                || hasSkillCustomData && !UsesCurrentCatalogSemantics)
             {
-                // The prerequisite authority currently rejects custom Skills rows. Keep
+                // Legacy prerequisite authority still rejects custom Skills rows. Keep
                 // this projection aligned until the same overlay compiler owns both paths.
                 blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
             }
@@ -5094,12 +5811,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             // service still binds Talent access and checks drafts on every load.
             CharacterCreationSkillsAuthority? cached;
             lock (_completionProjectionSync) { cached = _creationSkillsAuthoritySnapshot; }
-            if (blockers.Count == 0 && !_sourceInputs.HasSourceDrift && cached is { } snapshot)
+            if (!UsesLegacyQualityKnowledgePolicy6530
+                && blockers.Count == 0 && !_sourceInputs.HasSourceDrift && cached is { } snapshot)
             {
-                var detached = CopySkillsAuthority(snapshot);
+                var resolved = detachCachedAuthority ? CopySkillsAuthority(snapshot) : snapshot;
                 if (!_sourceInputs.HasSourceDrift)
                 {
-                    authority = detached;
+                    authority = resolved;
                     return true;
                 }
             }
@@ -5199,7 +5917,16 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     projected with { AuthorityDigest = string.Empty })
             };
             sourceExecution?.Finish(authority);
-            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            // This sole refusal is emitted by ProjectKnowledgePointContributions
+            // from the private character XML (including its saved owner shapes).
+            // Every catalog, specialization and settings check completed without
+            // a blocker. Other refusals/failed reads must still be recomputed.
+            // Retain the entire result, including its false authority and blocker;
+            // the existing entry guards and observed-input validation still run.
+            bool completedKnowledgeRefusal = orderedBlockers is
+                [CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported];
+            if (!UsesLegacyQualityKnowledgePolicy6530
+                && (authority.IsAuthoritative || completedKnowledgeRefusal) && !_sourceInputs.HasSourceDrift)
             {
                 var frozen = CopySkillsAuthority(authority);
                 lock (_completionProjectionSync) { _creationSkillsAuthoritySnapshot = frozen; }
@@ -5265,7 +5992,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             out CharacterCreationQualitiesAuthority authority)
         {
             authority = CharacterCreationQualitiesAuthority.Unavailable;
-            return _buildMethod is (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+            return (_buildMethod is (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+                    || _sourceInputs.Accounting?.HasNativeCurrentEnvironmentSemantics1958 == true
+                        && _buildMethod is (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules))
                 && TryResolveCreationQualitySources(out authority);
         }
 
@@ -5327,6 +6056,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             catalog = null;
             if (_buildMethod != CharacterCreationBuildMethods.Karma
                 || !TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
+            return TryProjectKarmaQualitiesCatalog2742(source, out catalog);
+        }
+
+        private bool TryProjectKarmaQualitiesCatalog2742(CharacterCreationQualitiesAuthority source,
+            out CharacterCreationKarmaQualitiesCatalog? catalog)
+        {
+            source = CharacterCreationKarmaQualitiesRules.AdmitSkillCostPurchases(source);
             var policy = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.SchemaV1,
                 source.SettingsProfileId, source.ProfileDigest, source.SourceDigest, source.QualityKarmaLimit,
                 source.MayExceedPositiveQualityLimit, source.MayExceedNegativeQualityLimit, source.MetagenicLimit,
@@ -5344,6 +6080,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             var result = new CharacterCreationKarmaQualitiesCatalog(CharacterCreationKarmaQualitiesCatalog.SchemaV1,
                 policy, options, string.Empty);
             catalog = result with { CatalogDigest = CharacterCreationKarmaQualitiesRules.CatalogDigest(result) };
+            if (_sourceInputs.KarmaQualityPromptSchema == CharacterCreationKarmaQualityPrompts.SourceSchema)
+                catalog = CharacterCreationKarmaQualityPrompts.AdmitCatalog(catalog);
             return CharacterCreationKarmaQualitiesRules.IsValidCatalog(catalog);
         }
 
@@ -5376,11 +6114,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
 
         // Shared source parsing only. Each public entry retains its own build-method
         // guard and contract; this never creates a Priority prerequisite for Karma.
-        private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority, int? armCount = null)
+        private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority, int? armCount = null,
+            bool sourceAvailabilityOnly2742 = false)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationQualitiesAuthority.Unavailable;
-            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+            if (sourceAvailabilityOnly2742 && !HasKarmaQualityPrompts2742
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _buildMethod is not (CharacterCreationBuildMethods.Priority
                     or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
                 || !TryComputeEffectiveInputDigest(
@@ -5464,7 +6204,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 // requirement parity for arbitrary custom rows is not complete yet.
                 blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
             }
-            if (_character.Element("qualities")?.Elements("quality").Any() == true)
+            if (!sourceAvailabilityOnly2742 && _character.Element("qualities")?.Elements("quality").Any() == true)
             {
                 // Existing/granted instances need a separate origin-aware projection; an
                 // empty grant list would undercount both limits, so this path fails closed.
@@ -5756,11 +6496,30 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             Blockers = source.Blockers.ToArray()
         };
 
-        public bool TryResolveCreationLifestylesAuthority(
+        public bool TryResolveCreationLifestylesAuthority(out CharacterCreationLifestylesAuthority authority)
+            => TryResolveLifestylesAuthority2719(null, out authority);
+
+        public bool TryResolveLifestylesAuthority(CharacterLifestyleSourceMode mode, out CharacterCreationLifestylesAuthority authority)
+        {
+            authority = CharacterCreationLifestylesAuthority.Unavailable;
+            return HasLifestyleMechanics2684 && (mode is CharacterLifestyleSourceMode.Creation or CharacterLifestyleSourceMode.Career)
+                && bool.TryParse(_character.Element("created")?.Value, out bool created)
+                && created == (mode == CharacterLifestyleSourceMode.Career)
+                && TryResolveLifestylesAuthority2719(mode, out authority)
+                && CharacterCreationLifestylesRules.IsValidAuthority(authority)
+                && CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(authority.PurchasedQualityCosts)
+                && CharacterCareerLifestyleMaintenanceProjection.TryValidateSourceEffects2719(_character, this, authority, out _);
+        }
+
+        private bool TryResolveLifestylesAuthority2719(CharacterLifestyleSourceMode? sourceMode,
             out CharacterCreationLifestylesAuthority authority)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationLifestylesAuthority.Unavailable;
+            var mechanicsMarkers2684 = _character.Elements(CharacterCreationLifestyleMechanicsRules.CapabilityElement).ToArray();
+            if (mechanicsMarkers2684.Length != 0 && (mechanicsMarkers2684 is not [var marker2684]
+                || marker2684.HasAttributes || marker2684.HasElements
+                || marker2684.Value != CharacterCreationLifestyleMechanicsRules.Capability)) return false;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || (!CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
                     && _buildMethod is not (CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules))
@@ -5780,12 +6539,25 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             XElement[] improvements = _character.Elements("improvements")
                 .SelectMany(container => container.Elements("improvement")).ToArray();
             bool qualitySourcesExact = TryResolveSavedLifestyleQualitySources(improvements,
-                out var qualityInstances, out string qualityInputsDigest, out string? qualitySourceBlocker);
+                out var qualityInstances, out string qualityInputsDigest, out string? qualitySourceBlocker, sourceMode);
             CharacterCreationLifestyleImprovementRules.TryResolveSourceBackedCosts(improvements,
                 qualityInstances, 0, out int trustFundLevel, out decimal metatypeCostPercent,
-                out var purchasedQualityCosts, out var effectBlockers);
+                out var purchasedQualityCosts, out var effectBlockers, sourceMode);
+            if (UsesCurrentCatalogSemantics)
+            {
+                // Imported Critter-tab Sprites select critters.xml through the retained
+                // owner-source resolver, not the ordinary Creation metatype catalog.
+                // Keep the parsed cost; the owner graph still proves every saved effect.
+                decimal currentMetatypeCost = metatypeCostPercent;
+                bool currentMetatypeExact = UsesSpriteCatalog5751
+                    ? TryResolveImportedCareerMetatype5698(out _, out _)
+                    : ReconcileCurrentCreationMetatypeCost1950(metatypeCostPercent, out currentMetatypeCost);
+                if (!currentMetatypeExact)
+                    effectBlockers = [.. effectBlockers, "current-metatype-lifestyle-cost-unresolved"];
+                else metatypeCostPercent = currentMetatypeCost;
+            }
             JsonElement? cached;
-            lock (_completionProjectionSync) { cached = _creationLifestylesAuthoritySnapshot; }
+            lock (_completionProjectionSync) { cached = sourceMode is null ? _creationLifestylesAuthoritySnapshot : null; }
             if (!_sourceInputs.HasSourceDrift && profileMatches && qualitySourcesExact
                 && effectBlockers.Length == 0 && cached is { } snapshot)
             {
@@ -5861,6 +6633,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             if (!cataloguesExact1008) blockers.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
             var qualities = new List<CharacterCreationLifestyleQualityCatalogOption>();
             var exactQualityCosts1000 = new HashSet<Guid>();
+            // New live manual sources and explicit V6 use the new scalar capability.
+            // Historical retained interpretations keep their literal-only projection.
+            bool mechanics2684 = HasLifestyleMechanics2684;
+            bool stockSemantics2678 = mechanics2684 || (_sourceInputs.Accounting is { } accounting2678 ? accounting2678.HasStockLifestyleSemantics2678
+                : freeGridsEnabled || locations1008?.Cities.Count > 0 || categories1008?.Count > 0
+                    || lifestyleRows.Any(row => CharacterCurrentRuleEnvironmentConsumers.RequiresStockLifestyleShape2678(row)
+                        || !_enabledSourcebooks.Contains(ReadValue(row, "source")))
+                    || qualityRows.Any(CharacterCurrentRuleEnvironmentConsumers.RequiresStockLifestyleShape2678));
             foreach (XElement row in qualityRows.OrderBy(
                          item => ReadValue(item, "id"),
                          StringComparer.Ordinal))
@@ -5882,9 +6662,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 bool implemented = !row.Elements("implemented").Any()
                     || ParseBool(ReadValue(row, "implemented"));
                 bool careerOnly = ParseBool(ReadValue(row, "careeronly"));
-                bool hasRequirements = row.Elements("required").Any()
-                    || row.Elements("forbidden").Any();
-                bool selectionExact1008 = TryReadLifestyleSelection1008(row, out var selectionSemantics1008);
+                bool hasRequirements = !mechanics2684 && (row.Elements("required").Any()
+                    || row.Elements("forbidden").Any()
+                    || stockSemantics2678 && CharacterCurrentRuleEnvironmentConsumers.HasUnrepresentedLifestyleMechanics2678(row));
+                CharacterCreationLifestyleQualityMechanics? qualityMechanics2684 = null;
+                CharacterCreationLifestyleQualitySelectionSemantics? selectionSemantics1008;
+                bool selectionExact1008 = mechanics2684
+                    ? CharacterCreationLifestyleSourceMechanics2684.TryCompile(row, this, out qualityMechanics2684, out selectionSemantics1008)
+                    : TryReadLifestyleSelection1008(row, out selectionSemantics1008);
                 bool hasUnboundedPrompt = row.Descendants().Any(element =>
                     element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase)
                     && !(selectionExact1008 && element.Name == "selecttext" && element.Parent == row.Element("bonus")));
@@ -5899,7 +6684,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 int comfortsMaximum = 0;
                 int securityMaximum = 0;
                 bool numericExact = TryReadOptionalInt(row, "lp", out lp);
-                numericExact &= TryReadOptionalDecimal(row, "cost", out flatCost);
+                numericExact &= stockSemantics2678
+                    ? CharacterCurrentRuleEnvironmentConsumers.TryLifestyleScalar2678(ReadValue(row, "cost"), out flatCost)
+                    : TryReadOptionalDecimal(row, "cost", out flatCost);
                 numericExact &= TryReadOptionalDecimal(row, "multiplier", out multiplier);
                 numericExact &= TryReadOptionalDecimal(row, "multiplierbaseonly", out baseMultiplier);
                 numericExact &= TryReadOptionalInt(row, "area", out area);
@@ -5955,7 +6742,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     eligibilityExact,
                     optionBlockers,
                     [anchor],
-                    string.Empty) { SelectionSemantics = selectionSemantics1008 };
+                    string.Empty) { SelectionSemantics = selectionSemantics1008, Mechanics = qualityMechanics2684 };
                 qualities.Add(candidate with
                 {
                     OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(candidate)
@@ -6093,7 +6880,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 });
             }
 
-            if (lifestyles.Count == 0 || qualities.Count == 0)
+            if (lifestyles.Count == 0 || !UsesCurrentCatalogSemantics && qualities.Count == 0)
                 blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
             string gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
             {
@@ -6158,6 +6945,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             string[] normalized = blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(item => item, StringComparer.Ordinal)
                 .ToArray();
+            if (sourceMode is not null)
+                runtimeDigest = CharacterCreationSkillsDigest.Compute(new { Runtime = runtimeDigest, SourceMode = sourceMode });
             var projected = new CharacterCreationLifestylesAuthority(
                 CharacterCreationLifestylesSchemas.AuthorityV1,
                 "sr5",
@@ -6179,13 +6968,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 PurchasedQualityCosts = purchasedQualityCosts,
                 FreeGridsActivation = freeGridsActivation,
                 LocationCatalog = locations1008,
-                Categories = categories1008
+                Categories = categories1008,
+                Mechanics = mechanics2684 && TryReadLifestyleCharacterFacts2684(out var characterFacts2684) ? characterFacts2684 : null
             };
             authority = projected with
             {
                 AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projected)
             };
-            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
+            if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift && sourceMode is null)
             {
                 JsonElement frozen = JsonSerializer.SerializeToElement(authority);
                 lock (_completionProjectionSync) { _creationLifestylesAuthoritySnapshot = frozen; }
@@ -6197,16 +6987,17 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             IReadOnlyList<XElement> improvements,
             out CharacterCreationLifestyleQualityInstance[] instances,
             out string inputsDigest,
-            out string? blocker)
+            out string? blocker, CharacterLifestyleSourceMode? sourceMode = null)
         {
             instances = [];
             inputsDigest = string.Empty;
             blocker = CharacterCreationLifestylesBlockers.UnsupportedSemantics;
             XElement[] saved = _character.Elements("qualities")
                 .SelectMany(container => container.Elements("quality")).ToArray();
-            bool hasCostHint = saved.Any(HasLifestyleCostSource)
+            bool hasCostHint = saved.Any(quality => HasLifestyleCostSource(quality, sourceMode))
                 || improvements.Any(item => ReadValue(item, "improvementsource") == "Quality"
-                    && ReadValue(item, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost");
+                    && (ReadValue(item, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost"
+                    || sourceMode is not null && ReadValue(item, "improvementttype") == "TrustFund"));
             if (saved.Length == 0 && !hasCostHint)
                 return true;
             if (saved.Length > 4096)
@@ -6227,7 +7018,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             foreach (var group in saved.GroupBy(item =>
                          Guid.TryParse(ReadValue(item, "sourceid"), out Guid id) ? id : Guid.Empty))
             {
-                bool savedCost = group.Any(HasLifestyleCostSource);
+                bool savedCost = group.Any(quality => HasLifestyleCostSource(quality, sourceMode));
                 if (group.Key == Guid.Empty)
                 {
                     if (savedCost) return false;
@@ -6242,7 +7033,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     continue;
                 }
                 if (ambiguous) return false;
-                if (!savedCost && !HasLifestyleCostSource(source))
+                if (!savedCost && !HasLifestyleCostSource(source, sourceMode))
                     continue;
 
                 inputsDigest = hasCustomInput
@@ -6254,7 +7045,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     : sourceDigest;
                 if (!Guid.TryParse(ReadValue(source, "id"), out Guid sourceId) || sourceId != group.Key
                     || group.Any(item => ReadValue(item, "qualitysource") != "Selected")
-                    || ParseBool(ReadValue(source, "careeronly"))
+                    || sourceMode != CharacterLifestyleSourceMode.Career && ParseBool(ReadValue(source, "careeronly"))
                     || ParseBool(ReadValue(source, "onlyprioritygiven"))
                     || source.Elements("implemented").Any() && !ParseBool(ReadValue(source, "implemented")))
                     return false;
@@ -6321,9 +7112,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             return true;
         }
 
-        private static bool HasLifestyleCostSource(XElement quality) => quality.Descendants()
+        private static bool HasLifestyleCostSource(XElement quality, CharacterLifestyleSourceMode? sourceMode = null) => quality.Descendants()
             .Any(item => string.Equals(item.Name.LocalName, "lifestylecost", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(item.Name.LocalName, "basiclifestylecost", StringComparison.OrdinalIgnoreCase));
+                || string.Equals(item.Name.LocalName, "basiclifestylecost", StringComparison.OrdinalIgnoreCase)
+                    || sourceMode is not null && string.Equals(item.Name.LocalName, "trustfund", StringComparison.OrdinalIgnoreCase));
 
         private static string ResolveLifestyleQualityType(string category) =>
             category switch
@@ -6407,6 +7199,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
 
 
+        private string? ResolveCreationAdeptSkillSource(string name) =>
+            TryResolveSheetNamedSource("Skill", name, out var source) && source is not null && source.Name == name
+                ? source.SourceXml : null;
+
         public bool TryResolveCreationMagicResonanceAuthority(
             out CharacterCreationMagicResonanceAuthority authority)
         {
@@ -6464,7 +7260,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     _rawProfileInputsDigest, StringComparison.Ordinal))
                 blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
             if (!CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(_settingsProfileId,
-                    magicSettingsDigest, magicSettings.ToString(SaveOptions.DisableFormatting), out var powerPointPolicy))
+                    magicSettingsDigest, magicSettings.ToString(SaveOptions.DisableFormatting),
+                    _sourceInputs.StandaloneSettings5691, out var powerPointPolicy))
                 blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
             if (_sourceInputs.HasSourceDrift)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
@@ -6512,7 +7309,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 ],
                 blockers)
             {
-                MysticAdeptPowerPointPolicy = powerPointPolicy
+                MysticAdeptPowerPointPolicy = powerPointPolicy,
+                ResolveAdeptSkillSource = ResolveCreationAdeptSkillSource
             };
             authority = CharacterCreationMagicResonanceAuthorityProjector.Project(
                 metatypes,
@@ -6539,7 +7337,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 IReadOnlyList<CharacterCreationMagicResonanceCatalogOption> options) => options.Select(option => option with
                 {
                     SourceAnchorIds = option.SourceAnchorIds.ToArray(),
-                    Blockers = option.Blockers.ToArray()
+                    Blockers = option.Blockers.ToArray(),
+                    AdeptSkillSourceXml = option.AdeptSkillSourceXml?.ToArray()
                 }).ToArray();
 
             // Keep immutable source text, but detach every mutable collection on
@@ -6605,6 +7404,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             int sourceIndex = 0;
             foreach (XElement improvement in containers[0].Elements("improvement"))
             {
+                // The seven-field FreeKnowledgeSkills schema is not the native saved
+                // martial-effect schema. Classify only the exact supported, owned martial
+                // rows as knowledge-neutral; retain the whole character and all other vetoes.
+                if (_sourceInputs.HasMartialKnowledgeRecipe2421
+                    && IsKnowledgeNeutralMartialImprovement2421(improvement)) continue;
+                if (IsKnowledgeNeutralDenialArmor5875(improvement)) continue;
+                if (IsKnowledgeNeutralQualityImprovement6530(improvement)) continue;
                 if (!HasStrictAllowedShape(improvement, AllowedKnowledgeContributionChildren))
                 {
                     blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
@@ -6742,9 +7548,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             // Book filtering must not make an ambiguous source GUID unique.
             // A direct row projection cannot choose between competing rows,
             // including a disabled or hidden row with the same identity.
-            if (rows.Select(row => ReadValue(row, "id"))
-                .Where(id => Guid.TryParse(id, out _))
-                .GroupBy(Guid.Parse).Any(group => group.Count() > 1))
+            var sourceIdentities = new HashSet<Guid>();
+            bool ambiguousSourceIdentity = false;
+            foreach (XElement row in rows)
+            {
+                if (Guid.TryParse(ReadValue(row, "id"), out Guid sourceIdentity))
+                    ambiguousSourceIdentity |= !sourceIdentities.Add(sourceIdentity);
+            }
+            // Finish the same full pre-scan, including rows after a duplicate.
+            if (ambiguousSourceIdentity)
             {
                 blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
                 return [];
@@ -6768,8 +7580,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             // XElement.ToString creates an XML writer (and its buffers) for
             // every specialization. Reuse only those buffers within this one
             // projection, not the source bytes, option identities or results.
-            using var specializationWriter = new SpecializationXmlWriter();
+            using var specializationWriter = new ElementXmlWriter();
             Func<XElement, string> serializeSpecialization = specializationWriter.Serialize;
+            using var specializationHash = new SpecializationHashWriter();
+            Func<string, string> computeSpecializationHash = specializationHash.Compute;
             foreach (XElement row in rows)
             {
                 if (!HasStrictAllowedShape(row, AllowedSkillRowChildren, "specs")
@@ -6853,30 +7667,35 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     StringComparison.Ordinal)
                         ? CharacterCareerSkillKind.Active
                         : CharacterCareerSkillKind.Knowledge;
-                if (!TryProjectSkillSpecializationSource(
+                if (!TryProjectSkillSpecializationSourceCore(
                         row,
                         parsedId,
                         careerKind,
                         ResolveWeapons,
                         out CharacterCareerSkillSpecializationSource specializationSource,
-                        serializeSpecialization))
+                        serializeSpecialization,
+                        computeSpecializationHash))
                 {
                     blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
                     continue;
                 }
-                CharacterCreationSkillSpecializationOption[] specializations = specializationSource.Options
-                    .GroupBy(option => option.Name, StringComparer.Ordinal)
-                    .Select(group => group
-                        .OrderBy(option => option.Kind)
-                        .ThenBy(option => option.OptionIdentity, StringComparer.Ordinal)
-                        .First())
-                    .Select(option => new CharacterCreationSkillSpecializationOption(
+                // The private producer orders by ordinal name, kind and ordinal
+                // identity. Its first option per name is therefore the same
+                // winner as regrouping/sorting, already in final catalog order.
+                var selectedSpecializations = new List<CharacterCreationSkillSpecializationOption>();
+                string? previousSpecializationName = null;
+                foreach (CharacterCareerSkillSpecializationOption option in specializationSource.Options)
+                {
+                    if (selectedSpecializations.Count != 0
+                        && string.Equals(previousSpecializationName, option.Name, StringComparison.Ordinal))
+                        continue;
+                    selectedSpecializations.Add(new CharacterCreationSkillSpecializationOption(
                         option.OptionIdentity,
                         option.Name,
-                        option.SourceAnchor))
-                    .OrderBy(option => option.Name, StringComparer.Ordinal)
-                    .ThenBy(option => option.OptionId, StringComparer.Ordinal)
-                    .ToArray();
+                        option.SourceAnchor));
+                    previousSpecializationName = option.Name;
+                }
+                CharacterCreationSkillSpecializationOption[] specializations = selectedSpecializations.ToArray();
                 if (specializations.Select(option => option.Name)
                     .Distinct(StringComparer.Ordinal).Count() != specializations.Length)
                 {
@@ -7142,7 +7961,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
             // A selected directory can amend settings without changing metatypes.
             // Keep actual metatype custom data unsupported, as in the prerequisite authority.
-            if (hasMetatypeCustomData)
+            if (hasMetatypeCustomData && !UsesCurrentCatalogSemantics)
             {
                 blockers.Add(CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported);
             }
@@ -7210,8 +8029,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 || document?.Root is null)
                 return false;
 
-            authority = CharacterCreationMetatypeCatalogProjector.Project(document, sourceContext,
-                includeKarmaBaseBonuses: _buildMethod == CharacterCreationBuildMethods.Karma, sourceExecutionSchema: _sourceInputs.CreationSourceExecutionSchema);
+            if (!TryProjectCurrentSourceDocument("metatypes.xml", [("metatypes", "metatype")], ref document))
+                return false;
+
+            authority = UsesCurrentCatalogSemantics
+                ? ProjectCurrentCreationMetatypes1950(document, sourceContext)
+                : CharacterCreationMetatypeCatalogProjector.ProjectLegacyForBuildMethod(document, sourceContext,
+                    _buildMethod, _sourceInputs.CreationSourceExecutionSchema);
+            if (_buildMethod == CharacterCreationBuildMethods.LifeModules)
+                authority = ProjectLifeModuleVariantCatalog8582(document, authority);
             if (authority.IsAuthoritative && !_sourceInputs.HasSourceDrift)
             {
                 var frozen = CopyMetatypeCatalog(authority);
@@ -7229,6 +8055,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 SourceAnchorIds = source.SourceContext.SourceAnchorIds.ToArray(),
                 Blockers = source.SourceContext.Blockers.ToArray()
             },
+            MetavariantOptions = source.MetavariantOptions?.Select(CopyMetatypeOption8582).ToArray(),
             Options = source.Options.Select(option => option with
             {
                 Attributes = option.Attributes.ToArray(),
@@ -7354,9 +8181,80 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             return true;
         }
 
+        public bool TryResolveCareerQualityAnatomySources(out CharacterCareerQualityAnatomySources? sources)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            sources = null;
+            // Ordinary owner Career contexts do not have retained Creation accounting.
+            // Read exact current sources directly; do not weaken either Creation gate.
+            bool Scalar(string name, bool required, out string value)
+            {
+                value = string.Empty;
+                var rows = _character.Elements().Where(row => row.Name.LocalName == name).Take(2).ToArray();
+                if (rows.Length == 0) return !required;
+                if (rows.Length != 1 || rows[0].Name != name || rows[0].HasAttributes || rows[0].HasElements
+                    || rows[0].Value != rows[0].Value.Trim()) return false;
+                value = rows[0].Value;
+                return !required || value.Length > 0;
+            }
+            if (_sourceInputs.HasSourceDrift || _character.Name != "character" || _character.HasAttributes
+                || !Scalar("created", true, out var created) || !bool.TryParse(created, out var isCareer) || !isCareer
+                || !Scalar("gameedition", true, out var edition) || edition != "SR5"
+                || !Scalar("buildmethod", true, out var method) || method != _buildMethod
+                || !Scalar("settings", true, out var profile) || profile != _settingsProfileId
+                || !Scalar("metatypeguid", true, out var metatypeId)
+                || !Scalar("metavariantguid", false, out var variantId)
+                || !Scalar("metavariant", false, out var variantName)
+                || !TryResolveCareerQualityMetatype(out var metatype, out var metatypeAuthority)
+                || !TryResolveCareerSettingsProfile(out var settings, out var settingsAuthority)) return false;
+            var containers = _character.Elements().Where(row => row.Name.LocalName == "qualities").Take(2).ToArray();
+            if (containers.Length != 1 || containers[0].Name != "qualities" || containers[0].HasAttributes
+                || containers[0].Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value))) return false;
+            var saved = containers[0].Elements().Take(CharacterCareerReputationProjector.MaximumRowsPerContainer + 1).ToArray();
+            if (saved.Length > CharacterCareerReputationProjector.MaximumRowsPerContainer
+                || saved.Any(row => row.Name != "quality" || row.HasAttributes)) return false;
+            var ids = new HashSet<Guid>();
+            foreach (var row in saved)
+            {
+                var fields = row.Elements().Where(node => node.Name.LocalName == "sourceid").Take(2).ToArray();
+                if (fields.Length != 1 || fields[0].Name != "sourceid" || fields[0].HasAttributes || fields[0].HasElements
+                    || !Guid.TryParseExact(fields[0].Value, "D", out var id) || id == Guid.Empty) return false;
+                ids.Add(id);
+            }
+            // Resolve only the saved contributors here. The owner already reads the
+            // complete purchase catalog; re-enumerating it would duplicate that work.
+            var selected = new List<CharacterCareerQualitySource>();
+            foreach (var id in ids.Order())
+            {
+                if (!TryResolveCareerQualitySource(id, out var exact) || exact is null) return false;
+                selected.Add(exact);
+            }
+            if (!TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out var qualityDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, "qualities.xml", out var customDigest)) return false;
+            string authority = string.Join('\0', "sr5-career-anatomy-qualities/v1", qualityDigest,
+                customDigest, _rawProfileInputsDigest);
+            // The bounded anatomy consumer does not compile granted gear. Passing the
+            // complete source to the existing factory rejects unresolved gear grants.
+            var blockers = new List<string>();
+            var typed = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                selected.Select(row => (Reference: row.SourceId.ToString("D"), Selection: string.Empty)).ToArray(),
+                selected.Select(row => XElement.Parse(row.RawSourceXml)).ToArray(), [],
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(authority), string.Empty,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (blockers.Count != 0 || typed.Length != selected.Count || _sourceInputs.HasSourceDrift) return false;
+            var evidence = new CharacterCareerQualityAnatomySources(CharacterCareerQualityAnatomySources.Sr5CareerV1,
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(_character.ToString(SaveOptions.DisableFormatting)),
+                method, profile, metatypeId, variantId, variantName, metatype, metatypeAuthority, settings, settingsAuthority,
+                authority, Array.AsReadOnly(typed), string.Empty);
+            sources = evidence with { Digest = CharacterCareerQualityAnatomySources.ComputeDigest(evidence) };
+            return !_sourceInputs.HasSourceDrift;
+        }
+
         public bool TryResolveCareerQualityMetatype(out string sourceXml, out string authorityState)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
+            if (UsesImportedCareerOwnerSemantics5698)
+                return TryResolveImportedCareerMetatype5698(out sourceXml, out authorityState);
             sourceXml = authorityState = string.Empty;
             static bool Scalar(XElement parent, string name, bool required, out string value)
             {
@@ -7368,8 +8266,23 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 value = rows[0].Value;
                 return !required || value.Length > 0;
             }
+            if (!Scalar(_character, "metatypeguid", false, out var idText)) return false;
+            if (_buildMethod is CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules)
+            {
+                // Native finalization retains metatypeid. Resolve that exact ID
+                // against the selected profile and source; never infer it by name.
+                if (!Scalar(_character, "metatypeid", false, out var nativeId)
+                    || nativeId.Length != 0 && idText.Length != 0 && nativeId != idText) return false;
+                if (idText.Length == 0)
+                {
+                    if (nativeId.Length == 0
+                        || !Scalar(_character, "buildmethod", true, out var nativeMethod) || nativeMethod != _buildMethod
+                        || !TryResolveCreationSourceProfile(out var profile) || profile.BuildMethod != nativeMethod)
+                        return false;
+                    idText = nativeId;
+                }
+            }
             if (_sourceInputs.HasSourceDrift
-                || !Scalar(_character, "metatypeguid", true, out var idText)
                 || !Guid.TryParseExact(idText, "D", out var id) || id == Guid.Empty
                 || !Scalar(_character, "metatype", true, out var name)
                 || !Scalar(_character, "metavariantguid", false, out var variantId)
@@ -7496,6 +8409,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     out string customDigest)) return false;
             var result = new List<CharacterCareerQualitySource>();
             var ids = new HashSet<Guid>();
+            // Scratch only, owned by this synchronous catalog call. Every row
+            // is freshly serialized with the same LINQ to XML wire semantics.
+            using var xmlWriter = new ElementXmlWriter();
             foreach (XElement row in rows)
             {
                 if (!TryReadCareerQualityIdentity(row, out Guid id, out string name, out string book)
@@ -7510,7 +8426,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                         return false;
                     source = exact;
                 }
-                else source = new(id, name, book, row.ToString(SaveOptions.DisableFormatting),
+                else source = new(id, name, book, xmlWriter.Serialize(row),
                     sourceDigest, _rawProfileInputsDigest, customDigest);
                 result.Add(source);
             }
@@ -7606,8 +8522,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
 
             return TryProjectSkillSpecializationSource(skill, resolvedSourceId, kind,
-                () => TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out var weapons)
-                    ? weapons : null,
+                ResolveSkillSpecializationWeapons9962,
                 out source);
         }
 
@@ -7618,6 +8533,24 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             Func<XElement[]?> resolveWeapons,
             out CharacterCareerSkillSpecializationSource source,
             Func<XElement, string>? serializeSpecialization = null)
+        {
+            // Individual current-source queries need the same bounded scratch
+            // reuse as ProjectSkills. Every row is still freshly serialized and
+            // hashed; neither source text nor results survive this invocation.
+            using var writer8083 = serializeSpecialization is null ? new ElementXmlWriter() : null;
+            using var hash8083 = new SpecializationHashWriter();
+            return TryProjectSkillSpecializationSourceCore(skill, resolvedSourceId, kind,
+                resolveWeapons, out source, serializeSpecialization ?? writer8083!.Serialize, hash8083.Compute);
+        }
+
+        private bool TryProjectSkillSpecializationSourceCore(
+            XElement skill,
+            Guid resolvedSourceId,
+            CharacterCareerSkillKind kind,
+            Func<XElement[]?> resolveWeapons,
+            out CharacterCareerSkillSpecializationSource source,
+            Func<XElement, string>? serializeSpecialization,
+            Func<string, string> computeLowerSha256)
         {
             source = CharacterCareerSkillSpecializationSource.Unavailable;
             string name = ReadValue(skill, "name");
@@ -7633,7 +8566,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             var options = new List<CharacterCareerSkillSpecializationOption>();
             var rawSourceEntries = new List<string>
             {
-                skill.ToString(SaveOptions.DisableFormatting)
+                serializeSpecialization is null
+                    ? skill.ToString(SaveOptions.DisableFormatting)
+                    : serializeSpecialization(skill)
             };
             int sourceIndex = 0;
             foreach (XElement specialization in skill.Element("specs")?.Elements("spec") ?? [])
@@ -7646,14 +8581,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
 
                 string anchor = $"skills.xml#skill:{resolvedSourceId:D}/spec:{sourceIndex.ToString(CultureInfo.InvariantCulture)}";
                 options.Add(new CharacterCareerSkillSpecializationOption(
-                    ComputeSpecializationOptionIdentity(
+                    ComputeSpecializationOptionIdentityCore(
                         resolvedSourceId,
                         CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
                         specializationName,
                         anchor,
                         serializeSpecialization is null
                             ? specialization.ToString(SaveOptions.DisableFormatting)
-                            : serializeSpecialization(specialization)),
+                            : serializeSpecialization(specialization),
+                        computeLowerSha256),
                     specializationName,
                     CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
                     anchor));
@@ -7692,19 +8628,22 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                         continue;
                     }
 
-                    string rawWeapon = weapon.ToString(SaveOptions.DisableFormatting);
+                    string rawWeapon = serializeSpecialization is null
+                        ? weapon.ToString(SaveOptions.DisableFormatting)
+                        : serializeSpecialization(weapon);
                     string weaponId = Guid.TryParse(ReadValue(weapon, "id"), out Guid parsedWeaponId)
                         && parsedWeaponId != Guid.Empty
                             ? parsedWeaponId.ToString("D")
-                            : ComputeLowerSha256(rawWeapon);
+                            : computeLowerSha256(rawWeapon);
                     string anchor = $"weapons.xml#weapon:{weaponId}";
                     options.Add(new CharacterCareerSkillSpecializationOption(
-                        ComputeSpecializationOptionIdentity(
+                        ComputeSpecializationOptionIdentityCore(
                             resolvedSourceId,
                             CharacterCareerSkillSpecializationOptionKind.CombatWeapon,
                             weaponName,
                             anchor,
-                            rawWeapon),
+                            rawWeapon,
+                            computeLowerSha256),
                         weaponName,
                         CharacterCareerSkillSpecializationOptionKind.CombatWeapon,
                         anchor));
@@ -7738,12 +8677,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             return true;
         }
 
-        private sealed class SpecializationXmlWriter : IDisposable
+        private sealed class ElementXmlWriter : IDisposable
         {
             private readonly StringWriter _text = new(CultureInfo.InvariantCulture);
             private readonly XmlWriter _writer;
 
-            public SpecializationXmlWriter()
+            public ElementXmlWriter()
             {
                 _writer = XmlWriter.Create(_text, new XmlWriterSettings
                 {
@@ -7753,13 +8692,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 });
             }
 
-            public string Serialize(XElement specialization)
+            public string Serialize(XElement element)
             {
-                // Creation has already admitted the strict spec shape. Let
-                // LINQ to XML retain escaping, CDATA, comments and line endings
-                // exactly as ToString(DisableFormatting) does; no hand-written
-                // XML or shared writer across calls/threads is involved.
-                specialization.WriteTo(_writer);
+                // Keep LINQ to XML's namespace/escaping/node semantics. Each
+                // top-level element closes its namespace scope, and flushing
+                // before clearing leaves no buffered text for the next call,
+                // even when two lazy sequences use this serializer in turn.
+                // The owning operation disposes the writer and its buffers.
+                element.WriteTo(_writer);
                 _writer.Flush();
                 string result = _text.ToString();
                 _text.GetStringBuilder().Clear();
@@ -7773,6 +8713,71 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
         }
 
+        // Owned by one ProjectSkills call. Only encoding/crypto scratch is
+        // reused; every value is freshly encoded and hashed, including NULs
+        // and Encoding.UTF8's replacement fallback for invalid surrogates.
+        private sealed class SpecializationHashWriter : IDisposable
+        {
+            private readonly byte[] _utf8 = new byte[4096];
+            private readonly Encoder _encoder = Encoding.UTF8.GetEncoder();
+            private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            private bool _disposed;
+
+            public string Compute(string value)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                ArgumentNullException.ThrowIfNull(value);
+                Span<byte> digest = stackalloc byte[SHA256.HashSizeInBytes];
+                try
+                {
+                    ReadOnlySpan<char> remaining = value.AsSpan();
+                    bool completed;
+                    do
+                    {
+                        // Convert respects surrogate pairs across output-buffer
+                        // boundaries, and flushes a final unmatched surrogate.
+                        _encoder.Convert(remaining, _utf8.AsSpan(), flush: true,
+                            out int charsUsed, out int bytesUsed, out completed);
+                        _hash.AppendData(_utf8.AsSpan(0, bytesUsed));
+                        remaining = remaining[charsUsed..];
+                    }
+                    while (!completed);
+
+                    _hash.GetHashAndReset(digest);
+                    return Convert.ToHexStringLower(digest);
+                }
+                catch
+                {
+                    // A failed encode/hash cannot leave partial state available
+                    // for another value, even if its caller catches the failure.
+                    Dispose();
+                    throw;
+                }
+                finally
+                {
+                    _encoder.Reset();
+                    CryptographicOperations.ZeroMemory(_utf8);
+                    CryptographicOperations.ZeroMemory(digest);
+                }
+            }
+
+            public void Dispose()
+            {
+                if (_disposed)
+                    return;
+                _disposed = true;
+                try
+                {
+                    _hash.Dispose();
+                }
+                finally
+                {
+                    _encoder.Reset();
+                    CryptographicOperations.ZeroMemory(_utf8);
+                }
+            }
+        }
+
         private bool IsEnabledSource(string sourceBook)
             => string.IsNullOrWhiteSpace(sourceBook)
                 || _enabledSourcebooks.Count != 0 && _enabledSourcebooks.Contains(sourceBook);
@@ -7783,7 +8788,17 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             string name,
             string sourceAnchor,
             string rawSource)
-            => ComputeLowerSha256(string.Join('\0',
+            => ComputeSpecializationOptionIdentityCore(sourceSkillId, kind, name,
+                sourceAnchor, rawSource, ComputeLowerSha256);
+
+        private static string ComputeSpecializationOptionIdentityCore(
+            Guid sourceSkillId,
+            CharacterCareerSkillSpecializationOptionKind kind,
+            string name,
+            string sourceAnchor,
+            string rawSource,
+            Func<string, string> computeLowerSha256)
+            => computeLowerSha256(string.Join('\0',
                 sourceSkillId.ToString("D"),
                 kind.ToString(),
                 name,
@@ -8413,21 +9428,77 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             string name,
             out XElement? target,
             out bool ambiguousIdentity,
-            bool inspectIdentity)
+            bool inspectIdentity,
+            bool sheetMetatypeSource = false)
         {
             target = null;
             ambiguousIdentity = false;
+            if (_sourceInputs.StandaloneSettings5691 is not null && fileName == SettingsFile)
+                return TryResolveStandaloneSettings5691(fileName, containerNames, entryName, sourceId, out target);
             TargetLocator locator = TargetLocator.Create(sourceId, name);
+            // Current admission visits every catalog row. A selected directory
+            // may affect only another catalog (for example critterpowers.xml);
+            // copying the whole unamended gear/settings catalog for each lookup
+            // does not add a source observation. The existing snapshot inventory
+            // proves absence for this file and remains covered by its drift fence.
+            // Ordinary/historical readers keep their existing path.
+            bool hasTargetCustomInput6167 = _customDirectories.Count != 0;
+            if (hasTargetCustomInput6167 && UsesCurrentCatalogSemantics)
+            {
+                // Selected settings already include their ordered amendments;
+                // the full-document branch also returns before reapplying them.
+                if (_sourceInputs.HasSelectedProfile(fileName)) hasTargetCustomInput6167 = false;
+                else try
+                {
+                    // Use precisely the inventory the amendment branch reads.
+                    // Retained captures need not contain a broader *.xml query.
+                    hasTargetCustomInput6167 = _customDirectories.Any(directory =>
+                        EnumerateSourceFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                            .Any(path => IsLegacyCustomDataInputFor(path, fileName)));
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+            }
             // Enter/reuse admission still validates the live bytes and source
-            // identities. Only the copy is reduced here. Keep raw-contributor
-            // ambiguity checks and custom amendment processing on their existing
-            // full-document path; neither is replaceable by a selected row.
-            if (!inspectIdentity && _customDirectories.Count == 0
-                && ActiveSourceInputs.Value is { } inputs
-                && inputs.TryGetEffectiveTarget(CreateSourceCacheKey("effective-document", fileName),
-                    containerNames, entryName, locator, out target))
+            // identities. Only the copy is reduced here. Identity-sensitive reads
+            // retain both effective and raw-contributor ambiguity checks; actual
+            // amendments keep the existing full-document path below.
+            if (inspectIdentity && !hasTargetCustomInput6167
+                && _sourceInputs.TryGetEffectiveIdentityTarget(CreateSourceCacheKey("effective-document", fileName),
+                    containerNames, entryName, locator, out target, out ambiguousIdentity))
+            {
+                if (!TryHasAmbiguousRawTargetContributor(fileName, containerNames, entryName, locator,
+                        out bool rawAmbiguity) || rawAmbiguity)
+                    ambiguousIdentity = true;
+                if (_sourceInputs.HasSelectedProfile(fileName)) return target is not null;
                 return FilterSourcebookTarget800(fileName, ref target, entryName == "skill"
-                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills")
+                    && (!UsesCurrentCatalogSemantics || target is not null
+                        && (sheetMetatypeSource
+                            ? SheetMetatypeSourceAvailable(target)
+                            : CurrentCreationTargetAvailable1950(fileName, entryName, target)));
+            }
+            if (!inspectIdentity && !hasTargetCustomInput6167
+                && ActiveSourceInputs.Value is { } inputs
+                && (_customDirectories.Count == 0
+                    ? inputs.TryGetEffectiveTarget(CreateSourceCacheKey("effective-document", fileName),
+                        containerNames, entryName, locator, out target)
+                    // Preserve the old full-document branch's ancestor namespace
+                    // scope, while returning only a private copy of the chosen row.
+                    : inputs.TryGetEffectiveIdentityTarget(CreateSourceCacheKey("effective-document", fileName),
+                        containerNames, entryName, locator, out target, out _)))
+            {
+                if (_customDirectories.Count != 0 && _sourceInputs.HasSelectedProfile(fileName))
+                    return target is not null;
+                return FilterSourcebookTarget800(fileName, ref target, entryName == "skill"
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills")
+                    && (!UsesCurrentCatalogSemantics || target is not null
+                        && (sheetMetatypeSource
+                            ? SheetMetatypeSourceAvailable(target)
+                            : CurrentCreationTargetAvailable1950(fileName, entryName, target)));
+            }
             if (!TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
                 || document?.Root is null)
             {
@@ -8492,7 +9563,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                                 containerNames,
                                 entryName,
                                 locator,
-                                ref target))
+                                ref target, currentSemantics: _sourceInputs.Accounting?.CurrentSourceSemantics == true))
                         {
                             return false;
                         }
@@ -8507,7 +9578,11 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
 
             return FilterSourcebookTarget800(fileName, ref target, entryName == "skill"
-                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills")
+                    && (!UsesCurrentCatalogSemantics || target is not null
+                        && (sheetMetatypeSource
+                            ? SheetMetatypeSourceAvailable(target)
+                            : CurrentCreationTargetAvailable1950(fileName, entryName, target)));
         }
 
         private bool TryHasAmbiguousRawTargetContributor(
@@ -8523,13 +9598,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 string basePath = Path.Combine(_catalog.BaseDataPath, fileName);
                 if (SourceFileExists(basePath))
                 {
-                    if (!TryLoadXml(basePath, out XDocument? baseDocument)
-                        || baseDocument?.Root is null)
-                    {
-                        return false;
-                    }
-
-                    ambiguous = CountTargetRows(baseDocument.Root, containerNames, entryName, locator) > 1;
+                    if (!_sourceInputs.TryInspectRawTargetIdentity(basePath, containerNames, entryName, locator,
+                            out ambiguous)) return false;
                 }
 
                 foreach (ContentOverlayPack pack in _catalog.Overlays
@@ -8545,13 +9615,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                         string replacementPath = Path.Combine(pack.DataPath, fileName);
                         if (!SourceFileExists(replacementPath))
                             continue;
-                        if (!TryLoadXml(replacementPath, out XDocument? replacement)
-                            || replacement?.Root is null)
-                        {
-                            return false;
-                        }
-
-                        ambiguous = CountTargetRows(replacement.Root, containerNames, entryName, locator) > 1;
+                        if (!_sourceInputs.TryInspectRawTargetIdentity(replacementPath, containerNames, entryName, locator,
+                                out ambiguous)) return false;
                         continue;
                     }
 
@@ -8571,14 +9636,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                             continue;
                         }
 
-                        if (!TryLoadXml(fragmentPath, out XDocument? fragment)
-                            || fragment?.Root is null)
-                        {
-                            return false;
-                        }
-
-                        if (CountTargetRows(fragment.Root, containerNames, entryName, locator) > 1)
-                            ambiguous = true;
+                        if (!_sourceInputs.TryInspectRawTargetIdentity(fragmentPath, containerNames, entryName, locator,
+                                out bool fragmentAmbiguity)) return false;
+                        if (fragmentAmbiguity) ambiguous = true;
                     }
                 }
 
@@ -8604,7 +9664,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             if (_customDirectories.Count != 0 || _catalog.Overlays.Any(pack => pack.Enabled))
                 return TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out qualities);
             var references = (metatypes.Root?.Element("metatypes")?.Elements("metatype") ?? [])
-                .Where(row => row.Element("name")?.Value is "Elf" or "Ork" or "Dwarf")
+                .Where(row => row.Element("name")?.Value is "Elf" or "Ork")
                 .SelectMany(row => row.Elements("qualities").Elements().Elements("quality"))
                 .Select(row => row.Value.Trim()).ToHashSet(StringComparer.Ordinal);
             if (!_sourceInputs.TryLoadQualityReferences(Path.Combine(_catalog.BaseDataPath, "qualities.xml"),
@@ -8623,7 +9683,45 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             out XElement[] targets)
         {
             targets = [];
-            if (!TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
+            // The effective snapshot already includes catalog overlays. Selected
+            // legacy custom directories still need the full amendment path below.
+            // Entry/exit admission and per-call sourcebook filtering are unchanged.
+            if (_customDirectories.Count == 0 && ActiveSourceInputs.Value is { } inputs
+                && inputs.TryGetEffectiveTargets1250(CreateSourceCacheKey("effective-document", fileName),
+                    containerNames, entryName, out targets))
+                return FilterSourcebookTargets800(fileName, ref targets, entryName == "skill"
+                    && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
+            // With no relevant selected input, independent current callers use
+            // the same pure locator selection for every catalog. Copy only final
+            // winners from the warm private tree. Keep complex container shapes
+            // and raw/standalone settings on the original path.
+            // Named sheet callers still re-enter the canonical identity resolver.
+            if (_customDirectories.Count != 0 && UsesCurrentCatalogSemantics
+                && !_sourceInputs.HasSelectedProfile(fileName)
+                && _sourceInputs.Accounting?.DeferredRecursiveAncestors3000 == true
+                && fileName != SettingsFile
+                && containerNames.Count == 1
+                && ReferenceEquals(ActiveSourceInputs.Value, _sourceInputs))
+            {
+                try
+                {
+                    if (_sourceInputs.TryGetUnamendedSelectedCatalogTargets6294(
+                        CreateSourceCacheKey("effective-document", fileName), fileName, _customDirectories,
+                        containerNames[0], entryName, out targets))
+                    {
+                        // No relevant inputs means TryCreate would return null on
+                        // the original path. Reset before sourcebook filtering too.
+                        if (fileName == "gear.xml") _currentGearAmendmentTrace = null;
+                        return FilterSourcebookTargets800(fileName, ref targets, entryName == "skill"
+                            && containerNames[0] is "skills" or "knowledgeskills");
+                    }
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+            }
+            if (!TryLoadCurrentCatalogBaseDocument(fileName, out XDocument? document)
                 || document?.Root is null)
             {
                 return false;
@@ -8651,7 +9749,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
             var locators = new List<TargetLocator>();
             AddLocators(document.Root, containerNames, entryName, locators);
-            var customInputs = new List<(string Prefix, XElement Root)>();
+            var customInputs = new List<(string Path, string Prefix, XElement Root)>();
             foreach (CustomDirectory directory in _customDirectories)
             {
                 string[] relevantFiles;
@@ -8688,18 +9786,46 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                             return false;
                         }
                         AddLocators(customDocument.Root, containerNames, entryName, locators);
-                        customInputs.Add((prefix, customDocument.Root));
+                        customInputs.Add((path, prefix, customDocument.Root));
                     }
                 }
             }
 
+            CurrentGearAmendmentTrace? gearTrace = fileName == "gear.xml" && entryName == "gear"
+                && containerNames.Count == 1 && containerNames[0] == "gears"
+                && _sourceInputs.Accounting is { CaptureCurrentGear: true } gearAccounting
+                    ? CurrentGearAmendmentTrace.TryCreate(gearAccounting, customInputs) : null;
+            bool independentLifestyleTargets = fileName == "lifestyles.xml" && HasLifestyleMechanics2684;
+            bool independentTargets = independentLifestyleTargets
+                || _sourceInputs.Accounting?.DeferredRecursiveAncestors3000 == true
+                // V8 Career metatypes must match the canonical catalog trace:
+                // each alias starts from the same unamended row. Keep explicit
+                // older readers and every declared source operation unchanged.
+                || UsesCareerCondition5497 && fileName == "metatypes.xml" && entryName == "metatype"
+                    && containerNames.Count == 1 && containerNames[0] == "metatypes";
+            // The loader returned an invocation-owned document. With the full
+            // selected-directory inventory observed and no inputs to apply, keep
+            // its rows attached until alias resolution and final dedup complete.
+            bool transferIndependentTargets = independentTargets && customInputs.Count == 0;
             var resolved = new Dictionary<string, XElement>(StringComparer.Ordinal);
+            CatalogTargetLookup? baseLookup = new(document.Root, containerNames, entryName);
             foreach (TargetLocator locator in locators.Distinct()
                          .OrderBy(locator => locator.SourceId?.ToString("D") ?? string.Empty, StringComparer.Ordinal)
                          .ThenBy(locator => locator.Name, StringComparer.Ordinal))
             {
-                XElement? target = FindTarget(document.Root, containerNames, entryName, locator);
-                foreach ((string prefix, XElement customRoot) in customInputs)
+                XElement? target = baseLookup is null
+                    ? FindTarget(document.Root, containerNames, entryName, locator)
+                    : baseLookup.Find(locator);
+                XElement? baseTarget = target;
+                string baseId = ReadValue(baseTarget, "id"), baseName = ReadValue(baseTarget, "name");
+                // A GUID/name locator and an ID-only amendment locator can refer to
+                // the same base row. Native/V7 lifestyle and deferred-import V2 projections start
+                // from that unamended row, so APPEND is not replayed through aliases.
+                // Keep every source node and ordered operation; legacy profiles retain
+                // their in-place identity behavior and the lookup invalidation below.
+                if (independentTargets && !transferIndependentTargets && target is not null)
+                    target = new XElement(target);
+                foreach ((string _, string prefix, XElement customRoot) in customInputs)
                 {
                     if (!TryApplyCustomFile(
                             customRoot,
@@ -8707,11 +9833,19 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                             containerNames,
                             entryName,
                             locator,
-                            ref target))
+                            ref target, currentGearAccounting: gearTrace,
+                            currentSemantics: _sourceInputs.Accounting?.CurrentSourceSemantics == true))
                     {
                         return false;
                     }
                 }
+                // Legacy amendments can mutate the original base row in place,
+                // even before replacing/removing the local target. If its lookup
+                // identity drifted, subsequent locators must use the live scan.
+                if (baseTarget is not null
+                    && (!string.Equals(baseId, ReadValue(baseTarget, "id"), StringComparison.Ordinal)
+                        || !string.Equals(baseName, ReadValue(baseTarget, "name"), StringComparison.Ordinal)))
+                    baseLookup = null;
                 if (target is null)
                 {
                     continue;
@@ -8732,6 +9866,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => pair.Value)
                 .ToArray();
+            // Without amendments a row has one stable key, so aliases cannot
+            // survive as shared output rows. Detach only the final winners,
+            // preserving parentless ownership before sourcebook filtering.
+            if (transferIndependentTargets)
+                foreach (XElement target in targets) target.Remove();
+            if (fileName == "gear.xml")
+                _currentGearAmendmentTrace = gearTrace is not null && gearTrace.MatchesTargets(targets)
+                    ? gearTrace : null;
             return FilterSourcebookTargets800(fileName, ref targets, entryName == "skill"
                     && containerNames.Count == 1 && containerNames[0] is "skills" or "knowledgeskills");
         }
@@ -8969,6 +10111,56 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 : new TargetLocator(null, name?.Trim() ?? string.Empty);
     }
 
+    // Local to one resolved document and operation. Keep GUID and name aliases
+    // separate: GUID locators never fall back to names, while name-only locators
+    // also match named rows that have GUIDs. Counts retain every duplicate.
+    private sealed class CatalogTargetLookup
+    {
+        private readonly Dictionary<Guid, (XElement? First, int Count)> _ids = [];
+        private readonly Dictionary<string, (XElement? First, int Count)> _names = new(StringComparer.Ordinal);
+        public long RowVisitCount { get; private set; }
+
+        public CatalogTargetLookup(XElement root, IReadOnlyList<string> containerNames, string entryName)
+        {
+            foreach (string containerName in containerNames)
+            {
+                bool firstContainer = true;
+                foreach (XElement container in root.Elements(containerName))
+                {
+                    foreach (XElement entry in container.Elements(entryName))
+                    {
+                        RowVisitCount++;
+                        if (Guid.TryParse(ReadValue(entry, "id"), out Guid id))
+                            Add(_ids, id, entry, firstContainer);
+                        string name = ReadValue(entry, "name");
+                        if (name.Length != 0) Add(_names, name, entry, firstContainer);
+                    }
+                    firstContainer = false;
+                }
+            }
+        }
+
+        private static void Add<TKey>(Dictionary<TKey, (XElement? First, int Count)> entries,
+            TKey key, XElement entry, bool firstContainer) where TKey : notnull
+        {
+            entries.TryGetValue(key, out var previous);
+            // CountTargetRows visits every container, but FindTarget visits only
+            // the first container of each requested name. Preserve both rules.
+            entries[key] = (previous.First ?? (firstContainer ? entry : null), checked(previous.Count + 1));
+        }
+
+        private (XElement? First, int Count) Match(TargetLocator locator)
+        {
+            if (locator.SourceId is Guid id)
+                return _ids.TryGetValue(id, out var identified) ? identified : default;
+            return !string.IsNullOrEmpty(locator.Name) && _names.TryGetValue(locator.Name, out var named)
+                ? named : default;
+        }
+
+        public int Count(TargetLocator locator) => Match(locator).Count;
+        public XElement? Find(TargetLocator locator) => Match(locator).First;
+    }
+
     private static XElement? FindTarget(
         XElement root,
         IReadOnlyList<string> containerNames,
@@ -8999,7 +10191,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         TargetLocator locator,
         ref XElement? target,
         XElement? boundIdentity = null,
-        Func<XElement?, bool>? validateTarget = null, ProfileFileAccounting? accounting = null)
+        Func<XElement?, bool>? validateTarget = null, ProfileFileAccounting? accounting = null,
+        CurrentGearAmendmentTrace? currentGearAccounting = null, bool currentSemantics = false)
     {
         if (validateTarget is not null && !validateTarget(target)) return false;
         foreach (XElement entry in containerNames.SelectMany(containerName =>
@@ -9008,9 +10201,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             int? entryOperation = accounting?.BeginEntry(prefix, entry, target);
             if (string.Equals(prefix, "override_", StringComparison.OrdinalIgnoreCase))
             {
-                if (target is not null && AmendmentMatchesTarget(entry, boundIdentity ?? target, locator, out bool exact) && exact)
+                if (target is not null && AmendmentMatchesTarget(entry, boundIdentity ?? target, locator,
+                        out bool exact, currentSemantics) && exact)
                 {
-                    target = StripAmendAttributes(new XElement(entry));
+                    if (currentSemantics)
+                        target.ReplaceNodes(new XElement(entry).Nodes());
+                    else target = StripAmendAttributes(new XElement(entry));
                 }
                 accounting?.EndEntry(entryOperation, target);
                 if (validateTarget is not null && !validateTarget(target)) return false;
@@ -9028,7 +10224,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 continue;
             }
 
-            bool matches = AmendmentMatchesTarget(entry, boundIdentity ?? target, locator, out bool amendmentExact);
+            bool matches = AmendmentMatchesTarget(entry, boundIdentity ?? target, locator, out bool amendmentExact, currentSemantics);
             accounting?.Selected(entry, matches, amendmentExact);
             if (!matches)
             {
@@ -9041,9 +10237,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
 
             string operation = ReadOperation(entry);
+            // The optional observer sees the actual target before and after the
+            // ordinary merger. It cannot replace or change the mutation.
+            using var currentGearObservation = currentGearAccounting?.Observe(entry, target);
             switch (operation)
             {
                 case "ADDNODE":
+                    // The single-target representation cannot preserve duplicate
+                    // whole entries. Do not silently ignore a declared addition.
+                    if (currentSemantics) return false;
                     if (target is null && LocatorMatches(entry, locator))
                     {
                         target = StripAmendAttributes(new XElement(entry));
@@ -9053,7 +10255,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     target = null;
                     break;
                 case "REPLACE":
-                    target = StripAmendAttributes(new XElement(entry));
+                    if (!currentSemantics || target is not null || ParseBool(entry.Attribute("addifnotfound")?.Value))
+                        target = StripAmendAttributes(new XElement(entry));
                     break;
                 case "":
                 case "RECURSE":
@@ -9067,7 +10270,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     }
                     XElement currentTarget = target;
                     if (!TryMergeAmendment(target, entry,
-                        validateTarget is null ? null : () => validateTarget(currentTarget), accounting))
+                        validateTarget is null ? null : () => validateTarget(currentTarget), accounting, currentSemantics))
                     {
                         return false;
                     }
@@ -9086,7 +10289,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         XElement amendment,
         XElement? target,
         TargetLocator locator,
-        out bool exact)
+        out bool exact, bool currentSemantics = false)
     {
         exact = true;
         string? xpathFilter = amendment.Attribute("xpathfilter")?.Value;
@@ -9119,7 +10322,11 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             Guid? targetId = target is not null && Guid.TryParse(ReadValue(target, "id"), out Guid parsedTargetId)
                 ? parsedTargetId
                 : locator.SourceId;
-            return targetId == amendmentId;
+            if (targetId != amendmentId) return false;
+            return !currentSemantics || amendment.Elements()
+                .Where(child => ParseBool(child.Attribute("isidnode")?.Value))
+                .All(identifier => target is not null && string.Equals(
+                    ReadValue(target, identifier.Name.LocalName), identifier.Value.Trim(), StringComparison.Ordinal));
         }
 
         XElement? name = amendment.Element("name");
@@ -9150,11 +10357,13 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
     }
 
     private static bool TryMergeAmendment(XElement target, XElement amendment, Func<bool>? validateMutation = null,
-        ProfileFileAccounting? accounting = null)
+        ProfileFileAccounting? accounting = null, bool currentSemantics = false)
     {
+        if (currentSemantics && ActiveSourceInputs.Value?.Accounting?.DeferredRecursiveAncestors3000 == true)
+            return TryMergeDeferredAncestors3000(target, amendment, validateMutation, accounting);
         foreach (XElement child in amendment.Elements())
         {
-            if (!TryApplyAmendmentNode(target, child, validateMutation, accounting))
+            if (!TryApplyAmendmentNode(target, child, validateMutation, accounting, currentSemantics))
             {
                 return false;
             }
@@ -9163,8 +10372,137 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         return true;
     }
 
+    // Opt-in import V2 only. XmlManager.AmendNodeChildren defers shallow ancestors,
+    // flushes them only for a real insertion, and resolves the path again for each
+    // descendant. Keep selectors immutable: neither retained XML nor input order changes.
+    private static bool TryMergeDeferredAncestors3000(XElement target, XElement amendment,
+        Func<bool>? validateMutation, ProfileFileAccounting? accounting)
+    {
+        var pending = new List<(XElement Node, XElement[] ParentPath)>();
+
+        bool Reject(string code, XElement node, string reason)
+        {
+            ReportCompatibilityDiagnostics([RetainedCharacterRuleSourceInputs.CompatibilityDiagnostic(
+                code, "amend", null, node, reason)]);
+            return false;
+        }
+
+        static bool HasFilter(XElement node) => node.Element("id") is not null
+            || node.Element("name") is { } name && (ReadOperation(node) == "REMOVE"
+                || node.Elements().Any(child => child != name))
+            || node.Elements().Any(child => ParseBool(child.Attribute("isidnode")?.Value));
+
+        static List<XElement> Select(XElement parent, XElement node)
+        {
+            IEnumerable<XElement> matches = parent.Elements(node.Name);
+            if (node.Element("id") is { } id)
+                matches = matches.Where(row => ReadValue(row, "id") == id.Value.Trim());
+            else if (node.Element("name") is { } name && (ReadOperation(node) == "REMOVE"
+                || node.Elements().Any(child => child != name)))
+                matches = matches.Where(row => ReadValue(row, "name") == name.Value.Trim());
+            foreach (var identifier in node.Elements().Where(child => ParseBool(child.Attribute("isidnode")?.Value)))
+                matches = matches.Where(row => ReadValue(row, identifier.Name.LocalName) == identifier.Value.Trim());
+            return matches.Take(2).ToList();
+        }
+
+        bool Resolve(XElement[] path, out XElement? parent)
+        {
+            parent = target;
+            foreach (var step in path)
+            {
+                var matches = Select(parent, step);
+                if (matches.Count > 1) return Reject("ambiguous-amend-target", step,
+                    "Deferred ancestor interpretation requires an unambiguous target path.");
+                parent = matches.SingleOrDefault();
+                if (parent is null) break;
+            }
+            return true;
+        }
+
+        bool Apply(XElement node, XElement[] parentPath)
+        {
+            string operation = ReadOperation(node);
+            if (node.Attribute("xpathfilter") is not null)
+                return Reject("unsupported-xpath", node, "Deferred ancestor interpretation does not implement XPath filters.");
+            if (operation is not ("" or "RECURSE" or "REMOVE" or "REPLACE" or "APPEND" or "ADDNODE"))
+                return Reject("unsupported-operation", node, "The operation is outside the deferred ancestor profile.");
+            if (!Resolve(parentPath, out var parent)) return false;
+            var matches = parent is null ? new List<XElement>() : Select(parent, node);
+            if (matches.Count > 1) return Reject("ambiguous-amend-target", node,
+                "Deferred ancestor interpretation requires an unambiguous target.");
+            bool children = node.HasElements;
+            if (operation == "" || operation == "RECURSE" && !children)
+                operation = children ? "RECURSE" : matches.Count == 0 ? "APPEND" : "REPLACE";
+            bool add = ParseBool(node.Attribute("addifnotfound")?.Value);
+            using var observed = accounting?.Observe(parent ?? target, node, operation, matches);
+            using var catalogObserved = ActiveCurrentCatalogTrace.Value?.ObserveNode(parent ?? target, node, operation, matches.Count);
+
+            // Unlike APPEND, legacy ADDNODE never flushes deferred ancestors.
+            if (operation == "ADDNODE")
+            {
+                if (parent is null) return true;
+                parent.Add(StripAmendAttributes(new XElement(node)));
+                return validateMutation?.Invoke() ?? true;
+            }
+            if (operation == "RECURSE" && (matches.Count != 0 || !add))
+            {
+                var frame = (Node: node, ParentPath: parentPath);
+                bool defer = pending.Count != 0 || matches.Count == 0;
+                if (defer) pending.Add(frame);
+                try
+                {
+                    foreach (var child in node.Elements())
+                        if (!Apply(child, [.. parentPath, node])) return false;
+                    return true;
+                }
+                finally { if (defer) pending.Remove(frame); }
+            }
+            if (matches.SingleOrDefault() is { } candidate)
+            {
+                switch (operation)
+                {
+                    case "REMOVE": candidate.Remove(); break;
+                    case "REPLACE": candidate.ReplaceWith(StripAmendAttributes(new XElement(node))); break;
+                    case "APPEND":
+                        if (children) candidate.Add(node.Nodes().Select(CloneCleanNode));
+                        else candidate.Value += node.Value;
+                        break;
+                    default: return false;
+                }
+                return validateMutation?.Invoke() ?? true;
+            }
+            if (operation != "APPEND" && !(add && (operation is "RECURSE" or "REPLACE"))) return true;
+
+            // A filtered leaf cannot cause ancestor creation in XmlManager. A
+            // filtered *ancestor* can create an unreachable empty shell there;
+            // that shape remains explicitly unsupported instead of claiming lossless import.
+            if (pending.Count != 0 && !HasFilter(node))
+            {
+                if (pending.Any(frame => HasFilter(frame.Node)))
+                    return Reject("missing-filtered-recursive-parent-unsupported", node,
+                        "Filtered missing ancestors cannot be admitted as a lossless deferred insertion.");
+                foreach (var frame in pending)
+                {
+                    if (!Resolve(frame.ParentPath, out var ancestorParent)) return false;
+                    if (ancestorParent is null) continue;
+                    ancestorParent.Add(StripAmendAttributes(new XElement(frame.Node.Name, frame.Node.Attributes())));
+                    if (validateMutation is not null && !validateMutation()) return false;
+                }
+                pending.Clear();
+            }
+            if (!Resolve(parentPath, out parent)) return false;
+            if (parent is null) return true;
+            parent.Add(StripAmendAttributes(new XElement(node)));
+            return validateMutation?.Invoke() ?? true;
+        }
+
+        foreach (var child in amendment.Elements())
+            if (!Apply(child, [])) return false;
+        return true;
+    }
+
     private static bool TryApplyAmendmentNode(XElement targetParent, XElement amendment, Func<bool>? validateMutation = null,
-        ProfileFileAccounting? accounting = null)
+        ProfileFileAccounting? accounting = null, bool currentSemantics = false)
     {
         string operation = ReadOperation(amendment);
         string? xpathFilter = amendment.Attribute("xpathfilter")?.Value;
@@ -9213,11 +10551,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         }
 
         bool hasElementChildren = amendment.Elements().Any();
-        if (string.IsNullOrEmpty(operation))
+        if (string.IsNullOrEmpty(operation) || currentSemantics && operation == "RECURSE" && !hasElementChildren)
         {
             operation = hasElementChildren ? "RECURSE" : candidates.Count == 0 ? "APPEND" : "REPLACE";
         }
         using var observed = accounting?.Observe(targetParent, amendment, operation, candidates);
+        using var currentCatalogObserved = currentSemantics
+            ? ActiveCurrentCatalogTrace.Value?.ObserveNode(targetParent, amendment, operation, candidates.Count) : null;
+
 
         if (string.Equals(operation, "ADDNODE", StringComparison.Ordinal))
         {
@@ -9228,6 +10569,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
 
         if (candidates.Count == 0)
         {
+            if (currentSemantics && operation == "REMOVE") return true;
+            // Correct legacy behavior defers ancestor creation while evaluating
+            // descendants. Until that representation exists, do not copy a
+            // missing recursive subtree and accidentally create removed nodes.
+            if (currentSemantics && operation == "RECURSE" && hasElementChildren
+                && !ParseBool(amendment.Attribute("addifnotfound")?.Value)) return false;
             if (operation is "APPEND"
                 || ParseBool(amendment.Attribute("addifnotfound")?.Value)
                 || operation == "RECURSE")
@@ -9259,7 +10606,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                     }
                     break;
                 case "RECURSE":
-                    if (!TryMergeAmendment(candidate, amendment, validateMutation, accounting))
+                    if (!TryMergeAmendment(candidate, amendment, validateMutation, accounting, currentSemantics))
                     {
                         return false;
                     }
@@ -9321,15 +10668,27 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         out XDocument? document)
     {
         string cacheKey = CreateSourceCacheKey("effective-document", fileName);
-        if (ActiveSourceInputs.Value is { } cachedInputs
-            && cachedInputs.TryGetEffectiveDocument(cacheKey, out document))
+        if (ActiveSourceInputs.Value is { } cachedInputs)
         {
-            return document?.Root is not null;
+            if (cachedInputs.TryGetEffectiveDocument(cacheKey, out document))
+                return document?.Root is not null;
+            return cachedInputs.TryBuildEffectiveDocument6236(catalog, fileName, cacheKey, out document);
         }
 
+        return TryBuildEffectiveDocumentCore6236(catalog, fileName, TryLoadXml, out document);
+    }
+
+    private delegate bool EffectiveXmlLoader6236(string path, out XDocument? document);
+
+    // This builder must not mutate a loader's input: retained callers lend their
+    // private raw snapshots. All observations and overlay ordering stay here;
+    // only the snapshot owner may retain the result before returning a copy.
+    private static bool TryBuildEffectiveDocumentCore6236(ContentOverlayCatalog catalog, string fileName,
+        EffectiveXmlLoader6236 loadXml, out XDocument? document)
+    {
         document = null;
         string basePath = Path.Combine(catalog.BaseDataPath, fileName);
-        if (SourceFileExists(basePath) && !TryLoadXml(basePath, out document))
+        if (SourceFileExists(basePath) && !loadXml(basePath, out document))
         {
             return false;
         }
@@ -9347,7 +10706,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
             {
                 string replacementPath = Path.Combine(pack.DataPath, fileName);
-                if (SourceFileExists(replacementPath) && !TryLoadXml(replacementPath, out document))
+                if (SourceFileExists(replacementPath) && !loadXml(replacementPath, out document))
                 {
                     return false;
                 }
@@ -9366,7 +10725,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
                 {
                     continue;
                 }
-                if (!TryLoadXml(fragmentPath, out XDocument? fragment) || fragment?.Root is null)
+                if (!loadXml(fragmentPath, out XDocument? fragment) || fragment?.Root is null)
                 {
                     return false;
                 }
@@ -9379,7 +10738,6 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         if (document?.Root is null)
             return false;
 
-        ActiveSourceInputs.Value?.SetEffectiveDocument(cacheKey, document);
         return true;
     }
 
@@ -9387,7 +10745,16 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
         ContentOverlayCatalog catalog,
         string fileName,
         out string digest)
+        => TryComputeEffectiveInputDigest(catalog, fileName, out digest, out _, requireKnownAbsence: false);
+
+    private static bool TryComputeEffectiveInputDigest(
+        ContentOverlayCatalog catalog,
+        string fileName,
+        out string digest,
+        out bool inputsAbsent,
+        bool requireKnownAbsence)
     {
+        inputsAbsent = false;
         string cacheKey = CreateSourceCacheKey("effective-input-digest", fileName);
         if (ActiveSourceInputs.Value is { } cachedInputs
             && cachedInputs.TryGetDigest(cacheKey, out digest))
@@ -9402,20 +10769,29 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             string basePath = Path.Combine(catalog.BaseDataPath, fileName);
             if (SourceFileExists(basePath))
                 inputs.Add(("base", basePath));
+            else if (requireKnownAbsence)
+                RequireLivePathAbsent5836(basePath);
 
             foreach (ContentOverlayPack pack in catalog.Overlays
                          .Where(pack => pack.Enabled)
                          .OrderBy(pack => pack.Priority)
                          .ThenBy(pack => pack.Id, StringComparer.Ordinal))
             {
-                if (string.IsNullOrWhiteSpace(pack.DataPath) || !SourceDirectoryExists(pack.DataPath))
+                if (string.IsNullOrWhiteSpace(pack.DataPath))
                     continue;
+                if (!SourceDirectoryExists(pack.DataPath))
+                {
+                    if (requireKnownAbsence) RequireLivePathAbsent5836(pack.DataPath);
+                    continue;
+                }
 
                 if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
                 {
                     string replacementPath = Path.Combine(pack.DataPath, fileName);
                     if (SourceFileExists(replacementPath))
                         inputs.Add(($"overlay:{pack.Id}:replace", replacementPath));
+                    else if (requireKnownAbsence)
+                        RequireLivePathAbsent5836(replacementPath);
                     continue;
                 }
 
@@ -9438,7 +10814,12 @@ public sealed partial class FileSystemCharacterSourceDataResolver : ICharacterSo
             }
 
             if (inputs.Count == 0)
+            {
+                // Existence/inventory facts were observed, but there are no bytes
+                // to digest. Policy and read failures leave inputsAbsent false.
+                inputsAbsent = true;
                 return false;
+            }
 
             using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             foreach ((string authorityId, string path) in inputs)

@@ -11,7 +11,7 @@ namespace Chummer.Contracts.Characters;
 public static class CharacterCreationLifestylesRules
 {
     private const int MaximumSelections = 4096;
-    internal const int MaximumTextLength = 32_767;
+    public const int MaximumTextLength = 32_767;
     private const int MaximumIncrements = 10_000;
     private const int MaximumRoommates = 100;
     private const int MaximumAspectIncrease = 100;
@@ -67,6 +67,7 @@ public static class CharacterCreationLifestylesRules
     {
         if (authority is null
             || !authority.IsAuthoritative
+            || !CharacterCreationLifestyleMechanicsRules.IsValid(authority)
             || !string.Equals(
                 authority.Schema,
                 CharacterCreationLifestylesSchemas.AuthorityV1,
@@ -203,11 +204,11 @@ public static class CharacterCreationLifestylesRules
                 || selection.InstanceId == Guid.Empty
                 || !identities.Add(selection.InstanceId)
                 || string.IsNullOrWhiteSpace(selection.OptionId)
-                || !IsValidText(selection.Extra)
                 || !qualityCatalog.TryGetValue(
                     selection.OptionId,
                     out CharacterCreationLifestyleQualityCatalogOption? option)
-                || !IsValidQualityOption(option))
+                || !IsValidQualityOption(option)
+                || !IsValidSelectionExtra(selection, option, authority.Mechanics is not null))
             {
                 findings.Add(CharacterCreationLifestylesBlockers.InvalidOption);
                 continue;
@@ -236,6 +237,11 @@ public static class CharacterCreationLifestylesRules
                 findings.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
                 continue;
             }
+            if (selection.TextSelection is not null && (authority.Mechanics is null || option.Mechanics?.Prompt is null))
+            {
+                findings.Add(CharacterCreationLifestyleMechanicsRules.TextSelectionInvalid);
+                continue;
+            }
             if (option.SelectionSemantics is { } semantics
                 && (semantics.RequiresText && string.IsNullOrWhiteSpace(selection.Extra)
                     || !semantics.AllowMultiple && configuration.Qualities.Count(item => item.OptionId == selection.OptionId) > 1))
@@ -254,12 +260,35 @@ public static class CharacterCreationLifestylesRules
             selected.Add(new SelectedQuality(selection, option, canBeFreeByLifestyle));
         }
 
-        int[] actualAspectMaximums =
-        [
-            SafeAspectMaximum(baseOption.MaximumArea, selected.Sum(item => item.Option.AreaMaximumModifier), findings),
-            SafeAspectMaximum(baseOption.MaximumComforts, selected.Sum(item => item.Option.ComfortsMaximumModifier), findings),
-            SafeAspectMaximum(baseOption.MaximumSecurity, selected.Sum(item => item.Option.SecurityMaximumModifier), findings)
-        ];
+        if (authority.Mechanics is not null)
+            findings.AddRange(CharacterCreationLifestyleMechanicsRules.ValidateSelection(configuration, baseOption, authority));
+
+        int[] actualAspectMaximums = [0, 0, 0];
+        if (authority.Mechanics is null)
+        {
+            actualAspectMaximums =
+            [
+                SafeAspectMaximum(baseOption.MaximumArea, selected.Sum(item => item.Option.AreaMaximumModifier), findings),
+                SafeAspectMaximum(baseOption.MaximumComforts, selected.Sum(item => item.Option.ComfortsMaximumModifier), findings),
+                SafeAspectMaximum(baseOption.MaximumSecurity, selected.Sum(item => item.Option.SecurityMaximumModifier), findings)
+            ];
+        }
+        CharacterCreationLifestyleAspectProjection? aspects = null;
+        if (authority.Mechanics is not null)
+        {
+            try
+            {
+                int area = checked(baseOption.BaseArea + selected.Where(item => !item.Selection.IsBuiltIn).Sum(item => item.Option.Area));
+                int comforts = checked(baseOption.BaseComforts + selected.Where(item => !item.Selection.IsBuiltIn).Sum(item => item.Option.Comforts));
+                int security = checked(baseOption.BaseSecurity + selected.Where(item => !item.Selection.IsBuiltIn).Sum(item => item.Option.Security));
+                actualAspectMaximums[0] = Math.Max(checked(baseOption.MaximumArea + selected.Where(item => !item.Selection.IsBuiltIn).Sum(item => item.Option.AreaMaximumModifier) - area), 0);
+                actualAspectMaximums[1] = Math.Max(checked(baseOption.MaximumComforts + selected.Where(item => !item.Selection.IsBuiltIn).Sum(item => item.Option.ComfortsMaximumModifier) - comforts), 0);
+                actualAspectMaximums[2] = Math.Max(checked(baseOption.MaximumSecurity + selected.Where(item => !item.Selection.IsBuiltIn).Sum(item => item.Option.SecurityMaximumModifier) - security), 0);
+                aspects = new(checked(area + configuration.Area), checked(comforts + configuration.Comforts),
+                    checked(security + configuration.Security), actualAspectMaximums[0], actualAspectMaximums[1], actualAspectMaximums[2]);
+            }
+            catch (OverflowException) { findings.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable); }
+        }
         if (configuration.Area > actualAspectMaximums[0]
             || configuration.Comforts > actualAspectMaximums[1]
             || configuration.Security > actualAspectMaximums[2]
@@ -331,7 +360,7 @@ public static class CharacterCreationLifestylesRules
             baseOption.Page,
             economics,
             anchors,
-            string.Empty) { Location = location };
+            string.Empty) { Location = location, Aspects = aspects };
         projection = candidate with { LifestyleDigest = ComputeProjectionDigest(candidate) };
         blockers = normalized;
         return normalized.Length == 0;
@@ -624,10 +653,20 @@ public static class CharacterCreationLifestylesRules
         && IsValidText(configuration.Borough)
         && configuration.Qualities is { Count: <= MaximumSelections };
 
-    private static bool IsValidText(string? value) =>
+    private static bool IsValidSelectionExtra(CharacterCreationLifestyleQualitySelection selection,
+        CharacterCreationLifestyleQualityCatalogOption option, bool mechanics)
+        // V7 prompts bind exact source labels and retain custom text byte-for-byte.
+        // ValidateSelection still checks the source choice ID/label or AllowCustom.
+        => mechanics && option.Mechanics?.Prompt is not null
+            && selection.TextSelection is { Kind: "catalogue" or "custom" }
+            ? !string.IsNullOrWhiteSpace(selection.Extra)
+                && IsValidText(selection.Extra, preserveWhitespace: true)
+            : IsValidText(selection.Extra);
+
+    private static bool IsValidText(string? value, bool preserveWhitespace = false) =>
         value is not null
         && value.Length <= MaximumTextLength
-        && string.Equals(value, value.Trim(), StringComparison.Ordinal)
+        && (preserveWhitespace || string.Equals(value, value.Trim(), StringComparison.Ordinal))
         && value.All(character => !char.IsControl(character)
             || character is '\r' or '\n' or '\t');
 

@@ -17,6 +17,22 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
         byte[]? sourceBytes, string catalogRawXmlDigest, CharacterCreationFoundationSkillSourceAuthority? skills,
         CharacterCreationFoundationQualitySourceAuthority? qualities,
         CharacterCreationFoundationQualityLevelSourceAuthority? levels, string defaultNotesColor = "Chocolate")
+        => BuildSequenceCore1958(rulesetId, characterXml, draft, sequence, catalog, sourceBytes, catalogRawXmlDigest, skills, qualities, levels, defaultNotesColor, requireFinished: true);
+
+    internal static CharacterCreationFoundationSequenceWritePlanResult ObserveCurrentSequence1958(
+        string rulesetId, string characterXml, CharacterCreationFoundationDraftLedger draft,
+        CharacterCreationLifeModuleSequenceCompilation sequence, IReadOnlyList<LifeModuleLegalOptionDto> catalog,
+        byte[]? sourceBytes, string catalogRawXmlDigest, CharacterCreationFoundationSkillSourceAuthority? skills,
+        CharacterCreationFoundationQualitySourceAuthority? qualities,
+        CharacterCreationFoundationQualityLevelSourceAuthority? levels, string defaultNotesColor = "Chocolate")
+        => BuildSequenceCore1958(rulesetId, characterXml, draft, sequence, catalog, sourceBytes, catalogRawXmlDigest, skills, qualities, levels, defaultNotesColor, requireFinished: false);
+
+    private static CharacterCreationFoundationSequenceWritePlanResult BuildSequenceCore1958(
+        string rulesetId, string characterXml, CharacterCreationFoundationDraftLedger draft,
+        CharacterCreationLifeModuleSequenceCompilation sequence, IReadOnlyList<LifeModuleLegalOptionDto> catalog,
+        byte[]? sourceBytes, string catalogRawXmlDigest, CharacterCreationFoundationSkillSourceAuthority? skills,
+        CharacterCreationFoundationQualitySourceAuthority? qualities,
+        CharacterCreationFoundationQualityLevelSourceAuthority? levels, string defaultNotesColor, bool requireFinished)
     {
         var blockers = new List<string>();
         try
@@ -31,17 +47,28 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                 || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(sequence.SourceContextDigest)
                 || CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(sequence with { CompilationDigest = string.Empty }) != sequence.CompilationDigest)
                 return Failure(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
-            if (!draft.ModuleSelectionFinished || !sequence.SelectionFinished
-                || sequence.Occurrences.Count != 1 + (draft.AdditionalModules?.Count ?? 0)
-                || !LifeModuleJourneyStageOrders.Required.All(stage => sequence.Occurrences.Any(row => row.StageOrder == stage)))
+            if (sequence.Occurrences.Count != 1 + (draft.AdditionalModules?.Count ?? 0)
+                || sequence.SelectionFinished != draft.ModuleSelectionFinished
+                || requireFinished && (!draft.ModuleSelectionFinished || !sequence.SelectionFinished
+                    || !LifeModuleJourneyStageOrders.Required.All(stage => sequence.Occurrences.Any(row => row.StageOrder == stage))))
                 return Failure(CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete);
+
+            // An unfinished winning-quality text prompt is observable before the
+            // finalization review supplies its answer. Never invent an answer or
+            // authorize a write: only the distinct current-observation plan may
+            // retain an empty Extra, with the unresolved prompt still in sequence.
+            bool pendingLevelText2778 = !requireFinished
+                && sequence.QualityLevels.Any(level => level.InstancePrompt is not null && level.InstanceValue is null)
+                && (sequence.DependentQualityInstances ?? []).All(instance => instance.InstanceValue is not null);
 
             // The isolated compiler intentionally cannot authorize group resolution.
             // Recheck every effect below and account for every push; never simply
             // turn its composite "unsupported" status into an admission decision.
             blockers.AddRange(sequence.Blockers.Where(blocker => blocker is not
                 (CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired
-                 or CharacterCreationFoundationBlockers.FinalizationEffectUnsupported)));
+                 or CharacterCreationFoundationBlockers.FinalizationEffectUnsupported)
+                && (requireFinished || blocker != CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete)
+                && (!pendingLevelText2778 || blocker != CharacterCreationFoundationBlockers.FinalizationPromptRequired)));
             if (blockers.Count != 0) return new(null, blockers.Distinct(StringComparer.Ordinal).ToArray());
             using var stream = new MemoryStream(sourceBytes, writable: false);
             XElement source = XDocument.Load(stream).Root ?? throw new InvalidOperationException();
@@ -59,9 +86,13 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                 .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
             var resolved = CharacterCreationFoundationQualityInstanceResolver.Resolve(expectedLevels, sequence.Occurrences, qualities,
                 selections, blockers, out var dependentInstances);
-            if (blockers.Count != 0 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resolved, sequence.QualityLevels)
+            if (blockers.Any(blocker => !pendingLevelText2778 || blocker != CharacterCreationFoundationBlockers.FinalizationPromptRequired)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(resolved, sequence.QualityLevels)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(dependentInstances, sequence.DependentQualityInstances ?? []))
                 return Failure(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+            // Re-resolution above must produce the identical source-bound missing
+            // prompt. All other blockers remain fatal, including stale input.
+            if (pendingLevelText2778) blockers.RemoveAll(blocker => blocker == CharacterCreationFoundationBlockers.FinalizationPromptRequired);
 
             var qualityXml = new List<string>();
             var improvements = new List<string>();
@@ -94,6 +125,8 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                             && effect.CompilationStatus != CharacterCreationFoundationEffectCompilationStatuses.Supported)))
                     return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
 
+                if (!requireFinished && !CurrentModuleGrammar1958(source, selection))
+                    return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                 XElement effective = ResolveEffectiveModule(source, selection);
                 XElement? admitted = ParseSource(effective.ToString(SaveOptions.DisableFormatting), blockers);
                 var definition = admitted is null ? null : ReadDefinition(admitted, module, version, defaultNotesColor, blockers);
@@ -134,7 +167,8 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                     return Failure(CharacterCreationFoundationBlockers.PendingDraftConflict);
                 if (!qualities.TryGetDefinition(level.Target, out var definition, out _) || definition is null
                     || !CharacterCreationFoundationQualityInstanceResolver.TryInspectSelection(definition, out bool needsText)
-                    || (needsText && string.IsNullOrWhiteSpace(level.InstanceValue)))
+                    || (needsText && string.IsNullOrWhiteSpace(level.InstanceValue)
+                        && !(pendingLevelText2778 && level.InstancePrompt is not null && level.InstanceValue is null)))
                     return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                 string id = SequenceQualityId(new { draft.WorkspaceId, draft.DraftDigest, sequence.CompilationDigest, level.Group, level.Target });
                 XElement? winner = CreateDependentQuality(definition, id, level.InstanceValue ?? string.Empty,
@@ -143,7 +177,7 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                 qualityXml.Add(winner.ToString(SaveOptions.DisableFormatting));
                 foreach (var bonus in definition.Element("bonus")?.Elements() ?? [])
                 {
-                    if (bonus.Name == "selecttext") continue; // Already validated/resolved; never execute its catalog XPath.
+                    if (bonus.Name == "selecttext") continue; // Validated; resolved for writes, retained as missing for current observation. Never execute XPath.
                     if (!TryCreateDependentBonusImprovement(bonus, id, defaultNotesColor, out var improvement))
                         return Failure(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                     if (improvement is not null) improvements.Add(improvement.ToString(SaveOptions.DisableFormatting));
@@ -166,7 +200,8 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
             }
             if (qualityXml.Select(xml => XElement.Parse(xml).Element("guid")!.Value).Distinct(StringComparer.Ordinal).Count() != qualityXml.Count)
                 return Failure(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
-            var plan = new CharacterCreationFoundationSequenceWritePlan("life-module-full-effect-graph/v1", draft.WorkspaceId,
+            var plan = new CharacterCreationFoundationSequenceWritePlan(requireFinished ? "life-module-full-effect-graph/v1"
+                : "life-module-current-effect-observation/v1", draft.WorkspaceId,
                 draft.DraftRevision, draft.DraftDigest, draft.BaseRawCharacterXmlDigest, sequence.CompilationDigest,
                 sequence.SourceDigest, sequence.SourceContextDigest, catalogRawXmlDigest, owners.ToArray(), qualityXml.ToArray(), improvements.ToArray(),
                 dispositions.ToArray(), dependentCount, sequence.QualityLevels.Count, owners.Sum(owner => (decimal)owner.KarmaCost), string.Empty);
@@ -216,11 +251,14 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
                 || occurrence.Compilation.SelectionPushes.Count(other => !occurrence.Compilation.SelectionBindings.Any(binding => binding.PushEffectId == other.EffectId)) != 1)
                 return null;
             var level = levels.SingleOrDefault(item => item.Group == effects[0].Parameters["@group"]);
-            if (level is null || level.InstanceValue is null) return null;
+            if (level is null) return null;
             int tier = int.Parse(effects[0].TargetId, CultureInfo.InvariantCulture);
             string disposition;
+            // A lower tier's source push is retired even while the winning tier's
+            // prompt is unanswered. It supplies no value to that retained prompt.
             if (tier < level.Level) disposition = "retired-superseded-quality-tier";
-            else if (tier == level.Level && level.InstancePrompt?.Options.Any(option => option.IsEnabled && option.SourceValue == push.Literal) == true)
+            else if (tier == level.Level && level.InstanceValue is not null
+                && level.InstancePrompt?.Options.Any(option => option.IsEnabled && option.SourceValue == push.Literal) == true)
                 disposition = push.Literal == level.InstanceValue ? "winning-quality-instance" : "retired-unselected-instance";
             else return null;
             reserved.Add(push.EffectId);
@@ -244,6 +282,29 @@ internal static partial class CharacterCreationFoundationLifeModuleQualityWriteP
             if (condition == "required" ? !matches : matches) return false;
         }
         return true;
+    }
+
+    private static bool CurrentModuleGrammar1958(XElement source, CharacterCreationFoundationSelection selection)
+    {
+        var rows = source.Element("modules")!.Elements("module")
+            .Where(row => row.Element("id")?.Value == selection.ModuleId).ToArray();
+        if (rows.Length != 1) return false;
+        var module = rows[0];
+        if (module.HasAttributes || module.Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
+            || module.Elements().Where(node => node.Name.LocalName is "id" or "name" or "stage" or "category" or "karma" or "source" or "page")
+                .Any(node => node.HasAttributes || node.HasElements)
+            || module.Elements().Any(node => node.Name.LocalName is not
+                ("id" or "name" or "stage" or "category" or "karma" or "source" or "page" or "story" or "required" or "bonus" or "versions"))) return false;
+        if (selection.VersionId is null) return module.Element("versions") is null;
+        var versions = module.Element("versions");
+        if (versions is null || versions.HasAttributes || versions.Elements().Any(node => node.Name != "version")) return false;
+        var chosen = versions.Elements("version").Where(row => row.Element("id")?.Value == selection.VersionId).ToArray();
+        return chosen.Length == 1 && !chosen[0].HasAttributes
+            && !chosen[0].Elements().Where(node => node.Name.LocalName is "id" or "name" or "source" or "page")
+                .Any(node => node.HasAttributes || node.HasElements)
+            && !chosen[0].Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
+            && !chosen[0].Elements().Any(node => node.Name.LocalName is not
+                ("id" or "name" or "source" or "page" or "story" or "required" or "bonus"));
     }
 
     private static string SequenceQualityId<T>(T value)

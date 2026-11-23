@@ -1,0 +1,52 @@
+<Project>
+  <!-- Whole-file correspondence pins: refresh only after reviewing all four native
+       policies. SourceVersion is their retained compatibility identity;
+       ReviewedSourceFingerprint identifies this exact reviewed hash set. -->
+  <ItemGroup>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs">
+      <ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/GlobalSettings.cs">
+      <ExpectedSha256>ceab6e8a568c77e35297976922de5a916629abcc8e2636151465fba8d691d203</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Managers/SettingsManager.cs">
+      <ExpectedSha256>d37c6c26476ff90ee6c361452622aa060408aef608a0f5d49226826c95e2f6e8</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Static/Extensions/XPathNavigatorExtensions.cs">
+      <ExpectedSha256>95d89e8d30c5f8b5283ea9556baa72a44f83860c0fe6e5a631857aeeb1f0aa57</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Character.cs">
+      <ExpectedSha256>f3dcea63f4ae7a20ede033913f8012f1d5e755af0e09723f21c3f17387d52b26</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Uniques/Spell.cs">
+      <ExpectedSha256>d45b085d5f49845958063ee20e273aa78e9c4368c5428cd7cd1a0ac499b830cb</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Uniques/InitiationGrade.cs">
+      <ExpectedSha256>d4804dc17b4f3ca2f3f3b332cde05613b2f4a86662387b72230e0ae38fef3a5b</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Selection Forms/SelectSpell.cs">
+      <ExpectedSha256>ad400a4d85ed037b1078bc2da1831fba37e1ecada1d8bd478557436b71a63890</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCreate.cs">
+      <ExpectedSha256>78816501a56194ecc9d757c58c2a4e4e0b7916f55944d58b7d9a3b16761563db</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCareer.cs">
+      <ExpectedSha256>5594076cfe19ac8bfe832025040437ba079f46ef75473cfca0315bd6692da859</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/EditCharacterSettings.cs">
+      <ExpectedSha256>f9a969ae64ef12693d428377ab96f41caa1e1e68e6e3fb38f2ce7e408fffbfa9</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer/Controls/Shared/DicePoolControl.cs">
+      <ExpectedSha256>0a4b1678e9c2a39fc53a579ec67db26e8480e0a6e25823b746aa79b35105bf34</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+    <NativeCompatibilitySource1430 Include="$(MSBuildThisFileDirectory)../../Chummer.Application/Characters/CharacterCreationAwakenedLegacyProjector.cs">
+      <ExpectedSha256>79f62edc0ded18bf746c2643baf5c9626cadb5aa2e3dd3dbadcdc459addf03d6</ExpectedSha256>
+    </NativeCompatibilitySource1430>
+  </ItemGroup>
+  <Target Name="VerifyNativeCompatibility1430" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(NativeCompatibilitySource1430)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedNativeCompatibilitySource1430" />
+    </GetFileHash>
+    <Error Condition="'%(HashedNativeCompatibilitySource1430.FileHash)' != '%(HashedNativeCompatibilitySource1430.ExpectedSha256)'" Text="Native compatibility1430 source drift: %(HashedNativeCompatibilitySource1430.Identity). Re-review stored-only armor, global/profile dice separation, spell-extension and schooling dataflow before updating this version." />
+  </Target>
+</Project>

@@ -1,2 +1,6 @@
 <Project>
+  <Target Name="RecordCurrent1952CompileInputs" BeforeTargets="CoreCompile" Condition="'$(ChummerCompileInputEvidenceDirectory)' != ''">
+    <WriteLinesToFile File="$(ChummerCompileInputEvidenceDirectory)/compile-$(MSBuildProjectName).txt"
+                      Lines="@(Compile->'%(FullPath)')" Overwrite="true" />
+  </Target>
 </Project>

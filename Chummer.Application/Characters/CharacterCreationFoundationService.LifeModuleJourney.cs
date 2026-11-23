@@ -175,7 +175,7 @@ public sealed partial class CharacterCreationFoundationService
         CharacterCreationFoundationDraftLedger draft = workspace.Document.AuxiliaryState.CharacterCreationFoundationDraft!;
         var blockers = new List<string>();
         CharacterCreationLifeModuleDraftEntry? entry = ProjectModuleEntry(state.Options,
-            request.Selection, request.FollowUpValues, draft.RequestedMetatype, state.CurrentStageOrder, blockers);
+            request.Selection, request.FollowUpValues, draft.RequestedMetatype, state.CurrentStageOrder, blockers, draft.ParentMetatypeLabel);
         if (entry is null)
             return (new(CharacterCreationFoundationOutcomes.Blocked, null, blockers), null);
         if (draft.DraftRevision == long.MaxValue || workspace.ContentRevision == long.MaxValue
@@ -218,7 +218,7 @@ public sealed partial class CharacterCreationFoundationService
             var blockers = new List<string>();
             int stage = Math.Min(LifeModuleJourneyStageOrders.FormativeYears + i, LifeModuleJourneyStageOrders.RealLife);
             var projected = ProjectModuleEntry(modules, entry.Selection, entry.FollowUpValues,
-                draft.RequestedMetatype, stage, blockers);
+                draft.RequestedMetatype, stage, blockers, draft.ParentMetatypeLabel);
             if (projected is null || blockers.Count != 0
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(projected, entry))
             {
@@ -234,7 +234,7 @@ public sealed partial class CharacterCreationFoundationService
 
     private static CharacterCreationLifeModuleDraftEntry? ProjectModuleEntry(
         IReadOnlyList<LifeModuleLegalOptionDto> modules, CharacterCreationFoundationSelection selection,
-        IReadOnlyDictionary<string, string>? followUps, string metatype, int stage, ICollection<string> blockers)
+        IReadOnlyDictionary<string, string>? followUps, string metatype, int stage, ICollection<string> blockers, string? parentMetatype = null)
     {
         LifeModuleLegalOptionDto[] matches = modules.Where(module => module.ModuleId == selection.ModuleId).Take(2).ToArray();
         if (matches.Length != 1)
@@ -247,7 +247,7 @@ public sealed partial class CharacterCreationFoundationService
             blockers.Add(CharacterCreationFoundationBlockers.LifeModuleStageInvalid);
         var version = ResolveVersion(module, selection.VersionId, blockers);
         var requirements = module.Requirements.Concat(version?.Requirements ?? [])
-            .Select(requirement => EvaluateRequirement(requirement, metatype)).ToArray();
+            .Select(requirement => EvaluateRequirement(requirement, metatype, parentMetatype)).ToArray();
         foreach (var requirement in requirements.Where(requirement => !requirement.IsMet))
             blockers.Add(requirement.DisableReasonKey ?? CharacterCreationFoundationBlockers.LifeModuleRequirementNotMet);
         foreach (string blocker in module.AuthorityBlockers.Concat(version?.AuthorityBlockers ?? [])

@@ -95,7 +95,7 @@ public static class CharacterCreationSkillsAccessRules
     internal static string Digest(CharacterCreationTalentSkillAccess access) =>
         CharacterCreationSkillsDigest.Compute(access with { AccessDigest = string.Empty });
 
-    private static string[] SelectedGroups(CharacterCreationPrerequisiteDraft prerequisite) =>
+    internal static string[] SelectedGroups(CharacterCreationPrerequisiteDraft prerequisite) =>
         (prerequisite.TalentSelection?.GrantPlan?.SkillGroups ?? [])
             .Select(item => item.CanonicalName).OrderBy(item => item, StringComparer.Ordinal).ToArray();
 

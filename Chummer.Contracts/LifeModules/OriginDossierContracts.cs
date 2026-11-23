@@ -131,7 +131,11 @@ public sealed record LifeModuleMechanicsPreviewItem(
     string AfterValue,
     decimal BudgetDelta,
     IReadOnlyList<string> SourceAnchorIds,
-    string ItemDigest);
+    string ItemDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentOptionId { get; init; }
+}
 
 /// <summary>
 /// Core-owned mechanics summary for one already-legal choice. Narrative

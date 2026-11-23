@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 using D = Chummer.Application.Characters.CharacterCreationSourceOperationDisposition;
 
@@ -8,16 +9,44 @@ public sealed partial class FileSystemCharacterSourceDataResolver
 {
     private sealed partial class SourceDataContext
     {
+        public bool TryReadLifestyleLocationRoundTrip2678(out bool roundTrip)
+        {
+            using var scope = _sourceInputs.Enter();
+            roundTrip = false;
+            if (_sourceInputs.HasSourceDrift
+                || !TryHasSelectedCustomDataInputFor(_customDirectories, "lifestyles.xml", out bool custom)) return false;
+            // Only explicit retained V6 uses the historical custom-source string
+            // parse below. No-custom V6 keeps its original XmlReader projection;
+            // marked live and retained V7 keep their whitespace-preserving path.
+            roundTrip = custom && _sourceInputs.Accounting is
+                { HasCurrentEnvironmentSemantics: true, HasStockLifestyleSemantics2678: true, HasLifestyleMechanics2684: false };
+            return !_sourceInputs.HasSourceDrift;
+        }
+
         private bool TryResolveLifestyleCatalogues1008(out CharacterCreationLifestyleLocationCatalog? locations,
             out IReadOnlyList<CharacterCreationLifestyleCategory>? categories)
         {
             locations = null;
             categories = null;
             if (!TryHasSelectedCustomDataInputFor(_customDirectories, "lifestyles.xml", out bool custom)) return false;
-            // Legacy custom-directory rows use a separate merge interpreter. Until
-            // that interpreter exposes these containers, retain its ordinary text
-            // behavior and leave their Complete operations unresolved.
-            if (custom) return true;
+            // Unmarked live/Complete and pre-stock retained profiles keep their
+            // text behavior. Marked live sources and V7 compare these headers exactly,
+            // including when a selected amendment changes only a lifestyle row.
+            if (custom)
+            {
+                if (!UsesSelectedV7Sources2852 && _sourceInputs.Accounting is not { HasCurrentEnvironmentSemantics: true,
+                        HasStockLifestyleSemantics2678: true }) return true;
+                // Read the same source document used by StockLifestyleProjection2678.
+                // Its catalog admission still validates allowed amendment containers,
+                // traced operations and exact source/header/quality projections.
+                // The retained XmlReader and current verifier preserve whitespace.
+                // V7 must preserve it through this string round trip too: each location
+                // hashes its serialized source node. Keep V6's historical projection.
+                LoadOptions options = UsesSelectedV7Sources2852
+                    ? LoadOptions.PreserveWhitespace : LoadOptions.None;
+                return TryReadLifestyleSource(out var xml, out _)
+                    && TryReadLifestyleCatalogues1008(XElement.Parse(xml, options), out locations, out categories);
+            }
             return TryLoadEffectiveDocument(_catalog, "lifestyles.xml", out var document)
                 && document?.Root is { } root && TryReadLifestyleCatalogues1008(root, out locations, out categories);
         }
@@ -35,7 +64,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             {
                 var ids = new HashSet<Guid>();
                 int remaining = 65_536;
-                if (!TryReadLocationRows1008(cities, "city", 0, "lifestyles.xml#/cities", ids, ref remaining, out var rows)) return false;
+                // One synchronous recursive traversal owns the scratch writer.
+                // Children finish before the parent is freshly serialized.
+                using var xmlWriter = new ElementXmlWriter();
+                if (!TryReadLocationRows1008(cities, "city", 0, "lifestyles.xml#/cities", ids, ref remaining, xmlWriter, out var rows)) return false;
                 locations = new(rows);
                 if (!CharacterCreationLifestyleLocationRules.IsValidCatalog(locations)) return false;
             }
@@ -72,7 +104,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             && !field.Nodes().OfType<XProcessingInstruction>().Any();
 
         private static bool TryReadLocationRows1008(XElement parent, string rowName, int depth, string parentPath,
-            HashSet<Guid> ids, ref int remaining, out CharacterCreationLifestyleLocationNode[] result)
+            HashSet<Guid> ids, ref int remaining, ElementXmlWriter xmlWriter, out CharacterCreationLifestyleLocationNode[] result)
         {
             result = [];
             var rows = new List<CharacterCreationLifestyleLocationNode>();
@@ -104,9 +136,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     rating = security.Value.Trim();
                 }
                 CharacterCreationLifestyleLocationNode[] children = [];
-                if (childName is not null && !TryReadLocationRows1008(row, childName, depth + 1, path, ids, ref remaining, out children)) return false;
+                if (childName is not null && !TryReadLocationRows1008(row, childName, depth + 1, path, ids, ref remaining, xmlWriter, out children)) return false;
                 rows.Add(new(sourceId, label, path, rating,
-                    CharacterCreationFinalizationDigest.Compute(row.ToString(SaveOptions.DisableFormatting)), children));
+                    CharacterCreationFinalizationDigest.Compute(xmlWriter.Serialize(row)), children));
             }
             // The top-level container admits rows only (not a stray name/id/rating).
             if (depth == 0 && parent.Elements().Any(field => field.Name != rowName)) return false;
@@ -185,7 +217,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             }
         }
 
-        private static void ExecuteLifestylePrompts1008(XElement root, CharacterCreationLifestylesAuthority authority,
+        private void ExecuteLifestylePrompts1008(XElement root, CharacterCreationLifestylesAuthority authority,
             IReadOnlyList<CharacterCreationLifestyleProjection> projections, SourceScopeLedger ledger)
         {
             foreach (var option in authority.QualityOptions)
@@ -195,8 +227,14 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 if (selected.Length == 0 || option.SelectionSemantics is null) continue;
                 var rows = root.Element("qualities")!.Elements("quality")
                     .Where(row => Guid.TryParse(row.Element("id")?.Value, out var id) && id == option.SourceId).ToArray();
-                if (rows is not [var row] || !TryReadLifestyleSelection1008(row, out var semantics)
-                    || semantics != option.SelectionSemantics) continue;
+                if (rows is not [var row]) continue;
+                CharacterCreationLifestyleQualitySelectionSemantics? semantics;
+                bool exact;
+                if (authority.Mechanics is not null)
+                    exact = CharacterCreationLifestyleSourceMechanics2684.TryCompile(row, this, out var compiled, out semantics)
+                        && CharacterCreationFinalizationDigest.Compute(compiled) == CharacterCreationFinalizationDigest.Compute(option.Mechanics);
+                else exact = TryReadLifestyleSelection1008(row, out semantics);
+                if (!exact || semantics != option.SelectionSemantics) continue;
                 object execution = new { Operation = "TryProject-quality-prompt-and-multiplicity", option.OptionId, semantics,
                     Selected = selected, Projections = projections.Select(projection => projection.LifestyleDigest).ToArray() };
                 foreach (var field in row.Elements().Where(field => field.Name == "bonus" || field.Name == "allowmultiple"))

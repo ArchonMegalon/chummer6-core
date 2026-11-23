@@ -6,7 +6,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
-    <AssemblyName>Chummer.CreationRacial.Tests</AssemblyName>
+    <AssemblyName>Chummer.CreationBootstrap.Tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CharacterCreationPriorityRacialTests.cs" />

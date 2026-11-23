@@ -118,7 +118,42 @@ public sealed record CharacterVehicleWorkshopChassisEntry(
     CharacterVehicleWorkshopProjectionStatus ProjectionStatus,
     string UnsupportedReason,
     IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> FactoryGears,
-    IReadOnlyList<CharacterVehicleWorkshopFactoryModificationEntry> FactoryModifications);
+    IReadOnlyList<CharacterVehicleWorkshopFactoryModificationEntry> FactoryModifications)
+{
+    // Saved legacy modslots is a source value, independent of the active profile's
+    // modification budget. Null means older/unresolved projection, never zero.
+    public int? SourceDroneModificationSlots { get; init; }
+
+    // Source mods/addslots, saved as vehicle/addslots. Only source projection
+    // may resolve omission to zero; an older typed catalog remains unresolved.
+    public int? SourceAdditionalModificationSlots { get; init; }
+
+    // The three fields changed by the seats/addslots projection correction.
+    // Retain them for whole-catalog v3 identity and existing history only.
+    public CharacterVehicleWorkshopLegacyVariantProjection? LegacyVariantProjection { get; init; }
+
+    // Source adjustments, NOT global slots or category totals. Null is unresolved.
+    public CharacterVehicleWorkshopCategorySlots? SourceCategoryModificationSlots { get; init; }
+    // Exact 2281/2296 whole-catalog projection, exclusively for historical identity.
+    public CharacterVehicleWorkshopLegacyVariantProjection? LegacyCategoryProjection { get; init; }
+}
+
+public enum CharacterVehicleModificationCategory
+{
+    Powertrain, Protection, Weapons, Body, Electromagnetic, Cosmetic
+}
+
+/// <summary>Signed source adjustments to Body for each Rigger 5 category.
+/// Missing source fields resolve to zero only in the source projector.
+/// HasSourceFields retains explicit zero instructions and their bounded selection scope.</summary>
+public sealed record CharacterVehicleWorkshopCategorySlots(
+    int Powertrain, int Protection, int Weapons, int Body, int Electromagnetic, int Cosmetic,
+    bool HasSourceFields);
+
+public sealed record CharacterVehicleWorkshopLegacyVariantProjection(
+    int ModificationSlots,
+    CharacterVehicleWorkshopProjectionStatus ProjectionStatus,
+    string UnsupportedReason);
 
 /// <summary>
 /// A factory-installed child projected from one vehicle instruction and one

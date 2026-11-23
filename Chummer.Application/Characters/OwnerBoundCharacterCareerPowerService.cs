@@ -48,6 +48,39 @@ public sealed class OwnerBoundCharacterCareerPowerService(IWorkspaceStore store,
         { return new(null, "power_review_unavailable"); }
     }
 
+    // Only the two sealed built-in local policies can lend evaluation to a read.
+    // Unknown/decorated authorities keep their per-command admission semantics.
+    internal CharacterCareerPowerReadEvaluation? OpenReadEvaluation(IOwnerContextAccessor admissionAuthority,
+        IOwnerContextLease lease, CharacterWorkspaceId workspace, CharacterCareerMagicBinding binding,
+        ICharacterSourceDataResolver readSources, ICharacterSourceDataContext context)
+    {
+        if (!ReferenceEquals(owners, admissionAuthority) || !lease.Stamp.IsValid
+            || store is not ICharacterCareerPowerAtomicCommitCapability atomic) return null;
+        bool supported = authority switch
+        {
+            OwnerManagedCareerPowerAuthorityResolver local => local.UsesSources(readSources),
+            CampaignDenyingCareerPowerAuthorityResolver local => local.UsesSources(readSources),
+            _ => false
+        };
+        if (!supported) return null;
+        var read = Read(lease.Stamp, workspace);
+        if (!read.Success || read.Value is not { } saved
+            || !CharacterCareerMagicReadBinding.MatchesOwner(binding, lease.Stamp)
+            || !CharacterCareerMagicReadBinding.MatchesSaved(binding, lease.Stamp.Owner, saved)
+            || !CharacterCareerPowerGovernance.Allows(saved)) return null;
+        return new(lease.Stamp, saved, atomic.CareerPowerRuntimeFingerprint, binding, context);
+    }
+
+    internal bool CompleteReadEvaluation(IOwnerContextAccessor admissionAuthority, IOwnerContextLease lease,
+        CharacterWorkspaceId workspace, CharacterCareerPowerReadEvaluation evaluation, ICharacterSourceDataContext fresh)
+    {
+        if (!ReferenceEquals(owners, admissionAuthority) || !lease.Stamp.IsValid
+            || store is not ICharacterCareerPowerAtomicCommitCapability atomic || !evaluation.Complete(fresh)) return false;
+        var read = Read(lease.Stamp, workspace);
+        return read.Success && read.Value is { } saved
+            && evaluation.Matches(lease.Stamp, saved, atomic.CareerPowerRuntimeFingerprint);
+    }
+
     // Retain this exact plan/key across a cancelled request or restart. Lookup does
     // not require the old catalog to remain available and never submits a new spend.
     public CharacterCareerPowerResult Lookup(OwnerContextStamp owner, CharacterCareerPowerPlan plan)

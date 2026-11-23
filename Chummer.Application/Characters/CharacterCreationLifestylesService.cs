@@ -34,7 +34,7 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
         "sourceid", "guid", "name", "category", "extra", "cost", "multiplier", "basemultiplier",
         "lp", "areamaximum", "comfortsmaximum", "securitymaximum", "area", "comforts", "security",
         "uselpcost", "print", "lifestylequalitytype", "lifestylequalitysource", "free", "isfreegrid",
-        "source", "page", "allowed"
+        "source", "page", "allowed", "textselectionkind", "textselectionid"
     };
 
     private readonly IWorkspaceStore _workspaceStore;
@@ -754,7 +754,7 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
         return result.OrderBy(item => item.Configuration.LifestyleId).ToList();
     }
 
-    private static bool TryReadConfiguration(
+    internal static bool TryReadConfiguration(
         XElement lifestyle,
         Guid id,
         CharacterCreationLifestylesAuthority authority,
@@ -803,10 +803,16 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
             qualities.Add(new CharacterCreationLifestyleQualitySelection(
                 qualityId,
                 qualityOption.OptionId,
-                ReadValue(row, "extra"),
+                // V7 prompt choice IDs bind exact source name.Value. Custom text
+                // uses the same exact write/read contract; older profiles still trim.
+                authority.Mechanics is null ? ReadValue(row, "extra") : row.Element("extra")?.Value ?? string.Empty,
                 ParseBool(ReadValue(row, "uselpcost")),
                 ParseBool(ReadValue(row, "free")),
-                builtIn));
+                builtIn)
+            {
+                TextSelection = row.Element("textselectionkind") is null && row.Element("textselectionid") is null ? null
+                    : new(ReadValue(row, "textselectionkind"), row.Element("textselectionid")?.Value)
+            });
         }
 
         string style = ReadValue(lifestyle, "type").ToLowerInvariant() switch
@@ -967,6 +973,13 @@ public sealed partial class CharacterCreationLifestylesService : ICharacterCreat
             SetSingle(quality, "name", qualityOption.Name);
             SetSingle(quality, "category", qualityOption.Category);
             SetSingle(quality, "extra", selection.Extra);
+            quality.Elements("textselectionkind").Remove();
+            quality.Elements("textselectionid").Remove();
+            if (selection.TextSelection is { } textSelection)
+            {
+                SetSingle(quality, "textselectionkind", textSelection.Kind);
+                if (textSelection.ChoiceId is not null) SetSingle(quality, "textselectionid", textSelection.ChoiceId);
+            }
             SetSingle(quality, "cost", qualityOption.FlatCost.ToString(CultureInfo.InvariantCulture));
             SetSingle(quality, "multiplier", qualityOption.CostMultiplierPercent.ToString(CultureInfo.InvariantCulture));
             SetSingle(quality, "basemultiplier", qualityOption.BaseCostMultiplierPercent.ToString(CultureInfo.InvariantCulture));

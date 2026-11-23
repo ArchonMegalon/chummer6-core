@@ -17,6 +17,13 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         "cost", "handling", "pilot", "sensor", "speed", "seats", "addslots", "modslots", "gears", "mods"
     };
 
+    private static readonly string[] CategorySlotFields =
+        ["powertrainmodslots", "protectionmodslots", "weaponmodslots", "bodymodslots",
+         "electromagneticmodslots", "cosmeticmodslots"];
+
+    private static readonly IReadOnlySet<string> CategoryChassisFields =
+        new HashSet<string>(ChassisFields.Concat(CategorySlotFields), StringComparer.Ordinal);
+
     private static readonly IReadOnlySet<string> FactoryGearSourceFields = new HashSet<string>(StringComparer.Ordinal)
     {
         "id", "name", "category", "rating", "minrating", "source", "page", "avail",
@@ -145,7 +152,19 @@ internal static class CharacterVehicleWorkshopCatalogProjector
                 continue;
             if (!chassisIds.Add(identity.Id))
                 return false;
-            chassis.Add(ProjectChassis(row, identity, droneMods, factoryGearSources, factoryModificationSources));
+            CharacterVehicleWorkshopChassisEntry current = ProjectChassis(
+                row, identity, droneMods, factoryGearSources, factoryModificationSources);
+            CharacterVehicleWorkshopChassisEntry historical = ProjectChassis(
+                row, identity, droneMods, factoryGearSources, factoryModificationSources, legacyVariants: true);
+            CharacterVehicleWorkshopChassisEntry previous = ProjectChassis(
+                row, identity, droneMods, factoryGearSources, factoryModificationSources, legacyCategories: true);
+            chassis.Add(current with
+            {
+                LegacyVariantProjection = new(historical.ModificationSlots,
+                    historical.ProjectionStatus, historical.UnsupportedReason),
+                LegacyCategoryProjection = new(previous.ModificationSlots,
+                    previous.ProjectionStatus, previous.UnsupportedReason)
+            });
         }
 
         foreach (XElement row in weaponMountRows.OrderBy(RowIdText, StringComparer.Ordinal))
@@ -191,9 +210,11 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         SourceIdentity identity,
         bool droneMods,
         IReadOnlyList<FactoryGearSourceRow> factoryGearSources,
-        IReadOnlyList<FactoryModificationSourceRow> factoryModificationSources)
+        IReadOnlyList<FactoryModificationSourceRow> factoryModificationSources,
+        bool legacyVariants = false,
+        bool legacyCategories = false)
     {
-        var issues = DirectFieldIssues(row, ChassisFields);
+        var issues = DirectFieldIssues(row, legacyVariants || legacyCategories ? ChassisFields : CategoryChassisFields);
         IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> factoryGears = ProjectFactoryGears(
             row,
             new CharacterVehicleChassisSourceId(identity.Id),
@@ -204,7 +225,8 @@ internal static class CharacterVehicleWorkshopCatalogProjector
                 row,
                 new CharacterVehicleChassisSourceId(identity.Id),
                 factoryModificationSources,
-                issues);
+                issues,
+                legacyVariants);
         string category = RequiredText(row, "category", issues);
         string page = RequiredText(row, "page", issues);
         int body = RequiredNonNegativeInt(row, "body", issues);
@@ -218,7 +240,11 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         int offRoadSpeed = 0;
         ReadPair(row, "speed", issues, out speed, out offRoadSpeed);
         int pilot = RequiredNonNegativeInt(row, "pilot", issues);
-        int seats = RequiredNonNegativeInt(row, "seats", issues);
+        int seats = legacyVariants
+            ? RequiredNonNegativeInt(row, "seats", issues)
+            : OptionalNonNegativeInt(row, "seats", 0, issues);
+        if (!legacyVariants && row.Elements().Any(element => element.Name.LocalName == "seats" && element.Name != "seats"))
+            issues.Add("Namespaced source seats are unsupported; omission cannot resolve an unknown field to zero.");
         int armor = RequiredNonNegativeInt(row, "armor", issues);
         int sensor = RequiredNonNegativeInt(row, "sensor", issues);
         decimal cost = RequiredNonNegativeDecimal(row, "cost", issues);
@@ -226,7 +252,10 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         if (availability.AddToParent)
             issues.Add("A chassis availability value cannot be additive.");
 
-        int addSlots = OptionalNonNegativeInt(row, "addslots", 0, issues);
+        int? sourceAddSlots = legacyVariants
+            ? OptionalNonNegativeInt(row, "addslots", 0, issues)
+            : ReadSourceAdditionalSlots(row, issues);
+        int addSlots = sourceAddSlots ?? 0;
         int explicitDroneSlots = OptionalNonNegativeInt(row, "modslots", body, issues);
         int modificationSlots = 0;
         try
@@ -240,6 +269,8 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             issues.Add("The source chassis slot arithmetic exceeds the supported integer range.");
         }
 
+        CharacterVehicleWorkshopCategorySlots? categorySlots = legacyVariants || legacyCategories
+            ? null : ReadCategorySlots(row, body, issues);
         CharacterVehicleWorkshopProjectionStatus status = Status(issues);
         return new CharacterVehicleWorkshopChassisEntry(
             new CharacterVehicleChassisSourceId(identity.Id),
@@ -270,7 +301,74 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             status,
             UnsupportedReason(issues),
             factoryGears,
-            factoryModifications);
+            factoryModifications)
+        {
+            SourceDroneModificationSlots = explicitDroneSlots,
+            SourceAdditionalModificationSlots = sourceAddSlots,
+            SourceCategoryModificationSlots = categorySlots
+        };
+    }
+
+    private static CharacterVehicleWorkshopCategorySlots? ReadCategorySlots(
+        XElement row, int body, ICollection<string> issues)
+    {
+        var values = new int[CategorySlotFields.Length];
+        bool present = false;
+        bool valid = true;
+        for (int index = 0; index < CategorySlotFields.Length; index++)
+        {
+            string field = CategorySlotFields[index];
+            XElement[] nodes = row.Elements().Where(element => element.Name.LocalName == field).Take(2).ToArray();
+            if (nodes.Length == 0)
+                continue;
+            present = true;
+            if (nodes.Length != 1 || nodes[0].Name != field
+                || !TryReadScalarElement(nodes[0], out string text)
+                || !int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out values[index]))
+            {
+                issues.Add("The source " + field + " value is not one fixed signed integer; dependent category slots are unavailable.");
+                valid = false;
+                continue;
+            }
+            // Legacy CalcCategoryAvail starts from base Body, not TotalBody,
+            // ordinary Slots, raw drone modslots, or mods/addslots.
+            long capacity = (long)body + values[index];
+            if (capacity < 0 || capacity > int.MaxValue)
+            {
+                issues.Add("The source " + field + " plus Body is outside the supported category capacity range.");
+                valid = false;
+            }
+        }
+        return valid ? new(values[0], values[1], values[2], values[3], values[4], values[5], present) : null;
+    }
+
+    private static int? ReadSourceAdditionalSlots(XElement row, ICollection<string> issues)
+    {
+        // Source instructions use mods/addslots. Root addslots belongs to saved
+        // characters and must never grant a source-purchase budget.
+        if (row.Elements().Any(element => element.Name.LocalName == "addslots"))
+        {
+            issues.Add("Root-level source addslots is unsupported; the canonical instruction is mods/addslots.");
+            return null;
+        }
+        XElement[] containers = row.Elements().Where(element => element.Name.LocalName == "mods").Take(2).ToArray();
+        if (containers.Length == 0)
+            return 0;
+        if (containers.Length != 1 || containers[0].Name != "mods" || containers[0].HasAttributes
+            || containers[0].Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+        {
+            issues.Add("The source mods/addslots container is ambiguous or unsupported.");
+            return null;
+        }
+        XElement[] values = containers[0].Elements().Where(element => element.Name.LocalName == "addslots").Take(2).ToArray();
+        if (values.Length == 0)
+            return 0;
+        if (values.Length == 1 && values[0].Name == "addslots" && TryReadScalarElement(values[0], out string text)
+            && int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+            && value >= 0)
+            return value;
+        issues.Add("The source mods/addslots value is not one fixed non-negative integer.");
+        return null;
     }
 
     private static IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> ProjectFactoryGears(
@@ -649,7 +747,8 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         XElement vehicleRow,
         CharacterVehicleChassisSourceId chassisSourceId,
         IReadOnlyList<FactoryModificationSourceRow> sourceRows,
-        ICollection<string> chassisIssues)
+        ICollection<string> chassisIssues,
+        bool legacyVariants)
     {
         XElement[] containers = vehicleRow.Elements("mods").Take(2).ToArray();
         if (containers.Length == 0)
@@ -673,7 +772,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             chassisIssues.Add("The factory modification container has unsupported instruction kinds: "
                 + string.Join(", ", unsupportedChildren) + ".");
         }
-        if (containers[0].Elements("addslots").Any())
+        if (legacyVariants && containers[0].Elements("addslots").Any())
         {
             chassisIssues.Add("A nested factory add-slots instruction is not projected by this increment.");
         }

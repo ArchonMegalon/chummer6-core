@@ -20,7 +20,7 @@ public sealed record CharacterCreationCompletionUnusedPoints(
 /// CharacterXml is an internal transaction payload, never an editable client plan.
 /// Original auxiliary state and receipt history are not replaced by this value.
 /// </summary>
-public sealed record CharacterCreationCompletionFinalizationProjection(
+public sealed partial record CharacterCreationCompletionFinalizationProjection(
     string Schema,
     CharacterCreationFinalizationBinding Binding,
     string InputsSnapshotDigest,
@@ -44,6 +44,21 @@ public sealed record CharacterCreationCompletionFinalizationProjection(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterPhysicalInitiativeProjection? PhysicalInitiative886 { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterAstralInitiativeDiceProjection? AstralInitiative1249 { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationNativeMagicProjection1430? NativeMagic1430 { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterMatrixInitiativeDiceProjection? MatrixInitiative { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationNativeSettingsProjection? NativeSettings1420 { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationNativeContactSpecialtyProjection? NativeContactSpecialty { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationNativeLoadoutProjection1432? NativeLoadout1432 { get; init; }
     // Historical V2 retains its exact serialized shape and native instance IDs.
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationSkillGroupOrderAuthority? SkillGroupOrderAuthority { get; init; }

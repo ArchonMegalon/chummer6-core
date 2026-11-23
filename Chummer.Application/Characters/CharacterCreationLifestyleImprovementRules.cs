@@ -4,28 +4,37 @@ using Chummer.Contracts.Characters;
 
 namespace Chummer.Application.Characters;
 
-/// <summary>Shared creation-time admission for saved and pending lifestyle effects.</summary>
+/// <summary>Shared source-backed lifestyle effects; historical Creation remains the default.</summary>
 public static class CharacterCreationLifestyleImprovementRules
 {
+    internal static bool IsSupportedSourceCondition(string condition) => condition.Length == 0
+        || condition.Equals("create", StringComparison.OrdinalIgnoreCase)
+        || condition.Equals("career", StringComparison.OrdinalIgnoreCase);
+
+    private static bool Applies(string condition, CharacterLifestyleSourceMode mode) => condition.Length == 0
+        || condition.Equals(mode == CharacterLifestyleSourceMode.Career ? "career" : "create", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// The caller admits each selection against the enabled live source, including
     /// book, prerequisites and purchase origin. This adds no source capability.
     /// </summary>
     public static bool TryProjectPurchasedQualityCosts(IReadOnlyList<CharacterCreationQualitySelection> selections,
-        out CharacterCreationLifestylePurchasedQualityCosts? costs)
+        out CharacterCreationLifestylePurchasedQualityCosts? costs, CharacterLifestyleSourceMode? sourceMode = null)
     {
         costs = null;
-        if (selections is null || selections.Count > 4096 || selections.Any(selection => selection is null
+        if (sourceMode is not (null or CharacterLifestyleSourceMode.Creation or CharacterLifestyleSourceMode.Career)
+            || selections is null || selections.Count > 4096 || selections.Any(selection => selection is null
                 || selection.SourceAnchorIds is null || selection.Rating is < 1 or > 100)
             || selections.Select(selection => selection.OptionId).Distinct(StringComparer.Ordinal).Count() != selections.Count
             || selections.Select(selection => selection.SourceId).Distinct().Count() != selections.Count
-            || !CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(selections, out var effects)) return false;
+            || !CharacterCreationLegacySourceProjector.TryProjectCompletionQualityEffects(selections, out var effects, sourceMode is not null)) return false;
         var occurrences = new List<CharacterCreationLifestyleQualityCostOccurrence>();
         foreach (var effect in effects)
         {
             if (effect.ImprovementType is not ("LifestyleCost" or "BasicLifestyleCost")) continue;
-            if (effect.Condition.Length != 0 || effect.ImprovedName.Length != 0 || effect.Minimum != 0
+            if ((sourceMode is null ? effect.Condition.Length != 0 : !IsSupportedSourceCondition(effect.Condition)) || effect.ImprovedName.Length != 0 || effect.Minimum != 0
                 || effect.Maximum != 0 || effect.Value < -100m) return false;
+            if (sourceMode is { } mode && !Applies(effect.Condition, mode)) continue;
             occurrences.Add(new(effect.OptionId, effect.SourceId, effect.SourceNodeDigest, effect.Level,
                 effect.Container, effect.Position, effect.Value, effect.SourceAnchorIds.ToArray())
             {
@@ -37,7 +46,8 @@ public static class CharacterCreationLifestyleImprovementRules
         if (occurrences.Count == 0) return true;
         var owners = occurrences.Select(effect => effect.OptionId).ToHashSet(StringComparer.Ordinal);
         var candidate = new CharacterCreationLifestylePurchasedQualityCosts(
-            selections.Where(selection => owners.Contains(selection.OptionId)).ToArray(), occurrences.ToArray());
+            selections.Where(selection => owners.Contains(selection.OptionId)).ToArray(), occurrences.ToArray())
+        { SourceMode = sourceMode };
         if (!CharacterCreationLifestylesRules.IsValidPurchasedQualityCostShape(candidate)) return false;
         costs = candidate;
         return true;
@@ -45,7 +55,7 @@ public static class CharacterCreationLifestyleImprovementRules
 
     public static bool IsValidPurchasedQualityCosts(CharacterCreationLifestylePurchasedQualityCosts? costs)
         => costs is null || CharacterCreationLifestylesRules.IsValidPurchasedQualityCostShape(costs)
-            && TryProjectPurchasedQualityCosts(costs.Sources, out var expected)
+            && TryProjectPurchasedQualityCosts(costs.Sources, out var expected, costs.SourceMode)
             && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(costs, expected);
 
     /// <summary>
@@ -56,18 +66,21 @@ public static class CharacterCreationLifestyleImprovementRules
     public static bool TryResolveSourceBackedCosts(IEnumerable<XElement> improvements,
         IReadOnlyList<CharacterCreationLifestyleQualityInstance> instances, int initialTrustFundLevel,
         out int trustFundLevel, out decimal metatypeCostPercent,
-        out CharacterCreationLifestylePurchasedQualityCosts? costs, out string[] blockers)
+        out CharacterCreationLifestylePurchasedQualityCosts? costs, out string[] blockers,
+        CharacterLifestyleSourceMode? sourceMode = null)
     {
         trustFundLevel = initialTrustFundLevel;
         metatypeCostPercent = 0m;
         costs = null;
         blockers = [CharacterCreationLifestylesBlockers.UnsupportedSemantics];
-        if (improvements is null || instances is null || instances.Count > 4096
+        if (sourceMode is not (null or CharacterLifestyleSourceMode.Creation or CharacterLifestyleSourceMode.Career)
+            || improvements is null || instances is null || instances.Count > 4096
             || instances.Any(instance => instance is null || instance.Quality is null || instance.Selection is null)) return false;
         var saved = improvements.ToArray();
         if (saved.Any(item => item is null)) return false;
-        var qualityCosts = saved.Where(item => Read(item, "improvementsource") == "Quality"
-            && Read(item, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost").ToArray();
+        bool IsBoundEffect(XElement item) => Read(item, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost"
+            || sourceMode is not null && Read(item, "improvementttype") == "TrustFund";
+        var qualityCosts = saved.Where(item => Read(item, "improvementsource") == "Quality" && IsBoundEffect(item)).ToArray();
         var selections = new List<CharacterCreationQualitySelection>();
         var expected = new List<XElement>();
         var ids = new HashSet<Guid>();
@@ -77,8 +90,7 @@ public static class CharacterCreationLifestyleImprovementRules
             if (selection.Rating is < 1 or > 100 || group.Count() != selection.Rating
                 || !group.Select(instance => instance.Level).Order().SequenceEqual(Enumerable.Range(1, selection.Rating))
                 || group.Any(instance => !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(instance.Selection, selection))
-                || !CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, selection.SourceNodeDigest,
-                    out var nativeQualities, out var nativeImprovements)) return false;
+                || !TryBuildSourceGraph(selection, sourceMode, out var nativeQualities, out var nativeImprovements)) return false;
             selections.Add(selection);
             foreach (var instance in group.OrderBy(instance => instance.Level))
             {
@@ -86,8 +98,7 @@ public static class CharacterCreationLifestyleImprovementRules
                 var nativeQuality = nativeQualities[instance.Level - 1];
                 if (!MatchesNative(instance.Quality, nativeQuality, ["guid", "notes", "notesColor"])) return false;
                 string nativeId = Read(nativeQuality, "guid");
-                foreach (var native in nativeImprovements.Where(item => Read(item, "sourcename") == nativeId
-                    && Read(item, "improvementttype") is "LifestyleCost" or "BasicLifestyleCost"))
+                foreach (var native in nativeImprovements.Where(item => Read(item, "sourcename") == nativeId && IsBoundEffect(item)))
                 {
                     var effect = new XElement(native);
                     effect.SetElementValue("sourcename", id.ToString("D", CultureInfo.InvariantCulture));
@@ -95,7 +106,7 @@ public static class CharacterCreationLifestyleImprovementRules
                 }
             }
         }
-        if (!TryProjectPurchasedQualityCosts(selections, out var projected) || expected.Count != qualityCosts.Length) return false;
+        if (!TryProjectPurchasedQualityCosts(selections, out var projected, sourceMode) || expected.Count != qualityCosts.Length) return false;
         // Match by owner and full native semantics, consuming each occurrence once.
         // Identical effects are safe only with the source-proven exact multiplicity.
         var remaining = qualityCosts.ToList();
@@ -105,11 +116,28 @@ public static class CharacterCreationLifestyleImprovementRules
             if (index < 0) return false;
             remaining.RemoveAt(index);
         }
+        // In explicit mode TrustFund belongs to the same exact source/owner graph.
+        // Disabled, orphaned or condition-forged cached effects cannot grant free housing.
+        if (sourceMode is not null)
+        {
+            var trust = expected.Where(item => Read(item, "improvementttype") == "TrustFund").ToArray();
+            if (initialTrustFundLevel != 0 || trust.Length > 1
+                || saved.Except(qualityCosts).Any(item => Read(item, "improvementttype") == "TrustFund")) return false;
+            if (trust.Length == 1 && !int.TryParse(Read(trust[0], "val"), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out initialTrustFundLevel)) return false;
+        }
         if (remaining.Count != 0 || !TryResolveMetatypeCosts(saved.Except(qualityCosts), initialTrustFundLevel,
             out trustFundLevel, out metatypeCostPercent, out blockers)) return false;
         costs = projected;
         return true;
     }
+
+    private static bool TryBuildSourceGraph(CharacterCreationQualitySelection selection, CharacterLifestyleSourceMode? sourceMode,
+        out XElement[] qualities, out XElement[] improvements)
+        => sourceMode is null
+            ? CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, selection.SourceNodeDigest, out qualities, out improvements)
+            : CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, selection.SourceNodeDigest, out qualities, out improvements,
+                selection.ResolvedArmCount, selection.SourceExecutionSchema, lifestyleSourceMode: true);
 
     private static bool MatchesNative(XElement saved, XElement expected, IReadOnlyList<string> ignored)
     {

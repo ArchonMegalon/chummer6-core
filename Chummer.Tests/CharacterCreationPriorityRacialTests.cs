@@ -191,6 +191,28 @@ public sealed class CharacterCreationPriorityRacialTests
                 string.Join(",", emptiedOption.Blockers));
         }
 
+        // Task10011 restores published Priority admission while retaining the
+        // phone's broader parser. Unsupported or malformed source effects must
+        // still be refused before an authority can carry BaseBonuses.
+        foreach (string invalidBonus in new[]
+        {
+            "<bonus><lifestylecost>-20</lifestylecost></bonus>",
+            "<bonus><lifestylecost>21</lifestylecost></bonus>",
+            "<bonus><lifestylecost>20</lifestylecost><armor group='0'>1</armor></bonus>",
+            "<bonus><lifestylecost>20</lifestylecost><reach>1</reach></bonus>",
+            "<bonus><lifestylecost>20</lifestylecost><unknown>1</unknown></bonus>",
+            "<bonus><lifestylecost>20</lifestylecost><lifestylecost>20</lifestylecost></bonus>",
+            "<bonus><lifestylecost>20</lifestylecost><conditionmonitor><overflow>1</overflow></conditionmonitor></bonus>"
+        })
+        {
+            var changed = new XElement(dwarf);
+            changed.Element("bonus")!.ReplaceWith(XElement.Parse(invalidBonus));
+            Assert.IsFalse(CharacterCreationMetatypeCatalogProjector.TryProjectPriorityRacialOption(
+                changed, ["SR5"], out _), invalidBonus);
+        }
+        Assert.IsFalse(CharacterCreationMetatypeCatalogProjector.IsDwarfLifestyleSurcharge(
+            new(0, 0, 20) { ConditionOverflow5497 = 1 }));
+
         foreach (string name in new[] { "Elf", "Ork" })
         {
             var row = root.Elements("metatype")

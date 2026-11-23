@@ -208,6 +208,24 @@ public sealed class CharacterCreationBootstrapService :
             return UnavailableCreation(CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
 
         string characterXml = BuildCharacterXml(request);
+        ICharacterSourceDataContext? preparedSourceContext = null;
+        if (request.RulesetId == RulesetDefaults.Sr5
+            && NativeSr5CreationProfiles.IsNativeProfile(request.SettingsProfileId))
+        {
+            try
+            {
+                if (_sourceDataResolver is not ICharacterCreationBootstrapSourceResolver bootstrapSources
+                    || !bootstrapSources.TryPrepareNativeSr5Creation(characterXml, out characterXml, out preparedSourceContext)
+                    || preparedSourceContext is null)
+                    return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+            }
+            catch (Exception exception) when (exception is ArgumentException or FormatException
+                or IOException or InvalidDataException or InvalidOperationException
+                or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+            }
+        }
         IRulesetWorkspaceCodec codec;
         WorkspacePayloadEnvelope envelope;
         try
@@ -293,7 +311,8 @@ public sealed class CharacterCreationBootstrapService :
             }
             else
             {
-                ICharacterSourceDataContext? sourceContext = _sourceDataResolver.TryCreateContext(document.Content);
+                ICharacterSourceDataContext? sourceContext = preparedSourceContext
+                    ?? _sourceDataResolver.TryCreateContext(document.Content);
                 if (sourceContext is null || !CharacterCreationBootstrapSourceSnapshot.TryCapture(
                         sourceContext, document.Content, out sourceSnapshot))
                     return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
@@ -546,7 +565,17 @@ public sealed class CharacterCreationBootstrapService :
                         CharacterCreationBootstrapXml.StageElement,
                         CharacterCreationBootstrapStages.AwaitingFoundationSelection))));
         if (request.RulesetId == RulesetDefaults.Sr5)
+        {
             CharacterCreationCareerBaseline.InitializeMissing(document.Root!);
+            // Opt in only while constructing a new, validated SR5 request. The
+            // first source capture and binding must cover these exact bytes.
+            document.Root!.Add(new XElement(CharacterCreationLifestyleMechanicsRules.CapabilityElement,
+                CharacterCreationLifestyleMechanicsRules.Capability));
+            if (request.BuildMethod == CharacterCreationBuildMethods.Karma
+                && request.SettingsProfileId == NativeSr5CreationProfiles.KarmaQualityPrompts)
+                document.Root.Add(new XElement(NativeSr5CreationProfiles.KarmaQualityPromptElement,
+                    NativeSr5CreationProfiles.KarmaQualityPromptCapability));
+        }
         using StringWriter writer = new(CultureInfo.InvariantCulture);
         document.Save(writer, SaveOptions.DisableFormatting);
         return writer.ToString();

@@ -24,8 +24,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 || !TryResolveTarget(SettingsFile, ["settings"], "setting", _settingsProfileId, string.Empty, out var profile)
                 || profile is null || !CreationScalar886(profile, "maxinitiativedice", out int maximum)
                 || maximum < 0 || !CreationScalar886(profile, "mininitiativedice", out int minimum)
-                || !TryResolveTarget("metatypes.xml", ["metatypes"], "metatype", heritage.MetatypeSourceId,
-                    string.Empty, out var node) || node is null || RawSource718(node) != heritage.MetatypeSourceNodeDigest
+                || !TryResolveInitiativeMetatypeSource886(heritage.MetatypeSourceId, out var node)
+                || node is null || RawSource718(node) != heritage.MetatypeSourceNodeDigest
                 || node.DescendantNodes().OfType<XProcessingInstruction>().Any()
                 || catalog.Options.Where(o => o.OptionId == heritage.MetatypeSourceId).ToArray() is not [var option]
                 || !option.IsEnabled || option.Blockers.Count != 0 || option.Initiative.MinimumDiceFallback != minimum
@@ -41,6 +41,24 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 _rawProfileInputsDigest, draft.DraftDigest, heritage.MetatypeSourceId, heritage.MetatypeSourceNodeDigest,
                 $"source:{metatypeSource.Kind}:{metatypeSource.Order}", metatypeSource.ContentDigest!, option.Initiative, maximum);
             return true;
+        }
+
+        private bool TryResolveInitiativeMetatypeSource886(string sourceId, out XElement? source)
+        {
+            // First enforce eligibility using the selected-book view. That view
+            // may remove disabled descendant variants, so it is not the original
+            // metatype occurrence whose digest the prerequisite captured.
+            if (!TryResolveTarget("metatypes.xml", ["metatypes"], "metatype", sourceId,
+                    string.Empty, out source) || source is null) return false;
+            if (!_sourceInputs.Sourcebooks800 || _readingSourcebooks800) return true;
+            bool previous = _readingSourcebooks800;
+            try
+            {
+                _readingSourcebooks800 = true;
+                return TryResolveTarget("metatypes.xml", ["metatypes"], "metatype", sourceId,
+                    string.Empty, out source) && source is not null;
+            }
+            finally { _readingSourcebooks800 = previous; }
         }
 
         private static bool CreationScalar886(XElement parent, string field, out int value)

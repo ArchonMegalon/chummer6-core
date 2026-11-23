@@ -31,4 +31,7 @@ public sealed record WorkspaceContinuationRestoreResult(
     WorkspaceContinuationRestoreReceipt? Receipt = null,
     WorkspaceContinuationRestoreTarget? Target = null,
     IReadOnlyList<string>? Blockers = null,
-    bool ReopenRequired = false);
+    bool ReopenRequired = false)
+{
+    public WorkspaceRuleUpdateProgress? RuleUpdate { get; init; }
+}

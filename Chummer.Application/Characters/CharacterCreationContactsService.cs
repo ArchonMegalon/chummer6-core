@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
@@ -28,6 +29,9 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
         s_IdentityElementNames.Concat(
             ["connection", "loyalty", "group", "free", "family", "blackmail"]),
         StringComparer.Ordinal);
+
+    private static readonly ActivitySource OverviewActivities =
+        new(CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion.ActivitySourceName);
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterSourceDataResolver? _sourceData;
@@ -63,6 +67,9 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
         OwnerScope owner, CharacterCreationContactsLoadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // Keep validated history through input loading, contact creation and projection.
+        // Every reuse still hashes the full current prefix; live source checks remain separate.
+        using var history = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
         WorkspaceStoreReadResult read = Read(owner, request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
         {
@@ -711,13 +718,18 @@ public sealed partial class CharacterCreationContactsService : ICharacterCreatio
                 blockers.Add(CharacterCreationCompositeBaselineReader.RebaseRequired);
             else
             {
-                var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _characterQueries);
+                using var previewReuse = new CompletionPreviewReuse();
+                CharacterCreationFoundationResult<CharacterCreationCompletionReviewInputs> loaded;
+                using (OverviewActivities.StartActivity("contacts-composite-load"))
+                    loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _characterQueries, previewReuse);
                 blockers.AddRange(loaded.Blockers);
                 if (loaded.Value is { Skills.CompositeBaseline: { } baseline } inputs)
                 {
                     compositeInputs = inputs;
-                    var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(
-                        workspace, inputs, baseline.Selections, CharacterCreationCompositeEditStage.None);
+                    CharacterCreationFoundationResult<CharacterCreationCompletionReview> reviewed;
+                    using (OverviewActivities.StartActivity("contacts-composite-review"))
+                        reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(
+                            workspace, inputs, baseline.Selections, CharacterCreationCompositeEditStage.None, previewReuse);
                     blockers.AddRange(reviewed.Blockers);
                     pending = CharacterCreationContactsDraftRules.Create(workspace, inputs.Contacts.Policy,
                         inputs.Contacts.CarryoverPolicy, baseline.Selections.Contacts);

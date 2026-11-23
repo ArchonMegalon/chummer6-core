@@ -6,7 +6,7 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 public sealed class CharacterAfterRunSettlementService :
-    ICharacterAfterRunSettlementService
+    ICharacterAfterRunSettlementService, ICharacterAfterRunSettlementRecoveryService
 {
     private readonly ICharacterAfterRunSettlementWorkspace _workspace;
 
@@ -181,6 +181,17 @@ public sealed class CharacterAfterRunSettlementService :
                 quote,
                 plan));
         return MapCommit(command, commandDigest, quote, committed);
+    }
+
+    public CharacterAfterRunSettlementResult Lookup(CharacterAfterRunSettlementCommand original)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        if (!CharacterAfterRunSettlementServiceIntegrity.TryComputeCommandDigest(original, out string digest))
+            return Failure(original, CharacterAfterRunSettlementServiceOutcome.Invalid, "invalid_original_command");
+        var observed = _workspace.Lookup(original.WorkspaceId, original.TransactionId, digest);
+        return MapLookup(original, digest, observed)
+            ?? Failure(original, CharacterAfterRunSettlementServiceOutcome.Unavailable,
+                "original_settlement_not_observed_no_redispatch", digest, observed.CurrentWorkspaceRevision);
     }
 
     private CharacterAfterRunSettlementResult MapCommit(

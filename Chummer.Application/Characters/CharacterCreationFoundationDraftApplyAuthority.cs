@@ -251,6 +251,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             CharacterEffectsApplied: false,
             DraftDigest: string.Empty)
         {
+            MetatypeIdentity = context.SelectedMetatype.MetatypeIdentity,
+            ParentMetatypeLabel = context.SelectedMetatype.ParentMetatypeLabel,
             AdditionalModules = current?.AdditionalModules,
             ModuleSelectionFinished = current?.ModuleSelectionFinished ?? false
         };
@@ -273,9 +275,9 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             new(
                 DiffId: "foundation:requested-metatype",
                 Domain: "metatype-choice",
-                TargetId: context.SelectedMetatype.OptionId,
+                TargetId: context.SelectedMetatype.MetatypeIdentity?.ParentMetatypeOptionId ?? context.SelectedMetatype.OptionId,
                 BeforeValue: context.Summary.Metatype,
-                AfterValue: context.SelectedMetatype.Label,
+                AfterValue: context.SelectedMetatype.ParentMetatypeLabel ?? context.SelectedMetatype.Label,
                 Phase: CharacterCreationFoundationDiffPhases.DraftLedger,
                 AppliesToCharacterDocument: false,
                 IsAuthoritative: IsAuthoritativeMetatypeSelection(
@@ -381,6 +383,11 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             CanApply: canApply,
             Blockers: entryBlockers,
             SourceAnchorIds: effect.SourceAnchorIds)));
+        if (context.SelectedMetatype.MetatypeIdentity is { MetavariantOptionId: { } child } identity)
+            diff.Insert(1, new("foundation:requested-metavariant", "metavariant-choice", child,
+                null, context.SelectedMetatype.Label, CharacterCreationFoundationDiffPhases.DraftLedger,
+                false, true, canApply, entryBlockers, context.SelectedMetatype.SourceAnchorIds)
+            { ParentOptionId = identity.ParentMetatypeOptionId });
         return diff;
     }
 
@@ -394,6 +401,11 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
                && Guid.TryParseExact(option.OptionId, "D", out Guid id)
                && id != Guid.Empty
                && string.Equals(option.OptionId, id.ToString("D"), StringComparison.Ordinal)
+               && CharacterCreationMetatypeSelectionRules.IsValid(option.MetatypeIdentity)
+               && (option.MetatypeIdentity is null ? option.ParentMetatypeLabel is null
+                   : option.MetatypeIdentity.MetavariantOptionId == option.OptionId
+                     && !string.IsNullOrWhiteSpace(option.ParentMetatypeLabel)
+                     && option.ParentMetatypeLabel == option.ParentMetatypeLabel.Trim())
                && string.Equals(option.Label, requestedMetatype, StringComparison.Ordinal)
                && option.SourceAnchorIds.Count > 0
                && option.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))

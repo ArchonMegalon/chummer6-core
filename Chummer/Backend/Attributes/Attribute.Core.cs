@@ -1707,11 +1707,9 @@ namespace Chummer.Backend.Attributes
                         int intMaxLimbs = blnSync
                             ? _objCharacter.LimbCount()
                             : await _objCharacter.LimbCountAsync(token: token).ConfigureAwait(false);
-                        int intMissingLimbCount = Math.Max(intMaxLimbs - intLimbCount, 0);
                         intPureCyberValue = intLimbTotal;
-                        // Not all limbs have been replaced, so we need to place the Attribute in the other "limbs" to get the average value.
-                        intLimbTotal += Math.Max(intMeat, 0) * intMissingLimbCount;
-                        intReturn = (intLimbTotal + intMaxLimbs - 1) / intMaxLimbs;
+                        intReturn = PortableCyberlimbAttributeRules.WeightedTotal(
+                            intMeat, intLimbTotal, intLimbCount, intMaxLimbs);
                     }
                 }
 
@@ -1754,7 +1752,7 @@ namespace Chummer.Backend.Attributes
                         case "STR":
                         {
                             // Special case for cyberlimbs: if every limb has been replaced with a modular connector with an attribute of 0, we allow the augmented attribute to be 0
-                            if (intLimbCount > 0 && intPureCyberValue == 0)
+                            if (PortableCyberlimbAttributeRules.CyberlimbsAllowZero(intLimbCount, intPureCyberValue))
                                 return 0;
                             break;
                         }
@@ -1770,7 +1768,7 @@ namespace Chummer.Backend.Attributes
                         case "AGI":
                         {
                             // Special case for cyberlimbs: if every limb has been replaced with a modular connector with an attribute of 0, we allow the augmented attribute to be 0
-                            if (intLimbCount > 0 && intPureCyberValue == 0)
+                            if (PortableCyberlimbAttributeRules.CyberlimbsAllowZero(intLimbCount, intPureCyberValue))
                                 return 0;
                             decimal decTotalEncumbrance = lstUsedImprovements.Sum(
                                 x => x.ImproveSource == Improvement.ImprovementSource

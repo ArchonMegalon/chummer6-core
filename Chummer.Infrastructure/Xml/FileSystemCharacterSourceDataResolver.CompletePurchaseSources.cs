@@ -10,14 +10,108 @@ public sealed partial class FileSystemCharacterSourceDataResolver
 {
     private sealed partial class RuleSourceAccounting
     {
+        partial void ValidateCurrentPurchasesCatalog(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogInput input, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleCatalogValidation? result)
+        {
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is SourceDataContext source
+                && source.MatchesRetainedSelection(inputs))
+                result = CharacterCurrentRuleEnvironmentConsumers.ValidatePurchasesCatalog(current, input, source, cancellationToken);
+        }
+
+        partial void ExecuteCurrentPurchases(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogValidation validation, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleDomainExecution? result)
+        {
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is SourceDataContext source
+                && source.MatchesRetainedSelection(inputs))
+                result = CharacterCurrentRuleEnvironmentConsumers.ExecutePurchases(current, validation, source, cancellationToken);
+        }
+
         // Multiple anatomical quality projections can occur in one read. Their
         // exact option sets have separate observations; a cache hit reuses only
         // an observation of the same immutable canonical projection.
         private readonly Dictionary<string, PurchaseCatalogueTrace> purchaseCatalogues = new(StringComparer.Ordinal);
         internal bool CapturePurchases { get; private set; }
+        internal bool CaptureCurrentGear { get; private set; }
+        internal bool CurrentSourceSemantics { get; private set; }
+        internal bool DeferredRecursiveAncestors3000 => CurrentSourceSemantics
+            && inputs.CompatibilityProfile == Chummer5aLegacyImportCompatibility.ProfileV2;
+        private bool currentInterpretationLocked;
+
+        public override bool EnableCurrentEnvironmentSourceSemantics(string profile, string fingerprint)
+        {
+            // DefinitionV1 explicitly excludes missing recursive parents. Never reinterpret it.
+            if (inputs.CompatibilityProfile == Chummer5aLegacyImportCompatibility.ProfileV2
+                && profile == CurrentCharacterRuleSourceSemantics.ProfileV1) return false;
+            if (CapturePurchases || currentInterpretationLocked || files.Count != 0 || purchaseCatalogues.Count != 0
+                || !((profile == CurrentCharacterRuleSourceSemantics.ProfileV1
+                        && fingerprint == CurrentCharacterRuleSourceSemantics.FingerprintV1)
+                    || CurrentCharacterRuleSourceSemantics.IsCurrentExecutionProfile(profile, fingerprint))) return false;
+            currentEnvironmentProfile = profile;
+            currentEnvironmentFingerprint = fingerprint;
+            CurrentSourceSemantics = true;
+            return true;
+        }
+
+        public override bool EnableCurrentGearSourceExecution()
+        {
+            // Never promote an already observed historical trace.
+            if (CapturePurchases || !EnableCurrentEnvironmentSourceSemantics(
+                    CurrentCharacterRuleSourceSemantics.ProfileV1, CurrentCharacterRuleSourceSemantics.FingerprintV1))
+                return false;
+            CaptureCurrentGear = true;
+            return true;
+        }
+
+        internal void ChargeCurrentGearObservation() => Charge(1);
+
+        public override IReadOnlyDictionary<string, string> ConsumeCurrentGearSource(
+            CharacterCreationGearAuthority authority, IReadOnlyList<CharacterCreationGearLine> lines,
+            CharacterCreationGearBudget budget)
+        {
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!CaptureCurrentGear || !CharacterCreationGearRules.IsValidAuthority(authority)
+                || !budget.IsExact || budget.Blockers.Count != 0
+                || !purchaseCatalogues.TryGetValue("gear:" + authority.AuthorityDigest, out var trace)
+                || trace.CurrentGearAmendments is not { } amendments
+                || !trace.MatchesGear(authority, lines, [], out var decisions)
+                || !amendments.MatchesExecution(authority, lines)) return result;
+
+            // Actually execute the canonical kernel. Supplied prices, line
+            // digests and a self-consistent budget are comparison inputs only.
+            if (!CharacterCreationGearRules.TryProjectBasket(lines.Select(line =>
+                    new CharacterCreationGearSelection(line.OptionId, line.Quantity)).ToArray(),
+                    authority, budget.TotalStartingNuyen, out var executed, out var executedBudget, out _)
+                || CharacterCreationFinalizationDigest.Compute(new { Lines = executed, Budget = executedBudget })
+                    != CharacterCreationFinalizationDigest.Compute(new
+                    { Lines = lines.OrderBy(line => line.OptionId, StringComparer.Ordinal).ToArray(), Budget = budget }))
+                return result;
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(inputs.CharacterXml) is not SourceDataContext context
+                || !context.MatchesRetainedSelection(inputs)
+                || !context.TryResolveCreationEffectivePolicy(out var policy) || policy is null
+                || policy.PolicyDigest != inputs.PolicyDigest || !trace.MatchesPolicy(policy)) return result;
+            var sources = policy.Sources.Where(source => source.Kind == CharacterCreationPolicySourceKind.Rules
+                && source.SourceId == "gear").ToArray();
+            if (sources is not [var source] || source.ContentDigest is null) return result;
+            result.Add("source:" + source.Kind + ":" + source.Order, CharacterCreationFinalizationDigest.Compute(new
+            {
+                Schema = "chummer.private-current-gear-cost-amendment-execution.v1",
+                CaptureDigest = captureDigest, Source = source, policy.PolicyDigest,
+                InterpretationProfile = CurrentCharacterRuleSourceSemantics.ProfileV1,
+                InterpretationFingerprint = CurrentCharacterRuleSourceSemantics.FingerprintV1,
+                trace.ProfileDigest, trace.MetadataDigest, Operations = amendments.ExecutionDigest,
+                Decisions = decisions, Lines = executed, Budget = executedBudget
+            }));
+            return result;
+        }
 
         public override bool EnablePurchaseSourceExecution()
         {
+            if (CurrentSourceSemantics) return false;
             CapturePurchases = true;
             return true;
         }
@@ -47,6 +141,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             // consumers. They cannot populate the projection observations below.
             if (gear.IsAuthoritative && budget.IsExact && budget.Blockers.Count == 0
                 && purchaseCatalogues.TryGetValue("gear:" + gear.AuthorityDigest, out var gearTrace)
+                && gearTrace.CurrentGearAmendments is null
                 && gearTrace.MatchesGear(gear, lines, grantedGear, out var gearDecisions))
                 Add("gear", gearTrace, gearDecisions, new { Lines = lines, Budget = budget, GrantedGear = grantedGear });
             if (qualities.IsAuthoritative && evaluatedQualities.Blockers.Count == 0
@@ -84,16 +179,19 @@ public sealed partial class FileSystemCharacterSourceDataResolver
         private readonly string profileId;
         internal string ProfileDigest { get; }
         internal string MetadataDigest { get; }
+        internal CurrentGearAmendmentTrace? CurrentGearAmendments { get; }
         private bool valid = true;
 
         internal PurchaseCatalogueTrace(RuleSourceAccounting accounting, XElement[] sources,
-            string profileId, string profileDigest, IEnumerable<string> enabledBooks, XElement root)
+            string profileId, string profileDigest, IEnumerable<string> enabledBooks, XElement root,
+            CurrentGearAmendmentTrace? currentGearAmendments = null)
         {
             this.accounting = accounting;
             this.profileId = profileId;
             ProfileDigest = profileDigest;
             books = enabledBooks.Order(StringComparer.Ordinal).ToArray();
             MetadataDigest = CharacterCreationFinalizationDigest.Compute(root.ToString(SaveOptions.DisableFormatting));
+            CurrentGearAmendments = currentGearAmendments;
             rows = sources.ToDictionary(row => Guid.Parse(ReadValue(row, "id")), row =>
                 new Row(Guid.Parse(ReadValue(row, "id")), row.ToString(SaveOptions.DisableFormatting),
                     ReadValue(row, "source"), []));
@@ -149,7 +247,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             decisions = Array.Empty<string>();
             if (authority.ProfileDigest != ProfileDigest || lines.Select(row => row.OptionId).Distinct().Count() != lines.Count)
                 return false;
-            foreach (var line in lines)
+            var retained1253 = lines.FirstOrDefault(line => line.Focus is not null)?.Focus?.Preserved;
+            if (!CharacterCreationFocusSelectionRules.TryValidateBasket(lines, out _)) return false;
+            foreach (var line in lines.Concat(retained1253?.Lines ?? []))
             {
                 var matches = authority.Options.Where(option => option.OptionId == line.OptionId).ToArray();
                 if (matches is not [var option] || option.SourceId != line.SourceId
@@ -172,15 +272,26 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     || !books.Contains(grant.SourceBook, StringComparer.OrdinalIgnoreCase))
                     return false;
             }
-            decisions = new
+            var purchased = Decisions(lines.Select(row => row.OptionId));
+            var granted = grantedGear.Select(grant => new
             {
-                Purchased = Decisions(lines.Select(row => row.OptionId)),
-                Granted = grantedGear.Select(grant => new
+                grant.SourceId, grant.EffectiveSourceDigest, grant.SourceNodeDigest,
+                grant.CanonicalSourceXmlDigest, grant.SourceBook, grant.SourceAnchorIds
+            }).ToArray();
+            // An absent retained Focus selection keeps the historical v2 envelope.
+            // A serialized null property would change its canonical execution digest.
+            decisions = retained1253 is null
+                ? new { Purchased = purchased, Granted = granted }
+                : new
                 {
-                    grant.SourceId, grant.EffectiveSourceDigest, grant.SourceNodeDigest,
-                    grant.CanonicalSourceXmlDigest, grant.SourceBook, grant.SourceAnchorIds
-                }).ToArray()
-            };
+                    Purchased = purchased,
+                    Retained1253 = new
+                    {
+                        retained1253.Selection, retained1253.TotalCost,
+                        Decisions = Decisions(retained1253.Lines.Select(row => row.OptionId))
+                    },
+                    Granted = granted
+                };
             return true;
         }
 
@@ -225,16 +336,149 @@ public sealed partial class FileSystemCharacterSourceDataResolver
         }
     }
 
+    // This deliberately narrow observer is evidence for fixed-price gear only.
+    // It records the existing merger; it neither merges XML nor authorizes a
+    // current environment. All other operations keep their existing refusal.
+    private sealed class CurrentGearAmendmentTrace
+    {
+        private sealed record Input(int Order, string Digest, Guid Id, XElement Entry);
+        private sealed record Operation(int InvocationOrder, int SourceOrder, string SourceDigest, Guid Id,
+            string Before, string After, string BeforeCost, string AfterCost);
+        private readonly RuleSourceAccounting accounting;
+        private readonly Input[] inputs;
+        private readonly Dictionary<XElement, Operation> operations = new(ReferenceEqualityComparer.Instance);
+        private readonly List<Operation> observedOperations = [];
+        private bool valid = true;
+
+        private CurrentGearAmendmentTrace(RuleSourceAccounting accounting, Input[] inputs)
+        { this.accounting = accounting; this.inputs = inputs; }
+
+        internal static CurrentGearAmendmentTrace? TryCreate(RuleSourceAccounting accounting,
+            IReadOnlyList<(string Path, string Prefix, XElement Root)> sources)
+        {
+            if (!accounting.CaptureCurrentGear || sources.Count == 0) return null;
+            var inputs = new List<Input>();
+            foreach (var (path, prefix, root) in sources)
+            {
+                if (prefix != "amend_" || root.Name != "chummer" || root.HasAttributes || HasDirectText(root)
+                    || root.DescendantNodes().OfType<XProcessingInstruction>().Any()
+                    || root.Elements().ToArray() is not [var gears] || gears.Name != "gears"
+                    || gears.HasAttributes || HasDirectText(gears) || !gears.HasElements) return null;
+                string digest = RetainedCharacterRuleSourceInputs.Digest(ReadSourceBytes(path));
+                var ids = new HashSet<Guid>();
+                foreach (var entry in gears.Elements())
+                {
+                    accounting.ChargeCurrentGearObservation();
+                    if (entry.Name != "gear" || HasDirectText(entry)
+                        || entry.Attributes().Any(attribute => attribute.Name != "amendoperation"
+                            || attribute.Value.ToUpperInvariant() != "RECURSE")
+                        || entry.Elements().Count() != 2
+                        || entry.Elements("id").ToArray() is not [var id] || !PlainScalar(id)
+                        || !Guid.TryParseExact(id.Value, "D", out var identity) || identity == Guid.Empty
+                        || !ids.Add(identity)
+                        || entry.Elements("cost").ToArray() is not [var cost] || cost.HasElements
+                        || cost.Nodes().Any(node => node is not XText || node is XCData)
+                        || cost.Attributes().ToArray() is not [var operation]
+                        || operation.Name != "amendoperation" || operation.Value.ToUpperInvariant() != "REPLACE")
+                        return null;
+                    inputs.Add(new(inputs.Count, digest, identity, entry));
+                }
+            }
+            return inputs.Count == 0 ? null : new(accounting, inputs.ToArray());
+        }
+
+        internal IDisposable Observe(XElement entry, XElement? target)
+        {
+            accounting.ChargeCurrentGearObservation();
+            var input = inputs.SingleOrDefault(candidate => ReferenceEquals(candidate.Entry, entry));
+            if (input is null || target is null || target.Elements("id").ToArray() is not [var id]
+                || !PlainScalar(id) || id.Value != entry.Element("id")!.Value
+                || target.Elements("cost").ToArray() is not [var cost] || !PlainScalar(cost))
+            {
+                valid = false;
+                return new Completion(() => { });
+            }
+            string before = NodeDigest(target), beforeCost = cost.Value;
+            return new Completion(() =>
+            {
+                accounting.ChargeCurrentGearObservation();
+                if (target.Elements("cost").ToArray() is not [var afterCost] || !PlainScalar(afterCost)
+                    || afterCost.Value != entry.Element("cost")!.Value
+                    || target.Elements("id").ToArray() is not [var afterId]
+                    || !PlainScalar(afterId) || afterId.Value != id.Value)
+                { valid = false; return; }
+                var observed = new Operation(observedOperations.Count, input.Order, input.Digest, input.Id,
+                    before, NodeDigest(target), beforeCost, afterCost.Value);
+                // Enumeration can revisit a GUID through ID and name locators.
+                // Preserve every actual invocation, including an idempotent
+                // replacement; do not invent a single desktop merge pass.
+                observedOperations.Add(observed);
+                operations[entry] = observed;
+            });
+        }
+
+        internal bool MatchesTargets(IReadOnlyList<XElement> targets)
+        {
+            if (!valid || operations.Count != inputs.Length) return false;
+            foreach (var group in inputs.GroupBy(input => input.Id))
+            {
+                var matches = targets.Where(target => Guid.TryParse(ReadValue(target, "id"), out var id)
+                    && id == group.Key).Take(2).ToArray();
+                if (matches is not [var target] || operations[group.Last().Entry].After != NodeDigest(target))
+                    return false;
+            }
+            return true;
+        }
+
+        internal bool MatchesExecution(CharacterCreationGearAuthority authority,
+            IReadOnlyList<CharacterCreationGearLine> lines)
+        {
+            if (!valid || operations.Count != inputs.Length) return false;
+            foreach (var group in inputs.GroupBy(input => input.Id))
+            {
+                var selected = lines.Where(line => line.SourceId == group.Key).Take(2).ToArray();
+                var options = authority.Options.Where(option => option.SourceId == group.Key).Take(2).ToArray();
+                if (selected is not [var line] || line.Focus is not null
+                    || options is not [var option] || !option.IsSelectable || option.FocusSource is not null
+                    || option.Category == "Foci" || !option.PricingIsExact
+                    || line.SourceNodeXml != option.SourceNodeXml
+                    || operations[group.Last().Entry].After != NodeDigest(XElement.Parse(option.SourceNodeXml)))
+                    return false;
+            }
+            return true;
+        }
+
+        internal string ExecutionDigest => CharacterCreationFinalizationDigest.Compute(new
+        {
+            Schema = "chummer.private-current-gear-cost-amendment-operations.v1",
+            Operations = observedOperations.ToArray()
+        });
+
+        private static bool PlainScalar(XElement node) => !node.HasAttributes && !node.HasElements
+            && node.Nodes().All(child => child is XText && child is not XCData);
+        private static bool HasDirectText(XElement node) => node.Nodes().OfType<XText>()
+            .Any(text => !string.IsNullOrWhiteSpace(text.Value));
+        private static string NodeDigest(XElement node)
+            => CharacterCreationFinalizationDigest.Compute(node.ToString(SaveOptions.DisableFormatting));
+        private sealed class Completion(Action complete) : IDisposable
+        { public void Dispose() => complete(); }
+    }
+
     private sealed partial class SourceDataContext
     {
+        private CurrentGearAmendmentTrace? _currentGearAmendmentTrace;
+
         private PurchaseCatalogueTrace? BeginPurchaseCatalogue(string scope, string container, string entry, XElement[] rows)
         {
             var accounting = _sourceInputs.Accounting;
-            if (accounting is not { CapturePurchases: true } || _sourceInputs.HasSourceDrift) return null;
+            if (accounting is null || !accounting.CapturePurchases && !accounting.CaptureCurrentGear
+                || _sourceInputs.HasSourceDrift) return null;
             string file = scope + ".xml";
             // Arbitrary custom/override/amend operations require their own source
             // semantics. Neither an identical digest nor an enabled book proves them.
-            if (!TryHasSelectedCustomDataInputFor(_customDirectories, file, out bool custom) || custom
+            if (!TryHasSelectedCustomDataInputFor(_customDirectories, file, out bool custom)
+                || custom && (scope != "gear" || !accounting.CaptureCurrentGear
+                    || _currentGearAmendmentTrace is null || !_currentGearAmendmentTrace.MatchesTargets(rows))
                 || !TryLoadEffectiveDocument(_catalog, file, out var document) || document?.Root is not { } root
                 || !ValidPurchaseCatalogue(root, scope, container, entry, rows)) return null;
             foreach (var pack in _catalog.Overlays.Where(pack => pack.Enabled))
@@ -257,7 +501,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             string basePath = Path.Combine(_catalog.BaseDataPath, file);
             if (!TryLoadXml(basePath, out var raw) || raw?.Root is not { } rawRoot
                 || !ValidPurchaseCatalogue(rawRoot, scope, container, entry, rows)) return null;
-            return new(accounting, rows, _settingsProfileId, _rawProfileInputsDigest, _enabledSourcebooks, root);
+            return new(accounting, rows, _settingsProfileId, _rawProfileInputsDigest, _enabledSourcebooks, root,
+                custom ? _currentGearAmendmentTrace : null);
         }
 
         private static bool ValidPurchaseCatalogue(XElement root, string scope, string container, string entry, XElement[] rows)

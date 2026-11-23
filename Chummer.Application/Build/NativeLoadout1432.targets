@@ -1,0 +1,34 @@
+<Project>
+  <ItemGroup>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs">
+      <ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Character.cs">
+      <ExpectedSha256>f3dcea63f4ae7a20ede033913f8012f1d5e755af0e09723f21c3f17387d52b26</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Equipment/Weapon.cs">
+      <ExpectedSha256>eeca2baad00594ef9221e55052b848a2b7a060d1064a4e09adc27394800340c6</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Equipment/Vehicle.cs">
+      <ExpectedSha256>58e3673e6a41a17bf68037077931d04e1f1d0f56237ef6a072440dd401e3f832</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Attributes/Attribute.Core.cs">
+      <ExpectedSha256>c868b8d87d036ef9170a90d463b9508dd4ac99b25f0c3b9b39d44eedcacc1573</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Equipment/Armor.cs">
+      <ExpectedSha256>12d9b19f35c34ecad13fc7786447fc8bf36122c2f5ba75c8abbbccfeaa8c4416</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Improvements/Improvement.cs">
+      <ExpectedSha256>0cd64c47b433b4f0985dfbf073c765eafaef8290eeff5b72d663f7d68f9a7bc8</ExpectedSha256>
+    </NativeLoadoutSource1432>
+    <NativeLoadoutSource1432 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Character Forms/CharacterCreate.cs">
+      <ExpectedSha256>78816501a56194ecc9d757c58c2a4e4e0b7916f55944d58b7d9a3b16761563db</ExpectedSha256>
+    </NativeLoadoutSource1432>
+  </ItemGroup>
+  <Target Name="VerifyNativeLoadoutSource1432" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(NativeLoadoutSource1432)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedNativeLoadoutSource1432" />
+    </GetFileHash>
+    <Error Condition="'%(HashedNativeLoadoutSource1432.FileHash)' != '%(HashedNativeLoadoutSource1432.ExpectedSha256)'" Text="Native loadout1432 source drift: %(HashedNativeLoadoutSource1432.Identity). Re-review the exact native applicability branches before updating the pinned source version." />
+  </Target>
+</Project>

@@ -13,6 +13,8 @@ namespace Chummer.Application.Characters;
 public sealed class OwnerManagedCareerPowerAuthorityResolver(ICharacterSourceDataResolver sources)
     : ICharacterCareerPowerAuthorityResolver
 {
+    internal bool UsesSources(ICharacterSourceDataResolver value) => ReferenceEquals(sources, value);
+
     public ICharacterCareerPowerAdmission? Open(OwnerScope owner, WorkspaceStoredDocument saved,
         CharacterCareerPowerCommand command, string runtimeFingerprint)
         => OpenDetailed(owner, saved, command, runtimeFingerprint, out _);
@@ -33,14 +35,14 @@ public sealed class OwnerManagedCareerPowerAuthorityResolver(ICharacterSourceDat
             { blocker = "power_read_binding_changed"; return null; }
             var context = sources.TryCreateContext(saved.Document.Content);
             if (context is null) { blocker = "power_source_context_unavailable"; return null; }
-            var graph = CharacterCareerPowerGraph.Build(saved.Document.Content, context, command);
+            var graph = CharacterCareerPowerGraph.Build(saved, context, command);
             var plan = new CharacterCareerPowerPlan(owner.NormalizedValue, saved.Id.Value, saved.ContentRevision,
                 saved.SavedRevision, CharacterCareerPowerTransaction.Hash(saved.Document.Content),
                 saved.Document.AuxiliaryStateDigest, graph.AuthorityDigest, runtimeFingerprint, command,
                 graph.Quote, CharacterCareerPowerTransaction.Hash(graph.Xml));
             if (!CharacterCareerPowerTransaction.IsValidPlan(plan)) { blocker = "power_plan_invalid"; return null; }
             blocker = null;
-            return new Admission(sources, context, saved.Document.Content, plan, graph);
+            return new Admission(sources, context, saved, plan, graph);
         }
         catch (Exception e) when (Unavailable(e))
         {
@@ -54,7 +56,7 @@ public sealed class OwnerManagedCareerPowerAuthorityResolver(ICharacterSourceDat
         or InvalidOperationException or IOException or UnauthorizedAccessException or OverflowException;
 
     private sealed class Admission(ICharacterSourceDataResolver sources, ICharacterSourceDataContext retained,
-        string original, CharacterCareerPowerPlan plan, CharacterCareerPowerGraph.Projection graph)
+        WorkspaceStoredDocument saved, CharacterCareerPowerPlan plan, CharacterCareerPowerGraph.Projection graph)
         : ICharacterCareerPowerAdmission
     {
         private bool disposed, invalidated;
@@ -68,10 +70,10 @@ public sealed class OwnerManagedCareerPowerAuthorityResolver(ICharacterSourceDat
             {
                 // The retained context detects observed file ABA; the fresh
                 // context detects changed overlay membership or selected profile.
-                var current = CharacterCareerPowerGraph.Build(original, retained, plan.Command);
-                var fresh = sources.TryCreateContext(original);
+                var current = CharacterCareerPowerGraph.Build(saved, retained, plan.Command);
+                var fresh = sources.TryCreateContext(saved.Document.Content);
                 bool valid = fresh is not null && Same(current)
-                    && Same(CharacterCareerPowerGraph.Build(original, fresh, plan.Command));
+                    && Same(CharacterCareerPowerGraph.Build(saved, fresh, plan.Command));
                 invalidated = !valid;
                 return valid;
             }

@@ -7,8 +7,75 @@ namespace Chummer.Infrastructure.Xml;
 
 public sealed partial class FileSystemCharacterSourceDataResolver
 {
+    private sealed partial class SourceDataContext : ICharacterCurrentSkillEffectSource
+    {
+        public bool TryReadCurrentSkillEffectSource(string kind, Guid sourceId,
+            out string sourceXml, out string sourceState)
+        {
+            using IDisposable scope = _sourceInputs.Enter();
+            sourceXml = sourceState = string.Empty;
+            if (!UsesCurrentCatalogSemantics || _sourceInputs.HasSourceDrift || sourceId == Guid.Empty) return false;
+            var location = kind switch
+            {
+                "qualities" => (File: "qualities.xml", Row: "quality"),
+                "powers" => (File: "powers.xml", Row: "power"),
+                "gears" => (File: "gear.xml", Row: "gear"),
+                "weapons" => (File: "weapons.xml", Row: "weapon"),
+                "armors" => (File: "armor.xml", Row: "armor"),
+                "spells" => (File: "spells.xml", Row: "spell"),
+                "complexforms" => (File: "complexforms.xml", Row: "complexform"),
+                _ => (File: "", Row: "")
+            };
+            if (location.File.Length == 0
+                || !TryResolveTarget(location.File, [kind], location.Row, sourceId.ToString("D"), "",
+                    out var row, out bool ambiguous, inspectIdentity: true)
+                || row is null || ambiguous || row.Name != location.Row || row.HasAttributes
+                || row.Elements("id").Count() != 1 || row.Elements("name").Count() != 1
+                || row.Elements("source").Count() != 1
+                || row.Elements().Where(node => node.Name == "id" || node.Name == "name" || node.Name == "source")
+                    .Any(node => node.HasAttributes || node.HasElements || node.Value != node.Value.Trim())
+                || !Guid.TryParseExact(row.Element("id")!.Value, "D", out var actualId) || actualId != sourceId
+                || string.IsNullOrWhiteSpace(row.Element("name")!.Value)
+                || !IsEnabledSource(row.Element("source")!.Value)
+                || !TryComputeEffectiveInputDigest(_catalog, location.File, out var sourceDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(_customDirectories, location.File, out var customDigest)
+                || _sourceInputs.HasSourceDrift) return false;
+            sourceXml = row.ToString(SaveOptions.DisableFormatting);
+            sourceState = string.Join('\0', kind, sourceId.ToString("D"), sourceDigest,
+                _rawProfileInputsDigest, customDigest, sourceXml);
+            return true;
+        }
+    }
+
     private sealed partial class RuleSourceAccounting
     {
+        // Current-environment admission is a separate path. Keep the Complete source
+        // guards below unchanged, including their custom-data veto.
+        partial void ValidateCurrentSkillsCatalog(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogInput input, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleCatalogValidation? result)
+        {
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is SourceDataContext source
+                && source.MatchesRetainedSelection(inputs))
+            {
+                using var weapons9962 = source.BeginSkillSpecializationWeapons9962(current);
+                result = CharacterCurrentRuleEnvironmentConsumers.ValidateSkillsCatalog(
+                    current, input, source, cancellationToken);
+            }
+        }
+
+        partial void ExecuteCurrentSkills(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogValidation validation, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleDomainExecution? result)
+        {
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is SourceDataContext source
+                && source.MatchesRetainedSelection(inputs))
+                result = CharacterCurrentRuleEnvironmentConsumers.ExecuteSkills(
+                    current, validation, source, cancellationToken);
+        }
+
         private readonly Dictionary<string, SkillCatalogueTrace> skillCatalogues = new(StringComparer.Ordinal);
 
         internal void RetainSkillCatalogue(CharacterCreationSkillsAuthority authority, SkillCatalogueTrace trace)

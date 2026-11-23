@@ -16,6 +16,18 @@ public sealed record WorkspaceStoredDocument(
     long SavedRevision,
     DateTimeOffset LastUpdatedUtc)
 {
+    // In-process validated history is intentionally absent from every public DTO,
+    // digest and serializer. A with-expression changing the observation invalidates it.
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal Chummer.Application.Characters.CharacterCreationReceiptHistory3659? CreationReceiptHistory3659
+        => Chummer.Application.Characters.CharacterCreationReceiptHistory3659.Find(this);
+
+    // The store invokes this only while its private recovery scope is active.
+    // It validates the entire archive; a public digest cannot issue this proof.
+    public WorkspaceStoredDocument WithValidatedCreationReceiptHistory(
+        Chummer.Application.Characters.ICharacterCreationRuleSourceRecovery? recovery)
+        => Chummer.Application.Characters.CharacterCreationReceiptHistory3659.Attach(this, recovery);
+
     // An observation from the host's store, not part of the portable snapshot.
     // Legacy/other store implementations have not established this capability.
     public WorkspaceLocalHistory? LocalHistory { get; init; }

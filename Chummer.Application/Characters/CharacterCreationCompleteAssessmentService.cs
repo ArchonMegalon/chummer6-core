@@ -68,10 +68,14 @@ public static class CharacterCreationCompleteAssessmentService
     internal static CharacterCreationCompleteAssessment FromFullAuthority(
         CharacterCreationCompletionReviewInputs inputs, CharacterCreationCompletionReviewRequest request,
         CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null)
-        => Authority(inputs.EffectivePolicy!, inputs.SnapshotDigest, inputs.Skills.Binding.RawCharacterXmlDigest,
+    {
+        return ruleSourceExecution is null ? Evaluate() : ruleSourceExecution.FullAuthorityDiagnostic(inputs, request, Evaluate);
+
+        CharacterCreationCompleteAssessment Evaluate() => Authority(inputs.EffectivePolicy!, inputs.SnapshotDigest, inputs.Skills.Binding.RawCharacterXmlDigest,
             CharacterCreationSelectedPolicyProjection.FromFull(inputs,
                 CharacterCreationCompletionPreservationRules.SnapshotOriginal(inputs)), request,
             inputs.Magic.Authority.MysticAdeptPowerPointPolicy, ruleSourceExecution);
+    }
 
     // Replay invokes this only after reading the original archive and validating
     // selected policy inputs; copied full-policy hashes are not reconstructed input.
@@ -89,7 +93,18 @@ public static class CharacterCreationCompleteAssessmentService
         CharacterCreationSelectedPolicyInputs selected, CharacterCreationCompletionReviewRequest request,
         CharacterCreationMysticAdeptPowerPointPolicy? settingsSource,
         CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution)
+        => ruleSourceExecution is null
+            ? EvaluateAuthority(policy, snapshot, rawXml, selected, request, settingsSource, null)
+            : ruleSourceExecution.AuthorityDiagnostic(new { policy, snapshot, rawXml, selected, request, settingsSource },
+                () => EvaluateAuthority(policy, snapshot, rawXml, selected, request, settingsSource, ruleSourceExecution));
+
+    private static CharacterCreationCompleteAssessment EvaluateAuthority(
+        CharacterCreationEffectivePolicyContext policy, string snapshot, string rawXml,
+        CharacterCreationSelectedPolicyInputs selected, CharacterCreationCompletionReviewRequest request,
+        CharacterCreationMysticAdeptPowerPointPolicy? settingsSource,
+        CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution)
     {
+        CharacterCreationCompletionCost3340.Log.Checkpoint(30); // cost3340 authority.begin
         if (!CharacterCreationCompletionReviewRules.HasValidProfileSettingsExecution(request)
             || !CharacterCreationCompletionReviewRules.HasValidAdditionalConsumerExecution(request)
             || !CharacterCreationCompletionReviewRules.HasValidRuleSourceExecution(request)
@@ -216,37 +231,155 @@ public static class CharacterCreationCompleteAssessmentService
                 } : (object)limit));
         }
 
+        // Share only canonical input hashing within this synchronous call.
+        // Every retained-profile query still captures all current input bytes
+        // and runs its request, policy, source and private capability checks.
+        using var profileSettingInputs1203 = ruleSourceExecution is null ? null
+            : new CharacterCreationCompleteRuleSourceExecution.ProfileSettingInputValidation1203();
+
         // Consumers are obtained from the SAME typed binding table as consumption;
         // neither a second setting registry nor receipt-driven obligation discovery.
-        foreach (var (setting, consumer, hasInput) in
-            CharacterCreationPolicyConsumptionProjection.DescribeSettingObligations(policy, selected.Policy))
+        CharacterCreationCompletionCost3340.Log.Checkpoint(31); // cost3340 authority.settings.begin
+        // Keep the original loop on the unsubscribed path: one opt-in check,
+        // no per-setting timing calls or timing branches. The measured copy keeps
+        // the same enumeration and predicates; only three numeric totals escape.
+        if (CharacterCreationCompletionCost3340.Log.TryBeginSettings3365(out int invocation3365))
         {
-            // V4 alone retains its historical unresolved/default-unproven row,
-            // including the original authority digest used by archived replay.
-            bool maximumDefault = request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
-                && request.MaximumAttributesDefaultExecutionSchema == CharacterCreationCompletionReviewSchemas.MaximumAttributesDefaultExecutionV1
-                && hasInput && CharacterCreationCompleteSettingsExecution.SupportsAbsentMaximum(
-                    policy, settingsSource, setting, consumer, selected.Policy);
-            bool profileSetting = CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
-                && hasInput && CharacterCreationCompleteProfileSettingsExecution.SupportsSetting(
-                    policy, settingsSource, setting, consumer, selected.Policy);
-            var reason = maximumDefault || profileSetting ? R.CandidateEvaluationRequired : setting.State switch
+            profileSettingInputs1203?.EnableCosts3431();
+            int settingCount3365 = 0, fallbackCount3365 = 0;
+            long directTicks3365 = 0, fallbackTicks3365 = 0, rowTicks3365 = 0;
+            foreach (var (setting, consumer, hasInput) in
+                CharacterCreationPolicyConsumptionProjection.DescribeSettingObligations(policy, selected.Policy))
             {
-                CharacterCreationSettingObservationState.Absent => R.AbsentSourceDefaultUnproven,
-                CharacterCreationSettingObservationState.Opaque => R.OpaqueSource,
-                CharacterCreationSettingObservationState.Invalid => R.InvalidSource,
-                CharacterCreationSettingObservationState.Duplicate => R.DuplicateSource,
-                _ => hasInput ? R.CandidateEvaluationRequired : R.ConsumerUnavailable
-            };
-            rows.Add(Row(K.Setting, "setting:" + setting.SettingId + ":" + consumer,
-                maximumDefault || profileSetting ? E.CandidateDependent
-                : setting.State == CharacterCreationSettingObservationState.Absent ? E.AuthorityUnavailable
-                : setting.State != CharacterCreationSettingObservationState.Present || !hasInput ? E.Unsupported
-                : E.CandidateDependent, reason, maximumDefault
-                    ? new { setting, consumer, SettingsSource = settingsSource, Attributes = selected.Policy.Attributes }
-                    : profileSetting ? new { setting, consumer, SettingsSource = settingsSource, Selected = selected.Policy }
-                    : (object)new { setting, consumer })
-                with { Setting = setting, Consumer = consumer });
+                // V4 alone retains its historical unresolved/default-unproven row,
+                // including the original authority digest used by archived replay.
+                long started3365 = System.Diagnostics.Stopwatch.GetTimestamp();
+                settingCount3365++;
+                bool maximumDefault = request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                    && request.MaximumAttributesDefaultExecutionSchema == CharacterCreationCompletionReviewSchemas.MaximumAttributesDefaultExecutionV1
+                    && hasInput && CharacterCreationCompleteSettingsExecution.SupportsAbsentMaximum(
+                        policy, settingsSource, setting, consumer, selected.Policy);
+                bool profileSetting = CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                    && hasInput && CharacterCreationCompleteProfileSettingsExecution.SupportsSetting(
+                        policy, settingsSource, setting, consumer, selected.Policy);
+                profileSetting |= ruleSourceExecution is { HasNativeFocusSources1339: true }
+                    && CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                    && request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                    && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                    && CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+                    && CharacterCreationCompleteRuleSourceExecution.SupportsRetainedMagicSetting1221(policy, settingsSource, setting, consumer);
+                profileSetting |= ruleSourceExecution is { HasNativeFocusSources1339: true }
+                    && CharacterCreationCompleteRuleSourceExecution.CanAttemptFocus1220(request)
+                    && CharacterCreationCompleteRuleSourceExecution.SupportsFocusSetting1220(policy, settingsSource, setting, consumer);
+                bool karmaSetting1208 = CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                    && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                    && request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                    && CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+                    && CharacterCreationCompleteRuleSourceExecution.SupportsKarmaSetting1208(policy, settingsSource, setting, consumer);
+                bool metadataSetting1209 = ruleSourceExecution?.CanExecuteMetadata1209(
+                    policy, settingsSource, setting, consumer, request) == true;
+                bool essenceSetting1222 = ruleSourceExecution?.CanExecuteEssence1222(policy, settingsSource, setting, consumer, request) == true;
+                long boundary3365 = System.Diagnostics.Stopwatch.GetTimestamp();
+                directTicks3365 += boundary3365 - started3365;
+                started3365 = boundary3365;
+                // Broad retained admission is needed only when no fully guarded alternative admits this row.
+                // Private consumption independently validates current inputs and builds capabilities on demand.
+                if (!maximumDefault && !profileSetting && !karmaSetting1208 && !metadataSetting1209
+                    && !essenceSetting1222 && ruleSourceExecution is not null)
+                {
+                    fallbackCount3365++;
+                    profileSetting = ruleSourceExecution.SupportsProfileSetting1203(policy, settingsSource, setting,
+                        consumer, snapshot, rawXml, request, profileSettingInputs1203);
+                }
+                boundary3365 = System.Diagnostics.Stopwatch.GetTimestamp();
+                fallbackTicks3365 += boundary3365 - started3365;
+                started3365 = boundary3365;
+                var reason = maximumDefault || profileSetting || karmaSetting1208 || metadataSetting1209 || essenceSetting1222 ? R.CandidateEvaluationRequired : setting.State switch
+                {
+                    CharacterCreationSettingObservationState.Absent => R.AbsentSourceDefaultUnproven,
+                    CharacterCreationSettingObservationState.Opaque => R.OpaqueSource,
+                    CharacterCreationSettingObservationState.Invalid => R.InvalidSource,
+                    CharacterCreationSettingObservationState.Duplicate => R.DuplicateSource,
+                    _ => hasInput ? R.CandidateEvaluationRequired : R.ConsumerUnavailable
+                };
+                rows.Add(Row(K.Setting, "setting:" + setting.SettingId + ":" + consumer,
+                    maximumDefault || profileSetting || karmaSetting1208 || metadataSetting1209 || essenceSetting1222 ? E.CandidateDependent
+                    : setting.State == CharacterCreationSettingObservationState.Absent ? E.AuthorityUnavailable
+                    : setting.State != CharacterCreationSettingObservationState.Present || !hasInput ? E.Unsupported
+                    : E.CandidateDependent, reason, maximumDefault
+                        ? new { setting, consumer, SettingsSource = settingsSource, Attributes = selected.Policy.Attributes }
+                        : profileSetting || karmaSetting1208 || metadataSetting1209 || essenceSetting1222 ? new { setting, consumer, SettingsSource = settingsSource, Selected = selected.Policy }
+                        : (object)new { setting, consumer })
+                    with { Setting = setting, Consumer = consumer });
+                rowTicks3365 += System.Diagnostics.Stopwatch.GetTimestamp() - started3365;
+            }
+            CharacterCreationCompletionCost3340.Log.Checkpoint(32); // cost3340 authority.settings.returned
+            CharacterCreationCompletionCost3340.Log.Settings3365(invocation3365, settingCount3365,
+                fallbackCount3365, directTicks3365, fallbackTicks3365, rowTicks3365);
+            if (profileSettingInputs1203?.Costs3431 is { } costs3431)
+                CharacterCreationCompletionCost3340.Log.ProfileCosts3431(invocation3365,
+                    costs3431.InputCalls, costs3431.InputTicks,
+                    costs3431.ComparisonCalls, costs3431.ComparisonTicks,
+                    costs3431.SerializationCalls, costs3431.SerializationTicks, costs3431.ValidatedHashTicks);
+        }
+        else
+        {
+            foreach (var (setting, consumer, hasInput) in
+                CharacterCreationPolicyConsumptionProjection.DescribeSettingObligations(policy, selected.Policy))
+            {
+                // V4 alone retains its historical unresolved/default-unproven row,
+                // including the original authority digest used by archived replay.
+                bool maximumDefault = request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                    && request.MaximumAttributesDefaultExecutionSchema == CharacterCreationCompletionReviewSchemas.MaximumAttributesDefaultExecutionV1
+                    && hasInput && CharacterCreationCompleteSettingsExecution.SupportsAbsentMaximum(
+                        policy, settingsSource, setting, consumer, selected.Policy);
+                bool profileSetting = CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                    && hasInput && CharacterCreationCompleteProfileSettingsExecution.SupportsSetting(
+                        policy, settingsSource, setting, consumer, selected.Policy);
+                profileSetting |= ruleSourceExecution is { HasNativeFocusSources1339: true }
+                    && CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                    && request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                    && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                    && CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+                    && CharacterCreationCompleteRuleSourceExecution.SupportsRetainedMagicSetting1221(policy, settingsSource, setting, consumer);
+                profileSetting |= ruleSourceExecution is { HasNativeFocusSources1339: true }
+                    && CharacterCreationCompleteRuleSourceExecution.CanAttemptFocus1220(request)
+                    && CharacterCreationCompleteRuleSourceExecution.SupportsFocusSetting1220(policy, settingsSource, setting, consumer);
+                bool karmaSetting1208 = CharacterCreationCompleteProfileSettingsExecution.CanAttempt(request)
+                    && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                    && request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                    && CharacterCreationCompleteRuleSourceExecution.CanAttemptSourceScopes696(request)
+                    && CharacterCreationCompleteRuleSourceExecution.SupportsKarmaSetting1208(policy, settingsSource, setting, consumer);
+                bool metadataSetting1209 = ruleSourceExecution?.CanExecuteMetadata1209(
+                    policy, settingsSource, setting, consumer, request) == true;
+                bool essenceSetting1222 = ruleSourceExecution?.CanExecuteEssence1222(policy, settingsSource, setting, consumer, request) == true;
+                // Broad retained admission is needed only when no fully guarded alternative admits this row.
+                // Private consumption independently validates current inputs and builds capabilities on demand.
+                if (!maximumDefault && !profileSetting && !karmaSetting1208 && !metadataSetting1209
+                    && !essenceSetting1222 && ruleSourceExecution is not null)
+                {
+                    profileSetting = ruleSourceExecution.SupportsProfileSetting1203(policy, settingsSource, setting,
+                        consumer, snapshot, rawXml, request, profileSettingInputs1203);
+                }
+                var reason = maximumDefault || profileSetting || karmaSetting1208 || metadataSetting1209 || essenceSetting1222 ? R.CandidateEvaluationRequired : setting.State switch
+                {
+                    CharacterCreationSettingObservationState.Absent => R.AbsentSourceDefaultUnproven,
+                    CharacterCreationSettingObservationState.Opaque => R.OpaqueSource,
+                    CharacterCreationSettingObservationState.Invalid => R.InvalidSource,
+                    CharacterCreationSettingObservationState.Duplicate => R.DuplicateSource,
+                    _ => hasInput ? R.CandidateEvaluationRequired : R.ConsumerUnavailable
+                };
+                rows.Add(Row(K.Setting, "setting:" + setting.SettingId + ":" + consumer,
+                    maximumDefault || profileSetting || karmaSetting1208 || metadataSetting1209 || essenceSetting1222 ? E.CandidateDependent
+                    : setting.State == CharacterCreationSettingObservationState.Absent ? E.AuthorityUnavailable
+                    : setting.State != CharacterCreationSettingObservationState.Present || !hasInput ? E.Unsupported
+                    : E.CandidateDependent, reason, maximumDefault
+                        ? new { setting, consumer, SettingsSource = settingsSource, Attributes = selected.Policy.Attributes }
+                        : profileSetting || karmaSetting1208 || metadataSetting1209 || essenceSetting1222 ? new { setting, consumer, SettingsSource = settingsSource, Selected = selected.Policy }
+                        : (object)new { setting, consumer })
+                    with { Setting = setting, Consumer = consumer });
+            }
+            CharacterCreationCompletionCost3340.Log.Checkpoint(32); // cost3340 authority.settings.returned
         }
         foreach (var operation in selected.Policy.Coverage)
         {
@@ -283,6 +416,16 @@ public static class CharacterCreationCompleteAssessmentService
                 && operation.Reason == CharacterCreationConsumerPolicyReason.ConsumerOperationUnavailable
                 && selected.Policy.Skills.Purchases is
                     { CompensateSkillGroupKarmaDifference: false, AllowSkillRegrouping: not null };
+            // OtherSettings and UnclassifiedSettings summarize the same exhaustive
+            // profile execution. This admits only the aggregate attempt; every
+            // individual setting retains its independent evaluability and coverage.
+            bool unclassifiedSettings1198 =
+                CharacterCreationCompleteRuleSourceExecution.CanAttemptOtherSettings955(request)
+                && operation.Operation == CharacterCreationConsumerPolicyOperation.UnclassifiedSettings
+                && operation.Disposition == CharacterCreationConsumerPolicyDisposition.Unsupported
+                && operation.Reason == CharacterCreationConsumerPolicyReason.UnclassifiedLegacySetting
+                && CharacterCreationCompleteProfileExecution.SupportsDomain(
+                    policy, settingsSource, CharacterCreationPolicyDomain.Profile);
             // This unreleased opt-in broadens evaluability only. The frozen
             // coverage inventory remains unchanged; private canonical execution
             // must still match the complete authority and numerical result.
@@ -292,14 +435,15 @@ public static class CharacterCreationCompleteAssessmentService
                     request.OriginalCharacterExecutionSchema == CharacterCreationCompletionReviewSchemas.OriginalCharacterExecutionV1)
                 || mechanics695 && operation.Operation == CharacterCreationConsumerPolicyOperation.CharacterMechanics;
             rows.Add(Row(K.ConsumerOperation, "consumer:" + operation.Operation,
-                profileHouseRules || selectedEffectsExecution || amendmentExecution || errataExecution || disabledCompensationExecution || additionalExecution
+                profileHouseRules || selectedEffectsExecution || amendmentExecution || errataExecution || disabledCompensationExecution || additionalExecution || unclassifiedSettings1198
                     || operation.Disposition == CharacterCreationConsumerPolicyDisposition.Admitted ? E.CandidateDependent
                     : operation.Disposition == CharacterCreationConsumerPolicyDisposition.Missing ? E.AuthorityUnavailable : E.Unsupported,
-                profileHouseRules || selectedEffectsExecution || amendmentExecution || errataExecution || disabledCompensationExecution || additionalExecution ? R.CandidateEvaluationRequired
+                profileHouseRules || selectedEffectsExecution || amendmentExecution || errataExecution || disabledCompensationExecution || additionalExecution || unclassifiedSettings1198 ? R.CandidateEvaluationRequired
                     : operation.Disposition == CharacterCreationConsumerPolicyDisposition.NotApplicable
                     ? R.UntypedInactivity : R.ConsumerCoverageUnproven,
                 profileHouseRules ? new { Observation = operation, SettingsSource = settingsSource, selected.Policy.Attributes }
-                    : additionalExecution ? new { Observation = operation, selected.InputsDigest }
+                    : unclassifiedSettings1198 ? new { Observation = operation, SettingsSource = settingsSource }
+                : additionalExecution ? new { Observation = operation, selected.InputsDigest }
                     : disabledCompensationExecution
                     ? new { Observation = operation, selected.Policy.Skills.Purchases } : (object)operation)
                 with { Operation = operation.Operation });
@@ -343,6 +487,7 @@ public static class CharacterCreationCompleteAssessmentService
         if (rows.Count > CharacterCreationCompleteAssessment.MaximumObligations
             || rows.Select(row => (row.Kind, row.Id)).Distinct().Count() != rows.Count)
             throw new InvalidOperationException("Invalid complete obligation inventory.");
+        CharacterCreationCompletionCost3340.Log.Checkpoint(33); // cost3340 authority.inventory.returned
         return new(request.CompleteAssessmentSchema!, CharacterCreationCompletePhase.Authority,
             snapshot, rawXml, selected.InputsDigest, policy.PolicyDigest,
             CharacterCreationFinalizationDigest.Compute(request),
@@ -409,7 +554,8 @@ public static class CharacterCreationCompleteAssessmentService
                     && row.Operation is CharacterCreationConsumerPolicyOperation.LoadoutLegalityExclusions
                         or CharacterCreationConsumerPolicyOperation.LoadoutLegalityMultiplierPricing;
                 bool profileInactive = consumers!.IsProfileSettingInactive(authority, row.Id);
-                return row with { Coverage = creationOnly || profileInactive ? C.ProvenInactive : C.Evaluated,
+                bool amendmentInactive = consumers!.IsAmendmentInactive(authority, row.Id);
+                return row with { Coverage = creationOnly || profileInactive || amendmentInactive ? C.ProvenInactive : C.Evaluated,
                     Reason = R.CanonicalEvaluation, EvaluationDigest = digest };
             }
             if (authority.Schema == CharacterCreationCompleteAssessment.SchemaV4
@@ -449,10 +595,12 @@ public static class CharacterCreationCompleteAssessmentService
                     && item.SourceValueDigest == row.Setting.SourceValueDigest && item.Consumer == row.Consumer).ToArray();
                 var actual = matches.Length == 1 ? matches[0] : null;
                 bool evaluated = mechanicalSucceeded && row.Evaluability == E.CandidateDependent
-                    // This V4 default can only be discharged above by private source
-                    // re-resolution and attribute execution, never a public receipt.
+                    // V4 default and attribute price require the private source
+                    // and execution proofs consumed above. Paid allocation accounting
+                    // remains diagnostic; it cannot replace the typed profile producer.
                     && !(authority.Schema == CharacterCreationCompleteAssessment.SchemaV4
-                        && row.Id == CharacterCreationCompleteSettingsExecution.MaximumAttributesObligationId)
+                        && (row.Id == CharacterCreationCompleteSettingsExecution.MaximumAttributesObligationId
+                            || row.Setting!.Key == CharacterCreationObservedSetting.AttributeKarma))
                     // Literal absence has no input-value digest. It cannot be
                     // discharged by a forged public null == null consumption row.
                     && !(row.Setting!.State == CharacterCreationSettingObservationState.Absent

@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
+using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -28,6 +29,11 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
 
     private readonly IWorkspaceStore _store;
     private readonly ICharacterAfterRunSettlementProposalProjectionSource _proposals;
+    private readonly IOwnerContextAccessor? _owners;
+    private readonly WorkspaceStoredDocument? _currentSnapshot;
+    private readonly string? _currentBinding;
+    private readonly string _currentContext = "";
+    private readonly Func<CharacterAfterRunSettlementWorkspaceCommitRequest, WorkspaceDocument, WorkspaceStoreMutationResult>? _currentCommit;
 
     public WorkspaceCharacterAfterRunSettlementWorkspace(
         IWorkspaceStore store,
@@ -37,10 +43,34 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
         _proposals = proposals ?? throw new ArgumentNullException(nameof(proposals));
     }
 
+    public WorkspaceCharacterAfterRunSettlementWorkspace(IWorkspaceStore store,
+        ICharacterAfterRunSettlementProposalProjectionSource proposals, IOwnerContextAccessor owners)
+        : this(store, proposals) => _owners = owners ?? throw new ArgumentNullException(nameof(owners));
+
+    // Store-local projection only. The store owns the real owner/workspace leases,
+    // admission and checkpoint. This constructor is never a public XML write seam.
+    internal WorkspaceCharacterAfterRunSettlementWorkspace(IWorkspaceStore store,
+        ICharacterAfterRunSettlementProposalProjectionSource proposals, WorkspaceStoredDocument saved,
+        string binding, string context, Func<CharacterAfterRunSettlementWorkspaceCommitRequest, WorkspaceDocument, WorkspaceStoreMutationResult>? commit = null)
+        : this(store, proposals)
+    { _currentSnapshot = saved; _currentBinding = binding; _currentContext = context; _currentCommit = commit; }
+
+    private T WithOwner<T>(Func<ICharacterAfterRunSettlementCurrentStore, IOwnerContextLeaseAccessor, IOwnerContextLease, T> action, T refused)
+    {
+        if (_owners is not IOwnerContextLeaseAccessor authority || _store is not ICharacterAfterRunSettlementCurrentStore current)
+            return refused;
+        var stamp = authority.Capture();
+        if (!stamp.IsValid || !authority.TryAcquire(stamp, out var lease)) return refused;
+        using (lease) return action(current, authority, lease);
+    }
+
     public CharacterAfterRunSettlementWorkspaceReadResult Read(
         CharacterWorkspaceId workspaceId,
         CharacterAfterRunSettlementIdentity identity)
     {
+        if (_owners is not null)
+            return WithOwner((store, owners, lease) => store.ReadAfterRunSettlement(owners, lease, workspaceId, identity, _proposals),
+                new CharacterAfterRunSettlementWorkspaceReadResult(CharacterAfterRunSettlementWorkspaceOutcome.Unavailable, Error: "after_run_owner_lease_unavailable"));
         if (!IsValidWorkspaceId(workspaceId) || !IsValidIdentity(identity))
         {
             return new(
@@ -94,6 +124,9 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
         Guid transactionId,
         string commandDigest)
     {
+        if (_owners is not null)
+            return WithOwner((store, owners, lease) => store.LookupAfterRunSettlement(owners, lease, workspaceId, transactionId, commandDigest),
+                new CharacterAfterRunSettlementWorkspaceLookupResult(CharacterAfterRunSettlementWorkspaceOutcome.Unavailable, Error: "after_run_owner_lease_unavailable"));
         if (!IsValidWorkspaceId(workspaceId)
             || transactionId == Guid.Empty
             || !CharacterAfterRunSettlementRules.IsCanonicalDigest(commandDigest))
@@ -113,12 +146,18 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
         CharacterAfterRunSettlementWorkspaceCommitRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (_owners is not null)
+            return WithOwner((store, owners, lease) => store.CommitAfterRunSettlement(owners, lease, request, _proposals),
+                new CharacterAfterRunSettlementWorkspaceCommitResult(CharacterAfterRunSettlementWorkspaceOutcome.Unavailable, Error: "after_run_owner_lease_unavailable"));
         if (!IsValidCommitRequest(request))
         {
             return new(
                 CharacterAfterRunSettlementWorkspaceOutcome.Corrupt,
                 Error: "invalid_after_run_atomic_commit_request");
         }
+
+        if (_currentSnapshot is not null && _currentCommit is null)
+            return new(CharacterAfterRunSettlementWorkspaceOutcome.Unavailable, Error: "after_run_read_only_projection");
 
         lock (Gate(request.WorkspaceId))
         {
@@ -261,19 +300,26 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
                 WorkspaceStoreMutationResult committed;
                 try
                 {
-                    if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
-                        { SupportsWorkspaceAuxiliaryStateAtomicCommit: true } atomicStore)
+                    if (_currentCommit is not null)
                     {
-                        return new(
-                            CharacterAfterRunSettlementWorkspaceOutcome.Unavailable,
-                            saved.ContentRevision,
-                            Error: "after_run_atomic_auxiliary_state_commit_unavailable");
+                        committed = _currentCommit(request, replacement);
                     }
-                    committed = atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
-                        request.WorkspaceId,
-                        request.ExpectedWorkspaceRevision,
-                        saved.Document.AuxiliaryStateDigest,
-                        replacement);
+                    else
+                    {
+                        if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
+                            { SupportsWorkspaceAuxiliaryStateAtomicCommit: true } atomicStore)
+                        {
+                            return new(
+                                CharacterAfterRunSettlementWorkspaceOutcome.Unavailable,
+                                saved.ContentRevision,
+                                Error: "after_run_atomic_auxiliary_state_commit_unavailable");
+                        }
+                        committed = atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                            request.WorkspaceId,
+                            request.ExpectedWorkspaceRevision,
+                            saved.Document.AuxiliaryStateDigest,
+                            replacement);
+                    }
                 }
                 catch (Exception error) when (IsStoreFailure(error))
                 {
@@ -429,7 +475,7 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
                     saved.Id,
                     saved.ContentRevision,
                     identity,
-                    characterDigest));
+                    characterDigest) { CurrentContextDigest = _currentContext });
         }
         catch (Exception error) when (IsStoreFailure(error))
         {
@@ -462,6 +508,7 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
         }
         if (source.WorkspaceId != saved.Id
             || source.WorkspaceRevision != saved.ContentRevision
+            || source.CurrentContextDigest != _currentContext
             || !FixedEquals(source.CharacterProjectionDigest, characterDigest)
             || source.Projection is not { } proposal
             || proposal.Identity != identity)
@@ -498,7 +545,8 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
             proposal.RawSourceState,
             proposal.RawCustomDataState,
             proposal.RawGmPolicyState,
-            proposal.RawRuntimeState);
+            _currentBinding is null ? proposal.RawRuntimeState : JsonSerializer.Serialize(new
+            { ProposalRuntime = proposal.RawRuntimeState, CurrentEnvironmentBinding = _currentBinding }));
         return CharacterAfterRunSettlementRules.TryCreateQuote(input, out _)
             ? new(CharacterAfterRunSettlementWorkspaceOutcome.Available, input)
             : new(
@@ -734,6 +782,10 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
 
     private WorkspaceStoreReadResult ReadStore(CharacterWorkspaceId workspaceId)
     {
+        if (_currentSnapshot is not null)
+            return _currentSnapshot.Id == workspaceId
+                ? new(WorkspaceOperationOutcome.Success, _currentSnapshot)
+                : new(WorkspaceOperationOutcome.Missing);
         try
         {
             return _store.Get(workspaceId);
@@ -908,20 +960,34 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
             && CharacterAfterRunSettlementRules.IsCoherent(request.ReviewedQuote)
             && CharacterAfterRunSettlementRules.IsCoherent(request.Plan)
             && request.ReviewedQuote.Identity == request.Plan.Identity
-            && request.Plan.TransactionId != Guid.Empty;
+            && request.Plan.TransactionId != Guid.Empty
+            && HasExactCommandDigest(request);
+
+    private static bool HasExactCommandDigest(CharacterAfterRunSettlementWorkspaceCommitRequest request)
+    {
+        var quote = request.ReviewedQuote;
+        return CharacterAfterRunSettlementServiceIntegrity.TryComputeBindingDigest(request.WorkspaceId,
+            request.ExpectedWorkspaceRevision, quote, out string binding)
+            && CharacterAfterRunSettlementServiceIntegrity.TryComputeCommandDigest(new(
+                CharacterAfterRunSettlementServiceSchemas.CommandV1, request.WorkspaceId,
+                request.ExpectedWorkspaceRevision, quote.Identity, quote.SourceDigest, quote.CustomDataDigest,
+                quote.GmPolicyDigest, quote.RuntimeDigest, quote.LogicalDigest, binding,
+                request.Plan.TransactionId, ExplicitlyConfirmed: true), out string digest)
+            && FixedEquals(digest, request.CommandDigest);
+    }
 
     private static bool IsValidWorkspaceId(CharacterWorkspaceId workspaceId)
         => CharacterAfterRunSettlementServiceIntegrity.IsValidWorkspaceId(workspaceId);
 
-    private static bool IsValidIdentity(CharacterAfterRunSettlementIdentity identity)
-        => identity.ProposalId != Guid.Empty
+    private static bool IsValidIdentity(CharacterAfterRunSettlementIdentity? identity)
+        => identity is not null && identity.ProposalId != Guid.Empty
             && identity.RunId != Guid.Empty
             && identity.CharacterId != Guid.Empty
             && identity.ProposalId != identity.RunId
             && identity.ProposalId != identity.CharacterId;
 
-    private static object Gate(CharacterWorkspaceId workspaceId)
-        => WorkspaceGates.GetOrAdd(workspaceId.Value, static _ => new object());
+    private object Gate(CharacterWorkspaceId workspaceId)
+        => (object?)_currentSnapshot ?? WorkspaceGates.GetOrAdd(workspaceId.Value, static _ => new object());
 
     private static CharacterAfterRunSettlementWorkspaceCommitResult ReplayCommit(
         CharacterAfterRunSettlementWorkspaceLookupResult lookup)

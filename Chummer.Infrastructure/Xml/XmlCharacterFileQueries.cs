@@ -6,6 +6,9 @@ namespace Chummer.Infrastructure.Xml;
 public sealed class XmlCharacterFileQueries : ICharacterFileQueries
 {
     private readonly ICharacterFileService _characterFileService;
+    // Only this sealed, stateless parser is immutable. An injected implementation
+    // can change answers or invoke user code and must retain every observation.
+    internal bool HasImmutableEvaluationQueries2764 => _characterFileService is CharacterFileService;
 
     public XmlCharacterFileQueries(ICharacterFileService characterFileService)
     {

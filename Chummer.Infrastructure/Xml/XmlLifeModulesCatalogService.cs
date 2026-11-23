@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using System.Xml;
 using Chummer.Application.LifeModules;
 using Chummer.Contracts.LifeModules;
 
@@ -47,6 +48,15 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(lifeModulesPath);
         _snapshot = new Lazy<CatalogSnapshot>(() => LoadSnapshot(lifeModulesPath));
+    }
+
+    /// <summary>Retained, immutable engine input. Invalid bytes never fall back to a path.</summary>
+    public XmlLifeModulesCatalogService(ReadOnlyMemory<byte> retainedBytes)
+    {
+        if (retainedBytes.IsEmpty || retainedBytes.Length > 16 * 1024 * 1024)
+            throw new ArgumentException("Retained Life Modules input is empty or too large.", nameof(retainedBytes));
+        byte[] snapshot = retainedBytes.ToArray();
+        _snapshot = new Lazy<CatalogSnapshot>(() => LoadRetainedSnapshot(snapshot));
     }
 
     public LifeModuleCatalogAuthorityDto GetAuthority() => new(
@@ -184,8 +194,40 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                                          "source"))));
         }
 
+        // Historical answers contain a hashed prompt ID and source anchors, not
+        // a reuse role. Resolve those identities against the current source too.
+        // Only the small set of bonuses containing this exact narrative slot is
+        // projected here; do not infer identity from historical answer labels.
+        var languageSources = _snapshot.Value.Document.Root!.Element("modules")!.Elements("module")
+            .Where(module => module.Descendants("name").Any(name => name.Value.Trim() == "[Language]"))
+            .Select(module => ProjectModule(module, stagesByName, enabledSourceSet))
+            .SelectMany(module =>
+                (enabledSourceSet is null || enabledSourceSet.Contains(module.Source) ? module.FollowUps : [])
+                .Concat(module.Versions.Where(version => enabledSourceSet is null || enabledSourceSet.Contains(version.Source))
+                    .SelectMany(version => version.FollowUps)))
+            .Where(prompt => prompt.AnswerReuse is not null)
+            .GroupBy(prompt => prompt.PromptId, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Single())
+            .Select(prompt => new LifeModuleFollowUpAnswerSourceDto(prompt.PromptId, prompt.Label,
+                ":answer:" + LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(prompt.PromptId),
+                prompt.SourceAnchorIds.ToArray()))
+            .ToArray();
+        LifeModuleFollowUpPromptDto WithReuseSources(LifeModuleFollowUpPromptDto prompt) => prompt with
+        {
+            AnswerReuse = prompt.AnswerReuse is null ? null : prompt.AnswerReuse with { Sources = languageSources }
+        };
+
         return modules
             .Select(module => ProjectModule(module, stagesByName, enabledSourceSet))
+            .Select(module => module with
+            {
+                FollowUps = module.FollowUps.Select(WithReuseSources).ToArray(),
+                Versions = module.Versions.Select(version => version with
+                {
+                    FollowUps = version.FollowUps.Select(WithReuseSources).ToArray()
+                }).ToArray()
+            })
             .OrderBy(module => module.StageOrder)
             .ThenBy(module => module.Name, StringComparer.Ordinal)
             .ThenBy(module => module.ModuleId, StringComparer.Ordinal)
@@ -229,7 +271,14 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
         {
             DisableReasonArguments = new Dictionary<string, string>(option.DisableReasonArguments, StringComparer.Ordinal)
         }).ToArray(),
-        SourceAnchorIds = prompt.SourceAnchorIds.ToArray()
+        SourceAnchorIds = prompt.SourceAnchorIds.ToArray(),
+        AnswerReuse = prompt.AnswerReuse is null ? null : prompt.AnswerReuse with
+        {
+            Sources = prompt.AnswerReuse.Sources.Select(source => source with
+            {
+                SourceAnchorIds = source.SourceAnchorIds.ToArray()
+            }).ToArray()
+        }
     };
 
     private static LifeModuleLegalOptionDto ProjectModule(
@@ -576,7 +625,9 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                 EffectId: effectId,
                 ValuePath: BuildValuePath(effect, placeholder))
             {
-                DisplayLabel = DescribePlaceholder(effect, placeholder, value.Trim('[', ']'))
+                DisplayLabel = DescribePlaceholder(effect, placeholder, value.Trim('[', ']')),
+                AnswerReuse = IsRepeatedSpokenLanguage(effect, placeholder)
+                    ? new LifeModuleFollowUpAnswerReuseDto("spoken-language", []) : null
             });
         }
 
@@ -620,6 +671,22 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                 EffectId: effectId,
                 ValuePath: BuildValuePath(effect, valueNode)));
         }
+    }
+
+    private static bool IsRepeatedSpokenLanguage(XElement effect, XElement placeholder)
+    {
+        // Mirror the flat no-selectskill shape consumed as FreeKnowledgeSkills.
+        // name/group/spec are ignored mechanical metadata. Only the exact shared
+        // [Language] narrative slot is reusable: OtherLanguage, Any, options and
+        // unknown/multiple sourceplaceholder shapes remain separate questions.
+        var children = effect.Elements().ToArray();
+        return effect.Name == "knowledgeskilllevel" && !effect.HasAttributes
+            && placeholder.Parent == effect && placeholder.Name == "name" && placeholder.Value.Trim() == "[Language]"
+            && children.All(child => child.Name.NamespaceName.Length == 0 && !child.HasElements && !child.HasAttributes
+                && child.Name.LocalName is "name" or "group" or "val" or "spec" or "id")
+            && children.GroupBy(child => child.Name.LocalName).All(group => group.Count() == 1)
+            && effect.Element("group")?.Value.Trim() == "Language"
+            && children.Where(child => child != placeholder).All(child => !s_FollowUpPlaceholder.IsMatch(child.Value.Trim()));
     }
 
     private static string DescribePlaceholder(XElement effect, XElement placeholder, string label)
@@ -727,6 +794,39 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
 
     private static bool TryParseDecimal(string raw, out decimal value) =>
         decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+
+    private static CatalogSnapshot LoadRetainedSnapshot(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
+            // Match LoadSnapshot's XDocument.Load(stream, LoadOptions.None).
+            // An explicitly supplied reader owns whitespace handling; indentation
+            // must not change the exact requirement/effect XML during replay.
+            IgnoreWhitespace = true,
+            MaxCharactersInDocument = 16 * 1024 * 1024
+        });
+        var document = XDocument.Load(reader, LoadOptions.None);
+        var root = document.Root;
+        if (root is null || root.Name != "chummer" || root.HasAttributes
+            || root.Elements().Any(node => node.Name.LocalName is not ("stages" or "modules" or "storybuilder"))
+            || root.Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
+            || root.Element("stages") is not { HasAttributes: false } stages
+            || stages.Elements().Any(stage => stage.Name != "stage" || stage.HasElements
+                || stage.Attributes().Any(attribute => attribute.Name != "order")
+                || !int.TryParse(stage.Attribute("order")?.Value, out int order) || order <= 0)
+            || root.Element("modules") is not { HasAttributes: false } modules
+            || modules.Elements().Any(module => module.Name != "module"))
+            throw new XmlException("Retained Life Modules global mechanics are unsupported.");
+        string[] nativeStages = ["Nationality", "Formative Years", "Teen Years", "Further Education", "Real Life"];
+        if (stages.Elements().Count() != nativeStages.Length
+            || stages.Elements().Where((stage, index) => stage.Value != nativeStages[index]
+                || stage.Attribute("order")?.Value != (index + 1).ToString(CultureInfo.InvariantCulture)).Any())
+            throw new XmlException("Retained Life Modules stage semantics are unsupported.");
+        string digest = "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        return new CatalogSnapshot(document, digest, bytes);
+    }
 
     private static CatalogSnapshot LoadSnapshot(string path)
     {

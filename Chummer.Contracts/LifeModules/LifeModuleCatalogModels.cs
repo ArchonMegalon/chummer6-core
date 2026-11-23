@@ -42,7 +42,7 @@ public static class LifeModuleJourneyStageOrders
     public const int RealLife = 5;
 
     public static IReadOnlyList<int> Required { get; } =
-    [Nationality, FormativeYears, TeenYears, FurtherEducation];
+    Array.AsReadOnly(new[] { Nationality, FormativeYears, TeenYears, FurtherEducation });
 }
 
 public sealed record LifeModuleRequirementProjectionDto(
@@ -80,6 +80,13 @@ public sealed record LifeModuleFollowUpOptionDto(
     IReadOnlyDictionary<string, string> DisableReasonArguments,
     string SourceValue);
 
+/// <summary>Fresh source evidence for presentation-only reuse of a narrative answer.</summary>
+public sealed record LifeModuleFollowUpAnswerSourceDto(
+    string PromptId, string Label, string AnswerFactIdSuffix, IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record LifeModuleFollowUpAnswerReuseDto(
+    string Key, IReadOnlyList<LifeModuleFollowUpAnswerSourceDto> Sources);
+
 public sealed record LifeModuleFollowUpPromptDto(
     string PromptId,
     string Label,
@@ -96,6 +103,14 @@ public sealed record LifeModuleFollowUpPromptDto(
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? DisplayLabel { get; init; }
+
+    /// <summary>
+    /// Fresh, display-only same-information evidence. Absent after serialization;
+    /// it must be restored from the current source, never trusted from saved UI data.
+    /// Does not identify a skill, grant, native language or mechanical allocation.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public LifeModuleFollowUpAnswerReuseDto? AnswerReuse { get; init; }
 }
 
 public sealed record LifeModuleVersionProjectionDto(

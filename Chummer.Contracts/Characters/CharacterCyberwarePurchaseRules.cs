@@ -30,7 +30,9 @@ public sealed record CharacterCyberwarePurchaseCatalogEntry(
     bool BlackMarketEligible,
     string ForcedGrade,
     IReadOnlyList<string> BannedGrades,
-    IReadOnlyList<CharacterCyberwarePurchaseGrade> Grades);
+    IReadOnlyList<CharacterCyberwarePurchaseGrade> Grades,
+    int MinimumRating = 0,
+    int MaximumRating = 0);
 
 public sealed record CharacterCyberwarePurchaseCatalogExclusion(
     CharacterCyberwareSourceId SourceId,
@@ -162,7 +164,8 @@ public static class CharacterCyberwarePurchaseLegacyAuthority
     public const string CyberwareXmlSha256 = "8843bcec100e15cd01a01826a1fbe40205853a05adc98c50c82f568662db4fd3";
 
     public static IReadOnlyList<string> CanonicalInputs { get; } =
-    [
+    Array.AsReadOnly(new[]
+    {
         $"commit:{Commit}",
         $"tree:{Tree}",
         $"Chummer/Forms/Selection Forms/SelectCyberware.Designer.cs:{SelectCyberwareDesignerSha256}",
@@ -178,7 +181,7 @@ public static class CharacterCyberwarePurchaseLegacyAuthority
         $"Chummer/Backend/Static/GlobalSettings.cs:{GlobalSettingsSha256}",
         $"Chummer/Backend/Static/Managers/ColorManager.cs:{ColorManagerSha256}",
         $"Chummer/data/cyberware.xml:{CyberwareXmlSha256}"
-    ];
+    });
 }
 
 public static class CharacterCyberwarePurchaseBlockers
@@ -198,9 +201,8 @@ public static class CharacterCyberwarePurchaseBlockers
 }
 
 /// <summary>
-/// Pure quote authority. The bounded first slice intentionally admits fixed
-/// rating rows only; resolver-side exclusion prevents a dynamic expression from
-/// reaching this calculator.
+/// Pure quote authority for source-bound standalone Cyberware, including the
+/// admitted decimal Rating expressions and numeric FixedValues tables.
 /// </summary>
 public static class CharacterCyberwarePurchaseRules
 {
@@ -220,8 +222,6 @@ public static class CharacterCyberwarePurchaseRules
             return Blocked(selection, preparation.Blockers.Count == 0 ? null : preparation.Blockers[0]);
         if (selection.SourceId.Value == Guid.Empty || selection.GradeId.Value == Guid.Empty)
             return Blocked(selection, CharacterCyberwarePurchaseBlockers.IdentityInvalid);
-        if (selection.Rating != 0)
-            return Blocked(selection, "The bounded catalog admits only fixed-rating Cyberware; rating must be zero.");
         if (selection.MarkupPercent < MinimumMarkupPercent
             || selection.MarkupPercent > MaximumMarkupPercent
             || decimal.Round(selection.MarkupPercent, MarkupDecimalPlaces, MidpointRounding.AwayFromZero)
@@ -243,6 +243,11 @@ public static class CharacterCyberwarePurchaseRules
         if (entries.Length != 1)
             return Blocked(selection, "The selected Cyberware source ID is absent or ambiguous.");
         CharacterCyberwarePurchaseCatalogEntry entry = entries[0];
+        if (entry.MinimumRating < 0 || entry.MaximumRating < entry.MinimumRating
+            || selection.Rating < entry.MinimumRating || selection.Rating > entry.MaximumRating)
+        {
+            return Blocked(selection, "The selected rating is outside the exact source-defined Cyberware bounds.");
+        }
         CharacterCyberwarePurchaseGrade[] grades = entry.Grades
             .Where(candidate => candidate.Id == selection.GradeId)
             .Take(2)
@@ -258,13 +263,14 @@ public static class CharacterCyberwarePurchaseRules
         }
         if (selection.BlackMarketDiscount && !entry.BlackMarketEligible)
             return Blocked(selection, "Black-market discount is unavailable for the selected source category.");
-        if (!decimal.TryParse(entry.CostExpression, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal sourceCost)
-            || !decimal.TryParse(entry.EssenceExpression, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal sourceEssence)
-            || sourceCost < 0m
-            || sourceEssence < 0m)
+        if (!TryEvaluateSourceExpression(entry.CostExpression, selection.Rating, out decimal sourceCost)
+            || !TryEvaluateSourceExpression(entry.EssenceExpression, selection.Rating, out decimal sourceEssence))
         {
-            return Blocked(selection, "The selected source row no longer has fixed exact cost and Essence values.");
+            return Blocked(selection, "The selected source row has unsupported or invalid cost/Essence expressions at this rating.");
         }
+        if (!TryEvaluateAvailability(entry.AvailabilityExpression, selection.Rating, out char suffix)
+            || preparation.ExCon && (suffix is 'R' or 'F'))
+            return Blocked(selection, "The selected source availability is unsupported or forbidden for this character.");
 
         try
         {
@@ -272,7 +278,6 @@ public static class CharacterCyberwarePurchaseRules
             decimal chargedCost = baseCost;
             if (selection.BlackMarketDiscount)
                 chargedCost = checked(chargedCost * 0.9m);
-            char suffix = AvailabilitySuffix(entry.AvailabilityExpression);
             if (suffix == 'R' && preparation.Settings.MultiplyRestrictedCost)
                 chargedCost = checked(chargedCost * preparation.Settings.RestrictedCostMultiplier);
             else if (suffix == 'F' && preparation.Settings.MultiplyForbiddenCost)
@@ -313,12 +318,67 @@ public static class CharacterCyberwarePurchaseRules
                 newHole,
                 preparation.EssenceAntiHoleRating,
                 QuoteDigest: string.Empty);
-            return unsigned with { QuoteDigest = ComputeQuoteDigest(preparation, selection, unsigned) };
+            return unsigned with { QuoteDigest = ComputeQuoteDigest(preparation, selection, entry, unsigned) };
         }
         catch (Exception exception) when (exception is OverflowException or ArgumentOutOfRangeException)
         {
             return Blocked(selection, "Cyberware purchase arithmetic exceeded the exact saved-data range.");
         }
+    }
+
+    /// <summary>
+    /// The purchase subset of legacy Rating arithmetic. FixedValues tables are
+    /// one-based numeric lists; absent entries and unknown syntax never clamp or
+    /// fall back to a price. The shared decimal evaluator is not broadened.
+    /// </summary>
+    public static bool TryEvaluateSourceExpression(string? expression, int rating, out decimal value)
+    {
+        value = 0m;
+        if (rating < 0 || string.IsNullOrWhiteSpace(expression) || expression.Length > 1024)
+            return false;
+        string text = expression.Trim();
+        if (text.StartsWith("FixedValues(", StringComparison.Ordinal))
+        {
+            if (!text.EndsWith(')'))
+                return false;
+            string[] values = text[12..^1].Split(',');
+            if (rating < 1 || rating > values.Length)
+                return false;
+            for (int index = 0; index < values.Length; index++)
+            {
+                if (!decimal.TryParse(values[index].Trim(),
+                        NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign,
+                        CultureInfo.InvariantCulture, out decimal candidate) || candidate < 0m)
+                    return false;
+                if (index == rating - 1)
+                    value = candidate;
+            }
+            return true;
+        }
+        if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+            return value >= 0m;
+
+        // The admitted source arithmetic uses +, -, *, parentheses and Rating.
+        // Do not admit other XPath operators just because another lane can.
+        if (text.Contains('/'))
+            return false;
+        int depth = 0;
+        foreach (char character in text)
+        {
+            if ((character == '(' && ++depth > 16) || (character == ')' && --depth < 0))
+                return false;
+        }
+        return depth == 0 && CharacterGearQuantityRules.TryEvaluateCostExpression(text, rating, out value);
+    }
+
+    public static bool TryEvaluateAvailability(string? expression, int rating, out char suffix)
+    {
+        string text = expression?.Trim() ?? string.Empty;
+        suffix = AvailabilitySuffix(text);
+        if (suffix != '\0')
+            text = text[..^1];
+        return TryEvaluateSourceExpression(text, rating, out decimal availability)
+            && availability <= int.MaxValue && availability == decimal.Truncate(availability);
     }
 
     public static string ComputeCharacterDigest(string characterXml)
@@ -400,17 +460,20 @@ public static class CharacterCyberwarePurchaseRules
     private static string ComputeQuoteDigest(
         CharacterCyberwarePurchasePreparation preparation,
         CharacterCyberwarePurchaseSelection selection,
+        CharacterCyberwarePurchaseCatalogEntry entry,
         CharacterCyberwarePurchaseQuote quote)
     {
         string canonical = string.Join(
             "\n",
-            "career-cyberware-purchase-quote-v1",
+            "career-cyberware-purchase-quote-v2",
             preparation.ContentRevision.ToString(CultureInfo.InvariantCulture),
             preparation.CharacterDigest,
             preparation.CatalogDigest,
             selection.SourceId.Value.ToString("D"),
             selection.GradeId.Value.ToString("D"),
             selection.Rating.ToString(CultureInfo.InvariantCulture),
+            entry.MinimumRating.ToString(CultureInfo.InvariantCulture),
+            entry.MaximumRating.ToString(CultureInfo.InvariantCulture),
             selection.EssenceDiscountPercent.ToString(CultureInfo.InvariantCulture),
             selection.BlackMarketDiscount.ToString(CultureInfo.InvariantCulture),
             selection.MarkupPercent.ToString(CultureInfo.InvariantCulture),

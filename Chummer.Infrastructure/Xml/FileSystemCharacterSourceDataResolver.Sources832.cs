@@ -30,7 +30,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 ledger.Node(bonus, D.Structural, "empty-selected-metatype-bonus");
         }
 
-        private static void ExecuteLifestyleSupporting832(XElement root, CharacterCreationLifestylesAuthority authority,
+        private void ExecuteLifestyleSupporting832(XElement root, CharacterCreationLifestylesAuthority authority,
             IReadOnlyList<CharacterCreationLifestyleProjection> projections, SourceScopeLedger ledger)
         {
             // Execute the canonical calculator using the freshly resolved retained

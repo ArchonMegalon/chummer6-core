@@ -16,9 +16,13 @@ public sealed class CharacterCareerSkillGroupAdvanceService :
     }
 
     public CharacterCareerSkillGroupQuoteResult Quote(
-        CharacterCareerSkillGroupQuoteRequest request)
+        CharacterCareerSkillGroupQuoteRequest request) => Quote(request, default);
+
+    public CharacterCareerSkillGroupQuoteResult Quote(CharacterCareerSkillGroupQuoteRequest request, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(request);
+        using var operation = (_workspace as ICharacterCareerSkillGroupOperationScope)?.BeginSkillGroupOperation(token);
+        token.ThrowIfCancellationRequested();
         if (!IsValidQuoteRequest(request))
         {
             return QuoteFailure(
@@ -63,9 +67,13 @@ public sealed class CharacterCareerSkillGroupAdvanceService :
     }
 
     public CharacterCareerSkillGroupAdvanceResult Advance(
-        CharacterCareerSkillGroupAdvanceCommand command)
+        CharacterCareerSkillGroupAdvanceCommand command) => Advance(command, default);
+
+    public CharacterCareerSkillGroupAdvanceResult Advance(CharacterCareerSkillGroupAdvanceCommand command, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(command);
+        using var operation = (_workspace as ICharacterCareerSkillGroupOperationScope)?.BeginSkillGroupOperation(token);
+        token.ThrowIfCancellationRequested();
         if (!CharacterCareerSkillGroupAdvanceServiceIntegrity.TryComputeCommandDigest(
                 command,
                 out string commandDigest))
@@ -163,6 +171,7 @@ public sealed class CharacterCareerSkillGroupAdvanceService :
                 quote);
         }
 
+        token.ThrowIfCancellationRequested();
         CharacterCareerSkillGroupWorkspaceCommitResult committed = _workspace.Commit(
             new CharacterCareerSkillGroupWorkspaceCommitRequest(
                 command.WorkspaceId,
@@ -171,6 +180,18 @@ public sealed class CharacterCareerSkillGroupAdvanceService :
                 quote,
                 plan));
         return MapCommit(command, commandDigest, quote, committed);
+    }
+
+    public CharacterCareerSkillGroupAdvanceResult Lookup(CharacterCareerSkillGroupAdvanceCommand command, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        using var operation = (_workspace as ICharacterCareerSkillGroupOperationScope)?.BeginSkillGroupOperation(token);
+        token.ThrowIfCancellationRequested();
+        if (!CharacterCareerSkillGroupAdvanceServiceIntegrity.TryComputeCommandDigest(command, out var digest))
+            return Failure(command, CharacterCareerSkillGroupAdvanceServiceOutcome.Invalid, "invalid_command");
+        var observed = _workspace.Lookup(command.WorkspaceId, command.TransactionId, digest);
+        return MapLookup(command, digest, observed) ?? Failure(command, CharacterCareerSkillGroupAdvanceServiceOutcome.Conflict,
+            "skill_group_not_applied", digest, observed.CurrentWorkspaceRevision);
     }
 
     private static CharacterCareerSkillGroupAdvanceResult? MapLookup(

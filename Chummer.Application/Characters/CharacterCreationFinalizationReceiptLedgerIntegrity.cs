@@ -24,7 +24,19 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
         CharacterCreationFinalizationArchive archive,
         IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? receipts,
         ICharacterCreationRuleSourceRecovery? recovery = null)
+        => IsValidArchive(workspaceId, currentContentRevision, archive, receipts, recovery, CancellationToken.None);
+
+    internal static bool IsValidArchive(CharacterWorkspaceId workspaceId, long currentContentRevision,
+        CharacterCreationFinalizationArchive archive, IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? receipts,
+        ICharacterCreationRuleSourceRecovery? recovery, CancellationToken cancellationToken)
+        => IsValidArchive(workspaceId, currentContentRevision, archive, receipts, recovery, cancellationToken, null);
+
+    internal static bool IsValidArchive(CharacterWorkspaceId workspaceId, long currentContentRevision,
+        CharacterCreationFinalizationArchive archive, IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? receipts,
+        ICharacterCreationRuleSourceRecovery? recovery, CancellationToken cancellationToken,
+        CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? currentReview8568)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(archive);
         return archive.State is not null
                && archive.State.CharacterCreationFinalizationArchive is null
@@ -33,7 +45,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && IsValidLedger(workspaceId, currentContentRevision, receipts)
                && CharacterCreationKarmaFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
                && CharacterCreationLifeModuleFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
-               && CharacterCreationCompletionTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt, recovery)
+               && CharacterCreationCompletionTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt, recovery, null, cancellationToken, currentReview8568)
                && IsValidStartingCashArchive(archive, receipts[0].Receipt)
                && string.Equals(archive.State.ComputeDigest(),
                    receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
@@ -67,6 +79,8 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
         out WorkspaceDocumentAuxiliaryState history, out long historyRevision,
         ICharacterCreationRuleSourceRecovery? recovery = null)
     {
+        if (recovery is null && workspace.CreationReceiptHistory3659 is { } validated)
+            return validated.TryRead(workspace, out history, out historyRevision);
         history = workspace.Document.AuxiliaryState;
         historyRevision = workspace.ContentRevision;
         if (history.CharacterCreationFinalizationArchive is not { } archive)

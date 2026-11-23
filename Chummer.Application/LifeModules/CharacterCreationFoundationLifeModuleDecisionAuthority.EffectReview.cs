@@ -35,7 +35,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 && item.Choice.DecisionCommandDigest == request.DecisionCommandDigest);
             if (candidate is null) return Invalid<LifeModuleEffectReview>();
             var previewRequest = new CharacterCreationFoundationPreviewRequest(state.Binding,
-                candidate.FoundationPreview.RequestedMetatype, candidate.Selection, values);
+                candidate.FoundationPreview.RequestedMetatype, candidate.Selection, values)
+                { MetatypeIdentity = candidate.FoundationPreview.MetatypeIdentity };
             var projected = foundation.Preview(previewRequest);
             if (projected.Value is not { CanConfirm: true, CanApply: true } preview || projected.Blockers.Count != 0)
                 return FromFoundation<CharacterCreationFoundationPreview, LifeModuleEffectReview>(projected);

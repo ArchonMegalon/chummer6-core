@@ -401,6 +401,38 @@ public static class CharacterCareerQualityRules
     public static readonly DateTime MinimumExpenseDate = new(1753, 1, 1);
     public static readonly DateTime MaximumExpenseDate = new(9998, 12, 31, 23, 59, 59);
 
+    /// <summary>
+    /// Pure ordinary source-price calculation, not owner/GM/eligibility or mutation
+    /// authority. Source-dependent free/discretionary cases require their own admission.
+    /// Uses the same numeric kernel as TryCreateQuote; no alternate price formula.
+    /// </summary>
+    public static bool TryCalculateOrdinaryCurrentPrice(CharacterCareerQualityOperation operation,
+        CharacterCareerQualityDefinition definition, CharacterCareerQualitySettings settings, int levelBefore,
+        out int ruleKarmaCost, out int karmaDelta)
+    {
+        ruleKarmaCost = karmaDelta = 0;
+        if (!Enum.IsDefined(operation) || !IsValidDefinition(definition)
+            || settings is not { KarmaQuality: >= 0 and <= MaximumKarma }
+            || levelBefore is < 0 or > MaximumRating
+            || operation != CharacterCareerQualityOperation.AcquireLevel && levelBefore == 0
+            || !definition.Implemented || !definition.SourceEnabled || definition.ChargenOnly
+            || definition.OnlyPriorityGiven || definition.Metagenic
+            || definition.MentorSpiritWayFreeCostEligible || definition.Name == "Mentor Spirit"
+            || definition.CostDiscountDefined && !definition.CostDiscountProjectionIsExact)
+            return false;
+        try
+        {
+            CalculateTransaction(operation, definition, settings, false, false, 0, levelBefore,
+                out ruleKarmaCost, out karmaDelta, out _, out _);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            ruleKarmaCost = karmaDelta = 0;
+            return false;
+        }
+    }
+
     public static bool TryCreateQuote(
         CharacterCareerQualityInput? input,
         out CharacterCareerQualityQuote quote)

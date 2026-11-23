@@ -31,10 +31,12 @@ public static partial class CharacterCreationLoadoutRules
     { "armor", "armoroverride", "armorcapacity", "encumbrance" };
 
     public static string Compute<T>(T value) => CharacterCreationFinalizationDigest.Compute(value);
-    public static string ComputeSourceNodeDigest(string xml) => Compute(new
-    { Schema = "chummer.sr5.creation-loadout.source-node.v1", Xml = xml });
-    public static string ComputeSourceCategoryDigest(string xml) => Compute(new
-    { Schema = "chummer.sr5.creation-loadout.source-category.v1", Xml = xml });
+    public static string ComputeSourceNodeDigest(string xml)
+        => CharacterCreationFinalizationDigest.ComputeSourceXmlEnvelope(
+            "chummer.sr5.creation-loadout.source-node.v1", xml);
+    public static string ComputeSourceCategoryDigest(string xml)
+        => CharacterCreationFinalizationDigest.ComputeSourceXmlEnvelope(
+            "chummer.sr5.creation-loadout.source-category.v1", xml);
     public static string ComputeOptionDigest(CharacterCreationLoadoutCatalogOption value)
         => Compute(value with { OptionDigest = string.Empty });
     public static string ComputeLineDigest(CharacterCreationLoadoutLine value)
@@ -81,7 +83,7 @@ public static partial class CharacterCreationLoadoutRules
                 out string legality) || availability != option.Availability || legality != option.Legality))
             return false;
         return (!option.IsSelectable || option.PricingIsExact && option.AvailabilityIsExact
-                && IsSourceProjectable(option.Kind, option.SourceNodeXml, option.SourceCategoryXml))
+                && IsParsedSourceProjectable(option.Kind, source!, option.SourceCategoryXml))
                && Equal(option.OptionDigest, ComputeOptionDigest(option));
     }
 
@@ -108,6 +110,42 @@ public static partial class CharacterCreationLoadoutRules
         out decimal cost, out string[] blockers)
         => Project(selections, authority?.Options, authority?.MaximumBasketLines ?? 0,
             authority?.MaximumQuantityPerLine ?? 0, IsValidAuthority(authority), out lines, out cost, out blockers);
+
+    // Application can retain this pure calculation only after its private source
+    // issuer admits one evaluation. The factory owns and validates every byte of
+    // the nested DTO; neither a digest nor a caller-owned list issues this object.
+    internal sealed class ValidatedLoadoutEvaluation6218
+    {
+        private ValidatedLoadoutEvaluation6218(CharacterCreationLoadoutAuthority authority)
+            => Authority = authority;
+
+        internal CharacterCreationLoadoutAuthority Authority { get; }
+
+        internal static ValidatedLoadoutEvaluation6218? Create(CharacterCreationLoadoutAuthority value)
+        {
+            if (value is null || value.Options is null || value.SourceAnchorIds is null
+                || value.Blockers is null || value.Options.Any(option => option is null
+                    || option.Blockers is null || option.SourceAnchorIds is null)) return null;
+            var owned = value with
+            {
+                Options = Array.AsReadOnly(value.Options.Select(option => option with
+                {
+                    Blockers = Array.AsReadOnly(option.Blockers.ToArray()),
+                    SourceAnchorIds = Array.AsReadOnly(option.SourceAnchorIds.ToArray())
+                }).ToArray()),
+                SourceAnchorIds = Array.AsReadOnly(value.SourceAnchorIds.ToArray()),
+                Blockers = Array.AsReadOnly(value.Blockers.ToArray())
+            };
+            return IsValidAuthority(owned) ? new(owned) : null;
+        }
+
+        // All selection, quantity, availability, overflow and line-digest checks
+        // still execute. Only validation of the owned immutable catalog is reused.
+        internal bool TryProjectBasket(CharacterCreationLoadoutSelections? selections,
+            out CharacterCreationLoadoutLine[] lines, out decimal cost, out string[] blockers)
+            => Project(selections, Authority.Options, Authority.MaximumBasketLines,
+                Authority.MaximumQuantityPerLine, true, out lines, out cost, out blockers);
+    }
 
     public static bool TryCaptureSelectedAuthority(CharacterCreationLoadoutAuthority authority,
         CharacterCreationLoadoutSelections originalSelections, CharacterCreationLoadoutSelections proposedSelections,
@@ -233,8 +271,13 @@ public static partial class CharacterCreationLoadoutRules
     /// <summary>Only plain, unloaded firearms and one plain armor are supported in v1.
     /// Every unknown source child, expression, intrinsic child or improvement is rejected.</summary>
     public static bool IsSourceProjectable(string kind, string xml, string categoryXml)
+        => TryReadNode(xml, kind, out XElement? source) && IsParsedSourceProjectable(kind, source, categoryXml);
+
+    // Only these two callers supply a fresh, locally owned TryReadNode result for this kind.
+    // Reuse its tree within IsValidOption; keep every grammar check and never retain or mutate it.
+    private static bool IsParsedSourceProjectable(string kind, XElement source, string categoryXml)
     {
-        if (!TryReadNode(xml, kind, out XElement? source) || source!.HasAttributes
+        if (source.HasAttributes
             || !TryReadNode(categoryXml, "category", out XElement? category)
             || category!.HasElements || category.Value != Scalar(source, "category")
             || category.Attributes().Any(attribute => attribute.Name.NamespaceName.Length != 0

@@ -16,7 +16,7 @@ namespace Chummer.Application.Characters;
 /// cannot establish current source or owner authority: an atomic consumer must
 /// freshly resolve and replay its inputs under the mutation lease.
 /// </summary>
-public static class CharacterCreationCompletionFinalizationProjector
+public static partial class CharacterCreationCompletionFinalizationProjector
 {
     public static CharacterCreationFoundationResult<CharacterCreationCompletionFinalizationProjection> Project(
         WorkspaceStoredDocument original,
@@ -72,15 +72,21 @@ public static class CharacterCreationCompletionFinalizationProjector
         => EvaluateAndProject(original, bootstrap, inputs, proposal, resolveStartingCash,
             cashChoice, null, captureWitness: true, cancellationToken, ruleSources, campaign);
 
-    // Only detached snapshots and the independently replayed witness leave this
-    // call. The full evaluation is never an input to another operation.
+    // Public consumers receive only detached snapshots and independently replayed
+    // witnesses. The internal admission caller can use the private review within
+    // this same synchronous source/campaign operation; it is never serialized or
+    // handed to a later owner operation, retained archive or public request.
     internal sealed record EvaluatedProjection(
         CharacterCreationCompletionReviewInputs Inputs,
         CharacterCreationCompletionBootstrapSnapshot Bootstrap,
         CharacterCreationCompletionReviewRequest Proposal,
         Guid? StartingLifestyleSourceId,
         CharacterCreationCompletionFinalizationProjection Projection,
-        CharacterCreationSelectedCompletionWitness? Witness);
+        CharacterCreationSelectedCompletionWitness? Witness)
+    {
+        [System.Text.Json.Serialization.JsonIgnore]
+        internal CharacterCreationSelectedCompletionEvaluator.ReviewedCompletion? CurrentReview8563 { get; init; }
+    }
 
     // Internal graph inputs are evaluated rows, not a saved draft, a full review,
     // or save authority. A selected-history caller must first authenticate the
@@ -108,10 +114,13 @@ public static class CharacterCreationCompletionFinalizationProjector
         AwakenedGraphInputs Awakened)
     {
         internal CharacterCreationSkillGroupOrderAuthority? SkillGroupOrderAuthority { get; init; }
+        internal string? LifecycleResultSchema { get; init; }
         internal string? RuleSourceExecutionSchema { get; init; }
+        internal CharacterCreationCompleteRuleSourceExecution? Essence1222 { get; init; }
         internal CharacterCreationPhysicalInitiativeAuthority? PhysicalInitiative886 { get; init; }
         internal CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
         internal IReadOnlyList<CharacterCreationAmmunitionAssignment>? AmmunitionAssignments { get; init; }
+        internal IReadOnlyList<CharacterCreationInitialAmmunitionLoad3847>? InitialAmmunitionLoads3847 { get; init; }
         internal ReputationHandoff? Reputation { get; init; }
     }
 
@@ -218,15 +227,19 @@ public static class CharacterCreationCompletionFinalizationProjector
             var startingCashSource = Detach(resolvedStartingCash);
 
             ReputationHandoff? reputation = null;
+            var essence1222 = CharacterCreationCompleteRuleSourceExecution.WantsEssence1222(review.Request)
+                ? ruleSources?.Resolve(inputs, review.Request, cancellationToken) : null;
+            if (CharacterCreationCompleteRuleSourceExecution.WantsEssence1222(review.Request) && essence1222 is null)
+                return Refused(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
             if (ruleSources is not null)
             {
                 var authority = CharacterCreationCompleteAssessmentService.FromFullAuthority(inputs, review.Request,
                     ruleSources.Resolve(inputs, review.Request, cancellationToken));
-                var effects = CharacterCreationSelectedEffectsConsumer.FromFull(inputs, review, authority, cancellationToken);
+                var effects = CharacterCreationSelectedEffectsConsumer.FromFull(inputs, review, authority, cancellationToken, essence1222);
                 if (effects is null
                     || !CharacterCreationOriginalCharacterSource.TryFromFull(inputs, out var originalSource, cancellationToken)
                     || !ruleSources.TryEvaluateReputation(original, bootstrap, review.Request, originalSource!, authority,
-                        effects, out var execution, out _, cancellationToken, campaign))
+                        effects, out var execution, out _, cancellationToken, campaign, replay.Value))
                     return Refused(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
                 reputation = new(execution!, bootstrap, review.Request);
             }
@@ -252,9 +265,10 @@ public static class CharacterCreationCompletionFinalizationProjector
                 inputs.Contacts.CarryoverPolicy,
                 review.Balances.RemainingCreationKarma.Value, review.Balances.RemainingNuyen.Value,
                 new FullAwakenedGraphInputs(inputs.Magic, review.UpstreamBudget.Magic))
-                { RuleSourceExecutionSchema = review.Request.RuleSourceExecutionSchema, PhysicalInitiative886 = inputs.PhysicalInitiative886,
+                { LifecycleResultSchema = review.Request.LifecycleResultSchema, RuleSourceExecutionSchema = review.Request.RuleSourceExecutionSchema, PhysicalInitiative886 = inputs.PhysicalInitiative886,
                 Loadout = review.Loadout, AmmunitionAssignments = review.Request.Selections.AmmunitionAssignments,
-                    SkillGroupOrderAuthority = groupOrder, Reputation = reputation };
+                InitialAmmunitionLoads3847 = review.Request.Selections.InitialAmmunitionLoads3847,
+                    SkillGroupOrderAuthority = groupOrder, Reputation = reputation, Essence1222 = essence1222 };
             var projected = ProjectEvaluated(graph, startingCashSource, cashChoice, cancellationToken);
             CharacterCreationSelectedCompletionWitness? witness = null;
             if (captureWitness && projected.Outcome == CharacterCreationFoundationOutcomes.Success
@@ -266,7 +280,8 @@ public static class CharacterCreationCompletionFinalizationProjector
                 witness = captured.Value;
             }
             return new(projected.Outcome, projected.Value is null ? null :
-                new(inputs, bootstrap, review.Request, startingLifestyleSourceId, projected.Value, witness), projected.Blockers);
+                new EvaluatedProjection(inputs, bootstrap, review.Request, startingLifestyleSourceId, projected.Value, witness)
+                    { CurrentReview8563 = captureWitness ? replay.Value : null }, projected.Blockers);
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
             or OverflowException or XmlException or ArgumentException or FormatException or JsonException)
@@ -362,16 +377,27 @@ public static class CharacterCreationCompletionFinalizationProjector
             // instance IDs after an order change, even when all prices are equal.
             string instanceSeed = graph.SkillGroupOrderAuthority is null ? graph.OriginalReviewDigest : authorityDigest;
 
-            XDocument document = XDocument.Parse(original.Document.Content, LoadOptions.None);
+            XDocument document = XDocument.Parse(original.Document.Content, LoadOptions.PreserveWhitespace);
             XElement root = document.Root ?? throw new InvalidDataException("Missing character root.");
             if (root.Name != "character" || !bool.TryParse(ReadDirect(root, "created"), out bool created) || created)
                 return RefusedProjection(CharacterCreationFinalizationBlockers.CharacterAlreadyCreated);
-            foreach (string name in new[] { "qualities", "gears", "contacts", "lifestyles" })
+            CharacterCreationOwnedGearGraph1233? ownedGear1233 = null;
+            if (gear.Lines.Any(line => line.Focus is not null)
+                || CharacterCreationOriginalInventory3475.HasInventory(root))
+            {
+                if (!CharacterCreationOwnedGearGraph1233.TryPrepare(root, original.Id, gear.Lines, out ownedGear1233,
+                    graph.Essence1222?.OriginalInventorySources3475,
+                    CharacterCreationPriorityGrantAuthority3563.Capture(original, graph.Essence1222?.OriginalInventorySources3475)))
+                    return RefusedProjection(CharacterCreationFocusSelectionRules.OwnedInvalid);
+            }
+            else EnsureEmptyContainer(root, "gears");
+            foreach (string name in new[] { "qualities", "contacts", "lifestyles" })
                 EnsureEmptyContainer(root, name);
             // New loadout proposals own these containers only after an explicit
             // source-bound review. Old archives must retain their original graph
             // shape, including the absence of empty weapons/armors containers.
-            if (graph.Loadout is not null)
+            if (graph.Loadout is not null
+                && ownedGear1233?.KeepsOriginalLoadout3475 != true)
             {
                 EnsureEmptyContainer(root, "weapons");
                 EnsureEmptyContainer(root, "armors");
@@ -389,28 +415,13 @@ public static class CharacterCreationCompletionFinalizationProjector
             AddDelta(deltas, ref order, "metatype:selected", CharacterCreationFinalizationDeltaKinds.Metatype,
                 heritage.MetatypeSourceId, ReadDirect(root, "metatype"), heritage.MetatypeName,
                 heritage.KarmaCost, 0, heritage.SourceAnchorIds, heritage.MetatypeName);
-            SetDirect(root, "metatype", heritage.MetatypeName);
-            SetDirect(root, "metavariant", heritage.MetavariantName ?? string.Empty);
-            SetDirect(root, "metatypebp", Number(heritage.KarmaCost));
-            SetDirect(root, "buildmethod", prerequisite.BuildMethod);
+            CompilePrerequisiteSelection(root, prerequisite);
             foreach (var assignment in prerequisite.Assignments.OrderBy(value => value.Order))
             {
-                string legacy = assignment.CategoryId switch
-                {
-                    CharacterCreationPriorityCategoryIds.Heritage => "prioritymetatype",
-                    CharacterCreationPriorityCategoryIds.Talent => "priorityspecial",
-                    CharacterCreationPriorityCategoryIds.Attributes => "priorityattributes",
-                    CharacterCreationPriorityCategoryIds.Skills => "priorityskills",
-                    CharacterCreationPriorityCategoryIds.Resources => "priorityresources",
-                    _ => throw new InvalidDataException("Unknown Priority category.")
-                };
                 string value = string.Create(CultureInfo.InvariantCulture, $"{assignment.Rank},{assignment.SumToTenValue}");
-                SetDirect(root, legacy, value);
                 AddDelta(deltas, ref order, $"priority:{assignment.CategoryId}", CharacterCreationFinalizationDeltaKinds.Build,
                     assignment.CategoryId, null, value, 0, 0, assignment.SourceAnchorIds);
             }
-            SetDirect(root, "prioritytalent", prerequisite.TalentSelection!.Value);
-            SetDirect(root, "sumtoten", Number(prerequisite.SumToTenTarget.GetValueOrDefault()));
             // Retain saved-state validation before replacing owned containers.
             // A temporary selection graph cannot assert original reputation or
             // expense authority; its compiled improvements are checked below.
@@ -419,14 +430,32 @@ public static class CharacterCreationCompletionFinalizationProjector
                 graph.SelectedActiveSkillPoints, graph.SelectedSkillGroupPoints,
                 qualities, gear, lifestyles, graph.Contacts, graph.Awakened, graph.OriginalReviewDigest, instanceSeed)
             {
-                RuleSourceExecutionSchema = graph.RuleSourceExecutionSchema,
+                LifecycleResultSchema = graph.LifecycleResultSchema, RuleSourceExecutionSchema = graph.RuleSourceExecutionSchema,
+                Essence1222 = graph.Essence1222,
                 PhysicalInitiative886 = graph.PhysicalInitiative886,
                 Loadout = graph.Loadout,
                 AmmunitionAssignments = graph.AmmunitionAssignments,
+                OwnedGear1233 = ownedGear1233,
                 OriginalLoadoutInstances = original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances
             };
             if (CompileSelectedGraph(document, selectedGraph, deltas, ref order, cancellationToken) is { } graphBlocker)
                 return RefusedProjection(graphBlocker);
+            if (ownedGear1233 is not null && !ownedGear1233.RetainedNodesMatch1253(root))
+                return RefusedProjection(CharacterCreationFocusSelectionRules.OwnedInvalid);
+            // Preserve the original/priced proof above. The typed transfer returns
+            // a separate private proof of its exact loaded graph for final consumers;
+            // neither the retained proof nor the purchase basket is rewritten.
+            CharacterCreationOriginalInventory3475? loadedStock3861 = null;
+            if (graph.InitialAmmunitionLoads3847 is { Count: > 0 } loads3847)
+            {
+                if (graph.Essence1222 is null
+                    || !graph.Essence1222.TryLoadInitialAmmunition3847(root, loads3847, out var loadDeltas3847, out loadedStock3861)
+                    || loadedStock3861 is null)
+                    return RefusedProjection(CharacterCreationRoleCompletionPlanner.PhysicalLoadUnavailable3847);
+                foreach (var loadDelta3847 in loadDeltas3847)
+                    AddDelta(deltas, ref order, loadDelta3847.Id, "ammunition-load", loadDelta3847.Id,
+                        "0", "1", 0, 0m, loadDelta3847.Anchors, "One owned ordinary round allocated; none consumed.");
+            }
             if (lifestyles.Lifestyles.Count == 0)
             {
                 if (!CharacterCreationFinalizationStartingCashRules.TryProject(original.Id, cashAuthority, out decimal fallbackCash,
@@ -465,6 +494,14 @@ public static class CharacterCreationCompletionFinalizationProjector
                     reputation.Request, root, deltas, out _, out _, cancellationToken))
                 return RefusedProjection(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
 
+            if (loadedStock3861 is not null)
+            {
+                if (graph.Essence1222 is null
+                    || !graph.Essence1222.TryFinalizePhysicalStock3861(root, loadedStock3861, out var finalStock3861)
+                    || finalStock3861 is null)
+                    return RefusedProjection(CharacterCreationRoleCompletionPlanner.PhysicalLoadUnavailable3847);
+                loadedStock3861 = finalStock3861;
+            }
             string xml = document.ToString(SaveOptions.DisableFormatting);
             var binding = new CharacterCreationFinalizationBinding(original.Id, original.ContentRevision,
                 original.SavedRevision, ComputeRawCharacterXmlDigest(original.Document.Content),
@@ -487,8 +524,28 @@ public static class CharacterCreationCompletionFinalizationProjector
                     .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
                 karmaBefore, karmaAfter, nuyenBefore, carriedNuyen, cash, careerNuyen, unused, string.Empty)
                 { SkillGroupOrderAuthority = graph.SkillGroupOrderAuthority,
+                    NativeLoadout1432 = graph.Essence1222?.EvaluateSourceProvenPhysicalLoadout3847(root, prerequisite, loadedStock3861)
+                        ?? CharacterCreationNativeLoadout1432.Evaluate(root,
+                        graph.LifecycleResultSchema, graph.Awakened, prerequisite, graph.Loadout, ownedGear1233?.OriginalLoadout3478,
+                        graph.OriginalReviewDigest),
+                    NativeMagic1430 = CharacterCreationNativeMagic1430.Evaluate(root, graph.LifecycleResultSchema,
+                        graph.Awakened, graph.Prerequisite, graph.Essence1222?.AppliedEssence1222),
+                    NativeCompatibility1430 = CharacterCreationNativeCompatibility1430.Evaluate(root,
+                        graph.LifecycleResultSchema, graph.Awakened, prerequisite),
+                    NativeContactSpecialty = CharacterCreationNativeContactSpecialty.Evaluate(root,
+                        graph.LifecycleResultSchema, graph.Awakened, prerequisite, skills),
+                    NativeSettings1420 = CharacterCreationNativeSettings1420.Evaluate(root,
+                        graph.LifecycleResultSchema, graph.Awakened, prerequisite),
+                    MatrixInitiative = CharacterCreationMatrixInitiative.Evaluate(root,
+                        graph.LifecycleResultSchema, graph.Awakened, prerequisite),
+                    AstralInitiative1249 = CharacterCreationAstralInitiative1249.Evaluate(root,
+                        graph.LifecycleResultSchema, graph.Awakened, prerequisite),
                     PhysicalInitiative886 = graph.PhysicalInitiative886 is null ? null
-                        : CharacterCreationPhysicalInitiative886.Evaluate(root, graph.PhysicalInitiative886) };
+                        : CharacterCreationPhysicalInitiative886.Evaluate(root, graph.PhysicalInitiative886,
+                            loadedStock3861 is null ? graph.Loadout : CharacterCreationCompleteRuleSourceExecution.EmptyPhysicalStockBasket3861(),
+                            graph.OriginalReviewDigest,
+                            graph.LifecycleResultSchema is null ? null : CharacterCreationInitiativeNonPhysical1249.Execute(root, prerequisite, graph.Awakened, graph.OriginalReviewDigest),
+                            loadedStock3861 ?? ownedGear1233?.OriginalLoadout3478) };
             projection = projection with { ProjectionDigest = CharacterCreationCompletionFinalizationRules.ComputeProjectionDigest(projection) };
             cancellationToken.ThrowIfCancellationRequested();
             return new(CharacterCreationFoundationOutcomes.Success, projection, []);
@@ -515,11 +572,14 @@ public static class CharacterCreationCompletionFinalizationProjector
         string OriginalReviewDigest,
         string SkillInstanceSeed)
     {
+        internal string? LifecycleResultSchema { get; init; }
         internal string? RuleSourceExecutionSchema { get; init; }
+        internal CharacterCreationCompleteRuleSourceExecution? Essence1222 { get; init; }
         internal CharacterCreationPhysicalInitiativeAuthority? PhysicalInitiative886 { get; init; }
         internal CharacterCreationLoadoutCompletionProjection? Loadout { get; init; }
         internal IReadOnlyList<CharacterCreationAmmunitionAssignment>? AmmunitionAssignments { get; init; }
         internal IReadOnlyList<CharacterCreationLoadoutInstance>? OriginalLoadoutInstances { get; init; }
+        internal CharacterCreationOwnedGearGraph1233? OwnedGear1233 { get; init; }
     }
 
     /// <summary>
@@ -558,15 +618,14 @@ public static class CharacterCreationCompletionFinalizationProjector
         BuildQualityAndEffectGraph(root, qualities.Selections,
             checked((int)attributes.CreationKarmaBudget.Total), checked((int)attributes.CreationKarmaBudget.Used),
             qualities.KarmaRemaining, qualities.SourceAnchorIds, graph.OriginalReviewDigest, deltas, ref order, graph.RuleSourceExecutionSchema);
-        if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order))
-            return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
-        // Metatype base bonuses (Priority Dwarf admission: 20% lifestyle
-        // surcharge) materialize through the same shared strict source-bound
-        // materializer the ordinary finalization projector uses.
         if (!CharacterCreationMetatypeBaseBonusMaterializer.TryApply(heritage, root, deltas, ref order,
                 (element, name) => GetOrCreateDirectContainer(element, name)))
             return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
-        ReplaceDirect(root, BuildGearGraph(gear.Lines, graph.OriginalReviewDigest, deltas, ref order));
+        if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order))
+            return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
+        if (!CharacterCreationOwnedGearGraph1233.Merge(root,
+                BuildGearGraph(gear.Lines, graph.OriginalReviewDigest, deltas, ref order), gear.Lines, graph.OwnedGear1233))
+            return CharacterCreationFocusSelectionRules.OwnedInvalid;
         if (graph.Loadout is { } loadout)
         {
             if (loadout.Blockers.Count != 0
@@ -575,8 +634,24 @@ public static class CharacterCreationCompletionFinalizationProjector
                     graph.OriginalReviewDigest, out var weapons, out var armor, loadout.RetainedInstances)
                 || !Same(loadout.RetainedInstances, graph.OriginalLoadoutInstances))
                 return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
-            ReplaceDirect(root, new XElement("weapons", weapons));
-            ReplaceDirect(root, new XElement("armors", armor));
+            // Add only the validated purchases to the source-proven originals.
+            // A collision, changed/missing owner or stale source refuses the graph.
+            if (graph.OwnedGear1233?.OriginalLoadout3478 is { } originalLoadout3497)
+            {
+                if (!originalLoadout3497.TryCombineLoadout3497(root, loadout,
+                    graph.OriginalReviewDigest, out var combined))
+                    return CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
+                foreach (string name in new[] { "weapons", "armors" })
+                    if (combined!.Element(name) is { } container) ReplaceDirect(root, new XElement(container));
+            }
+            else
+            {
+                ReplaceDirect(root, new XElement("weapons", weapons));
+                ReplaceDirect(root, new XElement("armors", armor));
+            }
+            if (graph.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                && graph.LifecycleResultSchema == CharacterCreationCompletionReviewSchemas.LifecycleResultV1)
+                CharacterCreationCompiledSourceTrace.ObserveLoadout(loadout.Lines, weapons, armor, graph.OriginalReviewDigest);
             foreach (var line in loadout.Lines)
                 AddDelta(deltas, ref order, $"{line.Kind}:{line.OptionId}", line.Kind,
                     line.OptionId, null, Number(line.Quantity), 0, line.TotalCost,
@@ -598,6 +673,8 @@ public static class CharacterCreationCompletionFinalizationProjector
         }
         if (!TryApplyAwakened(root, graph, deltas, ref order))
             return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
+        if (!CharacterCreationOwnedGearGraph1233.ValidateExtras(root, gear.Lines))
+            return CharacterCreationFocusSelectionRules.Invalid;
         IReadOnlyList<CharacterCreationTalentQualitySource> selectedTalentSources = graph.Awakened switch
         {
             FullAwakenedGraphInputs full => full.Inputs.SelectedTalent.GrantedQualitySources ?? [],
@@ -646,9 +723,13 @@ public static class CharacterCreationCompletionFinalizationProjector
         {
             if (!CharacterCreationPhysicalInitiative886.TryInitialize(root, prerequisite, graph.PhysicalInitiative886))
                 return CharacterCreationPhysicalInitiative886.Blocker;
-            _ = CharacterCreationPhysicalInitiative886.Evaluate(root, graph.PhysicalInitiative886!);
+            _ = CharacterCreationPhysicalInitiative886.Evaluate(root, graph.PhysicalInitiative886!,
+                graph.Loadout, graph.OriginalReviewDigest,
+                graph.LifecycleResultSchema is null ? null : CharacterCreationInitiativeNonPhysical1249.Execute(root, prerequisite, graph.Awakened, graph.OriginalReviewDigest),
+                graph.OwnedGear1233?.OriginalLoadout3478);
         }
         else if (graph.PhysicalInitiative886 is not null) return CharacterCreationPhysicalInitiative886.Blocker;
+        if (!ValidateEssenceFinalGraph1222(root, graph, deltas, ref order)) return graph.Essence1222?.EssenceFailureBlocker1222 ?? CharacterCreationFinalizationBlockers.DraftAuthorityInvalid;
         cancellationToken.ThrowIfCancellationRequested();
         return null;
     }

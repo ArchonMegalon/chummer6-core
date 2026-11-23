@@ -8,8 +8,249 @@ namespace Chummer.Infrastructure.Xml;
 
 public sealed partial class FileSystemCharacterSourceDataResolver
 {
+    private sealed partial class RuleSourceAccounting
+    {
+        partial void ValidateCurrentCreationCatalog(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogInput input, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleCatalogValidation? result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is not SourceDataContext source
+                || !source.MatchesRetainedSelection(inputs)
+                || !source.CurrentCreationCatalogMatches1949(input)) return;
+            result = CharacterCurrentRuleEnvironmentConsumers.ValidateCreationCatalog(current, input, source, cancellationToken);
+            if (!source.MatchesRetainedSelection(inputs)) result = null;
+        }
+
+        partial void ExecuteCurrentCreation(CharacterCurrentRuleEnvironmentContext current,
+            CharacterCurrentRuleCatalogValidation validation, CancellationToken cancellationToken,
+            ref CharacterCurrentRuleDomainExecution? result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var scope = resolver.CreateOperationScope();
+            if (scope.TryCreateContext(current.CharacterXml) is not SourceDataContext source
+                || !source.MatchesRetainedSelection(inputs)
+                || !source.CurrentCreationCatalogMatches1949(validation.Input)) return;
+            result = CharacterCurrentRuleEnvironmentConsumers.ExecuteCreation(current, validation, source, cancellationToken);
+            if (!source.MatchesRetainedSelection(inputs)) result = null;
+        }
+    }
+
     private sealed partial class SourceDataContext
     {
+        // Called only by the shared resolver's v2 branch. No historical
+        // prerequisite/finalization authority is upgraded by these projections.
+        private CharacterCreationMetatypeCatalogAuthority ProjectCurrentCreationMetatypes1950(
+            XDocument document, CharacterCreationMetatypeSourceContextAuthority sourceContext)
+        {
+            var catalog = CharacterCreationMetatypeCatalogProjector.ProjectCurrent(document, sourceContext,
+                _sourceInputs.CreationSourceExecutionSchema, careerCondition5497: UsesCareerCondition5497,
+                importedSprite5732: UsesImportedCareerOwnerSemantics5698);
+            if (!catalog.IsAuthoritative) return catalog;
+            XElement[] sources = [];
+            bool hasSources = TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string digest)
+                && TryResolveRacialQualitySources(document, out sources);
+            // Keep unavailable rows, and bind every enabled declaration to the
+            // actual retained quality definitions before any future query.
+            return catalog with { Options = catalog.Options.Select(option =>
+            {
+                if (!option.IsEnabled || option.GrantedQualities.Count == 0) return option;
+                if (hasSources && TryCurrentRacialSources1950(option, sources!, digest,
+                    sourceContext.EnabledSourcebooks, out _,
+                    nativeSkillCosts: _buildMethod is CharacterCreationBuildMethods.Karma or CharacterCreationBuildMethods.LifeModules,
+                    importedOwnerEffects: UsesImportedCareerOwnerSemantics5698)) return option;
+                return option with { IsEnabled = false,
+                    Blockers = ["current-metatype-racial-effects-unavailable"] };
+            }).ToArray() };
+        }
+
+        private static bool TryCurrentRacialSources1950(CharacterCreationMetatypeOptionProjection metatype,
+            XElement[] qualities, string qualityDigest, IReadOnlyList<string> books,
+            out CharacterCreationTalentQualitySource[] grants, bool nativeSkillCosts = false, bool importedOwnerEffects = false)
+        {
+            grants = [];
+            if (!metatype.IsEnabled || metatype.Blockers.Count != 0) return false;
+            if (metatype.GrantedQualities.Count == 0) return true;
+            var findings = new List<string>();
+            grants = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty)).ToArray(),
+                qualities, [], qualityDigest, string.Empty, books, findings);
+            return findings.Count == 0 && grants.Length == metatype.GrantedQualities.Count
+                && !grants.Where((source, index) => !string.Equals(
+                    XElement.Parse(source.CanonicalSourceXml).Element("category")?.Value,
+                    metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase)).Any()
+                // V9 catalogs bind retained declarations, not synthetic Creation
+                // owners. Its current consumers must reconcile every actual saved
+                // owner/effect through the sheet compiler before issuing execution.
+                && (importedOwnerEffects || (nativeSkillCosts
+                    ? CharacterCreationPriorityRacialQualities.TryProjectCurrentNativeSkillCosts(grants, qualityDigest, out _, out _)
+                    : CharacterCreationPriorityRacialQualities.TryProjectCurrent(grants, qualityDigest, out _, out _)));
+        }
+
+        private CharacterCreationPrerequisiteAuthority BindCurrentCreationRacialOptions1950(
+            CharacterCreationPrerequisiteAuthority original, XDocument metatypes, XElement[] qualities,
+            string qualityDigest, IReadOnlyList<string> books, string? sourceExecutionSchema)
+        {
+            if (!original.IsAuthoritative || original.Blockers.Count != 0
+                || !TryEnumerateTargets("priorities.xml", ["priorities"], "priority", out var priorityRows)) return original;
+            var declarations = new Dictionary<string, (CharacterCreationMetatypeOptionProjection Metatype,
+                CharacterCreationTalentQualitySource[] Grants)>(StringComparer.Ordinal);
+            foreach (var row in metatypes.Root?.Element("metatypes")?.Elements("metatype") ?? [])
+                if (CharacterCreationMetatypeCatalogProjector.TryProjectCurrentOption(row, 1, 1, books,
+                        out var metatype, sourceExecutionSchema,
+                        importedSprite5732: UsesImportedCareerOwnerSemantics5698)
+                    && TryCurrentRacialSources1950(metatype, qualities, qualityDigest, books, out var grants,
+                        importedOwnerEffects: UsesImportedCareerOwnerSemantics5698))
+                    if (!declarations.TryAdd(metatype.OptionId, (metatype, grants)))
+                        return original with { IsAuthoritative = false,
+                            Blockers = [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported] };
+            return original with { Options = original.Options.Select(priority => priority with
+            {
+                HeritageOptions = priority.HeritageOptions.Select(option =>
+                {
+                    var rows = priorityRows.Where(row => row.Element("id")?.Value == priority.SourceId).ToArray();
+                    var children = rows.Length == 1 ? rows[0].Element("metatypes")?.Elements("metatype")
+                        .Where(child => child.Element("name")?.Value == option.MetatypeName).ToArray() ?? [] : [];
+                    bool exactChild = children is [var child] && !child.HasAttributes
+                        && !child.Elements().Any(field => field.Name != "name" && field.Name != "value"
+                            && field.Name != "karma" && field.Name != "metavariants")
+                        && !child.Elements().GroupBy(field => field.Name).Any(group => group.Count() != 1);
+                    if (option.MetavariantSourceId is not null || option.MetavariantName is not null
+                        || option.Kind != CharacterCreationPriorityChildKinds.Metatype || !exactChild
+                        || option.KarmaCost < 0 || option.HalvesNormalAttributePoints
+                        || !declarations.TryGetValue(option.MetatypeSourceId, out var declaration)
+                        || option.MetatypeName != declaration.Metatype.Label
+                        || !option.Attributes.SequenceEqual(declaration.Metatype.Attributes)
+                        || option.Movement != declaration.Metatype.Movement
+                        || option.Blockers.Any(reason => reason != CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported))
+                        return option with { IsEnabled = false,
+                            Blockers = option.Blockers.Append(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported)
+                                .Distinct(StringComparer.Ordinal).ToArray() };
+                    return option with { IsEnabled = true, Blockers = [],
+                        RacialQualitySources = declaration.Grants.Length == 0 ? null : declaration.Grants,
+                        BaseBonuses = declaration.Metatype.BaseBonuses };
+                }).ToArray()
+            }).ToArray(), AuthorityDigest = string.Empty };
+        }
+
+        // Guard exact future raw lookups in the shared v2 resolver. Enumeration
+        // stays complete for merger/catalog proof. Projection uses enumeration,
+        // so this guard does not recurse through an exact lookup.
+        private bool CurrentCreationTargetAvailable1950(string fileName, string entryName, XElement target)
+        {
+            if (fileName == "metatypes.xml")
+                return entryName == "metatype" && target.Name == "metatype"
+                    && TryResolveCreationMetatypeCatalog(out var catalog) && catalog.IsAuthoritative
+                    && catalog.Options.Any(option => option.OptionId == target.Element("id")?.Value
+                        && option.Label == target.Element("name")?.Value && option.IsEnabled && option.Blockers.Count == 0);
+            if (fileName == "priorities.xml")
+                return entryName == "priority" && target.Name == "priority"
+                    && !target.HasAttributes && !target.Elements().Any(field => field.Name.Namespace != XNamespace.None
+                        || field.Name.LocalName is not ("id" or "name" or "value" or "category" or "prioritytable"
+                            or "attributes" or "skills" or "skillgroups" or "resources" or "metatypes" or "talents"))
+                    && TryResolveCreationPrerequisiteAuthority(out var authority) && authority.IsAuthoritative
+                    && authority.Options.Any(option => option.SourceId == target.Element("id")?.Value);
+            return true;
+        }
+
+        private bool ReconcileCurrentCreationMetatypeCost1950(decimal savedCost, out decimal currentCost)
+        {
+            currentCost = savedCost;
+            string id = _character.Element("metatypeguid")?.Value ?? string.Empty;
+            string name = _character.Element("metatype")?.Value ?? string.Empty;
+            if (id.Length == 0 && name.Length == 0) return savedCost == 0m;
+            if (!TryResolveCreationMetatypeCatalog(out var catalog) || !catalog.IsAuthoritative
+                || CharacterCreationMetatypeSelectionRules.ResolveSaved(catalog, _character,
+                    _buildMethod == CharacterCreationBuildMethods.LifeModules) is not { } metatype) return false;
+            decimal expected = metatype.BaseBonuses?.LifestyleCostPercent ?? 0;
+            bool savedRacialCost = _character.Elements("improvements").Elements("improvement").Any(effect =>
+                effect.Element("improvementsource")?.Value is "Metatype" or "Metavariant" or "Heritage"
+                && effect.Element("improvementttype")?.Value is "LifestyleCost" or "BasicLifestyleCost");
+            if ((savedRacialCost || savedCost != 0m) && savedCost != expected) return false;
+            currentCost = expected;
+            return true;
+        }
+
+        // Check the actual retained merged tree, including supporting containers.
+        // Matching a primary row alone must not hide an unknown global sibling.
+        internal bool CurrentCreationCatalogMatches1949(CharacterCurrentRuleCatalogInput input)
+        {
+            string? file = input.Domain switch
+            {
+                CharacterCurrentRuleDomain.Profile => SettingsFile,
+                CharacterCurrentRuleDomain.Metatypes => UsesSpriteCatalog5751 ? "critters.xml" : "metatypes.xml",
+                CharacterCurrentRuleDomain.Priorities => "priorities.xml",
+                CharacterCurrentRuleDomain.Lifestyles => "lifestyles.xml",
+                _ => null
+            };
+            if (file is null || input.Query != file || input.Blockers.Count != 0) return false;
+            using var read = _sourceInputs.Enter();
+            if (_sourceInputs.HasSourceDrift || !TryLoadEffectiveDocument(_catalog, file, out var document)
+                || document?.Root is not { } root) return false;
+            try
+            {
+                string container = input.Domain == CharacterCurrentRuleDomain.Profile ? "settings"
+                    : input.Domain.ToString().ToLowerInvariant();
+                string rowName = input.Domain switch
+                { CharacterCurrentRuleDomain.Profile => "setting", CharacterCurrentRuleDomain.Metatypes => "metatype",
+                    CharacterCurrentRuleDomain.Priorities => "priority", _ => "lifestyle" };
+                if (root.Elements(container).ToArray() is not [var primary] || primary.HasAttributes
+                    || HasDirectScopeText(primary) || primary.Elements().Any(row => row.Name != rowName)) return false;
+                if (!TryEnumerateTargets(file, [container], rowName, out var effectiveRows)) return false;
+                var headerSource = root;
+                if (input.Domain == CharacterCurrentRuleDomain.Lifestyles
+                    && _sourceInputs.Accounting?.HasLifestyleMechanics2684 == true)
+                {
+                    // Use the same effective V7 supporting header as the catalog
+                    // consumer, including source-bound quality amendments.
+                    if (!TryReadLifestyleSource(out string sourceXml, out _)) return false;
+                    headerSource = XElement.Parse(sourceXml, LoadOptions.PreserveWhitespace);
+                }
+                // Match the catalog's detached semantic header without changing retained XML.
+                var global = CreateCurrentCatalogHeader6247(headerSource, [container]);
+                var covered = new HashSet<XElement>();
+                // These detached rows belong only to this match. Normalize each
+                // on first comparison, preserving row order and duplicate matches.
+                // Do not retain a tree or an admission result across calls.
+                var comparisonRows = new XElement?[effectiveRows.Length];
+                bool globalSeen = false;
+                foreach (var entry in input.Entries)
+                {
+                    if (entry.State == CharacterCurrentRuleEntryState.Tombstone)
+                    {
+                        // Deletions are merger observations, not live options.
+                        if (!input.Operations.Any(op => op.IsTombstone && op.BeforeXml == entry.Xml)) return false;
+                        continue;
+                    }
+                    if (entry.State != CharacterCurrentRuleEntryState.AvailableNotSelected) return false;
+                    var candidate = XElement.Parse(entry.Xml, LoadOptions.PreserveWhitespace);
+                    if (entry.Key == "$global")
+                    {
+                        if (globalSeen || !XNode.DeepEquals(CurrentCreationTree1949(global), CurrentCreationTree1949(candidate))) return false;
+                        globalSeen = true;
+                        continue;
+                    }
+                    XElement? comparisonCandidate = null;
+                    var matches = effectiveRows.Where((node, index) =>
+                        XNode.DeepEquals(comparisonRows[index] ??= CurrentCreationTree1949(node),
+                            comparisonCandidate ??= CurrentCreationTree1949(candidate))).ToArray();
+                    if (matches.Length != 1 || !covered.Add(matches[0])) return false;
+                }
+                return globalSeen && covered.Count == effectiveRows.Length && !_sourceInputs.HasSourceDrift;
+            }
+            catch (Exception error) when (error is System.Xml.XmlException or InvalidOperationException or ArgumentException)
+            { return false; }
+        }
+
+        private static XElement CurrentCreationTree1949(XElement node)
+        {
+            var copy = new XElement(node);
+            copy.DescendantNodes().OfType<XText>().Where(text => text.GetType() == typeof(XText)
+                && string.IsNullOrWhiteSpace(text.Value)).Remove();
+            return copy;
+        }
+
         private bool TryExecuteCreationSource718(CharacterCreationPolicySource source, string consumer,
             CharacterCreationRuleSourceScopeInvocation invocation, out CharacterCreationRuleSourceScopeResult? report)
         {
@@ -45,7 +286,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
             // authority cannot reach the following accounting.
             if (source.SourceId == "priorities") ExecutePriorities718(root, authority, executed!, invocation, ledger);
             else if (source.SourceId == "metatypes") ExecuteMetatype718(root, executed!, invocation, ledger);
-            else ExecuteProfile718(root, authority, executed!, invocation, ledger);
+            else ExecuteProfile718(root, authority, executed!, invocation, ledger, source);
             if (_sourceInputs.HasSourceDrift) ledger.UnconsumeRoot();
             return true;
         }
@@ -360,7 +601,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
 
         private void ExecuteProfile718(XElement root, CharacterCreationPrerequisiteAuthority authority,
             CharacterCreationPrerequisiteDraft executed, CharacterCreationRuleSourceScopeInvocation invocation,
-            SourceScopeLedger ledger)
+            SourceScopeLedger ledger, CharacterCreationPolicySource source)
         {
             var rows = root.Element("settings")!.Elements().ToArray();
             if (rows.Any(row => row.Name != "setting")
@@ -390,6 +631,9 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     && !string.IsNullOrWhiteSpace(((XText)displayText).Value))
                     ledger.Tree(displayName, D.Structural, new { Operation = "selected-profile-display-name",
                         ProfileId = executed.SettingsProfileId, Value = displayName.Value });
+                ExecuteProfileMetadata1202(row, executed.SettingsProfileId, source, ledger);
+                ExecuteEssenceProfile1222(row, invocation, ledger);
+                ExecuteProfileMetadataSemantics1209(row, authority, invocation, ledger);
                 Scalar718(ledger, row, "prioritytable", executed.PriorityTable, "ResolveAssignments", result);
                 ResolveCreationPrerequisiteProfileAuthority(row, out string method, out int? karma,
                     out string[] ranks, out string table, out int? target, out string[] profileBlockers);
@@ -433,9 +677,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                         "EvaluateAllocations-maximum-attribute-count", invocation.Attributes718!);
                     if (row.Elements("karmacost").ToArray() is [var karmaCosts]
                         && Container718(ledger, karmaCosts, "canonical-Karma-cost-domain"))
-                        Scalar718(ledger, karmaCosts, "karmaattribute", spending.KarmaAttribute,
-                            "TryCalculateAllocation", invocation.Attributes718!);
+                    {
+                        if (_sourceInputs.CreationSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)
+                            ExecuteProfileAttributeKarma3201(row, authority, invocation, ledger);
+                        else
+                            Scalar718(ledger, karmaCosts, "karmaattribute", spending.KarmaAttribute,
+                                "TryCalculateAllocation", invocation.Attributes718!);
+                    }
                     ExecuteProfileAttributeHouseRules993(row, authority, invocation, ledger);
+                    ExecuteProfileSecondMaximum3212(row, authority, invocation, ledger);
                 }
                 ExecuteProfileSourcebooks935(row, authority, invocation, ledger);
                 ExecuteProfileBrokenGroup940(row, authority, invocation, ledger);
@@ -445,9 +695,19 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 ExecuteProfileContactPoints962(row, authority, invocation, ledger);
                 ExecuteProfileKnowledgePoints971(row, authority, invocation, ledger);
                 ExecuteProfileSkillCosts972(row, authority, invocation, ledger);
+                ExecuteProfileMagic3200(row, authority, invocation, ledger);
                 ExecuteProfileCompensation1015(row, authority, invocation, ledger);
                 ExecuteProfileFunding994(row, authority, invocation, ledger);
+                ExecuteEconomicPolicy3211(row, authority, invocation, ledger);
                 ExecuteProfileCarryover995(row, authority, invocation, ledger);
+                ExecuteProfileKarma1208(row, authority, invocation, ledger);
+                ExecuteProfileLifecycle1217(row, authority, executed, invocation, ledger);
+                ExecuteRetainedMagic1221(row, authority, invocation, ledger);
+                ExecuteProfileLoadout1215(row, authority, invocation, ledger);
+                ExecuteProfileContainers3212(row, authority, invocation, ledger);
+                ExecuteRetainedSr5Compatibility1241(row, authority, invocation, ledger);
+                ExecuteRetainedCompatibility1430(row, authority, invocation, ledger);
+                ExecuteProfileFocus1220(row, authority, invocation, ledger);
                 // No whitelist promotes the remainder of a selected profile.
                 // Each other setting remains in the original ledger until its
                 // own canonical consumer supplies an operation and result.
@@ -465,7 +725,7 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 || resources.SettingsProfileId != authority.SettingsProfileId
                 || resources.ProfileDigest != authority.RawProfileInputsDigest) return;
             string profileDigest = CharacterCreationFinalizationDigest.Compute(profile.ToString(SaveOptions.DisableFormatting));
-            foreach (string field in new[] { "chargenkarmatonuyenexpression", "nuyenmaxbp" })
+            foreach (string field in new[] { "chargenkarmatonuyenexpression", "nuyenmaxbp", "nuyenperbpwftm", "unrestrictednuyen" })
             {
                 var leaves = profile.Elements().Where(node => node.Name.LocalName == field).ToArray();
                 if (leaves is not [var leaf] || leaf.Name != field || leaf.HasAttributes
@@ -473,7 +733,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     || !invocation.TryGetExecutedProfileFunding994(resources, profileDigest, field,
                         CharacterCreationFinalizationDigest.Compute(leaf.ToString(SaveOptions.DisableFormatting)),
                         out var result, out var execution) || result is null || _sourceInputs.HasSourceDrift) continue;
-                ledger.Tree(leaf, D.Compiled, new
+                // The canonical reader has already selected the explicit
+                // expression, so this exact legacy rate leaf is inactive.
+                bool shadowedRate = field == "nuyenperbpwftm" && profile.Element("chargenkarmatonuyenexpression") is not null;
+                ledger.Tree(leaf, shadowedRate ? D.NotSelected : D.Compiled, new
                 {
                     Operation = "canonical-funding-options-and-selection", Field = field,
                     Authority = resources, Input = leaf.Value, Result = result, Execution = execution

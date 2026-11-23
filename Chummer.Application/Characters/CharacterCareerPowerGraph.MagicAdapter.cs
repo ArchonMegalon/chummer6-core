@@ -9,9 +9,11 @@ internal static partial class CharacterCareerPowerGraph
     private static int Magic(XElement root, ICharacterSourceDataContext context, XElement settings,
         XElement metatype, XElement effects, List<string> evidence)
     {
-        var evaluated = CharacterCareerMagicEvaluator.Evaluate(root, settings, metatype);
+        var evaluated = CharacterCareerMagicEvaluator.Evaluate(root, settings, metatype, context);
         Need(evaluated.IsSupported, "power_" + string.Join(";", evaluated.Blockers));
         Need(evaluated.EffectivePowerMagic > 0, "power_magic_allocation_invalid");
+        if (evaluated.EssenceSourceDigest is { } essenceDigest)
+            evidence.Add(essenceDigest);
         // InitiationDisabled denies new initiation only; it does not revoke owned PP.
         return evaluated.EffectivePowerMagic;
     }

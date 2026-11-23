@@ -10,6 +10,10 @@ public interface ICharacterSourceDataResolver
 {
     ICharacterSourceDataContext? TryCreateContext(string characterXml);
 
+    // Private capture semantics admit an attempt only, never completed coverage.
+    // Old resolvers and old archives cannot acquire the native Focus wallet.
+    bool UsesNativeFocusCapture1339 => false;
+
     // A new immutable source-admission view. Older implementations cannot opt into V4.
     ICharacterSourceDataResolver? ForCreationSourceExecution(string? schema)
         => schema is null or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1
@@ -37,6 +41,40 @@ public interface ICharacterSourceDataContext
         settingsXml = authorityState = string.Empty;
         return false;
     }
+
+    /// <summary>
+    /// Evaluates the current context's AGI/STR total through canonical cyberlimb
+    /// rules. Implementations must resolve all applicable limb and profile authority;
+    /// source XML lookup alone cannot opt in. Older/source-only resolvers remain
+    /// unavailable. Callers must create a fresh context after staging an attribute edit.
+    /// </summary>
+    bool TryEvaluateCareerCyberlimbAttribute(
+        string abbreviation,
+        out CharacterCareerCyberlimbAttributeEvaluation? evaluation)
+    {
+        evaluation = null;
+        return false;
+    }
+
+    /// <summary>Compose already projected natural facts with independently resolved limb authority.</summary>
+    bool TryEvaluateCareerCyberlimbAttribute(
+        CharacterCareerCyberlimbAttributeInput input,
+        out CharacterCareerCyberlimbAttributeEvaluation? evaluation)
+        => TryEvaluateCareerCyberlimbAttribute(input.Abbreviation, out evaluation);
+
+    /// <summary>
+    /// SR5 Career source evidence for the supported anatomy contributor graph.
+    /// This is not Creation accounting or permission to mutate an owner document.
+    /// Older resolvers deliberately leave anatomy unresolved.
+    /// </summary>
+    bool TryResolveCareerQualityAnatomySources(out CharacterCareerQualityAnatomySources? sources)
+    { sources = null; return false; }
+
+    /// <summary>Exact enabled gear.xml source; never a Creation basket or caller-supplied price.</summary>
+    bool TryResolveCareerGearPurchaseSource(Guid sourceId, out CharacterCareerGearPurchaseSource? source)
+    { source = null; return false; }
+    bool TryResolveCareerGearPurchaseCatalog(out IReadOnlyList<CharacterCareerGearPurchaseSource> sources)
+    { sources = []; return false; }
 
     // Career-only source authority. Defaults deliberately fail closed for older resolvers.
     bool TryResolveCareerPowerSource(Guid sourceId, out CharacterCareerPowerSource? source)
@@ -130,6 +168,27 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Resolves an entered canonical name against the full current Knowledge source.
+    /// True with a null source proves absence before hidden/book filtering. Matching
+    /// unavailable or ambiguous rows and GUID aliases must fail, never become custom.</summary>
+    bool TryResolveCareerKnowledgeSkillName(string name,
+        out CharacterKnowledgeSkillSource? source, out string authorityState)
+    {
+        source = null;
+        authorityState = string.Empty;
+        return false;
+    }
+
+    /// <summary>Declared supported Knowledge categories and their canonical attribute
+    /// map, derived from visible Knowledge rows in actual source order.</summary>
+    bool TryResolveCareerKnowledgeSkillCategories(
+        out IReadOnlyDictionary<string, string> categories, out string authorityState)
+    {
+        categories = new Dictionary<string, string>();
+        authorityState = string.Empty;
+        return false;
+    }
+
     /// <summary>
     /// Resolves the exact Career specialization costs and skill-group break policy from the
     /// settings profile selected by the saved runner. Missing or malformed profile values
@@ -164,6 +223,18 @@ public interface ICharacterSourceDataContext
     /// means callers must not expose rank or Attribute-point choices.
     /// </summary>
     bool TryResolveCreationPrerequisiteAuthority(
+        out CharacterCreationPrerequisiteAuthority authority)
+    {
+        authority = CharacterCreationPrerequisiteAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
+    /// Reprojects the historical prerequisite catalog from these same retained
+    /// inputs, for validating an unchanged saved draft before current evaluation.
+    /// This is provenance only, never current rule authority. No live-source fallback.
+    /// </summary>
+    bool TryResolveHistoricalCreationPrerequisiteAuthority3053(
         out CharacterCreationPrerequisiteAuthority authority)
     {
         authority = CharacterCreationPrerequisiteAuthority.Unavailable;
@@ -225,6 +296,15 @@ public interface ICharacterSourceDataContext
     {
         metatypeQualities = [];
         return false;
+    }
+
+    bool TryResolveCreationLifeModuleMetatypeSources(CharacterCreationMetatypeSelectionIdentity identity,
+        out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities)
+    {
+        metatypeQualities = [];
+        return identity is not null && CharacterCreationMetatypeSelectionRules.IsValid(identity)
+            && identity.MetavariantOptionId is null
+            && TryResolveCreationLifeModuleMetatypeSources(identity.ParentMetatypeOptionId, out metatypeQualities);
     }
 
     /// <summary>Purchased talents for an exact Life Modules profile, without Priority grants.</summary>
@@ -737,6 +817,11 @@ public sealed record CharacterCreationSourceProfileAuthority(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationBootstrapSourceAnchorAuthority? BootstrapSourceAnchors { get; init; }
 
+    // Present only for an exact retained standalone file. SettingsProfileId remains
+    // the unchanged character selection; this is never a native Bootstrap GUID.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterRetainedSettingsFile? RetainedSettingsFile { get; init; }
+
     public static CharacterCreationSourceProfileAuthority Unavailable { get; } = new(
         SettingsProfileId: string.Empty,
         EnabledSourcebooks: Array.Empty<string>(),
@@ -853,4 +938,21 @@ public sealed record CharacterVehicleModSourceBonuses(
         WirelessBodyExpression: string.Empty,
         WirelessDeviceRatingExpression: string.Empty,
         WirelessMatrixConditionExpression: string.Empty);
+}
+
+/// <summary>
+/// Detached current SR5 Career evidence. The character digest includes absent/empty
+/// contributor containers; consumers must still compile and compare the saved graph.
+/// No caller-supplied limb count, owner permission or Creation authority is carried.
+/// </summary>
+public sealed record CharacterCareerQualityAnatomySources(
+    string Schema, string CharacterDigest, string BuildMethod, string SettingsProfileId,
+    string MetatypeId, string MetavariantId, string MetavariantName,
+    string MetatypeXml, string MetatypeAuthority, string SettingsXml, string SettingsAuthority,
+    string QualityInputsAuthority, IReadOnlyList<CharacterCreationTalentQualitySource> Qualities,
+    string Digest)
+{
+    public const string Sr5CareerV1 = "chummer.core.sr5-career-quality-anatomy-sources/v1";
+    public static string ComputeDigest(CharacterCareerQualityAnatomySources value)
+        => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value with { Digest = string.Empty });
 }

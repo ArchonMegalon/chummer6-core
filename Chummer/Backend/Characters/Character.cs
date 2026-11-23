@@ -40499,16 +40499,12 @@ namespace Chummer
             {
                 if (string.IsNullOrEmpty(strLimbSlot))
                 {
-                    return Settings.LimbCount + ImprovementManager.ValueOf(this, Improvement.ImprovementType.AddLimb)
-                                                                  .StandardRound();
+                    return PortableCyberlimbAttributeRules.CharacterLimbCount(Settings.LimbCount, strLimbSlot,
+                        ImprovementManager.ValueOf(this, Improvement.ImprovementType.AddLimb).StandardRound());
                 }
 
-                int intReturn =
-                    1 + ImprovementManager.ValueOf(this, Improvement.ImprovementType.AddLimb, false, strLimbSlot)
-                                          .StandardRound();
-                if (strLimbSlot == "arm" || strLimbSlot == "leg")
-                    ++intReturn;
-                return intReturn;
+                return PortableCyberlimbAttributeRules.CharacterLimbCount(0, strLimbSlot,
+                    ImprovementManager.ValueOf(this, Improvement.ImprovementType.AddLimb, false, strLimbSlot).StandardRound());
             }
         }
 
@@ -40520,20 +40516,15 @@ namespace Chummer
                 token.ThrowIfCancellationRequested();
                 if (string.IsNullOrEmpty(strLimbSlot))
                 {
-                    return await (await GetSettingsAsync(token).ConfigureAwait(false)).GetLimbCountAsync(token).ConfigureAwait(false) + (await ImprovementManager
-                            .ValueOfAsync(this, Improvement.ImprovementType.AddLimb, token: token)
-                            .ConfigureAwait(false))
-                        .StandardRound();
+                    return PortableCyberlimbAttributeRules.CharacterLimbCount(
+                        await (await GetSettingsAsync(token).ConfigureAwait(false)).GetLimbCountAsync(token).ConfigureAwait(false),
+                        strLimbSlot, (await ImprovementManager.ValueOfAsync(this, Improvement.ImprovementType.AddLimb,
+                            token: token).ConfigureAwait(false)).StandardRound());
                 }
 
-                int intReturn =
-                    1 + (await ImprovementManager
-                        .ValueOfAsync(this, Improvement.ImprovementType.AddLimb, false, strLimbSlot, token: token)
-                        .ConfigureAwait(false))
-                    .StandardRound();
-                if (strLimbSlot == "arm" || strLimbSlot == "leg")
-                    ++intReturn;
-                return intReturn;
+                return PortableCyberlimbAttributeRules.CharacterLimbCount(0, strLimbSlot,
+                    (await ImprovementManager.ValueOfAsync(this, Improvement.ImprovementType.AddLimb,
+                        false, strLimbSlot, token: token).ConfigureAwait(false)).StandardRound());
             }
             finally
             {
@@ -45740,12 +45731,9 @@ namespace Chummer
                         }
 
                         //Calculate bonus from cyberlimbs
-                        int intCount = Math.Min(Cyberware.Sum(x => x.GetCyberlimbCount(Settings.RedlinerExcludes)) / 2,
-                            2);
-
-                        return _intCachedRedlinerBonus = lstSeekerAttributes.Exists(x => x == "STR" || x == "AGI")
-                            ? intCount
-                            : 0;
+                        return _intCachedRedlinerBonus = PortableCyberlimbAttributeRules.RedlinerBonus(
+                        Cyberware.Sum(x => x.GetCyberlimbCount(Settings.RedlinerExcludes)),
+                        lstSeekerAttributes.Exists(x => x == "STR" || x == "AGI"));
                     }
 
                     return _intCachedRedlinerBonus;
@@ -45773,14 +45761,10 @@ namespace Chummer
                     }
 
                     //Calculate bonus from cyberlimbs
-                    int intCount =
-                        Math.Min(
-                            await Cyberware.SumAsync(x => x.GetCyberlimbCountAsync(Settings.RedlinerExcludes, token),
-                                token: token).ConfigureAwait(false) / 2, 2);
-
-                    return _intCachedRedlinerBonus = lstSeekerAttributes.Exists(x => x == "STR" || x == "AGI")
-                        ? intCount
-                        : 0;
+                    return _intCachedRedlinerBonus = PortableCyberlimbAttributeRules.RedlinerBonus(
+                        await Cyberware.SumAsync(x => x.GetCyberlimbCountAsync(Settings.RedlinerExcludes, token),
+                            token: token).ConfigureAwait(false),
+                        lstSeekerAttributes.Exists(x => x == "STR" || x == "AGI"));
                 }
 
                 return _intCachedRedlinerBonus;

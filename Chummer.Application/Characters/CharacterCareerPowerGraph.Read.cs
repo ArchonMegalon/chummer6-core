@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
+using Chummer.Application.Workspaces;
 
 namespace Chummer.Application.Characters;
 
@@ -11,12 +12,73 @@ internal static partial class CharacterCareerPowerGraph
         int CurrentPaidRating, int MaximumRating, bool Discounted, bool Existing);
     internal sealed record ReadGraph(string SourceDigest, decimal? RemainingPoints,
         IReadOnlyList<CharacterCareerMagicOwnedPower> Owned, IReadOnlyList<ReadOption> Options,
-        IReadOnlyList<string> Blockers);
+        IReadOnlyList<string> Blockers)
+    {
+        internal IReadOnlyList<ReadPower5715> ProvenPowers { get; init; } = [];
+        internal IReadOnlyList<ReadGrant5715> ProvenGrants { get; init; } = [];
+    }
+    internal sealed record ReadPower5715(CharacterCareerPowerIdentity Identity, string SourceXml, CharacterAdeptPowerPointCost Cost);
+    internal sealed record ReadGrant5715(CharacterCareerPowerGrant Grant, string Type, int Rating, string SourceXml, string ClauseXml);
+
+    // Called inside the sheet's existing source operation. No second resolver,
+    // write admission, synthetic command or empty grant list is introduced.
+    internal static ReadGraph EvaluateSheetRead5715(string xml, ICharacterSourceDataContext context,
+        CharacterFinalizedLifeModuleOwnership? modules)
+        => EvaluateReadCore(xml, context, modules, out _, out _);
 
     // Uses the same State/SourcePolicy/cost/effect compiler as Build. A read never
     // turns a saved display rating, saved bonus, or Creation budget into authority.
     internal static ReadGraph EvaluateRead(string xml, ICharacterSourceDataContext context)
+        => EvaluateReadCore(xml, context, null, out _, out _);
+
+    internal static ReadGraph EvaluateRead(WorkspaceStoredDocument saved, ICharacterSourceDataContext context)
     {
+        Need(CharacterFinalizedLifeModuleOwnership.TryObserve(saved, context, out var modules),
+            "power_finalized_module_ownership_unavailable");
+        return EvaluateReadCore(saved.Document.Content, context, modules, out _, out _);
+    }
+
+    private sealed record CurrentQuoteOption(ReadOption Option, CharacterAdeptPowerPointInput Input, decimal OtherUsed);
+
+    internal static bool TryQuoteCurrent(string xml, ICharacterSourceDataContext context,
+        Guid sourceId, int proposedPaidRating, out CharacterAdeptPowerPointIncreaseQuote? quote)
+        => TryQuoteCurrentCore(xml, context, sourceId, proposedPaidRating, null, out quote);
+
+    internal static bool TryQuoteCurrent(WorkspaceStoredDocument saved, ICharacterSourceDataContext context,
+        Guid sourceId, int proposedPaidRating, out CharacterAdeptPowerPointIncreaseQuote? quote)
+    {
+        quote = null;
+        return CharacterFinalizedLifeModuleOwnership.TryObserve(saved, context, out var modules)
+            && TryQuoteCurrentCore(saved.Document.Content, context, sourceId, proposedPaidRating, modules, out quote);
+    }
+
+    private static bool TryQuoteCurrentCore(string xml, ICharacterSourceDataContext context,
+        Guid sourceId, int proposedPaidRating, CharacterFinalizedLifeModuleOwnership? modules,
+        out CharacterAdeptPowerPointIncreaseQuote? quote)
+    {
+        quote = null;
+        try
+        {
+            var current = EvaluateReadCore(xml, context, modules, out var options, out var pool);
+            if (current.Blockers.Count != 0 || sourceId == Guid.Empty) return false;
+            // This exact-key surface has no extra/Way-choice input. Existing choices
+            // keep their actual discount; a new ordinary option uses no Way discount.
+            var candidates = options.Where(row => row.Option.Source.SourceId == sourceId
+                && row.Option.Identity.Extra.Length == 0 && (row.Option.Existing || !row.Option.Discounted)).ToArray();
+            return candidates is [var candidate]
+                && CharacterAdeptPowerPointRules.TryQuoteIncrease(candidate.Input, proposedPaidRating,
+                    pool, candidate.OtherUsed, out quote)
+                && quote is not null && quote.HasEnoughPoints
+                && quote.Proposed.PaidRating + (long)quote.Proposed.FreeLevels <= candidate.Input.MaximumTotalRating;
+        }
+        catch (Exception error) when (ReadUnavailable(error)) { return false; }
+    }
+
+    private static ReadGraph EvaluateReadCore(string xml, ICharacterSourceDataContext context,
+        CharacterFinalizedLifeModuleOwnership? modules,
+        out IReadOnlyList<CurrentQuoteOption> currentQuoteOptions, out decimal currentPool)
+    {
+        currentQuoteOptions = []; currentPool = 0;
         var root = Parse(xml);
         Need(root.Name == "character" && !root.HasAttributes && Bool(root, "created")
             && Bool(root, "magenabled") && Bool(root, "adept"), "power_requires_career_adept");
@@ -30,7 +92,8 @@ internal static partial class CharacterCareerPowerGraph
         Need(CharacterCareerPowerGovernance.AllowsMetadata(settings), "power_campaign_authority_unavailable");
         var evidence = new List<string> { "sr5-career-power-read/v1", settingsState, metatypeState,
             JsonSerializer.Serialize(catalog) };
-        var policy = new SourcePolicy(context, root, evidence, catalog);
+        if (modules is not null) evidence.Add(modules.Digest);
+        var policy = new SourcePolicy(context, root, evidence, catalog, modules);
         policy.ValidateOwnedSources();
         var effects = Container(root, "improvements", "improvement");
         var rows = Container(root, "powers", "power").Elements().ToArray();
@@ -77,7 +140,7 @@ internal static partial class CharacterCareerPowerGraph
         {
             Need(!effects.Elements().Any(e => Value(e, "improvementsource", "") == "Power"
                 && (!Guid.TryParse(Value(e, "sourcename", ""), out var id) || !instances.Contains(id))), "power_orphan_effect");
-            RecalculateAttributeCaches(root, effects, states, Parse(metatypeXml));
+            RecalculateAttributeCaches(root, effects, states, Parse(metatypeXml), modules);
             Need(pool >= states.Sum(s => s.Cost.UsedPoints), "power_points_or_rating_unavailable");
         }
         catch (Exception e) when (ReadUnavailable(e))
@@ -89,6 +152,7 @@ internal static partial class CharacterCareerPowerGraph
                     Blockers = Array.AsReadOnly(owned[i].Blockers.Append(blocker).Distinct().ToArray()) };
         }
         var options = new List<ReadOption>();
+        var quoteOptions = new List<CurrentQuoteOption>();
         if (blockers.Count == 0)
         {
             foreach (var source in catalog)
@@ -114,8 +178,11 @@ internal static partial class CharacterCareerPowerGraph
                                 var state = existing ?? State(root, source, identity, null, 0, discounted, magic, grants, policy);
                                 if (existing is null && states.Count(s => s.Identity.SourceId == source.SourceId)
                                     >= Int(state.Source, "limit", 1)) continue;
-                                options.Add(new(source, identity, state.Input.PaidRating, state.Input.MaximumTotalRating,
-                                    discounted, existing is not null));
+                                var option = new ReadOption(source, identity, state.Input.PaidRating, state.Input.MaximumTotalRating,
+                                    discounted, existing is not null);
+                                options.Add(option);
+                                quoteOptions.Add(new(option, state.Input,
+                                    states.Where(other => !ReferenceEquals(other, existing)).Sum(other => other.Cost.UsedPoints)));
                             }
                             catch (Exception e) when (ReadUnavailable(e)) { /* Unsupported new choices are not legal targets. */ }
                         }
@@ -124,10 +191,17 @@ internal static partial class CharacterCareerPowerGraph
                 catch (Exception e) when (ReadUnavailable(e)) { /* Owned rows were already retained above. */ }
             }
         }
+        currentQuoteOptions = Array.AsReadOnly(quoteOptions.ToArray());
+        currentPool = pool;
         return new(CharacterCareerPowerTransaction.Hash(JsonSerializer.Serialize(evidence)),
             blockers.Count == 0 ? pool - states.Sum(s => s.Cost.UsedPoints) : null,
             Array.AsReadOnly(owned.ToArray()), Array.AsReadOnly(options.ToArray()),
-            Array.AsReadOnly(blockers.Distinct().ToArray()));
+            Array.AsReadOnly(blockers.Distinct().ToArray()))
+        {
+            ProvenPowers = blockers.Count == 0 ? Array.AsReadOnly(states.Select(s => new ReadPower5715(
+                s.Identity, s.Source.ToString(SaveOptions.DisableFormatting), s.Cost)).ToArray()) : [],
+            ProvenGrants = blockers.Count == 0 ? policy.ProvenGrants.AsReadOnly() : []
+        };
     }
 
     internal static IReadOnlyList<CharacterCareerMagicEffect> ReadEffects(

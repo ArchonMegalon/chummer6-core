@@ -14,7 +14,13 @@ public sealed record CharacterCreationMysticAdeptPowerPointPolicy(
     string CanonicalSourceXml,
     string CanonicalSourceXmlDigest,
     IReadOnlyList<string> SourceAnchorIds,
-    string PolicyDigest);
+    string PolicyDigest)
+{
+    // Retain the selected file's source identity through canonical policy replay.
+    // Null preserves the exact serialized shape/digests of existing GUID policies.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterRetainedSettingsFile? RetainedSettingsFile { get; init; }
+}
 
 public sealed record CharacterCreationMysticAdeptPowerPointAllocation(
     int PowerPoints,
@@ -31,6 +37,10 @@ public static class CharacterCreationMysticAdeptPowerPointRules
 {
     public static bool TryCreatePolicy(string profileId, string settingsInputsDigest, string canonicalSourceXml,
         out CharacterCreationMysticAdeptPowerPointPolicy? policy)
+        => TryCreatePolicy(profileId, settingsInputsDigest, canonicalSourceXml, null, out policy);
+
+    public static bool TryCreatePolicy(string profileId, string settingsInputsDigest, string canonicalSourceXml,
+        CharacterRetainedSettingsFile? retainedFile, out CharacterCreationMysticAdeptPowerPointPolicy? policy)
     {
         policy = null;
         if (string.IsNullOrWhiteSpace(profileId)
@@ -50,7 +60,10 @@ public static class CharacterCreationMysticAdeptPowerPointRules
                 || document.DescendantNodes().Any(node => node is XProcessingInstruction)
                 || root.Descendants().Any(node => node.Name.NamespaceName.Length != 0)
                 || root.ToString(SaveOptions.DisableFormatting) != canonicalSourceXml
-                || !TryScalar(root, "id", out string id) || id != profileId
+                || !TryScalar(root, "id", out string id)
+                || (retainedFile is null ? id != profileId
+                    : !retainedFile.IsSelectedBy(profileId) || id != retainedFile.AuthorProvidedId
+                        || !TryScalar(root, "name", out string name) || name != retainedFile.AuthorProvidedName)
                 || !TryScalar(root, "priorityspellsasadeptpowers", out string exchangeText)
                 || !bool.TryParse(exchangeText, out bool exchange)
                 || !TryScalar(root, "mysadeptsecondmagattribute", out string separateText)
@@ -67,7 +80,8 @@ public static class CharacterCreationMysticAdeptPowerPointRules
                 karma, exchange, separate, canonicalSourceXml,
                 CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalSourceXml),
                 [anchor + ":karmacost/karmamysadpp", anchor + ":mysadeptsecondmagattribute",
-                    anchor + ":priorityspellsasadeptpowers"], string.Empty);
+                    anchor + ":priorityspellsasadeptpowers"], string.Empty)
+                { RetainedSettingsFile = retainedFile };
             policy = candidate with { PolicyDigest = ComputePolicyDigest(candidate) };
             return true;
         }
@@ -80,9 +94,14 @@ public static class CharacterCreationMysticAdeptPowerPointRules
     public static string ComputePolicyDigest(CharacterCreationMysticAdeptPowerPointPolicy value) =>
         CharacterCreationMagicResonanceDigest.Compute(value with { PolicyDigest = string.Empty });
 
-    public static bool IsValidPolicy(CharacterCreationMysticAdeptPowerPointPolicy? policy) =>
+    public static bool IsValidPolicy(CharacterCreationMysticAdeptPowerPointPolicy? policy)
+        => IsValidPolicy(policy, policy?.RetainedSettingsFile);
+
+    public static bool IsValidPolicy(CharacterCreationMysticAdeptPowerPointPolicy? policy,
+        CharacterRetainedSettingsFile? retainedFile) =>
         policy is not null
-        && TryCreatePolicy(policy.SettingsProfileId, policy.SettingsInputsDigest, policy.CanonicalSourceXml, out var expected)
+        && TryCreatePolicy(policy.SettingsProfileId, policy.SettingsInputsDigest, policy.CanonicalSourceXml,
+            retainedFile, out var expected)
         && CharacterCreationMagicResonanceDigest.EqualsFixedTime(policy.PolicyDigest, expected!.PolicyDigest)
         && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
             CharacterCreationMagicResonanceDigest.Compute(policy), CharacterCreationMagicResonanceDigest.Compute(expected));

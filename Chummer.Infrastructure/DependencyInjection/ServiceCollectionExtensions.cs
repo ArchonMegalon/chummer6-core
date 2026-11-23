@@ -107,10 +107,17 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<ICharacterSocialNarrativeQueries>(),
                 provider.GetRequiredService<IBuildLabService>()));
         services.AddSingleton<IContentOverlayCatalogService>(overlays);
-        services.AddSingleton<ICharacterCyberwarePurchaseAuthority,
-            FileSystemCharacterCyberwarePurchaseAuthority>();
+        services.AddSingleton<FileSystemCharacterCyberwarePurchaseAuthority>();
+        services.AddSingleton<ICharacterCyberwarePurchaseAuthority>(provider =>
+            provider.GetRequiredService<FileSystemCharacterCyberwarePurchaseAuthority>());
+        services.AddSingleton<ICharacterAugmentationPurchaseAuthority>(provider =>
+            provider.GetRequiredService<FileSystemCharacterCyberwarePurchaseAuthority>());
+        services.AddSingleton<ICharacterCareerImplantCommerceAuthority>(provider =>
+            provider.GetRequiredService<FileSystemCharacterCyberwarePurchaseAuthority>());
         services.AddSingleton<ICharacterCustomDrugAuthority,
             FileSystemCharacterCustomDrugAuthority>();
+        services.TryAddSingleton<ICharacterCareerCustomDrugPurchaseComponentValidator>(provider =>
+            (ICharacterCareerCustomDrugPurchaseComponentValidator)provider.GetRequiredService<ICharacterCustomDrugAuthority>());
         services.AddSingleton<ICharacterVehicleWorkshopAuthority,
             CharacterVehicleWorkshopAuthority>();
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
@@ -170,14 +177,22 @@ public static class ServiceCollectionExtensions
         services.AddStateDirectorySingleton<ISessionProfileSelectionStore, FileSessionProfileSelectionStore>(stateDirectory);
         services.AddStateDirectorySingleton<ISessionRuntimeBundleStore, FileSessionRuntimeBundleStore>(stateDirectory);
         services.AddSingleton<ISessionService, OwnerScopedSessionService>();
+        services.AddDurableSessionPlay(stateDirectory);
         services.AddSingleton<ISessionActionBudgetService, DefaultSessionActionBudgetService>();
         services.AddStateDirectorySingleton<IRosterStore, FileRosterStore>(stateDirectory);
-        services.AddSingleton<IWorkspaceStore>(_ =>
+        services.TryAddSingleton<FileWorkspaceStore.OriginTrustDomain>(provider =>
+        {
+            string root = Path.Combine(stateDirectory ?? Path.Combine(Path.GetTempPath(), "chummer-state"), ".workspace-origin-custody");
+            return provider.GetService<WorkspaceOriginTrustConfiguration>() is { } trusted
+                ? trusted.Create(root) : new FileWorkspaceStore.OriginTrustDomain(root);
+        });
+        services.AddSingleton<IWorkspaceStore>(provider =>
         {
             string? workspaceDirectory = Environment.GetEnvironmentVariable(WorkspaceStorePathEnvironmentVariable);
-            return string.IsNullOrWhiteSpace(workspaceDirectory)
-                ? new FileWorkspaceStore(stateDirectory)
-                : new FileWorkspaceStore(workspaceDirectory);
+            var store = string.IsNullOrWhiteSpace(workspaceDirectory)
+                ? new FileWorkspaceStore(stateDirectory, provider.GetRequiredService<FileWorkspaceStore.OriginTrustDomain>())
+                : new FileWorkspaceStore(workspaceDirectory, provider.GetRequiredService<FileWorkspaceStore.OriginTrustDomain>());
+            return store.WithSessionPlaySettlementJournal5712(provider.GetService<Chummer.Application.Session.ISessionPlayStore>());
         });
         services.AddSingleton<IWorkspaceStoreReadinessProbe>(provider =>
             provider.GetRequiredService<IWorkspaceStore>() as IWorkspaceStoreReadinessProbe
@@ -296,7 +311,32 @@ public static class ServiceCollectionExtensions
             CharacterCareerSkillGroupAdvanceService>();
         services.AddCharacterAfterRunSettlementPersistence();
         services.AddCharacterAfterRunRewardPersistence();
-        services.TryAddSingleton<ICharacterCareerReputationService, WorkspaceCharacterCareerReputationService>();
+        services.TryAddSingleton<ICharacterCareerReputationService>(provider =>
+            new WorkspaceCharacterCareerReputationService(provider.GetRequiredService<IWorkspaceStore>(),
+                provider.GetRequiredService<ICharacterSourceDataResolver>(),
+                provider.GetRequiredService<IOwnerContextAccessor>() as IOwnerContextLeaseAccessor
+                    ?? throw new InvalidOperationException("Career reputation requires the existing owner lease authority.")));
+        services.TryAddSingleton<ICharacterCareerGearEquipmentService, WorkspaceCharacterCareerGearEquipmentService>();
+        services.TryAddSingleton<ICharacterSustainedSpellService, WorkspaceCharacterSustainedSpellService>();
+        services.TryAddSingleton<ICharacterCareerGearSaleService, WorkspaceCharacterCareerGearSaleService>();
+        services.TryAddSingleton<ICharacterCareerSpecializationService, WorkspaceCharacterCareerSpecializationService>();
+        services.TryAddSingleton<ICharacterSr5NaturalRecoveryService, CharacterSr5NaturalRecoveryService>();
+        services.TryAddSingleton<ICharacterCareerLifestylePaymentService, CharacterCareerLifestylePaymentService>();
+        services.TryAddSingleton<ICharacterCareerLifestyleMaintenanceService, CharacterCareerLifestyleMaintenanceService>();
+        services.TryAddSingleton<ICharacterCareerGearPurchaseService, WorkspaceCharacterCareerGearPurchaseService>();
+        services.TryAddSingleton<ICharacterCareerImplantCommerceService>(provider => new CharacterCareerImplantCommerceService(
+            provider.GetRequiredService<IWorkspaceStore>(),
+            provider.GetRequiredService<ICharacterCareerImplantCommerceAuthority>(),
+            provider.GetRequiredService<IOwnerContextAccessor>() as IOwnerContextLeaseAccessor
+                ?? throw new InvalidOperationException("Implant commerce requires the actual owner transition authority.")));
+        services.TryAddSingleton<ICharacterCareerCustomDrugPurchaseService, CharacterCareerCustomDrugPurchaseService>();
+        services.TryAddSingleton<ICharacterCareerContactsService, CharacterCareerContactsService>();
+        services.TryAddSingleton<ICharacterCareerSpellLearningService, CharacterCareerSpellLearningService>();
+        services.TryAddSingleton<ICharacterCareerSpiritFetteringService, CharacterCareerSpiritFetteringService>();
+        services.TryAddSingleton<ICharacterCareerFreeSpriteConversionService, CharacterCareerFreeSpriteConversionService>();
+        services.TryAddSingleton<ICharacterCareerFocusBondingService, CharacterCareerFocusBondingService>();
+        services.TryAddSingleton<ICharacterCareerMartialAcquisitionService, CharacterCareerMartialAcquisitionService>();
+        services.TryAddSingleton<ICharacterCareerComplexFormLearningService, CharacterCareerComplexFormLearningService>();
 
         return services;
     }
@@ -310,8 +350,10 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.TryAddSingleton<ICharacterAfterRunRewardService,
-            WorkspaceCharacterAfterRunRewardService>();
+        services.TryAddSingleton<ICharacterAfterRunRewardService>(provider =>
+            provider.GetService<IOwnerContextAccessor>() is IOwnerContextLeaseAccessor owners
+                ? new WorkspaceCharacterAfterRunRewardService(provider.GetRequiredService<IWorkspaceStore>(), owners)
+                : new WorkspaceCharacterAfterRunRewardService(provider.GetRequiredService<IWorkspaceStore>()));
         return services;
     }
 
@@ -335,7 +377,8 @@ public static class ServiceCollectionExtensions
                 ? new WorkspaceCharacterAfterRunSettlementWorkspace(
                     store,
                     provider.GetRequiredService<
-                        ICharacterAfterRunSettlementProposalProjectionSource>())
+                        ICharacterAfterRunSettlementProposalProjectionSource>(),
+                    provider.GetRequiredService<Chummer.Application.Owners.IOwnerContextAccessor>())
                 : new UnavailableCharacterAfterRunSettlementWorkspace();
         });
         services.TryAddSingleton<ICharacterAfterRunSettlementService,

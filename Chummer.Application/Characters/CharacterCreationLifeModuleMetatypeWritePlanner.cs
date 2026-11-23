@@ -17,12 +17,26 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
         WorkspaceStoredDocument workspace, CharacterCreationFoundationDraftLedger draft,
         CharacterCreationFoundationSequenceWritePlan effects, CharacterCreationLegalOption expectedMetatype,
         ICharacterSourceDataContext context)
+        => BuildCore1958(workspace, draft, effects, expectedMetatype, context, requireFinished: true);
+
+    internal static CharacterCreationLifeModuleMetatypeWritePlanResult ObserveCurrent1958(
+        WorkspaceStoredDocument workspace, CharacterCreationFoundationDraftLedger draft,
+        CharacterCreationFoundationSequenceWritePlan effects, CharacterCreationLegalOption expectedMetatype,
+        ICharacterSourceDataContext context)
+        => BuildCore1958(workspace, draft, effects, expectedMetatype, context, requireFinished: false);
+
+    private static CharacterCreationLifeModuleMetatypeWritePlanResult BuildCore1958(
+        WorkspaceStoredDocument workspace, CharacterCreationFoundationDraftLedger draft,
+        CharacterCreationFoundationSequenceWritePlan effects, CharacterCreationLegalOption expectedMetatype,
+        ICharacterSourceDataContext context, bool requireFinished)
     {
         try
         {
             if (workspace.Document.RulesetId != RulesetDefaults.Sr5
                 || workspace.Id != draft.WorkspaceId || draft.CharacterEffectsApplied
-                || !draft.ModuleSelectionFinished || draft.DraftDigest != CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft)
+                || requireFinished && !draft.ModuleSelectionFinished
+                || effects.Semantics != (requireFinished ? "life-module-full-effect-graph/v1" : "life-module-current-effect-observation/v1")
+                || draft.DraftDigest != CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft)
                 || draft.BaseRawCharacterXmlDigest != CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(workspace.Document.Content)
                 || effects.WorkspaceId != workspace.Id || effects.DraftDigest != draft.DraftDigest
                 || effects.DraftRevision != draft.DraftRevision || effects.RawCharacterXmlDigest != draft.BaseRawCharacterXmlDigest
@@ -31,11 +45,12 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
                 || !context.TryResolveCreationMetatypeCatalog(out var catalog) || !catalog.IsAuthoritative
                 || catalog.Blockers.Count != 0 || !catalog.SourceContext.IsAuthoritative || catalog.SourceContext.Blockers.Count != 0
                 || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(catalog.SourceContext.AuthorityDigest)
-                || catalog.Options.SingleOrDefault(option => option.Label == draft.RequestedMetatype)
+                || CharacterCreationMetatypeSelectionRules.Resolve(catalog, draft.RequestedMetatype, draft.MetatypeIdentity)
                     is not { IsEnabled: true, Blockers.Count: 0, GrantedQualities.Count: <= 32 } metatype
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                     CharacterCreationFoundationService.MapMetatypeOption(metatype), expectedMetatype)
-                || !context.TryResolveCreationLifeModuleMetatypeSources(metatype.OptionId, out var sources)
+                || metatype.ParentMetatypeLabel != draft.ParentMetatypeLabel
+                || !context.TryResolveCreationLifeModuleMetatypeSources(metatype.MetatypeIdentity ?? new(metatype.OptionId), out var sources)
                 || sources.Count != metatype.GrantedQualities.Count
                 || sources.Any(source => !CharacterCreationTalentQualitySourceRules.IsValidSource(source))
                 || sources.Select(source => source.SourceId).Distinct(StringComparer.Ordinal).Count() != sources.Count)
@@ -71,9 +86,16 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
                     ("LifestyleCost", bonuses.LifestyleCostPercent, string.Empty)
                 })
                     if (value != 0) improvements.Add(CharacterCreationAwakenedLegacyProjector.Improvement(
-                        type, string.Empty, metatype.OptionId, "Metatype", value, unique));
+                        type, string.Empty, metatype.MetatypeIdentity?.ParentMetatypeOptionId ?? metatype.OptionId, "Metatype", value, unique));
             }
-            for (int index = 0; index < sources.Count; index++)
+            if (metatype.MetatypeIdentity is not null)
+            {
+                if (!CharacterCreationLifeModuleRacialGrants8590.TryProject(metatype, sources, seed,
+                    out var racialQualities, out var racialEffects))
+                    return Failed(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+                qualities.AddRange(racialQualities); improvements.AddRange(racialEffects);
+            }
+            else for (int index = 0; index < sources.Count; index++)
             {
                 var source = sources[index];
                 var declaration = metatype.GrantedQualities[index];
@@ -83,14 +105,18 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
                     return Failed(CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
                 string id = CharacterCreationFinalizationProjector.StableGuid($"life-module-racial:{seed}:{source.SourceId}").ToString("D");
                 string extra = CharacterCreationAwakenedLegacyProjector.CompileBonus(definition.Element("bonus"),
-                    string.Empty, [], source, id, flags, improvements, gear);
+                    string.Empty, [], source, id, flags, improvements, gear,
+                    retainUnresolvedDefensePenalty: metatype.MetatypeIdentity?.MetavariantOptionId is not null);
                 if (!CharacterCreationLegacySourceProjector.TryBuildGrantedQualityInstance(source, id, extra, "Metatype", out var saved))
                     return Failed(CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
                 qualities.Add(saved);
             }
             var other = new XElement("character", new XElement("qualities", existing.Concat(planned)));
             foreach (var source in sources)
-                CharacterCreationAwakenedLegacyProjector.CheckRestrictions(XElement.Parse(source.CanonicalSourceXml), other, qualities, flags);
+                if (metatype.MetatypeIdentity is not null)
+                    CharacterCreationLifeModuleRacialGrants8590.CheckRestrictions(metatype, source, other, qualities, flags);
+                else
+                    CharacterCreationAwakenedLegacyProjector.CheckRestrictions(XElement.Parse(source.CanonicalSourceXml), other, qualities, flags);
             // Reverse restrictions matter too: a module quality cannot silently
             // forbid a racial grant simply because the module plan was made first.
             if (!context.TryResolveCreationFoundationEffectSources(out var effectSources) || effectSources is null
@@ -111,10 +137,11 @@ internal static class CharacterCreationLifeModuleMetatypeWritePlanner
 
             if (!context.TryResolveCreationMetatypeCatalog(out var finalCatalog)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(catalog, finalCatalog)
-                || !context.TryResolveCreationLifeModuleMetatypeSources(metatype.OptionId, out var finalSources)
+                || !context.TryResolveCreationLifeModuleMetatypeSources(metatype.MetatypeIdentity ?? new(metatype.OptionId), out var finalSources)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(sources, finalSources))
                 return Failed(CharacterCreationFoundationBlockers.SourceDigestConflict);
-            var plan = new CharacterCreationLifeModuleMetatypeWritePlan("life-module-racial-contribution/v1",
+            var plan = new CharacterCreationLifeModuleMetatypeWritePlan(requireFinished ? "life-module-racial-contribution/v1"
+                : "life-module-current-racial-observation/v1",
                 draft.DraftDigest, effects.PlanDigest, metatype, catalog.SourceContext, sources,
                 qualities.Select(item => item.ToString(SaveOptions.DisableFormatting)).ToArray(),
                 improvements.Select(item => item.ToString(SaveOptions.DisableFormatting)).ToArray(),

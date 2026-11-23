@@ -227,12 +227,20 @@ public sealed partial class CharacterCreationSkillsService
             IReadOnlyList<CharacterCreationSkillKarmaEffect>? karmaEffects = null, bool captureExecution = false,
             CompleteSkillTrace? completeTrace = null)
         {
+            completeTrace?.BeginRegroupingPurchases3207();
+            // Funded groups can have no explicit members in the sparse point preview.
             bool projectGroups = policy.AllowSkillRegrouping.HasValue
-                && (policy.CompensateSkillGroupKarmaDifference || baseline.Skills.Any(row => row.GroupRating > 0));
+                && (policy.CompensateSkillGroupKarmaDifference
+                    || baseline.SkillGroups.Any(group => group.Rating > 0)
+                    || baseline.Skills.Any(row => row.GroupRating > 0));
             if (purchases.Count == 0 && !projectGroups && karmaEffects is not { Count: > 0 })
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 completeTrace?.FinishPurchases(policy, purchases, baseline);
+                completeTrace?.FinishSkillCosts972(policy, purchases, baseline,
+                    new Dictionary<string, int>(StringComparer.Ordinal));
                 completeTrace?.FinishCompensationPolicy1015(policy, purchases, baseline, projectGroups);
+                completeTrace?.FinishRegrouping3207(policy, purchases, baseline, projectGroups);
                 return new(CharacterCreationFoundationOutcomes.Success, baseline, []);
             }
             var blockers = new List<string>();
@@ -427,6 +435,7 @@ public sealed partial class CharacterCreationSkillsService
                 completeTrace?.FinishPurchases(policy, purchases, result);
                 completeTrace?.FinishSkillCosts972(policy, purchases, result, skillCosts972!);
                 completeTrace?.FinishCompensationPolicy1015(policy, purchases, result, projectGroups);
+                completeTrace?.FinishRegrouping3207(policy, purchases, result, projectGroups);
                 return new(CharacterCreationFoundationOutcomes.Success, result, []);
             }
             catch (OverflowException)

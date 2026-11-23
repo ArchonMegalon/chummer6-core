@@ -30,7 +30,7 @@ public sealed partial class CharacterCreationFoundationService
                 LifeModuleJourneyStageOrders.RealLife);
             var entryBlockers = new List<string>();
             var projected = ProjectModuleEntry(capturedModules, entry.Selection,
-                entry.FollowUpValues, draft.RequestedMetatype, stage, entryBlockers);
+                entry.FollowUpValues, draft.RequestedMetatype, stage, entryBlockers, draft.ParentMetatypeLabel);
             if (entryBlockers.Count != 0 || projected is null
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(projected, entry))
             {

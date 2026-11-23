@@ -54,14 +54,15 @@ public static class CharacterCreationBootstrapProfiles
         return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
-    // Keep the original two-argument APIs SR5-only for existing callers.
+    // The ruleset-aware new-runner entry selects the native SR5 preset.
+    // Keep the original SR5-only lookup stable for historical source callers.
     public static bool TryResolveCanonicalSettingsProfileId(
         string rulesetId, string? buildMethod, out string settingsProfileId)
     {
         settingsProfileId = string.Empty;
         return rulesetId switch
         {
-            RulesetDefaults.Sr5 => TryResolveCanonicalSettingsProfileId(buildMethod, out settingsProfileId),
+            RulesetDefaults.Sr5 => NativeSr5CreationProfiles.TryResolve(buildMethod, out settingsProfileId),
             RulesetDefaults.Sr6 => Sr6CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
                 buildMethod, out settingsProfileId),
             _ => false
@@ -125,7 +126,11 @@ public static class CharacterCreationBootstrapProfiles
     // original settings.xml would invalidate every saved legacy binding even
     // though none of the selected legacy rules had changed.
     public static string SettingsSourceFile(string? settingsProfileId)
-        => settingsProfileId is PrioritySettingsProfileId or SumToTenSettingsProfileId
+        => settingsProfileId == NativeSr5CreationProfiles.KarmaQualityPrompts
+            ? NativeSr5CreationProfiles.KarmaQualityPromptsSettingsFile
+            : NativeSr5CreationProfiles.IsNativeProfile(settingsProfileId)
+            ? NativeSr5CreationProfiles.SettingsFile
+            : settingsProfileId is PrioritySettingsProfileId or SumToTenSettingsProfileId
             or KarmaSettingsProfileId or LifeModulesSettingsProfileId
                 ? "settings-all-sources.xml" : "settings.xml";
 
@@ -133,8 +138,9 @@ public static class CharacterCreationBootstrapProfiles
         => $"{SettingsSourceFile(settingsProfileId)}#setting:{settingsProfileId}";
 
     /// <summary>
-    /// Resolves the default settings profile for a supported SR5 creation
-    /// method. Legacy restricted-source profiles remain valid for reopen.
+    /// Resolves the original all-source SR5 profile. This overload remains
+    /// stable for historical callers; new-runner entry uses the ruleset-aware
+    /// overload. Earlier profiles remain valid for explicit selection and reopen.
     /// Presentation callers must use this
     /// mapping instead of copying profile identifiers into a UI repository.
     /// </summary>
@@ -156,6 +162,9 @@ public static class CharacterCreationBootstrapProfiles
     public static bool IsExactCanonicalTuple(string? buildMethod, string? settingsProfileId)
         => TryResolveCanonicalSettingsProfileId(buildMethod, out string expected)
            && (string.Equals(settingsProfileId, expected, StringComparison.Ordinal)
+               || buildMethod == CharacterCreationBuildMethods.Karma && settingsProfileId == NativeSr5CreationProfiles.Karma
+               || NativeSr5CreationProfiles.TryResolve(buildMethod, out string nativeProfile)
+                   && string.Equals(settingsProfileId, nativeProfile, StringComparison.Ordinal)
                || string.Equals(settingsProfileId, buildMethod switch
                {
                    CharacterCreationBuildMethods.Priority => LegacyPrioritySettingsProfileId,

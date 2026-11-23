@@ -12,7 +12,8 @@ namespace Chummer.Infrastructure.Xml;
 /// atomic character mutation with the pinned Chummer5 free initial dose; later
 /// quantity purchases intentionally use a separate transaction lane.
 /// </summary>
-public sealed class FileSystemCharacterCustomDrugAuthority : ICharacterCustomDrugAuthority
+public sealed class FileSystemCharacterCustomDrugAuthority : ICharacterCustomDrugAuthority,
+    ICharacterCareerCustomDrugPurchaseComponentValidator
 {
     private const int MaximumIdempotencyKeyLength = 256;
     private const string DefaultNotesColor = "Chocolate";
@@ -425,6 +426,21 @@ public sealed class FileSystemCharacterCustomDrugAuthority : ICharacterCustomDru
             new XElement("page", string.Empty),
             new XElement("notes", string.Empty),
             new XElement("notesColor", DefaultNotesColor));
+    }
+
+    /// <summary>Admit an existing component through the same writer used for recipe creation.</summary>
+    public bool MatchesSavedComponent(string componentXml, CharacterCustomDrugComponentSource source, int level, Guid instanceId)
+    {
+        if (string.IsNullOrEmpty(componentXml) || componentXml.Length > 1_048_576 || instanceId == Guid.Empty)
+            return false;
+        try
+        {
+            return XNode.DeepEquals(XElement.Parse(componentXml, LoadOptions.None), CreateSavedComponent(source, level, instanceId));
+        }
+        catch (Exception exception) when (exception is System.Xml.XmlException or ArgumentException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static XElement CreateSavedComponent(

@@ -36,16 +36,19 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         ? @"C:\__chummer_rule_closure__" : "/__chummer_rule_closure__";
 
     internal RetainedCharacterRuleSourceInputs ToPortable()
+        => ToPortable(logicalRootOrder: false);
+
+    private RetainedCharacterRuleSourceInputs ToPortable(bool logicalRootOrder)
     {
-        if (_portable) return this;
-        var candidates = new HashSet<string>(StringComparer.Ordinal);
+        if (_portable && !logicalRootOrder) return this;
+        var candidates = new List<string>();
         void Add(string? path)
         {
             if (string.IsNullOrWhiteSpace(path)) return;
             ValidatePath(path);
             path = Path.TrimEndingDirectorySeparator(path);
             if (path == Path.GetPathRoot(path)) throw Rejected();
-            candidates.Add(path);
+            if (!candidates.Contains(path, StringComparer.Ordinal)) candidates.Add(path);
         }
         Add(Path.GetDirectoryName(_catalog.BaseDataPath));
         if (!string.IsNullOrEmpty(_catalog.BaseLanguagePath)) Add(Path.GetDirectoryName(_catalog.BaseLanguagePath));
@@ -55,10 +58,15 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
             if (!string.IsNullOrEmpty(pack.DataPath)) Add(Path.GetDirectoryName(pack.DataPath));
             if (!string.IsNullOrEmpty(pack.LanguagePath)) Add(Path.GetDirectoryName(pack.LanguagePath));
         }
-        // Keep shared-root relationships and physical discovery order. Assign opaque
-        // slots only after eliminating descendants; never serialize the mapping.
-        string[] roots = candidates.Where(path => !candidates.Any(parent =>
-            parent != path && Within(parent, path))).Order(StringComparer.Ordinal).ToArray();
+        // Keep shared-root relationships. Historical archives retain their physical
+        // root ordering; the new profile assigns each surviving root its first catalog
+        // role (base data, base language, then overlays in their retained order).
+        // An ancestor inherits its earliest descendant role, even if added later.
+        var independentRoots = candidates.Where(path => !candidates.Any(parent =>
+            parent != path && Within(parent, path)));
+        string[] roots = (logicalRootOrder
+            ? independentRoots.OrderBy(root => candidates.FindIndex(path => Within(root, path)))
+            : independentRoots.Order(StringComparer.Ordinal)).ToArray();
         if (roots.Length is 0 or > MaximumFiles) throw Rejected();
         string Map(string path)
         {
@@ -101,7 +109,8 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
             _existence.ToDictionary(row => Map(row.Key), row => row.Value, StringComparer.Ordinal),
             _inventories.Values.Select(item => new Inventory(item.Key with { Directory = Map(item.Key.Directory) },
                 item.Exists, item.Entries.Select(Map).OrderBy(PathOrderKey, StringComparer.Ordinal).ToArray())),
-            portable: true, sourcePathSeparator: SourcePathSeparator);
+            portable: true, sourcePathSeparator: SourcePathSeparator, dependencyRecipe1244: DependencyRecipe1244,
+            nativeFocusGearCatalog1339: NativeFocusGearCatalog1339, compatibilityProfile: CompatibilityProfile);
     }
 
     private static bool Within(string root, string path)
@@ -138,6 +147,10 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
     {
         static bool PathLiteral(string value)
         {
+            // Every rejected drive, UNC, file URI or Unix path contains at
+            // least one of these characters. Skip only this literal scan;
+            // the caller still decodes entities and checks the decoded value.
+            if (value.Length == 0 || value.AsSpan().IndexOfAny(':', '/', '\\') < 0) return false;
             for (int i = 0; i < value.Length; i++)
             {
                 if (i + 2 < value.Length && (i == 0 || !char.IsLetterOrDigit(value[i - 1]))
@@ -155,7 +168,11 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
             }
             return false;
         }
-        if (PathLiteral(value) || PathLiteral(System.Net.WebUtility.HtmlDecode(value))) throw Rejected();
+        if (PathLiteral(value)) throw Rejected();
+        string decoded = System.Net.WebUtility.HtmlDecode(value);
+        // Equal decoded text has already passed this pure scan in this call.
+        // Encoded values still receive the same second check, without retaining state.
+        if (decoded != value && PathLiteral(decoded)) throw Rejected();
     }
 
     // Continuations also carry XML as JSON strings. Inspect decoded XML values,
@@ -182,8 +199,20 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         }
     }
 
+    // A saved Quality retains its original answered selecttext bonus. Its XPath
+    // is document syntax, not a filesystem address. This scope is reached only
+    // from retained CharacterXml or a decoded SR5 workspace payload; ordinary
+    // strings, comments and embedded XML remain on the strict text path.
+    internal static void ValidatePortableCharacterDocumentXml(string value)
+    {
+        ValidateCharacter(value);
+        using var text = new StringReader(value);
+        using var reader = System.Xml.XmlReader.Create(text, XmlSettings());
+        ValidatePortableXmlValues(reader, sourceElement: "character", characterDocument: true);
+    }
+
     // Retained files and digest-bound nodes reached through actual decoded source
-    // contracts may use the rule schema. Character XML and prose stay strict.
+    // contracts may use the rule schema. Prose stays strict.
     internal static void ValidatePortableRuleSourceXml(System.Xml.XmlReader reader)
         => ValidatePortableXmlValues(reader, ruleSource: true);
 
@@ -218,20 +247,31 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
     }
 
     private static void ValidatePortableXmlValues(System.Xml.XmlReader reader, bool ruleSource = false,
-        string? sourceContainer = null, string? sourceElement = null)
+        string? sourceContainer = null, string? sourceElement = null, bool characterDocument = false)
     {
         var ancestry = sourceContainer is null ? new List<string>() : new List<string> { "chummer", sourceContainer };
         int ancestryOffset = ancestry.Count;
         bool sourceRootSeen = false;
-        var plainText = new System.Text.StringBuilder();
+        string? plainText = null;
+        System.Text.StringBuilder? joinedPlainText = null;
+        void AppendPlainText(string value)
+        {
+            if (value.Length == 0) return;
+            if (plainText is null) plainText = value;
+            else (joinedPlainText ??= new System.Text.StringBuilder(plainText)).Append(value);
+        }
         void FlushText()
         {
-            if (plainText.Length == 0) return;
-            ValidatePortableTransferText(plainText.ToString());
-            plainText.Clear();
+            if (plainText is null) return;
+            // Keep adjacent XML text/CDATA in one token context, while a single
+            // reader value can be checked without copying it through a builder.
+            ValidatePortableTransferText(joinedPlainText?.ToString() ?? plainText);
+            plainText = null;
+            joinedPlainText = null;
         }
         System.Text.StringBuilder? schemaText = null;
         bool ammunitionCapacity = false;
+        bool savedFocusCondition = false;
         int schemaTextDepth = -1;
         while (reader.Read())
         {
@@ -247,8 +287,17 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
                 }
                 while (ancestry.Count > reader.Depth + ancestryOffset) ancestry.RemoveAt(ancestry.Count - 1);
                 bool unqualified = reader.NamespaceURI.Length == 0;
-                bool selector = ruleSource && unqualified && reader.LocalName == "selecttext"
-                    && IsPortableRuleBonusPath(string.Join("/", ancestry));
+                bool selector = unqualified && reader.LocalName == "selecttext"
+                    && (ruleSource && IsPortableRuleBonusPath(string.Join("/", ancestry))
+                        || characterDocument && string.Join("/", ancestry) == "character/qualities/quality/bonus");
+                if (characterDocument && unqualified && reader.LocalName == "condition" && !reader.IsEmptyElement
+                    && string.Join("/", ancestry) is "character/gears/gear/bonus/spellcategory"
+                        or "character/improvements/improvement")
+                {
+                    schemaText = new();
+                    schemaTextDepth = reader.Depth;
+                    savedFocusCondition = true;
+                }
                 if (ruleSource && unqualified && reader.LocalName == "condition" && !reader.IsEmptyElement
                     && ancestry.Count > 0 && IsPortableRuleCondition(ancestry[^1])
                     && IsPortableRuleBonusPath(string.Join("/", ancestry.Take(ancestry.Count - 1))))
@@ -284,7 +333,7 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
                         schemaText.Append(reader.Value);
                     else if (reader.NodeType is System.Xml.XmlNodeType.Text or System.Xml.XmlNodeType.CDATA
                         or System.Xml.XmlNodeType.Whitespace or System.Xml.XmlNodeType.SignificantWhitespace)
-                        plainText.Append(reader.Value);
+                        AppendPlainText(reader.Value);
                     else if (reader.NodeType == System.Xml.XmlNodeType.Comment)
                         ValidatePortableXmlComment(reader.Value);
                     else ValidatePortableTransferText(reader.Value);
@@ -295,9 +344,11 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
                     if (schemaText is not null && reader.Depth == schemaTextDepth)
                     {
                         if (ammunitionCapacity) ValidatePortableRuleAmmunitionCapacity(schemaText.ToString());
+                        else if (savedFocusCondition) ValidatePortableSavedFocusCondition7520(schemaText.ToString());
                         else ValidatePortableRuleExpression(schemaText.ToString(), allowConditionProse: true);
                         schemaText = null;
                         ammunitionCapacity = false;
+                        savedFocusCondition = false;
                     }
                     while (ancestry.Count > reader.Depth + ancestryOffset) ancestry.RemoveAt(ancestry.Count - 1);
                 }
@@ -307,11 +358,20 @@ internal sealed partial class RetainedCharacterRuleSourceInputs
         if (sourceElement is not null && !sourceRootSeen) throw Rejected();
     }
 
+    private static void ValidatePortableSavedFocusCondition7520(string value)
+    {
+        // The exact ordinary-spell condition retained by the catalog bonus and
+        // emitted by CharacterCareerFocusBondingTransaction.BuiltinEffects.
+        // This is privacy classification, not XPath evaluation or source admission.
+        // All other text keeps the existing path guard. Do not admit general
+        // rule expressions in saved characters, notes, comments or unknown XML.
+        if (value != "not(/spell/alchemical)") ValidatePortableTransferText(value);
+    }
+
     private void ValidatePortablePrivacy()
     {
         static void Text(string value) => ValidatePortableTransferText(value);
-        using (var text = new StringReader(CharacterXml))
-        using (var xml = System.Xml.XmlReader.Create(text, XmlSettings())) ValidatePortableXmlValues(xml);
+        ValidatePortableCharacterDocumentXml(CharacterXml);
         foreach (var (path, bytes) in _files)
         {
             if (string.Equals(Path.GetExtension(path), ".xml", StringComparison.OrdinalIgnoreCase))

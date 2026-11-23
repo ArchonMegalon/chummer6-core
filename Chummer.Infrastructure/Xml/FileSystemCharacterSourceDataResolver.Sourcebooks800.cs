@@ -37,28 +37,37 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                 reads.ValidateOperationBoundary([context]);
             }
             // Publication is after the original live scope's exit fence.
-            if (!VerifySourcebookInputs800(retained, out var authority)) return false;
-            capture = new SourcebookCapture800(retained, authority!);
+            if (!VerifySourcebookInputs800(retained, out var authority, out var payload)) return false;
+            capture = new SourcebookCapture800(retained, authority!, payload!);
             return true;
         }
         catch (Exception error) when (IsCaptureRejection(error)) { return false; }
     }
 
     private static bool VerifySourcebookInputs800(RetainedCharacterRuleSourceInputs inputs,
-        out CharacterCreationSourcebookSelectionAuthority? authority)
+        out CharacterCreationSourcebookSelectionAuthority? authority, out byte[]? verifiedPayload)
     {
         authority = null;
-        if (!inputs.IsPortable) return false;
+        verifiedPayload = null;
+        // This profile has no sourcebook-filtered execution contract yet. Do not
+        // strip its metadata or bypass its diagnostics through another envelope.
+        if (!inputs.IsPortable || inputs.CompatibilityProfile is not null) return false;
         var resolver = CreateRetainedResolver(inputs);
         using var reads = resolver.CreateValidatedReadScope();
         using var operation = reads.CreateOperationScope();
         if (operation.TryCreateContext(inputs.CharacterXml) is not SourceDataContext context
             || !context.MatchesRetainedSelection(inputs)
             || !context.TryResolveCreationEffectivePolicy(out var policy) || policy?.PolicyDigest != inputs.PolicyDigest
-            || !context.TryCaptureSourcebookInputs800(inputs.CharacterXml, out var observed) || observed is null
-            || !observed.ToPortable().Export().AsSpan().SequenceEqual(inputs.Export())) return false;
+            || !context.TryCaptureSourcebookInputs800(inputs.CharacterXml, out var observed) || observed is null) return false;
+        byte[] observedPayload = observed.ToPortable().Export();
+        byte[] payload = inputs.Export();
+        if (!observedPayload.AsSpan().SequenceEqual(payload)) return false;
         authority = context.SourcebookAuthority800();
-        return authority.IsValid();
+        if (!authority.IsValid()) return false;
+        // These immutable inputs just supplied the exact bytes compared above.
+        // Carry that serialization to the private envelope; retain every replay/fence.
+        verifiedPayload = payload;
+        return true;
     }
 
     // Decode the retained inputs without changing their externally committed byte identity.
@@ -82,8 +91,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
         {
             if (!bytes.StartsWith(SourcebookEnvelope800)) return false;
             var inputs = ImportCaptureInputs(bytes, digest);
-            if (!VerifySourcebookInputs800(inputs, out var authority)) return false;
-            var restored = new SourcebookCapture800(inputs, authority!);
+            if (!VerifySourcebookInputs800(inputs, out var authority, out var payload)) return false;
+            var restored = new SourcebookCapture800(inputs, authority!, payload!);
             if (!restored.ExportPrivateInputs().AsSpan().SequenceEqual(bytes)) return false;
             capture = restored;
             return true;
@@ -96,16 +105,15 @@ public sealed partial class FileSystemCharacterSourceDataResolver
         private readonly RetainedCharacterRuleSourceInputs inputs;
         private readonly byte[] archive;
         public SourcebookCapture800(RetainedCharacterRuleSourceInputs inputs,
-            CharacterCreationSourcebookSelectionAuthority authority)
+            CharacterCreationSourcebookSelectionAuthority authority, ReadOnlySpan<byte> payload)
         {
             this.inputs = inputs;
             SourcebookSelection = authority;
-            byte[] payload = inputs.Export();
             if (payload.Length > RetainedCharacterRuleSourceInputs.MaximumArchiveBytes - SourcebookEnvelope800.Length)
                 throw RetainedCharacterRuleSourceInputs.Rejected();
             archive = new byte[payload.Length + SourcebookEnvelope800.Length];
             SourcebookEnvelope800.CopyTo(archive, 0);
-            payload.CopyTo(archive, SourcebookEnvelope800.Length);
+            payload.CopyTo(archive.AsSpan(SourcebookEnvelope800.Length));
             IntegrityDigest = RetainedCharacterRuleSourceInputs.Digest(archive);
         }
         public override string IntegrityDigest { get; }
@@ -365,7 +373,10 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                             {
                                 var gate = SourceGate800(file, row, row == rows[index] && shape.Entry == "skill"
                                     && shape.Container is "skills" or "knowledgeskills");
-                                string nodeDigest = CharacterCreationFinalizationDigest.Compute(row.ToString(SaveOptions.DisableFormatting));
+                                // The root was serialized above; SourceGate800 only reads it.
+                                // Descendants keep their own serialization and every gate/hash still runs.
+                                string nodeDigest = CharacterCreationFinalizationDigest.Compute(
+                                    row == rows[index] ? xml : row.ToString(SaveOptions.DisableFormatting));
                                 string identity = CharacterCreationFinalizationDigest.Compute(new { scope, shape.Container, shape.Entry, index, Node = nodeIndex++, nodeDigest });
                                 choices.Add(new(identity, nodeDigest, gate.Book, gate.Rule));
                                 if (gate.Eligible) eligible.Add(identity);
@@ -376,6 +387,8 @@ public sealed partial class FileSystemCharacterSourceDataResolver
                     var identityScope = new P.ScopeIdentity(scope, CharacterCreationFinalizationDigest.Compute(new { digest, Rows = effectiveRows }));
                     scopes.Add(new(identityScope, choices.ToArray(), eligible.ToArray(), []));
                 }
+                if (_sourceInputs.BaseDependencyRecipe2330 == RetainedCharacterRuleSourceInputs.EssenceDependencyRecipe1244)
+                    scopes.AddRange(ReadEssenceDependencyInventory1244().Scopes);
                 return _sourcebookInventory800 = scopes.ToArray();
             }
             finally { _readingSourcebooks800 = previous; }

@@ -16,7 +16,8 @@ public sealed partial class CharacterCreationContactsService
         CharacterCreationContactsLoadRequest request) => LoadCompletionInputs(request, false);
 
     internal CharacterCreationContactResult<CharacterCreationContactsCompletionInputs> LoadCompletionInputs(
-        CharacterCreationContactsLoadRequest request, bool knowledgeModifiers)
+        CharacterCreationContactsLoadRequest request, bool knowledgeModifiers,
+        CompletionPreviewReuse? previewReuse = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         var read = _workspaceStore.Get(request.WorkspaceId);
@@ -123,7 +124,7 @@ public sealed partial class CharacterCreationContactsService
             {
                 var selected = composite.Selections;
                 var current = PreviewCompletion(inputs, selected.AttributeAllocations,
-                    selected.QualityOptionIds, selected.Contacts);
+                    selected.QualityOptionIds, selected.Contacts, CancellationToken.None, previewReuse);
                 if (current.Blockers.Count != 0)
                     return new(CharacterCreationContactOutcomes.Blocked, null, current.Blockers);
             }
@@ -144,6 +145,14 @@ public sealed partial class CharacterCreationContactsService
         IReadOnlyList<string> qualityOptionIds,
         IReadOnlyList<CharacterCreationKarmaContactSelection> contacts,
         CancellationToken cancellationToken = default)
+        => PreviewCompletion(inputs, attributeAllocations, qualityOptionIds, contacts, cancellationToken, null);
+
+    internal static CharacterCreationContactResult<CharacterCreationContactsCompletionProjection> PreviewCompletion(
+        CharacterCreationContactsCompletionInputs inputs,
+        IReadOnlyList<CharacterCreationAttributeAllocation> attributeAllocations,
+        IReadOnlyList<string> qualityOptionIds,
+        IReadOnlyList<CharacterCreationKarmaContactSelection> contacts,
+        CancellationToken cancellationToken, CompletionPreviewReuse? previewReuse)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(attributeAllocations);
@@ -164,8 +173,17 @@ public sealed partial class CharacterCreationContactsService
             return Blocked<CharacterCreationContactsCompletionProjection>(CharacterCreationContactOutcomes.Blocked,
                 CharacterCreationContactsBlockers.ContactInvalid);
         frozen = DetachCompletion(frozen);
-        var upstreamResult = CharacterCreationQualitiesService.PreviewWithProposedAttributes(inputs.Qualities,
-            attributeAllocations, qualityOptionIds, cancellationToken);
+        // Only pure arithmetic from this same composite read can be reused.
+        // Keep all entry validation above, including full current input/receipt
+        // guards. The key below includes the complete detached graph, not just
+        // its supplied digests, so in-place DTO changes cannot reuse a result.
+        string? previewKey = previewReuse?.CreateKey(inputs, attributeAllocations, qualityOptionIds, frozen);
+        if (previewReuse?.TryTake(previewKey!, cancellationToken) is { } reused)
+            return reused;
+        var upstreamResult = previewReuse?.TryTakeUpstream(inputs.Qualities, attributeAllocations,
+                qualityOptionIds, cancellationToken)
+            ?? CharacterCreationQualitiesService.PreviewWithProposedAttributes(inputs.Qualities,
+                attributeAllocations, qualityOptionIds, cancellationToken);
         if (upstreamResult.Value is not { } upstream || upstream.Qualities.Blockers.Count != 0)
             return new(CharacterCreationContactOutcomes.Blocked, null, upstreamResult.Blockers);
         var pricing = PriceSelectedCompletion(new(inputs.Policy, inputs.Qualities.PrerequisiteDraft,
@@ -183,7 +201,164 @@ public sealed partial class CharacterCreationContactsService
             { GroupKarma = priced.GroupKarma };
         result = result with { ProposalDigest = CharacterCreationContactsCompletionRules.ComputeProjectionDigest(result) };
         cancellationToken.ThrowIfCancellationRequested();
-        return new(pricing.Outcome, DetachCompletion(result), priced.Blockers);
+        var completed = new CharacterCreationContactResult<CharacterCreationContactsCompletionProjection>(
+            pricing.Outcome, DetachCompletion(result), priced.Blockers);
+        previewReuse?.Remember(previewKey!, completed);
+        return completed;
+    }
+
+    // Producer/consumer pairs within one composite operation, never a service/owner cache.
+    // Input loading still visits every current source and history guard; combined
+    // review still evaluates every domain. Contacts consumes the Lifestyle read's
+    // exact Attributes/Qualities calculation; review consumes Contacts' exact
+    // preview. Both are successful pure calculations used once. Private bytes prevent a
+    // caller's mutation of either returned DTO from changing the retained result.
+    internal sealed class CompletionPreviewReuse : IDisposable
+    {
+        private readonly int _threadId = Environment.CurrentManagedThreadId;
+        private bool _disposed;
+        private bool _captured;
+        private string? _key;
+        private byte[]? _result;
+        private string? _upstreamKey;
+        private byte[]? _upstreamResult;
+        private bool _lifestyleCaptured;
+        private string? _lifestyleKey;
+        private CharacterCreationLifestylesService.CompletionPreviewSession? _lifestyleSession;
+        internal int ReuseCount { get; private set; }
+        internal int UpstreamReuseCount { get; private set; }
+        internal int LifestyleReuseCount { get; private set; }
+
+        internal string CreateLifestyleKey(CharacterCreationLifestylesCompletionInputs inputs,
+            CharacterCreationMagicResonanceCompletionInputs magic,
+            IReadOnlyList<CharacterCreationAttributeAllocation> attributes,
+            CharacterCreationMagicResonanceSelections magicSelections,
+            IReadOnlyList<string> qualities, int investment)
+        {
+            VerifyLifetime();
+            return CharacterCreationFinalizationDigest.Compute(new
+            {
+                Inputs = inputs, Magic = magic, Attributes = attributes,
+                MagicSelections = magicSelections, Qualities = qualities, Investment = investment
+            });
+        }
+
+        internal void RememberLifestyle(string key, CharacterCreationLifestylesService.CompletionPreviewSession session)
+        {
+            VerifyLifetime();
+            if (_lifestyleCaptured) return;
+            _lifestyleCaptured = true;
+            _lifestyleKey = key;
+            // The session owns detached inputs; its Preview returns detached results
+            // and always reprices the supplied Gear, Lifestyles and loadout.
+            _lifestyleSession = session;
+        }
+
+        internal CharacterCreationLifestylesService.CompletionPreviewSession? TryTakeLifestyle(
+            string key, CancellationToken cancellationToken)
+        {
+            VerifyLifetime();
+            cancellationToken.ThrowIfCancellationRequested();
+            var session = _lifestyleSession;
+            string? expected = _lifestyleKey;
+            _lifestyleSession = null;
+            _lifestyleKey = null;
+            if (session is null || !string.Equals(expected, key, StringComparison.Ordinal)) return null;
+            LifestyleReuseCount++;
+            return session;
+        }
+
+        internal void RememberUpstream(CharacterCreationQualitiesCompletionInputs inputs,
+            IReadOnlyList<CharacterCreationAttributeAllocation> attributes, IReadOnlyList<string> qualities,
+            CharacterCreationAttributeQualitiesPreview result)
+        {
+            VerifyLifetime();
+            if (result.Blockers.Count != 0 || result.Qualities.Blockers.Count != 0) return;
+            // Called only immediately after the real Lifestyle preview evaluated
+            // these exact inputs/choices. Contacts must still load its own current
+            // Qualities; every byte of that fresh observation participates in the key.
+            _upstreamKey = CharacterCreationFinalizationDigest.Compute(new { Inputs = inputs,
+                Attributes = attributes, Qualities = qualities });
+            _upstreamResult = JsonSerializer.SerializeToUtf8Bytes(
+                new CharacterCreationFoundationResult<CharacterCreationAttributeQualitiesPreview>(
+                    CharacterCreationFoundationOutcomes.Success, result, result.Blockers));
+        }
+
+        internal CharacterCreationFoundationResult<CharacterCreationAttributeQualitiesPreview>? TryTakeUpstream(
+            CharacterCreationQualitiesCompletionInputs inputs,
+            IReadOnlyList<CharacterCreationAttributeAllocation> attributes, IReadOnlyList<string> qualities,
+            CancellationToken cancellationToken)
+        {
+            VerifyLifetime();
+            cancellationToken.ThrowIfCancellationRequested();
+            byte[]? result = _upstreamResult;
+            string? expected = _upstreamKey;
+            _upstreamResult = null;
+            _upstreamKey = null;
+            if (result is null || !string.Equals(expected, CharacterCreationFinalizationDigest.Compute(new
+                { Inputs = inputs, Attributes = attributes, Qualities = qualities }), StringComparison.Ordinal)) return null;
+            var detached = JsonSerializer.Deserialize<CharacterCreationFoundationResult<CharacterCreationAttributeQualitiesPreview>>(result)!;
+            cancellationToken.ThrowIfCancellationRequested();
+            UpstreamReuseCount++;
+            return detached;
+        }
+
+        internal string CreateKey(CharacterCreationContactsCompletionInputs inputs,
+            IReadOnlyList<CharacterCreationAttributeAllocation> attributes,
+            IReadOnlyList<string> qualities, IReadOnlyList<CharacterCreationKarmaContactSelection> contacts)
+        {
+            VerifyLifetime();
+            return CharacterCreationFinalizationDigest.Compute(new { Inputs = inputs, Attributes = attributes,
+                Qualities = qualities, Contacts = contacts });
+        }
+
+        internal CharacterCreationContactResult<CharacterCreationContactsCompletionProjection>? TryTake(
+            string key, CancellationToken cancellationToken)
+        {
+            VerifyLifetime();
+            cancellationToken.ThrowIfCancellationRequested();
+            byte[]? result = _result;
+            string? expected = _key;
+            _result = null;
+            _key = null;
+            if (result is null || !string.Equals(expected, key, StringComparison.Ordinal)) return null;
+            var detached = JsonSerializer.Deserialize<CharacterCreationContactResult<CharacterCreationContactsCompletionProjection>>(result)!;
+            cancellationToken.ThrowIfCancellationRequested();
+            ReuseCount++;
+            return detached;
+        }
+
+        internal void Remember(string key,
+            CharacterCreationContactResult<CharacterCreationContactsCompletionProjection> result)
+        {
+            VerifyLifetime();
+            if (_captured) return;
+            _captured = true;
+            if (result.Value is null || result.Outcome != CharacterCreationContactOutcomes.Available
+                || result.Blockers.Count != 0) return;
+            _key = key;
+            _result = JsonSerializer.SerializeToUtf8Bytes(result);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            VerifyLifetime();
+            _disposed = true;
+            _key = null;
+            _result = null;
+            _upstreamKey = null;
+            _upstreamResult = null;
+            _lifestyleKey = null;
+            _lifestyleSession = null;
+        }
+
+        private void VerifyLifetime()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_threadId != Environment.CurrentManagedThreadId)
+                throw new InvalidOperationException("Composite preview reuse must remain synchronous.");
+        }
     }
 
     /// <summary>
@@ -388,5 +563,5 @@ public sealed partial class CharacterCreationContactsService
         => blockers.Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray();
 
     private static T DetachCompletion<T>(T value)
-        => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))!;
+        => Chummer.Contracts.Workspaces.WorkspaceDocumentAuxiliaryStateJsonConverter.DetachCreationCompletion(value);
 }

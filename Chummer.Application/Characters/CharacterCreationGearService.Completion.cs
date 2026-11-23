@@ -25,7 +25,7 @@ public sealed partial class CharacterCreationGearService
     {
         ArgumentNullException.ThrowIfNull(workspace);
 
-        AuthorityContext context = BuildContext(workspace);
+        AuthorityContext context = BuildContext(workspace, originalInventoryRead3475: true);
         var receipts = workspace.Document.AuxiliaryState.CharacterCreationGearReceipts ?? [];
         bool initialResources = context.ResourcesDraft is null && context.PendingDraft is null
             && receipts.Count == 0 && context.Binding.ResourcesDraftRevision == 0

@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Application.Characters;
@@ -33,8 +34,30 @@ public static class CharacterCreationKarmaLifestylesRules
                     effects.RacialSources, effects.TalentSource, out var improvements)
                 || !CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(improvements.Elements("improvement"),
                     authority.TrustFundLevel, out int level, out decimal metatypeCostPercent, out _)) return false;
+            var mechanics = authority.Mechanics;
+            if (mechanics is not null)
+            {
+                // Match finalization: racial/talent grants, then each purchased
+                // quality's materialized rows (including levels and source labels).
+                // The grants projector validates the bound foundation/quality quote;
+                // service admission still re-resolves those source selections.
+                var pending = WithoutLifestyles(foundation);
+                if (!CharacterCreationKarmaGrantsLegacyProjector.TryProject(pending,
+                        effects.RacialSources, effects.TalentSource, out var grants, out _)) return false;
+                var qualities = grants.Single(row => row.Name == "qualities").Elements("quality").ToList();
+                foreach (var option in pending.Qualities!.Selections.OrderBy(row => row.OptionId, StringComparer.Ordinal))
+                {
+                    var selection = CharacterCreationKarmaQualityPrompts.Selection(option);
+                    if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, pending.QuoteDigest,
+                            out var rows, out _, selection.ResolvedArmCount,
+                            CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)) return false;
+                    qualities.AddRange(rows);
+                }
+                if (!CharacterCreationLifestyleFinalQualityFacts2698.TryCreate(qualities, out mechanics)) return false;
+            }
             var result = authority with
             {
+                Mechanics = mechanics,
                 TrustFundLevel = level,
                 MetatypeCostPercent = checked(authority.MetatypeCostPercent + metatypeCostPercent),
                 GmPolicyDigest = Digest(new { authority.GmPolicyDigest, Effects = effects, TrustFundLevel = level }),

@@ -488,6 +488,34 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         return new(CharacterCreationFoundationOutcomes.Success, state, normalized);
     }
 
+    // Pure current-environment bridge. Inputs are actual persisted choices and current
+    // source authority; this path creates no completion request, draft, or receipt.
+    internal static (IReadOnlyList<CharacterCreationSkillProjection> Skills,
+        IReadOnlyList<CharacterCreationSkillGroupProjection> Groups,
+        CharacterCreationBudgetState ActiveBudget, CharacterCreationBudgetState GroupBudget,
+        CharacterCreationBudgetState KnowledgeBudget, int KnowledgeOverflow,
+        IReadOnlyList<string> Blockers) EvaluateCurrentAllocations1949(
+        CharacterCreationSkillsAuthority authority, CharacterCreationPrerequisiteDraft prerequisite,
+        CharacterCreationAttributesDraft attributes, int activePoints, int groupPoints,
+        IReadOnlyList<CharacterCreationSkillAllocation> allocations,
+        IReadOnlyList<CharacterCreationSkillGroupAllocation> groups,
+        IReadOnlyList<CharacterCreationKnowledgeCategoryEffect>? knowledgeEffects = null)
+    {
+        var blockers = new List<string>();
+        if (!CharacterCreationSkillsDraftIntegrity.IsValidAuthority(authority)
+            || prerequisite.DraftDigest != CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(prerequisite)
+            || attributes.DraftDigest != CharacterCreationAttributesDraftIntegrity.ComputeDigest(attributes)
+            || attributes.PrerequisiteDraftDigest != prerequisite.DraftDigest
+            || prerequisite.BuildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
+            || prerequisite.PriorityTable != "Standard")
+            blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+        var evaluated = EvaluateAllocations(authority, prerequisite, activePoints, groupPoints,
+            attributes.Attributes, ResolveMovementCapability(prerequisite.HeritageSelection?.Movement),
+            allocations, groups, blockers, knowledgeEffects: knowledgeEffects);
+        return (evaluated.Skills, evaluated.Groups, evaluated.ActiveBudget, evaluated.GroupBudget,
+            evaluated.KnowledgeBudget, evaluated.KnowledgeOverflow, Normalize(blockers));
+    }
+
     private static SkillEvaluation EvaluateAllocations(
         CharacterCreationSkillsAuthority authority,
         CharacterCreationPrerequisiteDraft? prerequisite,
@@ -670,9 +698,10 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                     && (personalBase > 0 || grantedRating > 0 || karmaLevels > 0 || specialization is not null)
                 || !authority.UsePointsOnBrokenGroups && personalBase > 0))
                 local.Add(CharacterCreationSkillsBlockers.GroupBroken);
-            if (specialization is not null && karmaSpecializations?.Contains(key) != true
-                && (groupRating > 0 && authority.SpecializationsBreakSkillGroups
-                    || karmaLevels > 0 && personalBase + grantedRating == 0 && !allowPointBuySpecializationsOnKarmaSkills))
+            if (karmaSpecializations?.Contains(key) != true
+                && CharacterCreationNativeContactSpecialtyRules.ForcedBuyWithKarma(false,
+                    specialization is not null, true, karmaLevels, personalBase, grantedRating,
+                    groupRating, allowPointBuySpecializationsOnKarmaSkills, authority.SpecializationsBreakSkillGroups))
                 local.Add(CharacterCreationSkillsBlockers.SpecializationInvalid);
 
             int cost = allocation.IsNativeLanguage

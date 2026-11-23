@@ -83,7 +83,7 @@ public static class CharacterCreationPriorityCategoryIds
     public const string Resources = "resources";
 
     public static IReadOnlyList<string> Ordered { get; } =
-        [Heritage, Talent, Attributes, Skills, Resources];
+        Array.AsReadOnly(new[] { Heritage, Talent, Attributes, Skills, Resources });
 }
 
 public static class CharacterCreationPrerequisiteBlockers

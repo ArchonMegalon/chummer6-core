@@ -16,6 +16,25 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
         executionDigest = string.Empty;
         try
         {
+            if (effect.LoadoutLine is { } loadout)
+            {
+                if (effect.LoadoutInstances is null
+                    || !CharacterCreationLoadoutSourceProjector.TryBuildGraph([loadout], effect.CompilerSeed,
+                        out var weapons, out var armor, [effect.LoadoutInstances])) return false;
+                using var loadoutTrace = CharacterCreationCompiledSourceTrace.Begin();
+                CharacterCreationCompiledSourceTrace.ObserveLoadout([loadout], weapons, armor, effect.CompilerSeed);
+                if (loadoutTrace.Finish() is not [var replayedLoadout]
+                    || replayedLoadout.SourceXml != effect.SourceXml
+                    || replayedLoadout.SourceCategoryXml != effect.SourceCategoryXml
+                    || replayedLoadout.EffectXml != effect.EffectXml
+                    || replayedLoadout.ProjectionDigest != effect.ProjectionDigest) return false;
+                executionDigest = CharacterCreationFinalizationDigest.Compute(new
+                {
+                    effect.Scope, effect.SourceId, effect.ProjectionDigest, effect.SourceXml,
+                    effect.SourceCategoryXml, Compiled = replayedLoadout.EffectXml
+                });
+                return true;
+            }
             var root = new XElement("character");
             var deltas = new List<CharacterCreationFinalizationDelta>();
             int order = 0;

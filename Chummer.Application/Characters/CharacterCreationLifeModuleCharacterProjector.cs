@@ -47,12 +47,23 @@ internal static class CharacterCreationLifeModuleCharacterProjector
                 && sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4) return false;
             if (!Guid.TryParseExact(metatype.OptionId, "D", out var metatypeId) || metatypeId == Guid.Empty
                 || metatype.Movement.IsSpecial) return false;
-            Set("metatype", metatype.Label);
-            Set("metatypeid", metatypeId.ToString("D"));
+            if (!CharacterCreationMetatypeSelectionRules.IsValid(metatype.MetatypeIdentity)
+                || metatype.MetatypeIdentity is { } pair && (pair.MetavariantOptionId != metatype.OptionId
+                    || string.IsNullOrWhiteSpace(metatype.ParentMetatypeLabel)
+                    || string.IsNullOrWhiteSpace(metatype.ParentMetatypeCategory))) return false;
+            Set("metatype", metatype.ParentMetatypeLabel ?? metatype.Label);
+            Set("metatypeid", metatype.MetatypeIdentity?.ParentMetatypeOptionId ?? metatypeId.ToString("D"));
             Set("metatypebp", Number(metatype.KarmaCost));
-            Set("metatypecategory", metatype.Category);
-            Set("metavariant", string.Empty);
-            Set("metavariantid", Guid.Empty.ToString("D"));
+            Set("metatypecategory", metatype.ParentMetatypeCategory ?? metatype.Category);
+            Set("metavariant", metatype.MetatypeIdentity is null ? string.Empty : metatype.Label);
+            Set("metavariantid", metatype.MetatypeIdentity?.MetavariantOptionId ?? Guid.Empty.ToString("D"));
+            // Preserve legacy-only base XML bytes; reconcile existing portable aliases
+            // for a newly selected variant instead of leaving a contradictory parent.
+            if (metatype.MetatypeIdentity is { } identity)
+            {
+                Set("metatypeguid", identity.ParentMetatypeOptionId);
+                Set("metavariantguid", identity.MetavariantOptionId!);
+            }
             Set("movement", string.Empty);
             foreach (var (name, rate) in new[] { ("walk", metatype.Movement.Walk), ("run", metatype.Movement.Run),
                          ("sprint", metatype.Movement.Sprint) })

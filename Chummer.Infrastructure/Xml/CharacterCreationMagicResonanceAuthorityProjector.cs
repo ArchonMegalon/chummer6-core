@@ -23,6 +23,7 @@ internal sealed record CharacterCreationMagicResonanceProjectionContext(
     IReadOnlyList<string> Blockers)
 {
     public CharacterCreationMysticAdeptPowerPointPolicy? MysticAdeptPowerPointPolicy { get; init; }
+    public Func<string, string?>? ResolveAdeptSkillSource { get; init; }
 }
 
 /// <summary>
@@ -67,7 +68,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             context.StreamsInputsDigest, context.EnabledSourcebooks, blockers);
         CharacterCreationMagicResonanceCatalogOption[] powerOptions = ProjectCatalog(
             powers, CharacterCreationMagicResonanceKinds.AdeptPower,
-            context.PowersInputsDigest, context.EnabledSourcebooks, blockers);
+            context.PowersInputsDigest, context.EnabledSourcebooks, blockers, context.ResolveAdeptSkillSource);
         CharacterCreationMagicResonanceCatalogOption[] spellOptions = ProjectCatalog(
             spells, CharacterCreationMagicResonanceKinds.Spell,
             context.SpellsInputsDigest, context.EnabledSourcebooks, blockers);
@@ -423,7 +424,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         string kind,
         string effectiveDigest,
         IReadOnlyList<string> enabledSourcebooks,
-        ICollection<string> blockers)
+        ICollection<string> blockers,
+        Func<string, string?>? resolveAdeptSkillSource = null)
     {
         var result = new List<CharacterCreationMagicResonanceCatalogOption>();
         using var sourceWriter = new CatalogXmlWriter();
@@ -459,12 +461,14 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             };
             decimal pointCost = 1m;
             int maximumLevels = 1;
+            IReadOnlyList<string> adeptSkillSourceXml = [];
             if (kind == CharacterCreationMagicResonanceKinds.AdeptPower)
             {
                 if (!TryReadNonNegativeDecimal(row, "points", out pointCost) || pointCost <= 0m)
                     local.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
                 if (!CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(row, out maximumLevels, out _)
-                    || !CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(row))
+                    || !CharacterCreationAdeptPowerSourceRules.TryBindNamedSkillSources(row,
+                        resolveAdeptSkillSource, out adeptSkillSourceXml))
                     local.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
             }
             else if ((kind is CharacterCreationMagicResonanceKinds.Spell
@@ -499,6 +503,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             {
                 DrainExpression = ReadOptionalScalar(row, "drain", string.Empty),
                 CanonicalSourceXml = canonicalSourceXml,
+                AdeptSkillSourceXml = adeptSkillSourceXml.Count == 0 ? null : adeptSkillSourceXml,
                 CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest
                     .ComputeUtf8(canonicalSourceXml)
             });

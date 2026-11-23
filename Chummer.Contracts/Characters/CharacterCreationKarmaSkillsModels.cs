@@ -82,6 +82,15 @@ public sealed record CharacterCreationKarmaSkillsQuote(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationQualitySelection>? SkillKarmaQualitySelections { get; init; }
 
+    /// <summary>Native source definitions, never purchased-quality selections or saved numeric effects.
+    /// Recompiled for offline replay; the service separately admits them against current sources.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationNativeSkillCostSources? NativeSkillCostSources { get; init; }
+
     public const string SchemaV1 = "chummer.character_creation_karma_skills_quote.v1";
     public bool CanSelect => Blockers.Count == 0;
 }
+
+public sealed record CharacterCreationNativeSkillCostSources(
+    IReadOnlyList<CharacterCreationTalentQualitySource> RacialSources,
+    CharacterCreationTalentQualitySource? TalentSource);

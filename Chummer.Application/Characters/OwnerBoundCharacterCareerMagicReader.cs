@@ -39,11 +39,26 @@ public sealed class OwnerBoundCharacterCareerMagicReader(IWorkspaceStore store, 
         {
             try
             {
+                if (owners is IOwnerContextLeaseAccessor leaseOwners
+                    && store is ICharacterCareerInitiationCurrentEnvironmentCapability retainedEnvironment
+                    && retainedEnvironment.TryReadCurrentCareerMagic5722(leaseOwners, lease, workspace, sources, out var currentRead))
+                    return currentRead;
                 var saved = Get(owner, workspace);
                 if (saved is null || saved.ContentRevision <= 0 || saved.ContentRevision != saved.SavedRevision
                     || !CharacterCareerPowerTransaction.IsValidHistory(saved)) return null;
                 var binding = CharacterCareerMagicReadBinding.Create(owner, saved);
                 var root = CharacterCareerPowerGraph.Parse(saved.Document.Content);
+                if (saved.Document.RulesetId == "sr5" && CharacterCareerPowerGraph.Bool(root, "created", false)
+                    && CharacterCareerPowerGraph.Bool(root, "resenabled", false))
+                {
+                    var resonanceContext = sources.TryCreateContext(saved.Document.Content);
+                    IReadOnlyList<string> resonanceBlockers = resonanceContext is null
+                        ? new[] { "resonance_source_unavailable" }
+                        : CharacterCareerResonanceEvaluator.Evaluate(root, resonanceContext).Blockers;
+                    return StillSaved(owner, workspace, binding)
+                        ? new(binding, true, CharacterCareerPowerGovernance.Allows(saved), false, null, [], [], resonanceBlockers)
+                        { Family = CharacterCareerInitiationFamily.Resonance } : null;
+                }
                 bool applicable = saved.Document.RulesetId == "sr5" && root.Name == "character"
                     && CharacterCareerPowerGraph.Bool(root, "created", false)
                     && CharacterCareerPowerGraph.Bool(root, "magenabled", false);
@@ -62,10 +77,12 @@ public sealed class OwnerBoundCharacterCareerMagicReader(IWorkspaceStore store, 
 
                 CharacterCareerPowerGraph.ReadGraph graph;
                 ICharacterSourceDataContext? context = sources.TryCreateContext(saved.Document.Content);
+                CharacterCareerPowerReadEvaluation? evaluation;
                 try
                 {
                     CharacterCareerPowerGraph.Need(context is not null, "power_source_context_unavailable");
-                    graph = CharacterCareerPowerGraph.EvaluateRead(saved.Document.Content, context!);
+                    evaluation = powers.OpenReadEvaluation(owners, lease, workspace, binding, sources, context!);
+                    graph = CharacterCareerPowerGraph.EvaluateRead(saved, evaluation?.Context ?? context!);
                 }
                 catch (Exception e) when (CharacterCareerPowerGraph.ReadUnavailable(e))
                 {
@@ -83,14 +100,15 @@ public sealed class OwnerBoundCharacterCareerMagicReader(IWorkspaceStore store, 
                     {
                         var targets = new List<CharacterCareerMagicPowerTarget>();
                         // The upper bound comes from State's resolved native source/MAG cap.
-                        // ReviewAdmitted independently rejects free+paid overflow, effects,
+                        // The canonical Build rejects free+paid overflow, effects,
                         // prerequisites, instance limits, unaffordable targets and stale inputs.
                         for (int rating = option.CurrentPaidRating + 1; rating <= option.MaximumRating; rating++)
                         {
                             var identity = option.Existing ? option.Identity : option.Identity with { InternalId = Guid.NewGuid() };
                             var command = new CharacterCareerPowerCommand(Guid.NewGuid(), identity, rating, option.Discounted)
                                 { ReadBinding = binding };
-                            var review = powers.ReviewAdmitted(owners, lease, workspace, command);
+                            var review = evaluation?.Review(command)
+                                ?? powers.ReviewAdmitted(owners, lease, workspace, command);
                             if (review.Plan is not { } plan) continue;
                             if (plan.Command.ReadBinding != binding) return null;
                             var effects = CharacterCareerPowerGraph.ReadEffects(CharacterCareerPowerGraph.Parse(option.Source.RawSourceXml),
@@ -105,27 +123,68 @@ public sealed class OwnerBoundCharacterCareerMagicReader(IWorkspaceStore store, 
                 }
                 // Fence both source scopes and every admitted target. In particular a plan
                 // obtained while a source temporarily differed cannot survive source A-B-A.
-                var retained = CharacterCareerPowerGraph.EvaluateRead(saved.Document.Content, context!);
+                var retained = CharacterCareerPowerGraph.EvaluateRead(saved, context!);
                 var freshContext = sources.TryCreateContext(saved.Document.Content);
                 if (freshContext is null) return null;
-                var fresh = CharacterCareerPowerGraph.EvaluateRead(saved.Document.Content, freshContext);
+                var fresh = CharacterCareerPowerGraph.EvaluateRead(saved, freshContext);
                 if (graph.SourceDigest != retained.SourceDigest || graph.SourceDigest != fresh.SourceDigest
                     || !CharacterCareerPowerTransaction.Same(graph.Owned, retained.Owned)
                     || !CharacterCareerPowerTransaction.Same(graph.Owned, fresh.Owned)
                     || graph.RemainingPoints != retained.RemainingPoints || graph.RemainingPoints != fresh.RemainingPoints
                     || !CharacterCareerPowerTransaction.Same(graph.Blockers, fresh.Blockers)
                     || !CharacterCareerPowerTransaction.Same(graph.Blockers, retained.Blockers)) return null;
-                foreach (var target in choices.SelectMany(c => c.Targets))
+                // Every candidate in the built-in path used the same captured source
+                // answers. Fence all those answers, including rejected candidates,
+                // instead of rebuilding every accepted plan against identical inputs.
+                if (evaluation is not null)
                 {
-                    var again = powers.ReviewAdmitted(owners, lease, workspace, target.Plan.Command);
-                    if (!CharacterCareerPowerTransaction.Same(again.Plan, target.Plan)) return null;
+                    if (!powers.CompleteReadEvaluation(owners, lease, workspace, evaluation, freshContext)) return null;
                 }
+                else
+                    foreach (var target in choices.SelectMany(c => c.Targets))
+                    {
+                        var again = powers.ReviewAdmitted(owners, lease, workspace, target.Plan.Command);
+                        if (!CharacterCareerPowerTransaction.Same(again.Plan, target.Plan)) return null;
+                    }
                 if (!StillSaved(owner, workspace, binding)) return null;
                 return new(binding, applicable, allows, adept, graph.RemainingPoints, graph.Owned,
                     Array.AsReadOnly(choices.ToArray()), Array.AsReadOnly(blockers.Distinct().ToArray()));
             }
             catch (Exception e) when (CharacterCareerPowerGraph.ReadUnavailable(e)) { return null; }
         }
+    }
+
+    internal static CharacterCareerMagicRead? ReadCurrent5722(OwnerContextStamp owner, WorkspaceStoredDocument saved,
+        ICharacterSourceDataContext context, CharacterCurrentRuleEnvironmentContext? current)
+    {
+        if (saved.ContentRevision <= 0 || saved.SavedRevision != saved.ContentRevision
+            || !CharacterCareerPowerTransaction.IsValidHistory(saved)
+            || !CharacterCareerInitiationTransaction.ObserveHistory(saved)) return null;
+        var root = CharacterCareerPowerGraph.Parse(saved.Document.Content);
+        bool resonance = CharacterCareerPowerGraph.Bool(root, "resenabled", false);
+        var proof = CharacterCurrentRuleEnvironmentConsumers.CreateLearningAuthority5703(saved, current, context, resonance);
+        if (proof is not null && !proof.Matches(saved, context)) return null;
+        bool applicable = saved.Document.RulesetId == "sr5" && CharacterCareerPowerGraph.Bool(root, "created", false)
+            && (resonance || CharacterCareerPowerGraph.Bool(root, "magenabled", false));
+        bool adept = !resonance && CharacterCareerPowerGraph.Bool(root, "adept", false);
+        var blockers = new List<string>();
+        if (resonance) blockers.AddRange((proof?.Resonance
+            ?? CharacterCareerResonanceEvaluator.Evaluate(root, context)).Blockers);
+        else
+        {
+            if (!context.TryResolveCareerSettingsProfile(out var settings, out var state) || string.IsNullOrWhiteSpace(state)) return null;
+            blockers.AddRange((proof?.Magic ?? CharacterCareerMagicEvaluator.Evaluate(root,
+                CharacterCareerInitiationProjection.Parse(settings, "settings"), sourceContext: context)).Blockers);
+        }
+        bool allows = CharacterCareerPowerGovernance.Allows(saved);
+        if (!allows) blockers.Add("power_campaign_authority_unavailable");
+        // Power purchases still require their own retained transaction admission. This
+        // read admits the grade wizard, without manufacturing spendable power plans.
+        if (adept) blockers.Add("power_retained_transaction_unavailable");
+        return new(CharacterCareerMagicReadBinding.Create(owner, saved), applicable, allows && applicable,
+            adept, null, adept ? CharacterCareerPowerGraph.UnavailableOwnedRows(root,
+                "power_retained_transaction_unavailable") : [], [], blockers.AsReadOnly())
+        { Family = resonance ? CharacterCareerInitiationFamily.Resonance : CharacterCareerInitiationFamily.Magic };
     }
 
     private WorkspaceStoredDocument? Get(OwnerContextStamp owner, CharacterWorkspaceId workspace)

@@ -20,6 +20,9 @@ public interface IRulesetWorkspaceCodec
 
     object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope);
 
+    object ParseSection(string sectionId, WorkspaceStoredDocument observation)
+        => ParseSection(sectionId, observation.Document.PayloadEnvelope);
+
     CharacterOverviewProjection ParseOverview(WorkspacePayloadEnvelope envelope)
     {
         return new CharacterOverviewProjection(

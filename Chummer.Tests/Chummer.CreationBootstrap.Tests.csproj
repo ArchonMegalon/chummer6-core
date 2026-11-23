@@ -9,13 +9,12 @@
     <AssemblyName>Chummer.CreationBootstrap.Tests</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="CharacterCreationBootstrapServiceTests.cs" />
-    <Compile Include="CharacterCreationMetatypeCatalogAuthorityTests.cs" />
-    <Compile Include="CharacterCreationTalentRestrictionAuthorityTests.cs" />
-    <Compile Include="CharacterCreationFoundationServiceTests.cs" />
-    <Compile Include="CharacterCreationContactsServiceTests.cs" />
-    <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
-    <Compile Include="CharacterFileServiceTests.cs" />
+    <Compile Include="FileWorkspaceStoreAppliedAmend9976Tests.cs" />
+    <Compile Include="FileWorkspaceStoreOriginEnrollment9984Tests.cs" />
+    <Compile Include="CharacterCreationAttributesServiceTests.AllocationOwners.cs" />
+    <Compile Include="CharacterCreationRuleSourceCaptureTests.cs" />
+    <Compile Include="CharacterCreationRuleSourceCaptureTests.SkillSpecializationWeapons9965.cs" />
+    <Compile Include="CharacterCreationRuleSourceCaptureTests.AppliedAmend9967.cs" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
     <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />

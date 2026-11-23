@@ -14,7 +14,7 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
     private sealed record CompletedAttributeHouseRules993(string ProfileXmlDigest,
         string PolicyContentDigest, string StateDigest, string SkillsDigest,
         CharacterCreationAttributePolicy Policy, CharacterCreationAttributesPreview Result,
-        IReadOnlyDictionary<string, string> Leaves)
+        IReadOnlyDictionary<string, string> Leaves, AttributeKarmaLeaf3201? Karma, SecondMaximumLeaf3212? SecondMaximum)
     {
         internal static CompletedAttributeHouseRules993? FromCanonical(CharacterCreationEffectivePolicyContext policy,
             CharacterCreationMysticAdeptPowerPointPolicy source, CharacterCreationSelectedConsumerPolicy selected,
@@ -56,7 +56,12 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
                 CharacterCreationFinalizationDigest.Compute(policy), CharacterCreationFinalizationDigest.Compute(state),
                 CharacterCreationFinalizationDigest.Compute(skills),
                 spending with { SourceAnchorIds = Array.AsReadOnly(spending.SourceAnchorIds.ToArray()) }, result,
-                new ReadOnlyDictionary<string, string>(leaves));
+                new ReadOnlyDictionary<string, string>(leaves),
+                // DraftSession executes the positive-rate guard for every enabled
+                // attribute, including allocations with no purchased levels.
+                state.KarmaAttribute == spending.KarmaAttribute && result.Attributes.Any(row => row.IsEnabled)
+                    ? ReadAttributeKarmaLeaf3201(profile, spending) : null,
+                ReadSecondMaximum3212(profile, spending));
         }
     }
 

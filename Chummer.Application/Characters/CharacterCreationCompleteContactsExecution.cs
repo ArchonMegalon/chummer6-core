@@ -10,7 +10,7 @@ namespace Chummer.Application.Characters;
 /// matching digest cannot manufacture this execution. Source/history admission
 /// remains with the full reader and independent selected replay.
 /// </summary>
-internal sealed class CharacterCreationCompleteContactsExecution
+internal sealed partial class CharacterCreationCompleteContactsExecution
 {
     private readonly string authorityDigest;
     private readonly string evaluationDigest;
@@ -28,6 +28,7 @@ internal sealed class CharacterCreationCompleteContactsExecution
     {
         authorityDigest = CharacterCreationFinalizationDigest.Compute(authority);
         contactsPolicy = Detach(policy);
+        economicPrice3211 = Detach(price);
         attributesDigest = CharacterCreationFinalizationDigest.Compute(attributes);
         contactBudget = Detach(price.ContactBudget);
         additionalKarma995 = price.AdditionalKarmaCost!.Value;
@@ -109,6 +110,18 @@ internal sealed class CharacterCreationCompleteContactsExecution
             || !Same(authority, CharacterCreationCompleteAssessmentService.FromSelectedAuthority(witness, request, original, effects, ruleSourceExecution)))
             return null;
 
+        return PriceSelected(witness, request, result, original, effects, authority, cancellationToken);
+    }
+
+    // Called only after the ordinary witness guard or an owned component replay.
+    // Both paths reexecute canonical selected contacts; neither accepts a receipt.
+    private static CharacterCreationCompleteContactsExecution? PriceSelected(
+        CharacterCreationSelectedCompletionWitness witness, CharacterCreationCompletionReviewRequest request,
+        CharacterCreationSelectedCompletionEvaluation result, CharacterCreationCompletionOriginalSelections original,
+        IReadOnlyList<CharacterContactRuleEffect> effects, CharacterCreationCompleteAssessment authority,
+        CancellationToken cancellationToken)
+    {
+        if (!CanEvaluate(authority, witness.ProvenanceInputsSnapshotDigest, request)) return null;
         // Do not take effective CHA or quality effects from a supplied result.
         // These canonical projections use this route's frozen authority and the
         // exact request, independently of the full route's contact execution.

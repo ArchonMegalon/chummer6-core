@@ -89,13 +89,34 @@ public static partial class CharacterCreationLegacySourceProjector
         out XElement[] qualities,
         out XElement[] improvements,
         int? armCount, string? sourceExecutionSchema = null)
+        => TryBuildQualityGraph(selection, draftDigest, out qualities, out improvements, armCount, sourceExecutionSchema, false);
+
+    internal static bool TryBuildQualityGraph(
+        CharacterCreationQualitySelection selection,
+        string draftDigest,
+        out XElement[] qualities,
+        out XElement[] improvements,
+        int? armCount, string? sourceExecutionSchema, bool lifestyleSourceMode)
     {
         qualities = [];
         improvements = [];
+        if (selection?.SourceExecutionSchema == CharacterCreationKarmaQualityPrompts.SourceSchema)
+        {
+            if (!CharacterCreationKarmaQualityPrompts.TryPrepare(selection, out var plain, out var answer)
+                || !TryBuildQualityGraph(plain, draftDigest, out qualities, out improvements, armCount, sourceExecutionSchema, lifestyleSourceMode)) return false;
+            var originalSource = XElement.Parse(selection.SourceNodeXml);
+            foreach (var quality in qualities)
+            {
+                quality.SetElementValue("extra", answer);
+                // Quality.Save retains the original bonus, including its answered selecttext.
+                quality.Element("bonus")!.ReplaceWith(new XElement(originalSource.Element("bonus")!));
+            }
+            return true;
+        }
         if (selection?.SourceExecutionSchema is not null && selection.SourceExecutionSchema != sourceExecutionSchema
             || !CharacterCreationQualitiesRules.IsCanonicalDigest(draftDigest)
             || !TryReadSelectedQualityDefinition(selection, armCount,
-                out XElement source, out QualityDefinition definition))
+                out XElement source, out QualityDefinition definition, lifestyleSourceMode))
             return false;
 
         var savedQualities = new List<XElement>(selection.Rating);
@@ -126,6 +147,8 @@ public static partial class CharacterCreationLegacySourceProjector
         out XElement gear)
     {
         gear = new XElement("gear");
+        if (line?.Focus is not null)
+            return CharacterCreationGearRules.IsCanonicalDigest(draftDigest) && TryBuildFocusGear1233(line, out gear);
         if (line is null
             || line.SourceNodeXml is not
                 { Length: > 0 and <= CharacterCreationGearRules.MaximumSourceNodeLength }
@@ -200,8 +223,179 @@ public static partial class CharacterCreationLegacySourceProjector
         string qualityId, string extra, out XElement saved)
         => TryBuildGrantedQualityInstance(input, qualityId, extra, "Heritage", out saved);
 
+    // SR5 Career only. This closure covers the ordinary quality compiler and the
+    // complete literal grant compiler (including Adept). Neither currently compiles
+    // AddLimb. Unknown contributors remain unresolved, rather than being dropped.
+    internal static bool TryResolveCareerArmCount(string characterXml,
+        CharacterCareerQualityAnatomySources evidence, out int armCount)
+    {
+        armCount = 0;
+        try
+        {
+            if (evidence.Schema != CharacterCareerQualityAnatomySources.Sr5CareerV1
+                || evidence.Digest != CharacterCareerQualityAnatomySources.ComputeDigest(evidence)
+                || evidence.Qualities is null || evidence.Qualities.Any(source =>
+                    !CharacterCreationTalentQualitySourceRules.IsValidSource(source))
+                || evidence.Qualities.Select(source => source.SourceId).Distinct(StringComparer.Ordinal).Count()
+                    != evidence.Qualities.Count) return false;
+            using var reader = XmlReader.Create(new StringReader(characterXml), new XmlReaderSettings
+            { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
+                MaxCharactersInDocument = CharacterCareerReputationProjector.MaximumCharacterXmlLength });
+            var root = XElement.Load(reader);
+            if (root.Name != "character" || root.HasAttributes
+                || evidence.CharacterDigest != CharacterCreationQualitiesRules.ComputeSourceNodeDigest(root.ToString(SaveOptions.DisableFormatting))
+                || !bool.TryParse(Scalar(root, "created"), out bool created) || !created
+                || Scalar(root, "gameedition") != "SR5"
+                || Scalar(root, "buildmethod") != evidence.BuildMethod || Scalar(root, "settings") != evidence.SettingsProfileId
+                || Scalar(root, "metatypeguid") != evidence.MetatypeId
+                || Scalar(root, "metavariantguid", false) != evidence.MetavariantId
+                || Scalar(root, "metavariant", false) != evidence.MetavariantName
+                || evidence.MetavariantName is not ("" or "None")
+                || evidence.MetavariantId.Length != 0 && (!Guid.TryParseExact(evidence.MetavariantId, "D", out var variant)
+                    || variant != Guid.Empty)) return false;
+            var metatype = XElement.Parse(evidence.MetatypeXml);
+            if (metatype.Name != "metatype" || metatype.HasAttributes
+                || Scalar(metatype, "id") != evidence.MetatypeId
+                || Scalar(metatype, "name") != Scalar(root, "metatype")) return false;
+            // Nested metavariants are not the selected base metatype. Intrinsic/racial
+            // grants require their own full graph closure; do not infer their absence.
+            foreach (string name in new[] { "bonus", "qualities", "powers" })
+                if (!Empty(metatype, name)) return false;
+            foreach (string name in new[] { "cyberwares", "biowares", "gears", "weapons", "armors", "vehicles",
+                "powers", "spells", "complexforms", "critterpowers", "martialarts", "programs", "aiprograms",
+                "initiationgrades", "metamagics", "arts", "enhancements", "drugs", "lifemodules", "lifestyles" })
+                if (!Empty(root, name)) return false;
+            var qualities = Container(root, "qualities", "quality");
+            var improvements = Container(root, "improvements", "improvement");
+            if (qualities.Length > CharacterCareerReputationProjector.MaximumRowsPerContainer
+                || improvements.Length > CharacterCareerReputationProjector.MaximumRowsPerContainer) return false;
+            var ids = new HashSet<Guid>();
+            var usedSources = new HashSet<string>(StringComparer.Ordinal);
+            var expectedEffects = new List<XElement>();
+            var flags = new HashSet<string>(StringComparer.Ordinal);
+            var firstLevels = new Dictionary<string, int>(StringComparer.Ordinal);
+            var requiresFirstLevel = new HashSet<string>(StringComparer.Ordinal);
+            // Character.LimbCount("arm"): 1 + StandardRound(ValueOf(AddLimb, false, "arm")) + 1.
+            // The candidate is released only after proving the complete supported graph
+            // contains no AddLimb. No raw saved values/precedence rows are summed here.
+            int candidate = 1 + (int)Math.Round(0m, MidpointRounding.AwayFromZero) + 1;
+            foreach (var row in qualities)
+            {
+                if (!Guid.TryParseExact(Scalar(row, "guid"), "D", out var id) || id == Guid.Empty || !ids.Add(id)) return false;
+                string sourceId = Scalar(row, "sourceid");
+                var source = evidence.Qualities.SingleOrDefault(item => item.SourceId == sourceId);
+                if (source is null || source.ForcedSelection.Length != 0 || source.GrantedGearSources is not { Count: 0 }) return false;
+                usedSources.Add(sourceId);
+                string origin = Scalar(row, "qualitysource");
+                if (!Enum.TryParse<CharacterCareerQualityOrigin>(origin, out var parsedOrigin)
+                    || !Enum.IsDefined(parsedOrigin) || parsedOrigin.ToString() != origin) return false;
+                var owned = improvements.Where(effect => Scalar(effect, "sourcename") == id.ToString("D")).ToArray();
+                XElement expected;
+                if (TryBuildCareerQualityInstance(source.CanonicalSourceXml, Guid.Parse(sourceId), id, candidate,
+                        false, out _, out expected, out var regular))
+                {
+                    if (!TryBuildCareerQualityInstance(source.CanonicalSourceXml, Guid.Parse(sourceId), id, candidate,
+                            true, out _, out _, out var first)) return false;
+                    if (first.Length != regular.Length) requiresFirstLevel.Add(sourceId);
+                    if (SameEffects(owned, regular)) expectedEffects.AddRange(regular);
+                    else if (SameEffects(owned, first))
+                    {
+                        firstLevels[sourceId] = firstLevels.GetValueOrDefault(sourceId) + 1;
+                        expectedEffects.AddRange(first);
+                    }
+                    else return false;
+                }
+                else
+                {
+                    var effects = new List<XElement>();
+                    var gears = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
+                    var definition = XElement.Parse(source.CanonicalSourceXml);
+                    string extra = CharacterCreationAwakenedLegacyProjector.CompileBonus(definition.Element("bonus"),
+                        string.Empty, [], source, id.ToString("D"), flags, effects, gears);
+                    if (gears.Count != 0 || !TryBuildGrantedQualityInstance(source, id.ToString("D"), extra, origin, out expected)
+                        || !SameEffects(owned, effects)) return false;
+                    expectedEffects.AddRange(effects);
+                }
+                // Same cosmetic allowances as CareerQualityGraph; every rule-bearing
+                // field is compared, and duplicates/unknown payloads are not ignored.
+                if (row.HasAttributes || row.Elements().Any(node => node.Name.Namespace != XNamespace.None)
+                    || row.Elements().GroupBy(node => node.Name).Any(group => group.Count() != 1)
+                    || row.Elements().Any(node => expected.Element(node.Name) is null)) return false;
+                foreach (var node in expected.Elements().Where(node => node.Name.LocalName is not
+                    ("notes" or "notesColor" or "print" or "qualitysource" or "contributetolimit")))
+                    if (!XNode.DeepEquals(Normalize(Single(row, node.Name.LocalName)), Normalize(node))) return false;
+            }
+            if (usedSources.Count != evidence.Qualities.Count
+                || requiresFirstLevel.Any(source => firstLevels.GetValueOrDefault(source) != 1)
+                || !SameEffects(improvements, expectedEffects)
+                || expectedEffects.Any(effect => Scalar(effect, "improvementttype") == "AddLimb")) return false;
+            foreach (string name in new[] { "magenabled", "resenabled", "depenabled", "adept", "magician", "technomancer", "ai" })
+            {
+                string value = Scalar(root, name, false);
+                if (value.Length == 0 ? flags.Contains(name) : !bool.TryParse(value, out bool enabled) || enabled != flags.Contains(name))
+                    return false;
+            }
+            armCount = candidate;
+            return true;
+        }
+        catch (Exception error) when (error is XmlException or InvalidDataException or InvalidOperationException
+            or ArgumentException or FormatException or OverflowException) { return false; }
+
+        static XElement Single(XElement parent, string name)
+        {
+            var nodes = parent.Elements().Where(node => node.Name.LocalName == name).Take(2).ToArray();
+            return nodes.Length == 1 && nodes[0].Name == name ? nodes[0] : throw new InvalidDataException();
+        }
+        static string Scalar(XElement parent, string name, bool required = true)
+        {
+            if (!required && !parent.Elements().Any(node => node.Name.LocalName == name)) return string.Empty;
+            var node = Single(parent, name);
+            if (node.HasAttributes || node.HasElements || node.Value != node.Value.Trim()) throw new InvalidDataException();
+            return node.Value;
+        }
+        static bool Empty(XElement parent, string name)
+        {
+            if (!parent.Elements().Any(node => node.Name.LocalName == name)) return true;
+            var node = Single(parent, name);
+            return !node.HasAttributes && !node.HasElements && string.IsNullOrWhiteSpace(node.Value);
+        }
+        static XElement[] Container(XElement parent, string name, string child)
+        {
+            var node = Single(parent, name);
+            if (node.HasAttributes || node.Elements().Any(row => row.Name != child)
+                || node.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value))) throw new InvalidDataException();
+            return node.Elements().ToArray();
+        }
+        static XElement Normalize(XElement node)
+        {
+            var copy = new XElement(node);
+            foreach (var container in copy.DescendantsAndSelf().Where(item => item.HasElements))
+                container.Nodes().OfType<XText>().Where(text => string.IsNullOrWhiteSpace(text.Value)).Remove();
+            return copy;
+        }
+        static bool SameEffects(IEnumerable<XElement> actual, IEnumerable<XElement> expected)
+        {
+            string Key(XElement node)
+            {
+                var copy = Normalize(node);
+                copy.Elements("notes").Remove(); copy.Elements("notesColor").Remove();
+                return copy.ToString(SaveOptions.DisableFormatting);
+            }
+            return actual.Select(Key).Order(StringComparer.Ordinal).SequenceEqual(expected.Select(Key).Order(StringComparer.Ordinal));
+        }
+    }
+
     internal static bool TryBuildGrantedQualityInstance(CharacterCreationTalentQualitySource input,
         string qualityId, string extra, string origin, out XElement saved)
+        => TryBuildGrantedQualityInstanceCore8590(input, qualityId, extra, origin, out saved, null);
+
+    internal static bool TryBuildLifeModuleRacialQualityInstance8590(CharacterCreationTalentQualitySource input,
+        string qualityId, CharacterCreationMetatypeOptionProjection metatype, out XElement saved)
+        => TryBuildGrantedQualityInstanceCore8590(input, qualityId, string.Empty, "Metatype", out saved, metatype);
+
+    private static bool TryBuildGrantedQualityInstanceCore8590(CharacterCreationTalentQualitySource input,
+        string qualityId, string extra, string origin, out XElement saved,
+        CharacterCreationMetatypeOptionProjection? lifeModuleRacialMetatype)
     {
         saved = new XElement("quality");
         if (origin is not ("Heritage" or "Metatype" or "Selected")
@@ -211,6 +405,16 @@ public static partial class CharacterCreationLegacySourceProjector
         metadata.Elements("bonus").Remove();
         metadata.Elements("forbidden").Remove();
         metadata.Elements("nameonpage").Remove();
+        if (metadata.Elements("required").Any())
+        {
+            // Only the bound automatic-grant path can separate the exact SURGE
+            // purchase gate from saved metadata. Purchased/Heritage callers keep
+            // the original strict behavior; the original source stays intact.
+            if (origin != "Metatype" || lifeModuleRacialMetatype is null
+                || !CharacterCreationLifeModuleRacialGrants8590.IsPurchaseOnlySurgeGrant(lifeModuleRacialMetatype, input))
+                return false;
+            metadata.Elements("required").Remove();
+        }
         // Hidden catalog rows can be compulsory racial qualities. Hiding is
         // display metadata, never a reason to discard the original bonus.
         if (metadata.Elements("hide").Count() > 1 || metadata.Elements("hide").Any(item =>
@@ -264,7 +468,8 @@ public static partial class CharacterCreationLegacySourceProjector
     private static bool TryReadQualityDefinition(
         XElement source,
         out QualityDefinition definition,
-        int? armCount = null, string? sourceExecutionSchema = null)
+        int? armCount = null, string? sourceExecutionSchema = null, bool lifestyleSourceMode = false,
+        bool importedCareerEffects5698 = false)
     {
         definition = null!;
         if (!TryReadGuid(source, "id", out Guid sourceId)
@@ -285,10 +490,11 @@ public static partial class CharacterCreationLegacySourceProjector
             || !TryReadBoolean(source, "print", true, out bool print)
             || !TryReadBooleanAlias(source, "metagenic", "metagenetic", out bool metagenic)
             || !TryReadMaximumRating(source, out int maximumRating, armCount)
-            || !TryReadEffectContainer(source.Element("bonus"), out CompiledEffect[] bonusEffects, sourceExecutionSchema)
+            || !TryReadEffectContainer(source.Element("bonus"), out CompiledEffect[] bonusEffects, sourceExecutionSchema,
+                lifestyleSourceMode, importedCareerEffects5698)
             || !TryReadEffectContainer(
                 source.Element("firstlevelbonus"),
-                out CompiledEffect[] firstLevelEffects, sourceExecutionSchema)
+                out CompiledEffect[] firstLevelEffects, sourceExecutionSchema, lifestyleSourceMode, importedCareerEffects5698)
             || source.Element("naturalweapons") is XElement naturalWeapons
                && (naturalWeapons.HasAttributes
                    || naturalWeapons.Elements().Any()
@@ -422,7 +628,8 @@ public static partial class CharacterCreationLegacySourceProjector
 
     private static bool TryReadEffectContainer(
         XElement? container,
-        out CompiledEffect[] effects, string? sourceExecutionSchema = null)
+        out CompiledEffect[] effects, string? sourceExecutionSchema = null, bool lifestyleSourceMode = false,
+        bool importedCareerEffects5698 = false)
     {
         effects = [];
         if (container is null)
@@ -433,6 +640,13 @@ public static partial class CharacterCreationLegacySourceProjector
         var compiled = new List<CompiledEffect>();
         foreach (XElement effect in container.Elements())
         {
+            if (IsMatrixDiceEffect(effect.Name.LocalName))
+            {
+                if (sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                    || !TryReadMatrixDiceEffect(effect, out var matrix)) return false;
+                compiled.Add(matrix);
+                continue;
+            }
             if (IsPhysicalInitiativeEffect886(effect.Name.LocalName))
             {
                 if (sourceExecutionSchema != CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
@@ -440,8 +654,12 @@ public static partial class CharacterCreationLegacySourceProjector
                 compiled.Add(initiative);
                 continue;
             }
+            bool modeCost = lifestyleSourceMode && effect.Name.LocalName is "lifestylecost" or "basiclifestylecost";
             if (effect.Name.NamespaceName.Length != 0
-                || effect.HasAttributes)
+                || effect.HasAttributes && (!modeCost || effect.Attributes().Any(attribute => attribute.Name != "condition")))
+                return false;
+            string lifestyleCondition = modeCost ? effect.Attribute("condition")?.Value ?? "" : "";
+            if (modeCost && !CharacterCreationLifestyleImprovementRules.IsSupportedSourceCondition(lifestyleCondition))
                 return false;
             if (IsKnowledgeCategoryElement(effect.Name.LocalName))
             {
@@ -453,8 +671,8 @@ public static partial class CharacterCreationLegacySourceProjector
             if (effect.Elements().Any()) return false;
             if (effect.Name.LocalName is "lifestylecost" or "basiclifestylecost")
             {
-                // One literal, unconditional purchased-quality adjustment of each type per
-                // source container. Keep expressions, named/conditional effects,
+                // One literal purchased-quality adjustment of each type per source container.
+                // Only explicit V7 callers admit the two source mode conditions; keep expressions and named effects,
                 // reductions below -100 and ambiguous duplicate rows outside this consumer.
                 string literal = effect.Value.Trim();
                 if (container.Elements(effect.Name).Count() != 1
@@ -466,7 +684,7 @@ public static partial class CharacterCreationLegacySourceProjector
                     || percentage == -100m && literal.TrimStart('-', '0').StartsWith("100.", StringComparison.Ordinal)
                         && literal[(literal.IndexOf('.') + 1)..].Any(digit => digit != '0')) return false;
                 compiled.Add(new CompiledEffect(effect.Name.LocalName == "basiclifestylecost"
-                    ? "BasicLifestyleCost" : "LifestyleCost", string.Empty, percentage));
+                    ? "BasicLifestyleCost" : "LifestyleCost", string.Empty, percentage, Condition: lifestyleCondition));
                 continue;
             }
             if (effect.Name.LocalName == "trustfund")
@@ -474,6 +692,26 @@ public static partial class CharacterCreationLegacySourceProjector
                 if (!int.TryParse(effect.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
                         out int level) || level is < 1 or > 4) return false;
                 compiled.Add(new CompiledEffect("TrustFund", string.Empty, level));
+                continue;
+            }
+            // V9's reconciled imported owner graph already consumes these native
+            // effects. Serialize them through the same Career comparison/delta
+            // kernel; never strip them to obtain a cost-only quality definition.
+            if (importedCareerEffects5698 && effect.Name == "notoriety")
+            {
+                if (!int.TryParse(effect.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int notoriety)
+                    || notoriety is < -CharacterCareerQualityRules.MaximumKarma or > CharacterCareerQualityRules.MaximumKarma)
+                    return false;
+                compiled.Add(new CompiledEffect("Notoriety", string.Empty, notoriety));
+                continue;
+            }
+            if (importedCareerEffects5698 && effect.Name == "blockskillcategorydefaulting")
+            {
+                string category = effect.Value;
+                if (string.IsNullOrWhiteSpace(category) || category != category.Trim()
+                    || category.Length > CharacterCareerQualityRules.MaximumTextLength
+                    || container.Elements(effect.Name).Count(row => row.Value == category) != 1) return false;
+                compiled.Add(new CompiledEffect("BlockSkillCategoryDefault", category, 0));
                 continue;
             }
             if (!string.IsNullOrWhiteSpace(effect.Value)) return false;
@@ -618,7 +856,7 @@ public static partial class CharacterCreationLegacySourceProjector
         new XElement("val", effect.Value.ToString(CultureInfo.InvariantCulture)),
         new XElement("rating", "1"),
         new XElement("exclude", string.Empty),
-        new XElement("condition", NativeCondition(effect)),
+        new XElement("condition", effect.ImprovementType is "LifestyleCost" or "BasicLifestyleCost" ? effect.Condition : NativeCondition(effect)),
         new XElement("improvementttype", effect.ImprovementType),
         new XElement("improvementsource", "Quality"),
         new XElement("custom", "False"),

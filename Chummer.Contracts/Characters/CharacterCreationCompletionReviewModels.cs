@@ -6,6 +6,8 @@ namespace Chummer.Contracts.Characters;
 
 public static class CharacterCreationCompletionReviewSchemas
 {
+    // Explicit retained opt-in. Null preserves the original V4 wire and results.
+    public const string LifecycleResultV1 = "chummer.creation-lifecycle-result.v1";
     public const string InputsV1 = "chummer.creation-completion-review-inputs.v1";
     public const string ReviewV1 = "chummer.creation-completion-review.v1";
     public const string InputsV2 = "chummer.creation-completion-review-inputs.v2";
@@ -19,6 +21,7 @@ public static class CharacterCreationCompletionReviewSchemas
     // Opt-in movement and supporting source consumers; V1/V2 replay is unchanged.
     public const string RuleSourceExecutionV3 = "chummer.creation-rule-source-execution.v3";
     public const string RuleSourceExecutionV4 = "chummer.creation-rule-source-execution.v4";
+    public const string EssenceResultV1 = "chummer.creation-essence-result.v1";
     public const string OriginalCharacterExecutionV1 = "chummer.creation-original-character-execution.v1";
     public const string AdditionalConsumerExecutionV1 = "chummer.creation-additional-consumer-execution.v1";
     public const string SnapshotConflict = "creation-completion-review-snapshot-conflict";
@@ -114,6 +117,11 @@ public sealed record CharacterCreationCompletionSelections(
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationAmmunitionAssignment>? AmmunitionAssignments { get; init; }
 
+    /// <summary>Explicit finalization-only round allocation. Null preserves historical
+    /// bytes. This neither purchases rounds nor relaxes original equipment locks.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationInitialAmmunitionLoad3847>? InitialAmmunitionLoads3847 { get; init; }
+
     // Cumulative manual choices, including explicitly retained zero allocations.
     // Null retains the unknown legacy meaning and the exact old wire/digest.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -141,6 +149,11 @@ public sealed record CharacterCreationCompletionReviewRequest(
     // execution receipt or permission; omission preserves historical assessments.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AdditionalConsumerExecutionSchema { get; init; }
+
+    // New native lifecycle results and their source/mechanical accounting.
+    // Retained in the request, witness and command; never inferred from a flag.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LifecycleResultSchema { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RuleSourceExecutionSchema { get; init; }
@@ -179,6 +192,12 @@ public sealed record CharacterCreationCompletionReviewRequest(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OriginalCharacterExecutionSchema { get; init; }
+
+    // Explicit source-priced Essence and special-attribute loss semantics.
+    // Null preserves historical request bytes and graph/report/projection results.
+    // Independent of LifecycleResultSchema; neither version implies the other.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EssenceResultSchema { get; init; }
 }
 
 /// <summary>Portable manual intent, never an execution capability. Targets are the
@@ -242,6 +261,12 @@ public sealed record CharacterCreationCompletionReview(
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationSelectedPrerequisiteEvaluation? SelectedPrerequisites { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationIdentityEvaluation? Identity { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationAmmunitionEvaluation? Ammunition { get; init; }
 }
 
 public static class CharacterCreationCompletionReviewRules
@@ -260,8 +285,24 @@ public static class CharacterCreationCompletionReviewRules
                 && request.PolicyConsumptionSchema == CharacterCreationPolicyConsumption.SchemaV1
                 && CharacterCreationFinalizationDigest.IsCanonical(request.EffectivePolicyDigest);
 
+    public static bool HasValidEssenceResult(CharacterCreationCompletionReviewRequest request)
+        => request.EssenceResultSchema is null
+            || request.EssenceResultSchema == CharacterCreationCompletionReviewSchemas.EssenceResultV1
+                && request.CompleteAssessmentSchema == CharacterCreationCompleteAssessment.SchemaV4
+                && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4
+                && request.OriginalCharacterExecutionSchema == CharacterCreationCompletionReviewSchemas.OriginalCharacterExecutionV1
+                && request.PolicyConsumptionSchema == CharacterCreationPolicyConsumption.SchemaV1
+                && CharacterCreationFinalizationDigest.IsCanonical(request.EffectivePolicyDigest)
+                && CharacterCreationFinalizationDigest.IsCanonical(request.RuleSourceCaptureDigest);
+
+    public static bool HasValidLifecycleResult(CharacterCreationCompletionReviewRequest request)
+        => request.LifecycleResultSchema is null
+            || request.LifecycleResultSchema == CharacterCreationCompletionReviewSchemas.LifecycleResultV1
+                && request.RuleSourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4;
+
     public static bool HasValidRuleSourceExecution(CharacterCreationCompletionReviewRequest request)
-        => HasValidSourcebookSelection(request)
+        => HasValidLifecycleResult(request) && HasValidSourcebookSelection(request)
+        && HasValidEssenceResult(request)
         && (request.RuleSourceExecutionSchema is null ? request.RuleSourceCaptureDigest is null
             : request.RuleSourceExecutionSchema is (CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV1
                 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV2 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV3 or CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4)

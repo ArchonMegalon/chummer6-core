@@ -13,7 +13,7 @@ public static partial class CharacterCreationLegacySourceProjector
     internal static bool TryBuildCareerQualityInstance(
         string sourceXml, Guid sourceId, Guid internalId, int? armCount,
         bool includeFirstLevelBonus, out CharacterCareerQualityDefinition definition,
-        out XElement quality, out XElement[] improvements)
+        out XElement quality, out XElement[] improvements, bool importedCareerEffects5698 = false)
     {
         definition = null!;
         quality = new XElement("quality");
@@ -42,7 +42,8 @@ public static partial class CharacterCreationLegacySourceProjector
             XElement metadata = new(original);
             metadata.Elements("chargenonly").Remove();
             metadata.Elements("refundkarma").Remove();
-            if (!TryReadQualityDefinition(metadata, out var parsed, armCount)
+            if (!TryReadQualityDefinition(metadata, out var parsed, armCount,
+                    importedCareerEffects5698: importedCareerEffects5698)
                 || parsed.SourceId != sourceId || parsed.Name.Length > CharacterCareerQualityRules.MaximumTextLength
                 || parsed.Karma is < -CharacterCareerQualityRules.MaximumKarma or > CharacterCareerQualityRules.MaximumKarma)
                 return false;

@@ -7,6 +7,17 @@ namespace Chummer.Application.Workspaces;
 
 public interface IWorkspaceService
 {
+    // An in-process owner-scoped observation, not a serialized workspace endpoint.
+    // Compatibility services retain their existing refusal/availability behavior.
+    WorkspaceStoreReadResult GetWorkspaceObservation(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        var read = GetWorkspace(owner, id);
+        return read.Success && read.Value is { } value
+            ? new(WorkspaceOperationOutcome.Success, new(value.Id, value.Document,
+                value.ContentRevision, value.SavedRevision, value.LastUpdatedUtc))
+            : new(read.Outcome, Error: read.Error);
+    }
+
     WorkspaceImportResult Import(WorkspaceImportDocument document);
 
     WorkspaceImportResult Import(OwnerScope owner, WorkspaceImportDocument document);

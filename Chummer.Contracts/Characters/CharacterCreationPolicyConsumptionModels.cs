@@ -16,7 +16,10 @@ public enum CharacterCreationObservedSetting
     ContactPoints, GroupContactKarma, ResourceKarmaMaximum, ResourceKarmaRate,
     ResourceExpression, UnrestrictedNuyen, MaximumAvailability, FreeGrids,
     MysticAdeptKarma, MysticAdeptSpellExchange, SeparateAdeptMagic, SecondMaximumAttribute,
-    QualityKarma
+    QualityKarma, LicenseRestricted, MoreLethalGameplay, MinimumColdSimInitiativeDice, MaximumColdSimInitiativeDice,
+    MinimumHotSimInitiativeDice, MaximumHotSimInitiativeDice,
+    EnableEnemyTracking, EnemyKarmaQualityLimit, UseCalculatedPublicAwareness,
+    AllowPointBuySpecializationsOnKarmaSkills, FreeMartialArtSpecialization
 }
 
 public enum CharacterCreationSettingValueKind { Integer, Boolean, Decimal, Expression }
@@ -120,8 +123,17 @@ public sealed record CharacterCreationPolicyConsumption(string Schema, string Ob
     public IReadOnlyList<CharacterCreationPolicyEffectEvaluation> Effects { get; init; } = [];
 }
 
-public static class CharacterCreationSettingDefinitions
+public static partial class CharacterCreationSettingDefinitions
 {
+    // These native lifecycle definitions do not change the frozen V1/V2 observation
+    // inventory. Those source occurrences remain opaque until the private native
+    // settings producer and the original profile scope execute them (bridge1203).
+    public static IReadOnlyList<CharacterCreationSettingDefinition> NativeLifecycle1420 { get; } = Array.AsReadOnly(new[]
+    {
+        D(CharacterCreationObservedSetting.LicenseRestricted, "licenserestricted", kind: CharacterCreationSettingValueKind.Boolean),
+        D(CharacterCreationObservedSetting.MoreLethalGameplay, "morelethalgameplay", kind: CharacterCreationSettingValueKind.Boolean)
+    });
+
     // Frozen V1 definitions. Extending this list would change historical observations.
     public static IReadOnlyList<CharacterCreationSettingDefinition> All { get; } = Array.AsReadOnly(new[]
     {

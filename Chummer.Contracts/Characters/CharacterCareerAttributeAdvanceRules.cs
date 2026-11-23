@@ -68,7 +68,12 @@ public sealed record CharacterCareerAttributeAdvanceInput(
     CharacterCareerAttributeAdvanceSettings Settings,
     IReadOnlyList<CharacterCareerAttributeKarmaModifier> Modifiers,
     string RawSourceState,
-    string RawRuleState);
+    string RawRuleState)
+{
+    // Required only for a burn repair. This is the exact projected post-repair
+    // natural value, not the rating used to price the purchase (EffectiveValue + 1).
+    public int? BurnedEdgeRepairValue { get; init; }
+}
 
 public enum CharacterCareerAttributeAdvanceBlocker
 {
@@ -241,11 +246,11 @@ public static class CharacterCareerAttributeAdvanceRules
 
         CharacterCareerAttributeAdvanceBlocker blocker = ExpectedBlocker(valid, karmaCost);
         bool canAdvance = blocker == CharacterCareerAttributeAdvanceBlocker.None;
-        int targetValue = valid.EffectiveValue == MaximumRating
-            ? MaximumRating
-            : valid.EffectiveValue + 1;
         bool repairsBurnedEdge = valid.Identity.Kind == CharacterCareerAttributeKind.Edge
             && valid.BurnedEdgePoints > 0;
+        int targetValue = repairsBurnedEdge
+            ? valid.BurnedEdgeRepairValue!.Value
+            : Math.Min(MaximumRating, valid.EffectiveValue + 1);
         CharacterCareerAttributePrerequisiteResult[] prerequisites =
         [
             new(CharacterCareerAttributePrerequisite.CareerCharacter, valid.Created, "character.created"),
@@ -458,7 +463,9 @@ public static class CharacterCareerAttributeAdvanceRules
             && quote.BasePoints is >= 0 and <= MaximumRating
             && quote.KarmaPoints is >= 0 and <= MaximumRating
             && quote.EffectiveValue is >= 0 and <= MaximumRating
-            && quote.TargetValue == Math.Min(MaximumRating, quote.EffectiveValue + 1)
+            && (quote.TargetValue == Math.Min(MaximumRating, quote.EffectiveValue + 1)
+                || quote.RepairsBurnedEdge && quote.TargetValue == quote.EffectiveValue)
+            && (!quote.RepairsBurnedEdge || quote.TargetValue <= quote.NaturalMaximum)
             && quote.NaturalMaximum is >= 0 and <= MaximumRating
             && quote.MetatypeMinimum is >= 0 and <= MaximumRating
             && quote.AvailableKarma is >= 0 and <= MaximumKarma
@@ -581,6 +588,7 @@ public static class CharacterCareerAttributeAdvanceRules
             || input.AvailableKarma is < 0 or > MaximumKarma
             || input.BurnedEdgePoints is < 0 or > MaximumRating
             || input.Identity.Kind != CharacterCareerAttributeKind.Edge && input.BurnedEdgePoints != 0
+            || !IsValidBurnedEdgeRepairValue(input)
             || input.Settings is not { KarmaAttribute: >= 0 and <= MaximumKarma }
             || input.Modifiers is null
             || string.IsNullOrWhiteSpace(input.RawSourceState)
@@ -598,6 +606,13 @@ public static class CharacterCareerAttributeAdvanceRules
                && modifiers.All(modifier => modifier is not null
                    && IsValidModifier(input.Identity, modifier));
     }
+
+    private static bool IsValidBurnedEdgeRepairValue(CharacterCareerAttributeAdvanceInput input)
+        => input.Identity.Kind == CharacterCareerAttributeKind.Edge && input.BurnedEdgePoints > 0
+            ? input.BurnedEdgeRepairValue is int value
+                && value >= input.EffectiveValue
+                && value <= Math.Min(input.NaturalMaximum, input.EffectiveValue + 1)
+            : input.BurnedEdgeRepairValue is null;
 
     private static bool IsValidModifier(
         CharacterCareerAttributeIdentity identity,
@@ -688,6 +703,8 @@ public static class CharacterCareerAttributeAdvanceRules
             upgrade = checked(upgrade - checked((input.MetatypeMinimum - 1) * optionsCost));
         }
 
+        // Burn repair can leave the clamped natural value unchanged. Its price
+        // and modifier thresholds still use the pre-repair value plus one.
         int targetRating = checked(value + 1);
         decimal extra = 0m;
         decimal multiplier = 1m;

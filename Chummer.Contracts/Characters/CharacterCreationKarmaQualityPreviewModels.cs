@@ -19,6 +19,9 @@ public sealed record CharacterCreationKarmaQualityPreviewRequest(
     CharacterCreationMagicResonanceSelections? MagicSelections = null)
 {
     public const int MaximumCandidates = 20;
+    // One source-bound answer map per candidate, in the same order as QualitySelections.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<IReadOnlyDictionary<string, string>?>? QualityPromptValues { get; init; }
 }
 
 /// <summary>Results retain request order. No confirmation or persistence authority is issued.</summary>

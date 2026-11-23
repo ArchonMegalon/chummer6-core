@@ -63,6 +63,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         private readonly CharacterCreationCompletionReview review;
         private readonly CharacterCreationRuleSourceExecutionContext? ruleSources;
         private readonly CharacterCreationCampaignExecutionContext? campaign;
+        private readonly int evaluationThread8562 = Environment.CurrentManagedThreadId;
 
         private ReviewedCompletion(CharacterCreationCompletionReviewInputs inputs,
             CharacterCreationCompletionReviewRequest request, CharacterCreationCompletionReview review,
@@ -126,7 +127,45 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             activity?.SetTag("completion.archive.compressed_bytes", compressedBytes);
         }
 
+        internal static Activity? ObserveSelectedReplay8577()
+            => Activities.StartActivity("SelectedReplay");
+
         internal CharacterCreationCompletionReview ReviewSnapshot => Detach(review);
+
+        // Reputation needs the full review already performed in this projector.
+        // A public review DTO cannot enter this path: only Evaluate constructs
+        // this private owner. Its newly reconstructed input graph must still be
+        // byte-canonically identical, with the same private sources/queries and
+        // live campaign. This never admits selected/history replay or a save.
+        internal CharacterCreationCompletionReview? CopyReputationReview8562(
+            CharacterCreationRuleSourceCapture capture, ICharacterFileQueries queries,
+            CharacterCreationCompletionReviewInputs currentInputs,
+            CharacterCreationCompletionReviewRequest currentRequest,
+            CharacterCreationCampaignExecutionContext? currentCampaign, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Environment.CurrentManagedThreadId != evaluationThread8562
+                || ruleSources?.UsesReputationCapture8562(capture, queries) != true
+                || !ReferenceEquals(campaign, currentCampaign) || campaign is { IsCommittedReplay: true }
+                || review.Blockers.Count != 0 || !Same(inputs, currentInputs) || !Same(request, currentRequest))
+                return null;
+            if (!CurrentCampaign()) return null;
+            var copy = Detach(review);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CurrentCampaign() && Same(inputs, currentInputs) && Same(request, currentRequest) ? copy : null;
+
+            bool CurrentCampaign()
+            {
+                if (campaign is null) return currentRequest.CampaignAuthority is null;
+                if (campaign.Phase is not (CharacterCreationCampaignPhase.Review or CharacterCreationCampaignPhase.Apply)
+                    || review.CompleteAssessment is not { } assessment || currentInputs.EffectivePolicy is null)
+                    return false;
+                var fresh = campaign.Execute(currentRequest, currentInputs.SnapshotDigest,
+                    currentInputs.Skills.Binding.RawCharacterXmlDigest, currentInputs.EffectivePolicy.PolicyDigest,
+                    cancellationToken);
+                return fresh is not null && Same(assessment, fresh.Project(assessment, cancellationToken));
+            }
+        }
 
         internal CharacterCreationFoundationResult<CharacterCreationSelectedCompletionWitness> Capture(
             WorkspaceStoredDocument original, CharacterCreationCompletionBootstrapSnapshot bootstrap,
@@ -150,11 +189,12 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                     || !retained!.MatchesObservation(original, bootstrap)))
                 return Refuse<CharacterCreationSelectedCompletionWitness>(HistoryMismatch);
             var choices = request.Selections;
-            var originalGear = inputs.Lifestyles.Gear.State.PendingDraft?.Lines.Select(row => row.OptionId).ToArray() ?? [];
+            var originalGear = CharacterCreationFocusSelectionRules.RequiredOptionIds(inputs.Lifestyles.Gear.State.PendingDraft?.Lines
+                .Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity) { Focus = row.Focus?.Selection }).ToArray() ?? []);
             if (!CharacterCreationQualitiesRules.TryCaptureSelectedAuthority(inputs.Lifestyles.Qualities.Authority,
                     inputs.Lifestyles.Qualities.SelectedOptionIds, choices.QualityOptionIds, out var qualities)
                 || !CharacterCreationGearRules.TryCaptureSelectedAuthority(inputs.Lifestyles.Gear.State.Authority,
-                    originalGear, choices.Gear.Select(row => row.OptionId).ToArray(), out var gear))
+                    originalGear, CharacterCreationFocusSelectionRules.RequiredOptionIds(choices.Gear), out var gear))
                 return Refuse<CharacterCreationSelectedCompletionWitness>(Invalid);
             var magic = CharacterCreationMagicResonanceService.CaptureSelectedMagicAuthority(
                 inputs.Magic, choices.MagicSelections, cancellationToken);
@@ -228,6 +268,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         ArgumentNullException.ThrowIfNull(witness);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+        using var replayActivity8577 = ReviewedCompletion.ObserveSelectedReplay8577();
         if (witness.Schema is not (CharacterCreationSelectedCompletionWitness.SchemaV3 or CharacterCreationSelectedCompletionWitness.SchemaV4
             or CharacterCreationSelectedCompletionWitness.SchemaV5 or CharacterCreationSelectedCompletionWitness.SchemaV6)
             && request.PolicyRequirement != CharacterCreationPolicyRequirement.None)
@@ -395,9 +436,11 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             int skillCost = skills.Skills.Sum(row => row.KarmaCost);
             int remaining = CharacterCreationKarmaFinalizationBudgetRules.RemainingCreationKarma995(
                 resources.RemainingCreationKarma, skillCost, contactCost);
-            if (contactCost < 0 || remaining < 0)
+            bool deferCharges1239 = completeAuthority is not null && ruleSourceExecution is not null
+                && CharacterCreationCompleteRuleSourceExecution.CanAttemptFocus1220(request);
+            if (contactCost < 0 || remaining < 0 && !deferCharges1239)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
-            if (remaining < choices.KarmaToReserve)
+            if (remaining < choices.KarmaToReserve && !deferCharges1239)
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationCompletionPlanBlockers.KarmaReserveRequired);
             var balances = new CharacterCreationCompletionPoolBalances(witness.Skills.PrerequisiteDraft.CreationKarmaTotal,
                 qualities.KarmaRemaining, skillCost, magic.Proposed.MysticAdeptPowerPoints?.KarmaCost ?? 0,
@@ -418,15 +461,25 @@ internal static class CharacterCreationSelectedCompletionEvaluator
                 originalQualities, qualities, magic, resources, gear, gearBudget, gearAnchors,
                 lifestylePrice, contacts, balances, string.Empty)
                 { Loadout = loadout, SelectedPrerequisites = prerequisiteEvidence };
+            if (completeAuthority is not null && ruleSourceExecution is not null)
+            {
+                if (!ruleSourceExecution.ApplySharedChargesSelected1239(witness, result, completeAuthority,
+                    original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances, originalCharacter,
+                    cancellationToken, out var adjusted1221, out string blocker1221))
+                    return Refuse<CharacterCreationSelectedCompletionEvaluation>(blocker1221);
+                result = adjusted1221;
+            }
             var consumption = CharacterCreationPolicyConsumptionProjection.FromSelected(witness, request, result, baseline, effects);
             if (!Same(consumption, witness.EffectivePolicy?.SelectedConsumption))
                 return Refuse<CharacterCreationSelectedCompletionEvaluation>(CharacterCreationEffectivePolicyContext.Invalid);
             if (completeAuthority is not null)
             {
-                var assessment = CharacterCreationCompleteAssessmentService.AfterEvaluation(completeAuthority, consumption, true, selectedPrerequisites,
-                    CharacterCreationCompleteConsumerExecution.FromSelected(witness, request, result,
-                        baseline, effects, completeAuthority, cancellationToken, lifestyleExecution,
-                        original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances, originalCharacter, ruleSourceExecution));
+                var consumers1222 = CharacterCreationCompleteConsumerExecution.FromSelected(witness, request, result,
+                    baseline, effects, completeAuthority, cancellationToken, lifestyleExecution,
+                    original.Document.AuxiliaryState.CharacterCreationLoadoutDraft?.Instances, originalCharacter, ruleSourceExecution);
+                if (ruleSourceExecution?.EssenceValidationFailed1222 == true)
+                    return Refuse<CharacterCreationSelectedCompletionEvaluation>(ruleSourceExecution!.EssenceFailureBlocker1222);
+                var assessment = CharacterCreationCompleteAssessmentService.AfterEvaluation(completeAuthority, consumption, true, selectedPrerequisites, consumers1222);
                 if (campaignExecution is not null) assessment = campaignExecution.Project(assessment, cancellationToken);
                 // Rebuild both the exhaustive inventory and coverage from this
                 // route's typed authority, archive origin and actual arithmetic.
@@ -528,7 +581,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
             && (talentAccess is null || Same(talentAccess.Talent, witness.Magic.Talent)
                 && talentAccess.TalentRuntimeDigest == witness.Magic.RuntimeDigest)
             && witness.Qualities.ProposedOptionIds.SequenceEqual(request.Selections.QualityOptionIds.Order(StringComparer.Ordinal))
-            && witness.Gear.ProposedOptionIds.SequenceEqual(request.Selections.Gear.Select(row => row.OptionId).Order(StringComparer.Ordinal))
+            && witness.Gear.ProposedOptionIds.SequenceEqual(CharacterCreationFocusSelectionRules.RequiredOptionIds(request.Selections.Gear))
             && Same(witness.Magic.ProposedSelections, NormalizeMagic(request.Selections.MagicSelections));
     }
 
@@ -639,7 +692,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         effects = CharacterContactEditSemanticsResolver.ReadEffects(root);
         var magic = auxiliary.CharacterCreationMagicResonanceDraft?.Selections ?? new(null, null, [], [], []);
         baseline = new(magic, auxiliary.CharacterCreationQualitiesDraft?.SelectedOptionIds ?? [],
-            auxiliary.CharacterCreationGearDraft?.Lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity)).ToArray() ?? [],
+            auxiliary.CharacterCreationGearDraft?.Lines.Select(row => new CharacterCreationGearSelection(row.OptionId, row.Quantity) { Focus = row.Focus?.Selection }).ToArray() ?? [],
             auxiliary.CharacterCreationResourcesDraft?.KarmaInvestment ?? 0,
             auxiliary.CharacterCreationContactsDraft?.Contacts ?? [], auxiliary.CharacterCreationLifestylesDraft?.Lifestyles ?? [])
             { Loadout = witness.Loadout is null ? null : savedLoadout?.Selections ?? CharacterCreationLoadoutSelections.Empty };
@@ -647,7 +700,7 @@ internal static class CharacterCreationSelectedCompletionEvaluator
         return witness.Magic.OriginalHadSavedMagic == (auxiliary.CharacterCreationMagicResonanceDraft is not null)
             && Same(witness.Magic.OriginalSelections, NormalizeMagic(magic))
             && witness.Qualities.OriginalOptionIds.SequenceEqual(baseline.QualityOptionIds.Order(StringComparer.Ordinal))
-            && witness.Gear.OriginalOptionIds.SequenceEqual(baseline.Gear.Select(row => row.OptionId).Order(StringComparer.Ordinal));
+            && witness.Gear.OriginalOptionIds.SequenceEqual(CharacterCreationFocusSelectionRules.RequiredOptionIds(baseline.Gear));
     }
 
     private static bool IsEmptyOwnedContainer(XElement root, string name)

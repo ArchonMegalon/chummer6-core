@@ -13,4 +13,8 @@ public sealed record CharacterCareerMagicPowerChoice(string Name, string ChoiceL
 public sealed record CharacterCareerMagicRead(CharacterCareerMagicBinding Binding, bool Applicable,
     bool AllowsOwnerManagedTransactions, bool IsAdept, decimal? RemainingPowerPoints,
     IReadOnlyList<CharacterCareerMagicOwnedPower> OwnedPowers,
-    IReadOnlyList<CharacterCareerMagicPowerChoice> Choices, IReadOnlyList<string> Blockers);
+    IReadOnlyList<CharacterCareerMagicPowerChoice> Choices, IReadOnlyList<string> Blockers)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public CharacterCareerInitiationFamily Family { get; init; }
+}

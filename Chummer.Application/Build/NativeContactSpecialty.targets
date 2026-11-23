@@ -1,0 +1,17 @@
+<Project>
+  <ItemGroup>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs"><ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256></NativeContactSpecialtySource>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Character.cs"><ExpectedSha256>f3dcea63f4ae7a20ede033913f8012f1d5e755af0e09723f21c3f17387d52b26</ExpectedSha256></NativeContactSpecialtySource>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Characters/Contact.cs"><ExpectedSha256>8ce652de2a21246a155a90a8eeb389bdb7ba6ddd207eb68b0fe31346a8a27bbb</ExpectedSha256></NativeContactSpecialtySource>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Skills/Skill.cs"><ExpectedSha256>e5b71db3d0ae4f77117dd787f5d47cebec7d2722e1d565c05ee6a80bd71d4e04</ExpectedSha256></NativeContactSpecialtySource>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Skills/SkillSpecialization.cs"><ExpectedSha256>aacf33154cb641a2760a63ee77a47fdaa784eece74f08c15d9d5582b1a5136a7</ExpectedSha256></NativeContactSpecialtySource>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Improvements/AddImprovementCollection.cs"><ExpectedSha256>863b260423103c017a24f881ed36567e00888636b2e51de342b6d3c36a2176a7</ExpectedSha256></NativeContactSpecialtySource>
+    <NativeContactSpecialtySource Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Improvements/Improvement.cs"><ExpectedSha256>0cd64c47b433b4f0985dfbf073c765eafaef8290eeff5b72d663f7d68f9a7bc8</ExpectedSha256></NativeContactSpecialtySource>
+  </ItemGroup>
+  <Target Name="VerifyNativeContactSpecialty" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(NativeContactSpecialtySource)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedNativeContactSpecialtySource" />
+    </GetFileHash>
+    <Error Condition="'%(HashedNativeContactSpecialtySource.FileHash)' != '%(HashedNativeContactSpecialtySource.ExpectedSha256)'" Text="Native contact/specialization source drift: %(HashedNativeContactSpecialtySource.Identity). Re-review native applicability and math before updating this pin." />
+  </Target>
+</Project>

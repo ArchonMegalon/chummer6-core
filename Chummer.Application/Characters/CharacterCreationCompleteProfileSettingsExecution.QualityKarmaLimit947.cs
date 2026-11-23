@@ -61,7 +61,8 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
             CharacterCreationSelectedCompletionWitness witness, CharacterCreationCompletionReviewRequest request,
             CharacterCreationSelectedCompletionEvaluation actual, CharacterCreationCompleteAssessment authority,
             out CharacterCreationQualitiesCompletionEvaluation? evaluated, CancellationToken cancellationToken,
-            CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null)
+            CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null,
+            CharacterCreationCompleteContactsExecution.SelectedComponentReplay? component = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             evaluated = null;
@@ -72,9 +73,18 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
                     (int)cost, out evaluated) || evaluated is null || evaluated.Blockers.Count != 0
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(evaluated, actual.Qualities))
                 return null;
+            if (witness.ProvenanceInputsSnapshotDigest != request.InputsSnapshotDigest) return null;
             if (witness.PolicyRequirement != CharacterCreationPolicyRequirement.Complete
-                || witness.PolicyRequirement != request.PolicyRequirement
-                || witness.ProvenanceInputsSnapshotDigest != request.InputsSnapshotDigest) return null;
+                || witness.PolicyRequirement != request.PolicyRequirement)
+            {
+                // The existing private component owns a successful independent
+                // None replay and this exact Complete assessment request. It can
+                // authorize component evaluation, never upgrade the saved witness.
+                // ContactsFor checks identity and the whole private binding; its
+                // contact result is not used as evidence of quality execution.
+                if (component?.ContactsFor(witness, request, actual, component.Baseline,
+                        component.Effects, authority, ruleSourceExecution) is null) return null;
+            }
             // Source receipts use an independent execution of the resolved full inputs.
             // The selected witness carries post-review consumption and a different
             // authority envelope; neither can replace the source execution identity.
@@ -180,6 +190,14 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
             });
             return true;
         }
+
+        // The typed-setting bridge consumes this invocation's completed canonical
+        // execution. Copying public fields/results cannot recreate registration.
+        internal static bool MatchesAuthority3197(CharacterCreationRuleSourceScopeInvocation invocation,
+            CharacterCreationCompleteAssessment authority)
+            => qualityInvocations947.TryGetValue(invocation, out var bound)
+                && bound.Completed.authorityDigest == CharacterCreationFinalizationDigest.Compute(authority)
+                && bound.InvocationDigest == InvocationBinding947(invocation);
 
         private sealed record Bound947(QualityKarmaLimitExecution947 Completed, string InvocationDigest);
         private static readonly ConditionalWeakTable<CharacterCreationRuleSourceScopeInvocation, Bound947>

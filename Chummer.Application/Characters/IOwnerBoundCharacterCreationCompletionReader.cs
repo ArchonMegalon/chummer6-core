@@ -5,6 +5,19 @@ namespace Chummer.Application.Characters;
 
 public interface IOwnerBoundCharacterCreationCompletionReader
 {
+    /// <summary>Synchronous read-only planning under one fresh owner/source admission.
+    /// The callback must return detached data, never an execution context or a Task.</summary>
+    CharacterCreationFoundationResult<T> EvaluateCompletePlanning<T>(
+        OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request,
+        Func<CharacterCreationAdmittedCompletionContext, CharacterCreationFoundationResult<T>> evaluate,
+        CancellationToken cancellationToken = default)
+        where T : class
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return new(CharacterCreationFoundationOutcomes.Blocked, default,
+            [CharacterCreationCompletionReviewSchemas.AuthorityUnavailable]);
+    }
+
     CharacterCreationFoundationResult<CharacterCreationRuleSourcePreparation> LoadCompletionInputsWithInitiativeSourceExecution(
         OwnerContextStamp expectedOwner, CharacterCreationSkillsLoadRequest request,
         bool includeLoadout = false, bool includeSourcebooks = false, CancellationToken cancellationToken = default)

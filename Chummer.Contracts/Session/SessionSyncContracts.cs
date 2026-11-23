@@ -21,7 +21,10 @@ public sealed record SessionSyncBatch(
     string OverlayId,
     CharacterVersionReference BaseCharacterVersion,
     IReadOnlyList<SessionEventEnvelope> Events,
-    string? ClientCursor = null);
+    string? ClientCursor = null)
+{
+    public string? OperationId { get; init; }
+}
 
 public sealed record SessionReplayReceipt(
     CharacterVersionReference AppliedCharacterVersion,
@@ -42,4 +45,8 @@ public sealed record SessionSyncReceipt(
     SessionReplayReceipt Replay,
     IReadOnlyList<SessionPendingEventState> PendingEvents,
     IReadOnlyList<SessionConflictDiagnostic> Conflicts,
-    string? ServerCursor = null);
+    string? ServerCursor = null)
+{
+    public string? ReplicaCursor { get; init; }
+    public string Transport { get; init; } = "unspecified";
+}

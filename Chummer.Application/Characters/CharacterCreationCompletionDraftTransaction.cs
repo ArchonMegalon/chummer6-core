@@ -30,12 +30,30 @@ public static class CharacterCreationCompletionDraftTransaction
         return operation;
     }
 
+    // Only TryFromFull's successful private original validation is retained.
+    // Every lookup follows a fresh hash of all current inputs, not a caller pin.
+    // This never caches a resolver, candidate execution or current owner authority.
+    internal static CharacterCreationOriginalCharacterSource? FindValidatedOriginal(string computedInputsDigest)
+    {
+        var source = currentValidation?.ValidatedOriginal;
+        bool hit = source?.MatchesInputs(computedInputsDigest) == true;
+        return hit ? source : null;
+    }
+
+    internal static void RememberValidatedOriginal(CharacterCreationOriginalCharacterSource source)
+    {
+        if (currentValidation is { } operation) operation.ValidatedOriginal = source;
+    }
+
     private sealed class HistoryValidationOperation(HistoryValidationOperation? previous) : IDisposable
     {
         // Only canonical identities of fully replayed prefixes, never payloads,
         // caller-supplied verification flags, live sources or owner authority.
         internal Dictionary<string, long> VerifiedPrefixes { get; } = new(StringComparer.Ordinal);
 
+        // One private graph at most; a different successful original replaces it.
+        // The graph has no mutating accessor and is cleared with this operation.
+        internal CharacterCreationOriginalCharacterSource? ValidatedOriginal;
         internal int ReplayDepth;
         private bool disposed;
 
@@ -44,6 +62,7 @@ public static class CharacterCreationCompletionDraftTransaction
             if (disposed) return;
             disposed = true;
             VerifiedPrefixes.Clear();
+            ValidatedOriginal = null;
             currentValidation = previous;
         }
     }
@@ -222,6 +241,8 @@ public static class CharacterCreationCompletionDraftTransaction
     public static bool IsValidLedger(CharacterWorkspaceId id, long revision, WorkspaceDocumentAuxiliaryState state,
         ICharacterCreationRuleSourceRecovery? recovery = null)
     {
+        using var prelude8991 = CharacterCreationValidationTiming8991.BeginBucket(
+            CharacterCreationValidationTiming8991.Bucket.DraftPrelude);
         if (recovery is not null && !recovery.ValidateRetainedRuleSources()) return false;
         var entries = state.CharacterCreationCompletionDrafts;
         if (entries is null) return true;
@@ -233,11 +254,16 @@ public static class CharacterCreationCompletionDraftTransaction
         validation.ReplayDepth++;
         try
         {
-            string ledgerIdentity = PrefixIdentity(id, entries);
-            if (validation.VerifiedPrefixes.TryGetValue(ledgerIdentity, out long minimumRevision))
+            // An empty memo cannot match. Avoid serializing the entire ledger
+            // only for that lookup; every replayed prefix is still freshly
+            // hashed below and remembered only after successful semantic replay.
+            if (validation.VerifiedPrefixes.Count > 0
+                && validation.VerifiedPrefixes.TryGetValue(CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.PrefixDigest,
+                    () => PrefixIdentity(id, entries)), out long minimumRevision))
                 return revision >= minimumRevision;
             var keys = new HashSet<string>(StringComparer.Ordinal);
             long previousRevision = 0;
+            prelude8991?.Complete();
             for (int i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
@@ -256,25 +282,32 @@ public static class CharacterCreationCompletionDraftTransaction
                     || !CharacterCreationFinalizationDigest.IsCanonical(receipt.CommandDigest)
                     || !CharacterCreationFinalizationDigest.IsCanonical(receipt.IdempotencyKeyDigest)
                     || receipt.RawCharacterXmlDigest != receipt.PreviousRawCharacterXmlDigest
-                    || receipt.ReceiptDigest != CharacterCreationCompletionDraftRules.ReceiptDigest(receipt)
+                    || receipt.ReceiptDigest != CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.ReceiptDigest,
+                        () => CharacterCreationCompletionDraftRules.ReceiptDigest(receipt))
                     || receipt.BaselineDigest != baseline.BaselineDigest
-                    || baseline.BaselineDigest != CharacterCreationCompletionDraftRules.BaselineDigest(baseline)
+                    || baseline.BaselineDigest != CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.BaselineDigest,
+                        () => CharacterCreationCompletionDraftRules.BaselineDigest(baseline))
                     || baseline.Review is not { Review: { UpstreamBudget: not null, Lifestyles: not null, Contacts: not null, Blockers.Count: 0 } }
                     || !CharacterCreationFinalizationDigest.IsCanonical(baseline.Review.OwnerStampDigest)
                     || !CharacterCreationFinalizationDigest.IsCanonical(baseline.Review.OwnerScopeDigest)
                     || baseline.Review.Schema != CharacterCreationCompletionDraftReview.SchemaV1
-                    || baseline.Review.Review.ReviewDigest != CharacterCreationCompletionReviewRules.ComputeReviewDigest(baseline.Review.Review)
-                    || receipt.CommandDigest != CharacterCreationCompletionDraftRules.CommandDigest(
-                        CharacterCreationCompletionDraftApplyRequest.SchemaV1, baseline.Review, receipt.IdempotencyKeyDigest, true)
-                    || receipt.ReceiptId != CharacterCreationFinalizationDigest.Compute(new
+                    || baseline.Review.Review.ReviewDigest != CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.CompositeReviewDigest,
+                        () => CharacterCreationCompletionReviewRules.ComputeReviewDigest(baseline.Review.Review))
+                    || receipt.CommandDigest != CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.CommandDigest,
+                        () => CharacterCreationCompletionDraftRules.CommandDigest(
+                            CharacterCreationCompletionDraftApplyRequest.SchemaV1, baseline.Review, receipt.IdempotencyKeyDigest, true))
+                    || receipt.ReceiptId != CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.ReceiptIdentity,
+                        () => CharacterCreationFinalizationDigest.Compute(new
                         { Schema = CharacterCreationCompletionDraftReceipt.SchemaV1, WorkspaceId = id,
-                            Key = receipt.IdempotencyKeyDigest, Command = receipt.CommandDigest })
+                            Key = receipt.IdempotencyKeyDigest, Command = receipt.CommandDigest }))
                     || receipt.DraftReviewDigest != baseline.Review.DraftReviewDigest
-                    || baseline.Review.DraftReviewDigest != CharacterCreationCompletionDraftReviewRules.ComputeDigest(baseline.Review))
+                    || baseline.Review.DraftReviewDigest != CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.DraftReviewDigest,
+                        () => CharacterCreationCompletionDraftReviewRules.ComputeDigest(baseline.Review)))
                     return false;
                 var priorState = baseline.OriginalState with
                 { CharacterCreationCompletionDrafts = i == 0 ? null : entries.Take(i).ToArray() };
-                if (WorkspaceDocumentAuxiliaryStateDigest.Compute(priorState) != receipt.PreviousAuxiliaryStateDigest)
+                if (CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.PriorStateDigest,
+                        () => WorkspaceDocumentAuxiliaryStateDigest.Compute(priorState)) != receipt.PreviousAuxiliaryStateDigest)
                     return false;
                 var binding = baseline.Review.Binding;
                 if (binding.WorkspaceId != id || binding.ContentRevision != receipt.PreviousContentRevision
@@ -285,15 +318,22 @@ public static class CharacterCreationCompletionDraftTransaction
                 // Hash the actual complete prefix, not caller-provided digests.
                 // A proof covers these exact entries and their already-checked
                 // ancestry; a changed byte must go through semantic replay again.
-                string prefixIdentity = PrefixIdentity(id, entries.Take(i + 1).ToArray());
+                string prefixIdentity = CharacterCreationValidationTiming8991.Measure(CharacterCreationValidationTiming8991.Bucket.PrefixDigest,
+                    () => PrefixIdentity(id, entries.Take(i + 1).ToArray()));
                 if (validation.VerifiedPrefixes.ContainsKey(prefixIdentity))
                 {
                     previousRevision = receipt.ContentRevision;
                     continue;
                 }
-                if (!CharacterCreationCompletionReplayCodec.TryDecode(baseline.SelectedReplay, out var bootstrap, out var witness)
-                    || !bootstrap.IsValid() || witness.WitnessDigest != baseline.Review.SelectedWitnessDigest)
+                CharacterCreationValidationTiming8991.BeforeFirstDecode();
+                using var decodeActivity = Activities.StartActivity("draft-replay-decode");
+                if (!CharacterCreationCompletionReplayCodec.TryDecode(baseline.SelectedReplay, out var bootstrap, out var witness))
                     return false;
+                decodeActivity?.Stop();
+                using var bootstrapActivity = Activities.StartActivity("draft-bootstrap-validation");
+                if (!bootstrap.IsValid() || witness.WitnessDigest != baseline.Review.SelectedWitnessDigest)
+                    return false;
+                bootstrapActivity?.Stop();
                 using var replayActivity = Activities.StartActivity("DraftHistoryReplay");
                 if (baseline.RawCharacterXml is not { Length: > 0 and <= CharacterCareerReputationProjector.MaximumCharacterXmlLength }
                     || CharacterCreationFinalizationDigest.ComputeUtf8(baseline.RawCharacterXml) != receipt.RawCharacterXmlDigest
@@ -344,7 +384,7 @@ public static class CharacterCreationCompletionDraftTransaction
     }
 
     private static string PrefixIdentity(CharacterWorkspaceId id, IReadOnlyList<CharacterCreationCompletionDraftEntry> entries)
-        => CharacterCreationFinalizationDigest.Compute(new { WorkspaceId = id, Entries = entries });
+        => CharacterCreationCompletionDraftRules.PrefixDigest(id, entries);
 
     public static bool IsValidCurrentDocument(WorkspaceDocument document, long revision)
     {

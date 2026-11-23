@@ -23,9 +23,12 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
             return;
         var domain = authority.Obligations.SingleOrDefault(row => row.Kind == K955.PolicyDomain
             && row.Domain == CharacterCreationPolicyDomain.OtherSettings);
+        var aggregate = authority.Obligations.SingleOrDefault(row => row.Kind == K955.ConsumerOperation
+            && row.Operation == CharacterCreationConsumerPolicyOperation.UnclassifiedSettings);
         var profiles = Inputs.EffectivePolicy!.Sources.Where(row => row.Kind == CharacterCreationPolicySourceKind.Rules
             && row.SourceId == "profile").ToArray();
         if (domain is not { Evaluability: E955.CandidateDependent }
+            || aggregate is not { Evaluability: E955.CandidateDependent }
             || profiles is not [var profile]
             || !sourceScopes.ContainsKey($"source:{profile.Kind}:{profile.Order}")
             || sourceScopes.Keys.Any(id => !executedSourceScopes955.Contains(id))) return;
@@ -37,10 +40,18 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
             or K955.SkillLimit or K955.Setting or K955.ConsumerOperation or K955.ActiveGraph
             || row.Kind == K955.PolicyDomain && row.Domain is CharacterCreationPolicyDomain.Profile
                 or CharacterCreationPolicyDomain.Books or CharacterCreationPolicyDomain.SkillLimits)
-            // Errata is an independent aggregate, not a setting consumer.
-            // Its obligations remain frozen and are completed only by CompleteErrata.
+            // Errata and Campaign have independent producers, not profile-setting
+            // semantics. Their obligations stay frozen in the final ledger.
+            // CompleteErrata owns corrected-source replay. Campaign.Project runs
+            // AFTER AfterEvaluation on both full and selected routes; requiring
+            // its still-unprojected rows here would make these aggregates
+            // impossible even after every real setting/source execution succeeds.
             && !(row.Kind is K955.ConsumerOperation or K955.ActiveGraph
-                && row.Operation == CharacterCreationConsumerPolicyOperation.Errata)).ToArray();
+                && row.Operation is CharacterCreationConsumerPolicyOperation.Errata
+                    or CharacterCreationConsumerPolicyOperation.Campaign)
+            // This aggregate is the output of the exhaustive execution below,
+            // not a prerequisite of itself. Its authority row is retained.
+            && row.Id != aggregate.Id).ToArray();
         if (!required.Any(row => row.Kind == K955.Setting)
             || !required.Any(row => row.Kind == K955.PolicyDomain && row.Domain == CharacterCreationPolicyDomain.Profile)) return;
         var verdicts = evaluated.Obligations.ToDictionary(row => row.Id, StringComparer.Ordinal);
@@ -62,11 +73,12 @@ internal sealed partial class CharacterCreationCompleteRuleSourceExecution
             if (!CharacterCreationFinalizationDigest.IsCanonical(digest)) return;
             executions.Add(new { row.Id, row.AuthorityDigest, EvaluationDigest = digest });
         }
-        completed.Add(domain.Id, CharacterCreationFinalizationDigest.Compute(new
-        {
-            domain.AuthorityDigest, authority.InputsSnapshotDigest, authority.RequestDigest,
-            authority.PolicyDigest, authority.SettingsObservationDigest,
-            Inputs.RuleSourceExecutionSchema, Inputs.RuleSourceCaptureDigest, Executions = executions
-        }));
+        foreach (var summary in new[] { domain, aggregate })
+            completed.Add(summary.Id, CharacterCreationFinalizationDigest.Compute(new
+            {
+                summary.Id, summary.AuthorityDigest, authority.InputsSnapshotDigest, authority.RequestDigest,
+                authority.PolicyDigest, authority.SettingsObservationDigest,
+                Inputs.RuleSourceExecutionSchema, Inputs.RuleSourceCaptureDigest, Executions = executions
+            }));
     }
 }

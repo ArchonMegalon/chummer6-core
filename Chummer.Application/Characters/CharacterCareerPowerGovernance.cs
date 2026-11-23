@@ -74,6 +74,7 @@ public sealed class CampaignDenyingCareerPowerAuthorityResolver(ICharacterSource
     : ICharacterCareerPowerAuthorityResolver
 {
     private readonly OwnerManagedCareerPowerAuthorityResolver inner = new(sources);
+    internal bool UsesSources(ICharacterSourceDataResolver value) => inner.UsesSources(value);
     public ICharacterCareerPowerAdmission? Open(OwnerScope owner, WorkspaceStoredDocument saved,
         CharacterCareerPowerCommand command, string runtimeFingerprint) =>
         OpenDetailed(owner, saved, command, runtimeFingerprint, out _);

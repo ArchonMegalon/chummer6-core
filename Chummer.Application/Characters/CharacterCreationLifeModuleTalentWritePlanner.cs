@@ -120,6 +120,19 @@ internal static class CharacterCreationLifeModuleTalentWritePlanner
                         || binding!.SourceId != quality.Element("sourceid")?.Value
                         || !qualityAuthority.TryGetDefinition(binding, out var definition, out _) || definition is null)
                         return Failed(catalog, CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+                    // Only an exact occurrence in the bound racial plan may omit
+                    // its SURGE purchase gate. Reverse exclusions still run below.
+                    var racialSource = quality.Element("qualitysource")?.Value == "Metatype"
+                        && racial.Metatype.MetatypeIdentity?.MetavariantOptionId is not null
+                        && racial.QualityXml.Any(xml => XNode.DeepEquals(XElement.Parse(xml), quality))
+                        ? racial.Sources.SingleOrDefault(item => item.SourceId == binding!.SourceId) : null;
+                    if (racialSource is not null
+                        && XNode.DeepEquals(definition, XElement.Parse(racialSource.CanonicalSourceXml))
+                        && CharacterCreationLifeModuleRacialGrants8590.IsPurchaseOnlySurgeGrant(racial.Metatype, racialSource))
+                    {
+                        definition = new XElement(definition);
+                        definition.Elements("required").Remove();
+                    }
                     // Check the reverse direction as well as the new talent's own exclusions.
                     CharacterCreationAwakenedLegacyProjector.CheckRestrictions(definition, prior, qualities, flags,
                         checkRequiredQualities: true);

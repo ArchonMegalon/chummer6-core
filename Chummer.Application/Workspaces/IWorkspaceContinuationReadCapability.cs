@@ -12,6 +12,14 @@ public interface IWorkspaceContinuationReadCapability
 {
     bool SupportsWorkspaceContinuationRead => false;
 
+    /// <summary>Read the actual local incarnation and slot with the admitted complete
+    /// snapshot identity under one store lease. This is neither portable ancestry
+    /// nor mutation authority; unsupported stores must refuse it.</summary>
+    CommandResult<WorkspaceContinuationRestoreTarget> ReadContinuationStorageTarget(
+        OwnerScope owner, CharacterWorkspaceId id) =>
+        new(false, null, "Workspace continuation storage identity is unavailable.",
+            WorkspaceOperationOutcome.Unavailable);
+
     CommandResult<WorkspaceContinuationSnapshot> ReadContinuation(CharacterWorkspaceId id) =>
         new(false, null, "Complete workspace continuation reads are unavailable.",
             WorkspaceOperationOutcome.Unavailable);

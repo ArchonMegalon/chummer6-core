@@ -62,15 +62,20 @@ public static partial class CharacterCreationCompletionPlanner
         CharacterCreationCompletionPlanRequest request,
         CharacterCreationCompletionSelections original,
         CancellationToken cancellationToken, CharacterCreationRuleSourceExecutionContext? ruleSources,
-        CharacterCreationCampaignExecutionContext? campaign = null)
+        CharacterCreationCampaignExecutionContext? campaign = null, bool completeBaseline = false)
     {
         if (!MatchesOriginalRequests(inputs, request))
             return Reject(CharacterCreationFoundationOutcomes.Conflict, CharacterCreationCompletionPlanBlockers.SnapshotConflict);
         if (!Same(original.MagicSelections, request.Magic.ManualSelections))
             return Reject(CharacterCreationFoundationOutcomes.Invalid, CharacterCreationCompletionPlanBlockers.ManualMagicMismatch);
+        if (original.InitialAmmunitionLoads3847 is { } retainedLoads3847 && request.InitialAmmunitionLoads3847 is { } proposedLoads3847
+            && retainedLoads3847.Any(load => !proposedLoads3847.Contains(load)))
+            return Reject(CharacterCreationFoundationOutcomes.Blocked, CharacterCreationRoleCompletionPlanner.PhysicalLocked3847);
+
 
         var choices = original with
         {
+            InitialAmmunitionLoads3847 = request.InitialAmmunitionLoads3847 ?? original.InitialAmmunitionLoads3847,
             QualityOptionIds = request.QualityOptionIds,
             Contacts = request.Contacts,
             TotalKarmaInvestment = request.TotalKarmaInvestment,
@@ -99,6 +104,9 @@ public static partial class CharacterCreationCompletionPlanner
         var findings = new List<string>();
         var attributeResult = CharacterCreationAttributeCompletionPlanner.Plan(inputs.Skills.Attributes,
             request.Attributes, cancellationToken);
+        if (Terminal(attributeResult.Outcome)) return new(attributeResult.Outcome, null, attributeResult.Blockers);
+        if (completeBaseline && request.AllocateRemainingAttributeKarma && attributeResult.Value is { } seedAttributes)
+            attributeResult = StageBaselineAttributeFloors(inputs, request, seedAttributes, cancellationToken);
         if (Terminal(attributeResult.Outcome)) return new(attributeResult.Outcome, null, attributeResult.Blockers);
         findings.AddRange(attributeResult.Blockers);
         var attributes = attributeResult.Value;
@@ -179,7 +187,7 @@ public static partial class CharacterCreationCompletionPlanner
         var final = CharacterCreationCompletionReviewService.Review(inputs,
             ReviewRequest(request, choices), cancellationToken, ruleSources, campaign);
         if (final.Value is not { } review) return new(final.Outcome, null, final.Blockers);
-        if (request.AllocateRemainingAttributeKarma && attributes is not null
+        if (!completeBaseline && request.AllocateRemainingAttributeKarma && attributes is not null
             && skills is not null && magic is not null && purchases is not null)
         {
             var karmaResult = AllocateAttributeKarma(inputs, request, attributes, choices, review, cancellationToken, ruleSources, campaign);
@@ -225,6 +233,8 @@ public static partial class CharacterCreationCompletionPlanner
             MaximumAttributesDefaultExecutionSchema = request.MaximumAttributesDefaultExecutionSchema,
             AdditionalConsumerExecutionSchema = request.AdditionalConsumerExecutionSchema,
             ProfileSettingsExecutionSchema = request.ProfileSettingsExecutionSchema,
+            EssenceResultSchema = request.EssenceResultSchema,
+            LifecycleResultSchema = request.LifecycleResultSchema,
             OriginalCharacterExecutionSchema = request.OriginalCharacterExecutionSchema,
             RuleSourceExecutionSchema = request.RuleSourceExecutionSchema,
             RuleSourceCaptureDigest = request.RuleSourceCaptureDigest,

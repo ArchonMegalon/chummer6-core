@@ -569,10 +569,10 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             || row.DescendantNodes().OfType<XProcessingInstruction>().Any()
             || row.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)
             || row.Elements().Any(item => item.HasAttributes || item.HasElements
-                && item.Name != "spirits" && !(row.Name == "power" && item.Name == "adeptwayrequires"))
+                && item.Name != "spirits" && !(row.Name == "power" && (item.Name == "adeptwayrequires" || item.Name == "bonus")))
             || row.Element("required") is not null || row.Element("forbidden") is not null
             || (option.Identity.Kind == CharacterCreationMagicResonanceKinds.AdeptPower
-                ? !CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(row)
+                ? !CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(row, option.AdeptSkillSourceXml)
                 : row.Element("bonus") is not null)) return false;
         if (row.Name == "tradition" && (string.IsNullOrWhiteSpace(Read(row, "drain"))
             || row.Element("spirits") is { } spirits && (spirits.HasAttributes || spirits.Elements().Any(item =>
@@ -598,7 +598,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             option.CanonicalSourceXml,
             option.CanonicalSourceXmlDigest,
             option.SourceAnchorIds,
-            string.Empty);
+            string.Empty) { AdeptSkillSourceXml = option.AdeptSkillSourceXml?.ToArray() };
         return candidate with { ProjectionDigest = ComputeOptionProjectionDigest(candidate) };
     }
 
@@ -663,6 +663,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                    out XElement? source)
                && source is not null
                && (expectedRoot != "tradition" || CharacterTraditionSpiritFormRules.TryRead(source, out _))
+               && (expectedRoot != "power" || CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(source, option.AdeptSkillSourceXml))
                && source.Elements().All(element => AllowedElements(option.Identity.Kind).Contains(
                    element.Name.LocalName, StringComparer.Ordinal));
     }

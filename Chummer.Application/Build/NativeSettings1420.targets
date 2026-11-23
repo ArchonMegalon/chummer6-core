@@ -1,0 +1,19 @@
+<Project>
+  <ItemGroup>
+    <NativeSettingsSource1420 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Character Settings/CharacterSettings.cs">
+      <ExpectedSha256>5fae3d58aa0b0c30920bc4180430ab56250521e5b8db21097b0b9460f74ef943</ExpectedSha256>
+    </NativeSettingsSource1420>
+    <NativeSettingsSource1420 Include="$(MSBuildThisFileDirectory)../../Chummer/Forms/Selection Forms/SelectItem.cs">
+      <ExpectedSha256>6ad6af14935871e44841bd0d8add3a451df8ef17c1dbe7d8a74c209dd307168e</ExpectedSha256>
+    </NativeSettingsSource1420>
+    <NativeSettingsSource1420 Include="$(MSBuildThisFileDirectory)../../Chummer/Backend/Equipment/Weapon.cs">
+      <ExpectedSha256>eeca2baad00594ef9221e55052b848a2b7a060d1064a4e09adc27394800340c6</ExpectedSha256>
+    </NativeSettingsSource1420>
+  </ItemGroup>
+  <Target Name="VerifyNativeSettings1420" BeforeTargets="CoreCompile">
+    <GetFileHash Files="@(NativeSettingsSource1420)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="HashedNativeSettingsSource1420" />
+    </GetFileHash>
+    <Error Condition="'%(HashedNativeSettingsSource1420.FileHash)' != '%(HashedNativeSettingsSource1420.ExpectedSha256)'" Text="Native settings1420 source drift: %(HashedNativeSettingsSource1420.Identity). Re-review license suggestions and weapon damage semantics before updating this pin." />
+  </Target>
+</Project>

@@ -268,7 +268,14 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         }
 
         string catalogDigest = CharacterVehicleWorkshopRules.ComputeCatalogDigest(catalog);
-        if (!CharacterVehicleWorkshopRules.FixedEquals(receipt.CatalogDigest, catalogDigest)
+        bool legacySlotReceipt = CharacterVehicleWorkshopRules.FixedEquals(
+            receipt.CatalogDigest, CharacterVehicleWorkshopRules.ComputeLegacySlotCatalogDigest(catalog));
+        bool legacyVariantReceipt = CharacterVehicleWorkshopRules.FixedEquals(
+            receipt.CatalogDigest, CharacterVehicleWorkshopRules.ComputeLegacyVariantCatalogDigest(catalog));
+        bool legacyCategoryReceipt = CharacterVehicleWorkshopRules.FixedEquals(
+            receipt.CatalogDigest, CharacterVehicleWorkshopRules.ComputeLegacyCategoryCatalogDigest(catalog));
+        if ((!CharacterVehicleWorkshopRules.FixedEquals(receipt.CatalogDigest, catalogDigest)
+                && !legacySlotReceipt && !legacyVariantReceipt && !legacyCategoryReceipt)
             || !CharacterVehicleWorkshopRules.FixedEquals(catalog.DeclaredCatalogDigest, catalogDigest))
         {
             return Blocked(characterXml, currentContentRevision, vehicleId, expenseId,
@@ -332,18 +339,42 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             || !TryReadTransaction(transaction.Vehicle!, out TransactionMetadata metadata)
             || !string.Equals(metadata.IdempotencyKeyDigest, keyDigest, StringComparison.Ordinal)
             || !string.Equals(metadata.CommandDigest, commandDigest, StringComparison.Ordinal)
-            || !string.Equals(metadata.CatalogDigest, catalogDigest, StringComparison.Ordinal)
+            || (!string.Equals(metadata.CatalogDigest, catalogDigest, StringComparison.Ordinal)
+                && !CharacterVehicleWorkshopRules.FixedEquals(metadata.CatalogDigest,
+                    CharacterVehicleWorkshopRules.ComputeLegacySlotCatalogDigest(catalog))
+                && !CharacterVehicleWorkshopRules.FixedEquals(metadata.CatalogDigest,
+                    CharacterVehicleWorkshopRules.ComputeLegacyVariantCatalogDigest(catalog))
+                && !CharacterVehicleWorkshopRules.FixedEquals(metadata.CatalogDigest,
+                    CharacterVehicleWorkshopRules.ComputeLegacyCategoryCatalogDigest(catalog)))
             || metadata.VehicleId != command.Selection.NewVehicleInstanceId.Value
             || metadata.ExpenseId != command.NewExpenseId)
         {
             return Blocked(characterXml, currentContentRevision, command.Selection.NewVehicleInstanceId,
                 command.NewExpenseId, CharacterVehicleWorkshopBlockers.StaleCatalog);
         }
+        bool legacyCategories = !CharacterVehicleWorkshopRules.FixedEquals(metadata.CatalogDigest, catalogDigest);
+        bool legacyVariants = legacyCategories && !CharacterVehicleWorkshopRules.FixedEquals(metadata.CatalogDigest,
+            CharacterVehicleWorkshopRules.ComputeLegacyCategoryCatalogDigest(catalog));
         CharacterVehicleWorkshopPreparation historicalPreparation = currentPreparation with
         {
             ContentRevision = metadata.PreviousRevision,
             CharacterDigest = metadata.PreviousCharacterDigest,
-            AvailableNuyen = metadata.PreviousNuyen
+            AvailableNuyen = metadata.PreviousNuyen,
+            CatalogDigest = metadata.CatalogDigest,
+            Chassis = !legacyCategories ? currentPreparation.Chassis
+                : !legacyVariants ? currentPreparation.Chassis.Select(item => item.LegacyCategoryProjection is { } previous
+                    ? item with { ModificationSlots = previous.ModificationSlots,
+                        ProjectionStatus = previous.ProjectionStatus, UnsupportedReason = previous.UnsupportedReason }
+                    : item).ToArray()
+                : currentPreparation.Chassis.Select(item => item.LegacyVariantProjection is { } legacy
+                    ? item with
+                    {
+                        ModificationSlots = legacy.ModificationSlots,
+                        ProjectionStatus = legacy.ProjectionStatus,
+                        UnsupportedReason = legacy.UnsupportedReason,
+                        SourceAdditionalModificationSlots = 0
+                    }
+                    : item with { SourceAdditionalModificationSlots = 0 }).ToArray()
         };
         CharacterVehicleWorkshopQuote historicalQuote = Quote(historicalPreparation, command.Selection);
         CharacterVehicleWorkshopChassisEntry historicalChassis = historicalPreparation.Chassis.Single(item =>
@@ -354,7 +385,11 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             historicalQuote,
             command,
             keyDigest,
-            commandDigest);
+            commandDigest,
+            legacySlotBudget: CharacterVehicleWorkshopRules.FixedEquals(metadata.CatalogDigest,
+                CharacterVehicleWorkshopRules.ComputeLegacySlotCatalogDigest(catalog)),
+            legacyAdditionalSlots: legacyVariants,
+            legacyCategorySlots: legacyCategories);
         if (!historicalQuote.Exact
             || !CharacterVehicleWorkshopRules.FixedEquals(historicalQuote.QuoteDigest, metadata.QuoteDigest)
             || !CharacterVehicleWorkshopRules.FixedEquals(
@@ -398,7 +433,10 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         CharacterVehicleWorkshopQuote quote,
         CharacterVehicleWorkshopCommitCommand command,
         string keyDigest,
-        string commandDigest)
+        string commandDigest,
+        bool legacySlotBudget = false,
+        bool legacyAdditionalSlots = false,
+        bool legacyCategorySlots = false)
     {
         XElement mods = new("mods");
         foreach (CharacterVehicleWorkshopFactoryModificationEntry factoryModification in chassis.FactoryModifications
@@ -433,9 +471,16 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             Scalar("pilot", chassis.Pilot), Scalar("body", chassis.Body), Scalar("seats", chassis.Seats),
             Scalar("armor", chassis.Armor), Scalar("sensor", chassis.Sensor),
             Scalar("avail", FormatAvailability(chassis.Availability)),
-            Scalar("cost", chassis.Cost), Scalar("addslots", 0), Scalar("modslots", chassis.ModificationSlots),
-            Scalar("powertrainmodslots", 0), Scalar("protectionmodslots", 0), Scalar("weaponmodslots", 0),
-            Scalar("bodymodslots", 0), Scalar("electromagneticmodslots", 0), Scalar("cosmeticmodslots", 0),
+            Scalar("cost", chassis.Cost),
+            Scalar("addslots", legacyAdditionalSlots ? 0 : chassis.SourceAdditionalModificationSlots!.Value),
+            // Only historical receipt reconstruction may reproduce the previous persistence bug.
+            Scalar("modslots", legacySlotBudget ? chassis.ModificationSlots : chassis.SourceDroneModificationSlots!.Value),
+            Scalar("powertrainmodslots", legacyCategorySlots ? 0 : chassis.SourceCategoryModificationSlots!.Powertrain),
+            Scalar("protectionmodslots", legacyCategorySlots ? 0 : chassis.SourceCategoryModificationSlots!.Protection),
+            Scalar("weaponmodslots", legacyCategorySlots ? 0 : chassis.SourceCategoryModificationSlots!.Weapons),
+            Scalar("bodymodslots", legacyCategorySlots ? 0 : chassis.SourceCategoryModificationSlots!.Body),
+            Scalar("electromagneticmodslots", legacyCategorySlots ? 0 : chassis.SourceCategoryModificationSlots!.Electromagnetic),
+            Scalar("cosmeticmodslots", legacyCategorySlots ? 0 : chassis.SourceCategoryModificationSlots!.Cosmetic),
             Scalar("source", chassis.SourceBook), Scalar("page", chassis.Page), Scalar("parentid", string.Empty),
             Scalar("sortorder", 0), Scalar("stolen", false), Scalar("physicalcmfilled", 0),
             Scalar("matrixcmfilled", 0), Scalar("vehiclename", command.Selection.CustomName),
@@ -743,6 +788,9 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             }
             if (item.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Exact
                 && (item.Cost < 0m || item.ModificationSlots < 0 || item.ModificationCapacity < 0
+                    || item.SourceDroneModificationSlots is not (>= 0)
+                    || item.SourceAdditionalModificationSlots is not (>= 0)
+                    || !CharacterVehicleWorkshopRules.HasValidCategorySlots(item)
                     || item.Body < 0 || item.Armor < 0 || item.Sensor < 0 || item.Pilot < 0
                     || item.Availability.AddToParent
                     || item.FactoryGears.Any(gear =>

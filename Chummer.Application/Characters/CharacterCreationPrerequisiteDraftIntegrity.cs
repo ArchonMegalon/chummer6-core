@@ -206,6 +206,55 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
         return IsSelectionValid(draft, authority);
     }
 
+    // Current consumption is an observation of saved choices, not a migration.
+    // First authenticate the ORIGINAL draft against an exact authority projected
+    // from the retained inputs. Then evaluate current rules and require every
+    // selected value/source binding to remain equal. Catalog-only differences do
+    // not reseal the saved draft, its dependent bindings, or any receipt.
+    internal static bool TryEvaluateCurrentPending3053(
+        CharacterCreationPrerequisiteDraft? original,
+        CharacterWorkspaceId workspaceId,
+        long persistedContentRevision,
+        string rawCharacterXmlDigest,
+        CharacterCreationPrerequisiteAuthority currentAuthority,
+        ICharacterSourceDataContext source,
+        out CharacterCreationPrerequisiteDraft? evaluated)
+    {
+        evaluated = null;
+        try
+        {
+            if (original is null
+                || !CharacterCreationPrerequisiteService.TryEvaluateCurrentSelection1949(
+                    currentAuthority, original, out var currentSelection, out _)
+                || currentSelection is null)
+                return false;
+            if (!IsValidPending(original, workspaceId, persistedContentRevision,
+                    rawCharacterXmlDigest, currentAuthority)
+                && (!source.TryResolveHistoricalCreationPrerequisiteAuthority3053(out var historical)
+                    || !CharacterCreationPrerequisiteService.TryEvaluateCurrentSelection1949(
+                        historical, null, out _, out _)
+                    || !IsValidPending(original, workspaceId, persistedContentRevision,
+                        rawCharacterXmlDigest, historical)))
+                return false;
+            if (!IsValidPending(currentSelection, workspaceId, persistedContentRevision,
+                    rawCharacterXmlDigest, currentAuthority)
+                // These two fields identify the whole catalog and its enclosing
+                // observation. All other fields, including selected source digests,
+                // ranks, grant plans, budgets and revision/raw bindings, must match.
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    original with { AuthorityDigest = currentSelection.AuthorityDigest,
+                        DraftDigest = currentSelection.DraftDigest }, currentSelection))
+                return false;
+            evaluated = currentSelection;
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException
+            or OverflowException or FormatException)
+        {
+            return false;
+        }
+    }
+
     private static CharacterCreationPriorityTalentSelection? BuildExpectedTalentSelection(
         CharacterCreationPriorityTalentOptionProjection option,
         string prioritySourceId,

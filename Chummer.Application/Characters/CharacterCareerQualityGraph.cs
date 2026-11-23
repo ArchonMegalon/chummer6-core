@@ -53,7 +53,7 @@ internal static partial class CharacterCareerQualityGraph
 
     internal static bool TryProject(string characterXml, CharacterCareerQualitySource source,
         CharacterCareerQualityIdentity identity, CharacterCareerQualityOperation operation,
-        int? resolvedArmCount, out Projection? projection)
+        int? resolvedArmCount, out Projection? projection, bool importedCareerEffects5698 = false)
     {
         projection = null;
         if (source is null || identity is null || source.SourceId != identity.SourceId
@@ -82,7 +82,7 @@ internal static partial class CharacterCareerQualityGraph
             string sourceName = acquiring ? string.Empty : target.Instance.SourceName;
             if (!CharacterCreationLegacySourceProjector.TryBuildCareerQualityInstance(source.RawSourceXml,
                     source.SourceId, identity.InternalId, resolvedArmCount, false, out var definition,
-                    out XElement newQuality, out _)
+                    out XElement newQuality, out _, importedCareerEffects5698)
                 || source.Name != definition.Name || source.SourceBook != Scalar(newQuality, "source"))
                 return false;
             // This compiler does not silently dispose of a prompted/sourced instance.
@@ -102,7 +102,7 @@ internal static partial class CharacterCareerQualityGraph
             {
                 Guid id = row.Instance.Identity.InternalId;
                 XElement[] owned = effectsByOwner.GetValueOrDefault(id.ToString("D")) ?? [];
-                if (!ValidateInstance(row.Xml, owned, source, id, resolvedArmCount, out int regularCount))
+                if (!ValidateInstance(row.Xml, owned, source, id, resolvedArmCount, out int regularCount, importedCareerEffects5698))
                     return false;
                 if (owned.Length > regularCount && ++firstLevelOwners > 1) return false;
                 bool remove = operation == CharacterCareerQualityOperation.RemoveAllLevels
@@ -126,7 +126,7 @@ internal static partial class CharacterCareerQualityGraph
                     || effectsByOwner.ContainsKey(identity.InternalId.ToString("D"))) return false;
                 if (!CharacterCreationLegacySourceProjector.TryBuildCareerQualityInstance(source.RawSourceXml,
                     source.SourceId, identity.InternalId, resolvedArmCount, matching.Length == 0,
-                    out _, out newQuality, out var additions)) return false;
+                    out _, out newQuality, out var additions, importedCareerEffects5698)) return false;
                 qualities.Add(newQuality);
                 added.Add(newQuality.ToString(SaveOptions.DisableFormatting));
                 foreach (XElement effect in additions)
@@ -296,13 +296,13 @@ internal static partial class CharacterCareerQualityGraph
     }
 
     private static bool ValidateInstance(XElement row, XElement[] owned, CharacterCareerQualitySource source,
-        Guid id, int? armCount, out int regularCount)
+        Guid id, int? armCount, out int regularCount, bool importedCareerEffects5698 = false)
     {
         regularCount = 0;
         if (!CharacterCreationLegacySourceProjector.TryBuildCareerQualityInstance(source.RawSourceXml,
-                source.SourceId, id, armCount, false, out _, out var expected, out var regular)
+                source.SourceId, id, armCount, false, out _, out var expected, out var regular, importedCareerEffects5698)
             || !CharacterCreationLegacySourceProjector.TryBuildCareerQualityInstance(source.RawSourceXml,
-                source.SourceId, id, armCount, true, out _, out _, out var first)) return false;
+                source.SourceId, id, armCount, true, out _, out _, out var first, importedCareerEffects5698)) return false;
         // Preserve notes, visibility and the original grant origin. Compare every
         // rule-bearing field and owned effect before admitting a mutation/readback.
         foreach (var node in expected.Elements().Where(node => node.Name.LocalName is not

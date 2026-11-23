@@ -45,15 +45,29 @@ public sealed record CharacterCreationCompletionDraftBaseline(
 public sealed record CharacterCreationCompletionDraftEntry(
     CharacterCreationCompletionDraftBaseline Baseline, CharacterCreationCompletionDraftReceipt Receipt);
 
+// Same declared fields and order as the historical anonymous prefix envelope.
+// Naming the root lets validation reuse the existing generated workspace graph.
+internal sealed record CharacterCreationCompletionDraftPrefix(
+    CharacterWorkspaceId WorkspaceId, IReadOnlyList<CharacterCreationCompletionDraftEntry> Entries);
+
+// Preserve the anonymous command envelope's declared types, names and order.
+// A named root can reuse the workspace reader's generated review metadata.
+internal sealed record CharacterCreationCompletionDraftCommandDigest(
+    string Schema, string Mode, CharacterCreationCompletionDraftReview Review,
+    string KeyDigest, bool ExplicitlyConfirmed);
+
 public static class CharacterCreationCompletionDraftRules
 {
+    public static string PrefixDigest(CharacterWorkspaceId workspaceId, IReadOnlyList<CharacterCreationCompletionDraftEntry> entries)
+        => CharacterCreationFinalizationDigest.Compute(new CharacterCreationCompletionDraftPrefix(workspaceId, entries));
+
     public static string CommandDigest(CharacterCreationCompletionDraftApplyRequest request)
         => CommandDigest(request.Schema, request.Review,
             CharacterCreationFinalizationDigest.ComputeIdempotencyKeyDigest(request.IdempotencyKey), request.ExplicitlyConfirmed);
 
     public static string CommandDigest(string schema, CharacterCreationCompletionDraftReview review, string keyDigest, bool explicitlyConfirmed)
-        => CharacterCreationFinalizationDigest.Compute(new
-        { Schema = schema, Mode = "editable-creation", Review = review, KeyDigest = keyDigest, ExplicitlyConfirmed = explicitlyConfirmed });
+        => CharacterCreationFinalizationDigest.Compute(new CharacterCreationCompletionDraftCommandDigest(
+            schema, "editable-creation", review, keyDigest, explicitlyConfirmed));
 
     public static string BaselineDigest(CharacterCreationCompletionDraftBaseline baseline)
         => CharacterCreationFinalizationDigest.Compute(baseline with { BaselineDigest = string.Empty });

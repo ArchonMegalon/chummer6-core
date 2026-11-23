@@ -1,4 +1,5 @@
 using Chummer.Application.Characters;
+using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -8,17 +9,42 @@ namespace Chummer.Infrastructure.Workspaces;
 public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRunRewardService
 {
     private readonly IWorkspaceStore _store;
+    private readonly IOwnerContextLeaseAccessor? _owners;
 
     public WorkspaceCharacterAfterRunRewardService(IWorkspaceStore store)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
+    public WorkspaceCharacterAfterRunRewardService(IWorkspaceStore store, IOwnerContextLeaseAccessor owners)
+        : this(store) => _owners = owners ?? throw new ArgumentNullException(nameof(owners));
+
+    private T WithCurrent<T>(Func<ICharacterAfterRunRewardCurrentEnvironmentStore, IOwnerContextLease, T> action, T unavailable)
+    {
+        try
+        {
+            if (_store is not ICharacterAfterRunRewardCurrentEnvironmentStore current || _owners is null)
+                return unavailable;
+            var stamp = _owners.Capture();
+            if (!_owners.TryAcquire(stamp, out var lease)) return unavailable;
+            using (lease) return action(current, lease);
+        }
+        catch (Exception exception) when (IsStoreFailure(exception)) { return unavailable; }
+    }
+
     public CharacterAfterRunRewardReadResult Read(CharacterWorkspaceId workspaceId)
     {
+        if (_owners is not null)
+            return WithCurrent((current, lease) => current.ReadAfterRunReward(_owners, lease, workspaceId),
+                new CharacterAfterRunRewardReadResult(CharacterAfterRunRewardOutcome.Unavailable, Error: "reward_current_authority_unavailable"));
         WorkspaceStoreReadResult read = ReadStore(workspaceId);
         if (!read.Success || read.Value is not { } saved)
             return new(Map(read.Outcome), Error: read.Error);
+        return ReadSaved(saved);
+    }
+
+    internal static CharacterAfterRunRewardReadResult ReadSaved(WorkspaceStoredDocument saved)
+    {
         if (!IsValidHistory(saved))
             return new(CharacterAfterRunRewardOutcome.Corrupt, Error: "reward_receipt_ledger_corrupt");
         return CharacterAfterRunRewardProjector.TryRead(saved, out var snapshot, out string error)
@@ -31,9 +57,19 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
         ArgumentNullException.ThrowIfNull(request);
         if (!CharacterAfterRunRewardProjector.IsValidPreviewRequest(request))
             return new(CharacterAfterRunRewardOutcome.Conflict, Error: "reward_command_invalid");
+        if (_owners is not null)
+            return WithCurrent((current, lease) => current.PreviewAfterRunReward(_owners, lease, request),
+                new CharacterAfterRunRewardPreviewResult(CharacterAfterRunRewardOutcome.Unavailable, Error: "reward_current_authority_unavailable"));
         WorkspaceStoreReadResult read = ReadStore(request.WorkspaceId);
         if (!read.Success || read.Value is not { } saved)
             return new(Map(read.Outcome), Error: read.Error);
+        return PreviewSaved(saved, request, _store is IWorkspaceAuxiliaryStateAtomicCommitCapability
+            { SupportsWorkspaceAuxiliaryStateAtomicCommit: true });
+    }
+
+    internal static CharacterAfterRunRewardPreviewResult PreviewSaved(WorkspaceStoredDocument saved,
+        CharacterAfterRunRewardPreviewRequest request, bool supportsAtomicCommit, string? binding = null)
+    {
         if (!IsValidHistory(saved))
             return new(CharacterAfterRunRewardOutcome.Corrupt,
                 CurrentWorkspaceRevision: saved.ContentRevision, Error: "reward_receipt_ledger_corrupt");
@@ -43,11 +79,10 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
             request.WorkspaceId, request.OperationId, request.RewardId, snapshot.ContentRevision,
             snapshot.SourceDigest, snapshot.AuxiliaryStateDigest, request.KarmaAmount, request.NuyenAmount,
             request.ExpenseDateLocal, request.Reason, request.ExistingKarmaExpenseId, request.ExistingNuyenExpenseId,
-            Kind: request.Kind);
+            Kind: request.Kind) { ExpectedCurrentBindingDigest = binding };
         if (!CharacterAfterRunRewardProjector.TryPreview(saved, command, out var preview, out error))
             return new(ProjectionOutcome(error), CurrentWorkspaceRevision: saved.ContentRevision, Error: error);
-        if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
-            { SupportsWorkspaceAuxiliaryStateAtomicCommit: true })
+        if (!supportsAtomicCommit)
             return new(CharacterAfterRunRewardOutcome.Unavailable,
                 CurrentWorkspaceRevision: saved.ContentRevision, Error: "reward_atomic_commit_unavailable");
         return new(CharacterAfterRunRewardOutcome.Available, preview, saved.ContentRevision);
@@ -63,6 +98,11 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
         // commands still reach durable lookup before any current-source checks.
         if (!CharacterAfterRunRewardProjector.IsValidCommand(command))
             return new(CharacterAfterRunRewardOutcome.Conflict, Error: "reward_command_invalid");
+        if (_owners is not null)
+            return WithCurrent((current, lease) => current.CommitAfterRunReward(_owners, lease, command, cancellationToken),
+                new CharacterAfterRunRewardResult(CharacterAfterRunRewardOutcome.Unavailable, Error: "reward_current_authority_unavailable"));
+        if (command.ExpectedCurrentBindingDigest is not null)
+            return new(CharacterAfterRunRewardOutcome.Unavailable, Error: "reward_current_authority_unavailable");
         string digest = command.CommandDigest();
         CharacterAfterRunRewardResult prior = Lookup(command.WorkspaceId, command.OperationId, digest);
         if (prior.Outcome != CharacterAfterRunRewardOutcome.NotFound)
@@ -128,9 +168,17 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
         if (!CharacterAfterRunRewardProjector.IsValidWorkspaceId(workspaceId)
             || operationId == Guid.Empty || !CharacterAfterRunRewardProjector.IsDigest(commandDigest))
             return new(CharacterAfterRunRewardOutcome.Corrupt, Error: "reward_lookup_invalid");
+        if (_owners is not null)
+            return WithCurrent((current, lease) => current.LookupAfterRunReward(_owners, lease, workspaceId, operationId, commandDigest),
+                new CharacterAfterRunRewardResult(CharacterAfterRunRewardOutcome.Unavailable, Error: "reward_current_authority_unavailable"));
         WorkspaceStoreReadResult read = ReadStore(workspaceId);
         if (!read.Success || read.Value is not { } saved)
             return new(Map(read.Outcome), Error: read.Error);
+        return LookupSaved(saved, operationId, commandDigest);
+    }
+
+    internal static CharacterAfterRunRewardResult LookupSaved(WorkspaceStoredDocument saved, Guid operationId, string commandDigest)
+    {
         if (!IsValidHistory(saved))
             return new(CharacterAfterRunRewardOutcome.Corrupt,
                 CurrentWorkspaceRevision: saved.ContentRevision, Error: "reward_receipt_ledger_corrupt");
@@ -182,7 +230,7 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
         }
     }
 
-    private static bool IsValidHistory(WorkspaceStoredDocument saved)
+    internal static bool IsValidHistory(WorkspaceStoredDocument saved)
     {
         IReadOnlyList<CharacterAfterRunRewardReceipt>? ledger = saved.Document.AuxiliaryState.CharacterAfterRunRewardReceipts;
         if (!CharacterAfterRunRewardReceiptLedgerIntegrity.IsValidLedger(saved.Id, saved.ContentRevision, ledger))
@@ -196,7 +244,7 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
                        CharacterAfterRunRewardProjector.PayloadDigest(saved.Document.Content), StringComparison.Ordinal));
     }
 
-    private static CharacterAfterRunRewardOutcome ProjectionOutcome(string error)
+    internal static CharacterAfterRunRewardOutcome ProjectionOutcome(string error)
         => error switch
         {
             "reward_workspace_corrupt" or "reward_receipt_ledger_corrupt" or "reward_projection_failed"
@@ -208,7 +256,7 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
             _ => CharacterAfterRunRewardOutcome.Conflict
         };
 
-    private static CharacterAfterRunRewardOutcome Map(WorkspaceOperationOutcome outcome)
+    internal static CharacterAfterRunRewardOutcome Map(WorkspaceOperationOutcome outcome)
         => outcome switch
         {
             WorkspaceOperationOutcome.Missing => CharacterAfterRunRewardOutcome.Missing,

@@ -56,6 +56,18 @@ public static class CharacterVehicleWorkshopRules
         else if (chassis.ProjectionStatus != CharacterVehicleWorkshopProjectionStatus.Exact)
             blockers.Add(UnsupportedReason(chassis.UnsupportedReason));
 
+        if (chassis is not null && chassis.SourceDroneModificationSlots is not (>= 0))
+            blockers.Add("The source drone modification slots are absent or invalid; reload the workshop catalog.");
+
+        if (chassis is not null && chassis.SourceAdditionalModificationSlots is not (>= 0))
+            blockers.Add("The source additional modification slots are absent or invalid; reload the workshop catalog.");
+
+        if (chassis is not null && !HasValidCategorySlots(chassis))
+            blockers.Add("The source category modification slots are absent or invalid; reload the workshop catalog.");
+        if (chassis?.SourceCategoryModificationSlots?.HasSourceFields == true
+            && ((selection.Modifications?.Count ?? 0) != 0 || (selection.WeaponMounts?.Count ?? 0) != 0))
+            blockers.Add("Additional modification and weapon-mount selection for category-slot chassis is not yet available.");
+
         if (chassis is not null
             && chassis.Posture == CharacterVehicleChassisPosture.GmApprovedCustom
             && (!IsCanonicalDigest(selection.GmAuthorityDigest)
@@ -226,7 +238,57 @@ public static class CharacterVehicleWorkshopRules
             : unsigned;
     }
 
+    /// <summary>Factory children are included and consume zero category slots.
+    /// This returns the unmodified chassis capacity, never a pooled budget.</summary>
+    public static bool TryGetCategoryModificationCapacity(CharacterVehicleWorkshopChassisEntry chassis,
+        CharacterVehicleModificationCategory category, out int capacity)
+    {
+        capacity = 0;
+        if (chassis.SourceCategoryModificationSlots is not { } slots || chassis.Body < 0
+            || !Enum.IsDefined(category))
+            return false;
+        int adjustment = category switch
+        {
+            CharacterVehicleModificationCategory.Powertrain => slots.Powertrain,
+            CharacterVehicleModificationCategory.Protection => slots.Protection,
+            CharacterVehicleModificationCategory.Weapons => slots.Weapons,
+            CharacterVehicleModificationCategory.Body => slots.Body,
+            CharacterVehicleModificationCategory.Electromagnetic => slots.Electromagnetic,
+            CharacterVehicleModificationCategory.Cosmetic => slots.Cosmetic,
+            _ => 0
+        };
+        long total = (long)chassis.Body + adjustment;
+        if (total < 0 || total > int.MaxValue)
+            return false;
+        capacity = (int)total;
+        return true;
+    }
+
+    public static bool HasValidCategorySlots(CharacterVehicleWorkshopChassisEntry chassis)
+        => chassis.SourceCategoryModificationSlots is { } slots
+            && (slots.HasSourceFields || slots == new CharacterVehicleWorkshopCategorySlots(0, 0, 0, 0, 0, 0, false))
+            && Enum.GetValues<CharacterVehicleModificationCategory>()
+                .All(category => TryGetCategoryModificationCapacity(chassis, category, out _));
+
     public static string ComputeCatalogDigest(CharacterVehicleWorkshopCatalog catalog)
+        => ComputeCatalogDigest(catalog, includeSourceSlots: true, includeSourceVariants: true, includeCategorySlots: true);
+
+    /// <summary>Historical v3 catalog identity, exclusively for verifying existing receipts.
+    /// New quotes and commits must use ComputeCatalogDigest.</summary>
+    public static string ComputeLegacySlotCatalogDigest(CharacterVehicleWorkshopCatalog catalog)
+        => ComputeCatalogDigest(catalog, includeSourceSlots: false, includeSourceVariants: false);
+
+    /// <summary>2259 v3 identity before seats/addslots projection changed, for history only.
+    /// Never use this identity to authorize a new purchase.</summary>
+    public static string ComputeLegacyVariantCatalogDigest(CharacterVehicleWorkshopCatalog catalog)
+        => ComputeCatalogDigest(catalog, includeSourceSlots: true, includeSourceVariants: false);
+
+    /// <summary>2281/2296 identity before category authority. Historical receipts only.</summary>
+    public static string ComputeLegacyCategoryCatalogDigest(CharacterVehicleWorkshopCatalog catalog)
+        => ComputeCatalogDigest(catalog, includeSourceSlots: true, includeSourceVariants: true);
+
+    private static string ComputeCatalogDigest(CharacterVehicleWorkshopCatalog catalog, bool includeSourceSlots, bool includeSourceVariants,
+        bool includeCategorySlots = false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         CharacterVehicleWorkshopSourceBinding binding = catalog.Binding
@@ -251,7 +313,7 @@ public static class CharacterVehicleWorkshopRules
             binding.Exact.ToString(CultureInfo.InvariantCulture)
         };
         lines.AddRange((catalog.Chassis ?? []).OrderBy(item => item?.SourceId.Value ?? Guid.Empty)
-            .Select(item => item is null ? "null-chassis" : CanonicalChassis(item)));
+            .Select(item => item is null ? "null-chassis" : CanonicalChassis(item, includeSourceSlots, includeSourceVariants, includeCategorySlots)));
         lines.AddRange((catalog.Modifications ?? []).OrderBy(item => item?.SourceId.Value ?? Guid.Empty)
             .Select(item => item is null ? "null-modification" : CanonicalModification(item)));
         lines.AddRange((catalog.WeaponMountComponents ?? []).OrderBy(item => item?.SourceId.Value ?? Guid.Empty)
@@ -440,8 +502,21 @@ public static class CharacterVehicleWorkshopRules
         return Digest(string.Join("\n", lines));
     }
 
-    private static string CanonicalChassis(CharacterVehicleWorkshopChassisEntry item)
+    private static string CanonicalChassis(CharacterVehicleWorkshopChassisEntry item, bool includeSourceSlots, bool includeSourceVariants,
+        bool includeCategorySlots)
     {
+        if (!includeCategorySlots && includeSourceVariants && item.LegacyCategoryProjection is { } previous)
+            item = item with { ModificationSlots = previous.ModificationSlots,
+                ProjectionStatus = previous.ProjectionStatus, UnsupportedReason = previous.UnsupportedReason };
+        if (!includeSourceVariants && item.LegacyVariantProjection is { } historical)
+        {
+            item = item with
+            {
+                ModificationSlots = historical.ModificationSlots,
+                ProjectionStatus = historical.ProjectionStatus,
+                UnsupportedReason = historical.UnsupportedReason
+            };
+        }
         CharacterVehicleWorkshopAvailability availability = item.Availability
             ?? new CharacterVehicleWorkshopAvailability(-1, (CharacterVehicleWorkshopLegality)(-1), false);
         string chassis = string.Join("|", "chassis", item.SourceId.Value.ToString("D"), item.Kind, item.Posture,
@@ -451,6 +526,29 @@ public static class CharacterVehicleWorkshopRules
             item.Cost.ToString(CultureInfo.InvariantCulture), availability.Value,
             availability.Legality, availability.AddToParent, item.SourceBook, item.Page, item.GmAuthorityDigest,
             item.ProjectionStatus, item.UnsupportedReason);
+        if (includeSourceSlots)
+            chassis += "|" + (item.SourceDroneModificationSlots?.ToString(CultureInfo.InvariantCulture) ?? "unresolved-modslots");
+        if (includeSourceVariants)
+        {
+            chassis += "|" + (item.SourceAdditionalModificationSlots?.ToString(CultureInfo.InvariantCulture) ?? "unresolved-addslots");
+            chassis += item.LegacyVariantProjection is { } legacy
+                ? "|legacy-variants|" + legacy.ModificationSlots.ToString(CultureInfo.InvariantCulture)
+                    + "|" + legacy.ProjectionStatus + "|" + legacy.UnsupportedReason
+                : "|unresolved-legacy-variants";
+        }
+        if (includeCategorySlots)
+        {
+            chassis += item.SourceCategoryModificationSlots is { } slots
+                ? "|category-slots-v1|" + string.Join("|", slots.Powertrain.ToString(CultureInfo.InvariantCulture),
+                    slots.Protection.ToString(CultureInfo.InvariantCulture), slots.Weapons.ToString(CultureInfo.InvariantCulture),
+                    slots.Body.ToString(CultureInfo.InvariantCulture), slots.Electromagnetic.ToString(CultureInfo.InvariantCulture),
+                    slots.Cosmetic.ToString(CultureInfo.InvariantCulture), slots.HasSourceFields.ToString(CultureInfo.InvariantCulture))
+                : "|unresolved-category-slots";
+            chassis += item.LegacyCategoryProjection is { } previousProjection
+                ? "|legacy-categories|" + previousProjection.ModificationSlots.ToString(CultureInfo.InvariantCulture)
+                    + "|" + previousProjection.ProjectionStatus + "|" + previousProjection.UnsupportedReason
+                : "|unresolved-legacy-categories";
+        }
         return string.Join("\n", new[] { chassis }
             .Concat((item.FactoryGears ?? [])
                 .OrderBy(gear => gear?.Ordinal ?? int.MinValue)

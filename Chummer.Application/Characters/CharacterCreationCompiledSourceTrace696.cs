@@ -55,6 +55,26 @@ internal sealed class CharacterCreationCompiledSourceTrace : IDisposable
         return Array.AsReadOnly(effects.ToArray());
     }
 
+    internal static void ObserveLoadout(IReadOnlyList<CharacterCreationLoadoutLine> lines,
+        IReadOnlyList<XElement> weapons, IReadOnlyList<XElement> armor, string compilerSeed)
+    {
+        if (Current.Value is not { disposed: false } trace) return;
+        foreach (var line in lines.OrderBy(row => row.OptionId, StringComparer.Ordinal))
+        {
+            string scope = line.Kind == CharacterCreationLoadoutKinds.Weapon ? "weapons" : "armor";
+            var owners = (line.Kind == CharacterCreationLoadoutKinds.Weapon ? weapons : armor)
+                .Where(node => node.Element("sourceid")?.Value == line.SourceId.ToString("D")).ToArray();
+            if (!CharacterCreationLoadoutRules.IsValidLine(line) || owners.Length != line.Quantity
+                || trace.effects.Count >= 8192
+                || trace.effects.Any(row => row.Scope == scope && row.SourceId == line.SourceId.ToString("D")))
+                throw new InvalidDataException("Ambiguous compiled loadout source occurrence.");
+            // Observe only the actual emitted purchase owners, after the complete
+            // canonical projector succeeded. The caller still verifies that no
+            // retained or additional owner is omitted from source coverage.
+            trace.effects.Add(new(line, owners, compilerSeed));
+        }
+    }
+
     public void Dispose()
     {
         if (disposed) return;
@@ -80,12 +100,30 @@ public sealed class CharacterCreationCompiledSourceEffect
         CompilerSeed = compilerSeed;
     }
 
-    internal CharacterCreationMagicResonanceOptionFinalizationSource Source { get; }
+    internal CharacterCreationCompiledSourceEffect(CharacterCreationLoadoutLine line,
+        IReadOnlyList<XElement> owners, string compilerSeed)
+    {
+        LoadoutLine = line with { SourceAnchorIds = Array.AsReadOnly(line.SourceAnchorIds.ToArray()) };
+        LoadoutInstances = new(line.OptionId, Array.AsReadOnly(owners.Select(node => Guid.Parse(node.Element("guid")!.Value)).ToArray()));
+        Scope = line.Kind == CharacterCreationLoadoutKinds.Weapon ? "weapons" : "armor";
+        SourceXml = XElement.Parse(line.SourceNodeXml).ToString(SaveOptions.DisableFormatting);
+        SourceCategoryXml = XElement.Parse(line.SourceCategoryXml).ToString(SaveOptions.DisableFormatting);
+        EffectXml = new XElement(line.Kind == CharacterCreationLoadoutKinds.Weapon ? "weapons" : "armors",
+            owners.Select(node => new XElement(node))).ToString(SaveOptions.DisableFormatting);
+        CompilerSeed = compilerSeed;
+    }
+
+    internal CharacterCreationMagicResonanceOptionFinalizationSource Source { get; } = null!;
+    internal CharacterCreationLoadoutLine? LoadoutLine { get; }
+    internal CharacterCreationLoadoutInstance? LoadoutInstances { get; }
     internal string CompilerSeed { get; }
     [JsonIgnore] public string Scope { get; }
-    [JsonIgnore] public string SourceId => Source.Identity.SourceId;
+    [JsonIgnore] public string SourceId => LoadoutLine?.SourceId.ToString("D") ?? Source.Identity.SourceId;
     [JsonIgnore] public string SourceXml { get; }
+    [JsonIgnore] public string? SourceCategoryXml { get; }
+    [JsonIgnore] public string? SourceCategory => LoadoutLine?.Category;
     [JsonIgnore] public string EffectXml { get; }
-    [JsonIgnore] public string ProjectionDigest => Source.ProjectionDigest;
+    [JsonIgnore] public string ProjectionDigest => LoadoutLine is null ? Source.ProjectionDigest
+        : CharacterCreationFinalizationDigest.Compute(new { LoadoutLine, LoadoutInstances, CompilerSeed, SourceXml, SourceCategoryXml, EffectXml });
     public override string ToString() => nameof(CharacterCreationCompiledSourceEffect);
 }

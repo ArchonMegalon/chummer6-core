@@ -388,4 +388,106 @@ public sealed class CharacterCreationDwarfPriorityTests
         Assert.IsFalse(deltas.Any(item => item.DeltaId.StartsWith("priority-metatype-bonus:", StringComparison.Ordinal)
                                           && item.DeltaId != "priority-metatype-bonus:LifestyleCost"));
     }
+    [TestMethod]
+    public void Heritage10011_rehashed_base_bonus_and_source_tampering_cannot_validate()
+    {
+        using var context = ReadyContext.Create(true, metatypeName: "Dwarf",
+            rankAssignments: RanksWithHeritageC);
+        var workspace = context.Store.Get(context.WorkspaceId).Value!;
+        var source = context.Resolver.TryCreateContext(workspace.Document.Content)!;
+        Assert.IsTrue(source.TryResolveCreationPrerequisiteAuthority(out var authority));
+        var draft = workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
+        var heritage = draft.HeritageSelection!;
+        Assert.AreEqual(new CharacterCreationMetatypeBaseBonuses(0, 0, 20), heritage.BaseBonuses);
+        Assert.IsTrue(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(draft, workspace.Id,
+            workspace.ContentRevision, draft.BaseRawCharacterXmlDigest, authority));
+        var roundTrip = JsonSerializer.Deserialize<CharacterCreationPrerequisiteDraft>(JsonSerializer.Serialize(draft))!;
+        Assert.IsTrue(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(roundTrip, workspace.Id,
+            workspace.ContentRevision, draft.BaseRawCharacterXmlDigest, authority));
+
+        foreach (var changed in new[]
+        {
+            heritage with { BaseBonuses = null },
+            heritage with { BaseBonuses = new(0, 0, 0) },
+            heritage with { BaseBonuses = new(0, 0, -20) },
+            heritage with { BaseBonuses = new(1, 0, 20) },
+            heritage with { BaseBonuses = new(0, 1, 20) },
+            heritage with { BaseBonuses = new(0, 0, 20) { ConditionOverflow5497 = 1 } },
+            heritage with { MetatypeSourceNodeDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("foreign source") }
+        })
+        {
+            var forged = draft with { HeritageSelection = changed };
+            forged = forged with { DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(forged) };
+            Assert.IsFalse(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(forged, workspace.Id,
+                workspace.ContentRevision, draft.BaseRawCharacterXmlDigest, authority),
+                "Rehashing the caller's draft must not replace fresh source authority.");
+        }
+        Assert.AreEqual(workspace.Document.AuxiliaryStateDigest,
+            context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Heritage10011_null_and_zero_materialization_are_no_ops_and_negative_values_do_not_write()
+    {
+        using var context = ReadyContext.Create(true, metatypeName: "Human");
+        var workspace = context.Store.Get(context.WorkspaceId).Value!;
+        var heritage = workspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!.HeritageSelection!;
+        Assert.IsNull(heritage.BaseBonuses);
+        using (var json = JsonDocument.Parse(JsonSerializer.Serialize(heritage)))
+            Assert.IsFalse(json.RootElement.TryGetProperty("BaseBonuses", out _),
+                "Absent bonuses must preserve the historical JSON/digest shape.");
+
+        foreach (var bonuses in new CharacterCreationMetatypeBaseBonuses?[]
+        {
+            null, new(0, 0, 0), new(-1, 0, 20), new(0, -1, 20), new(0, 0, -1)
+        })
+        {
+            var root = XElement.Parse("<character><name>unchanged</name></character>");
+            string before = root.ToString(SaveOptions.DisableFormatting);
+            var deltas = new List<CharacterCreationFinalizationDelta>();
+            int order = 7;
+            bool applied = CharacterCreationMetatypeBaseBonusMaterializer.TryApply(
+                heritage with { BaseBonuses = bonuses }, root, deltas, ref order);
+            Assert.AreEqual(bonuses is null || bonuses == new CharacterCreationMetatypeBaseBonuses(0, 0, 0), applied);
+            Assert.AreEqual(before, root.ToString(SaveOptions.DisableFormatting));
+            Assert.AreEqual(0, deltas.Count);
+            Assert.AreEqual(7, order);
+        }
+    }
+
+    [TestMethod]
+    public void Heritage10011_materializer_retains_armor_reach_and_lifestyle_source_anchors()
+    {
+        using var context = ReadyContext.Create(true, metatypeName: "Dwarf",
+            rankAssignments: RanksWithHeritageC);
+        var draft = context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
+        // Exercise the shared materialization kernel, not Priority admission:
+        // a Dwarf source with armor or reach remains rejected by the parser tests.
+        var heritage = draft.HeritageSelection! with { BaseBonuses = new(1, 2, 20) };
+        var root = new XElement("character");
+        var deltas = new List<CharacterCreationFinalizationDelta>();
+        int order = 0;
+        Assert.IsTrue(CharacterCreationMetatypeBaseBonusMaterializer.TryApply(heritage, root, deltas, ref order));
+        Assert.AreEqual(3, root.Element("improvements")!.Elements("improvement").Count());
+        Assert.AreEqual(3, deltas.Count);
+        foreach (var (type, value, unique, field) in new[]
+        {
+            ("Armor", "1", "group0", "armor"),
+            ("Reach", "2", "", "reach"),
+            ("LifestyleCost", "20", "", "lifestylecost")
+        })
+        {
+            var improvement = root.Element("improvements")!.Elements("improvement")
+                .Single(row => row.Element("improvementttype")!.Value == type);
+            Assert.AreEqual(value, improvement.Element("val")!.Value);
+            Assert.AreEqual(unique, improvement.Element("unique")?.Value ?? string.Empty);
+            Assert.AreEqual("Metatype", improvement.Element("improvementsource")!.Value);
+            Assert.AreEqual(heritage.MetatypeSourceId, improvement.Element("sourcename")!.Value);
+            var delta = deltas.Single(row => row.DeltaId == "priority-metatype-bonus:" + type);
+            Assert.AreEqual(value, delta.AfterValue);
+            CollectionAssert.AreEqual(new[] { "metatypes.xml#metatype:" + heritage.MetatypeSourceId + "/bonus/" + field },
+                delta.SourceAnchorIds.ToArray());
+        }
+    }
+
 }

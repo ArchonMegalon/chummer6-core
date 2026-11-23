@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Chummer.Contracts.Characters;
 
 /// <summary>
@@ -72,7 +74,7 @@ public static class CharacterCreationLifeModuleStageIds
     public const string SelectionFinished = "life-module-selection-finished";
 
     public static IReadOnlyList<string> RequiredStages { get; } =
-    [Nationality, FormativeYears, TeenYears, FurtherEducation];
+    Array.AsReadOnly(new[] { Nationality, FormativeYears, TeenYears, FurtherEducation });
 }
 
 public sealed record CharacterCreationBudgetState(
@@ -109,7 +111,14 @@ public sealed record CharacterCreationLegalOption(
     IReadOnlyList<string> SourceAnchorIds,
     string? SourceId = null,
     int? SourcePage = null,
-    string? VersionId = null);
+    string? VersionId = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeSelectionIdentity? MetatypeIdentity { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ParentMetatypeLabel { get; init; }
+}
 
 public sealed record CharacterCreationWizardStageState(
     string StepId,

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -85,7 +86,11 @@ public sealed record CharacterCareerSkillSpecializationInput(
     CharacterCareerSkillSpecializationSelection Selection,
     string RawCharacterState,
     string RawSourceState,
-    string RawRuleState);
+    string RawRuleState)
+{
+    /// <summary>Validated specialization names on this saved skill in the current catalog revision.</summary>
+    public IReadOnlyList<string> CurrentSpecializations { get; init; } = [];
+}
 
 public enum CharacterCareerSkillSpecializationBlocker
 {
@@ -151,6 +156,49 @@ public sealed record CharacterCareerSkillSpecializationPlan(
     string ExpectedLogicalRevision);
 
 /// <summary>
+/// Stack-scoped quote batch for repeated probes of one skill row. Retains at most two
+/// validated raw strings (each at most MaximumRuleTextLength UTF-16 code units) and their
+/// digests. Only the identical immutable string instance can reuse a raw-state digest.
+/// One bounded, detached rule-input preparation also avoids sorting/encoding/hashing the
+/// same rule binding for each selection at a rating. Every quote still validates its
+/// complete input and evaluates its rules; this is not an authority or freshness cache.
+/// Discard the batch at the end of the row, before any later evaluation.
+/// </summary>
+public ref struct CharacterCareerSkillSpecializationQuoteBatch
+{
+    private string? characterState;
+    private string? characterRevision;
+    private string? sourceState;
+    private string? sourceRevision;
+    private CharacterCareerSkillSpecializationRules.RuleDigestPreparation3261? rulePreparation;
+
+    public bool TryCreateQuote(
+        CharacterCareerSkillSpecializationInput? input,
+        out CharacterCareerSkillSpecializationQuote quote)
+        => CharacterCareerSkillSpecializationRules.TryCreateQuote(input, ref this, out quote);
+
+    internal string GetCharacterRevision(string value)
+        => GetRevision(value, ref characterState, ref characterRevision);
+
+    internal string GetSourceRevision(string value)
+        => GetRevision(value, ref sourceState, ref sourceRevision);
+
+    internal string GetRuleDigest(CharacterCareerSkillSpecializationInput input)
+        => CharacterCareerSkillSpecializationRules.PrepareRuleDigest3261(input, ref rulePreparation);
+
+    private static string GetRevision(string value, ref string? state, ref string? revision)
+    {
+        if (!ReferenceEquals(value, state))
+        {
+            string computed = CharacterCareerSkillSpecializationRules.Sha256(value);
+            state = value;
+            revision = computed;
+        }
+        return revision!;
+    }
+}
+
+/// <summary>
 /// Deterministic Chummer5 Career authority for adding an active- or knowledge-skill
 /// specialization. It preserves CanHaveSpecs eligibility, the separate settings costs,
 /// category add/multiplier improvements, Chummer rounding, group-break projection, and the
@@ -172,6 +220,17 @@ public static class CharacterCareerSkillSpecializationRules
     public static bool TryCreateQuote(
         CharacterCareerSkillSpecializationInput? input,
         out CharacterCareerSkillSpecializationQuote quote)
+    {
+        var batch = new CharacterCareerSkillSpecializationQuoteBatch();
+        // Independent one-shot quotes keep the original canonical preparation.
+        return TryCreateQuote(input, ref batch, out quote, prepareRuleDigest: false);
+    }
+
+    internal static bool TryCreateQuote(
+        CharacterCareerSkillSpecializationInput? input,
+        ref CharacterCareerSkillSpecializationQuoteBatch batch,
+        out CharacterCareerSkillSpecializationQuote quote,
+        bool prepareRuleDigest = true)
     {
         quote = UnavailableQuote();
         if (!IsValidInput(input))
@@ -212,9 +271,9 @@ public static class CharacterCareerSkillSpecializationRules
             validInput.SkillGroup,
             validInput.EnabledSkillGroupMemberCount,
             validInput.Settings.SpecializationsBreakSkillGroups);
-        string characterRevision = Sha256(validInput.RawCharacterState);
-        string sourceRevision = Sha256(validInput.RawSourceState);
-        string ruleDigest = CalculateRuleDigest(validInput);
+        string characterRevision = batch.GetCharacterRevision(validInput.RawCharacterState);
+        string sourceRevision = batch.GetSourceRevision(validInput.RawSourceState);
+        string ruleDigest = prepareRuleDigest ? batch.GetRuleDigest(validInput) : CalculateRuleDigest(validInput);
         string logicalRevision = CalculateLogicalRevision(
             validInput.Identity,
             validInput.Selection,
@@ -580,6 +639,83 @@ public static class CharacterCareerSkillSpecializationRules
     private static int StandardRound(decimal value)
         => decimal.ToInt32(value >= 0m ? decimal.Ceiling(value) : decimal.Floor(value));
 
+    // FutureSkillCosts1949 supplies ordinary arrays from the retained source and its
+    // per-row modifier projection. Only these non-callback collections qualify.
+    // Every call still performs IsValidInput and the rules above, then compares ALL
+    // canonical rule fields and every current array element with detached values.
+    // No caller-owned collection, quote, validation result or execution receipt is
+    // retained. Other collection implementations keep the original observation path.
+    // The cap bounds retained references, not admissible inputs; larger inputs replay.
+    private const int MaximumPreparedRuleEntries3261 = 4096;
+
+    internal sealed record RuleDigestPreparation3261(
+        CharacterCareerSkillIdentity Identity, string DictionaryKey, string SkillCategory,
+        string SkillGroup, int TotalBaseRating, int EnabledSkillGroupMemberCount,
+        bool SkillSpecializationsBlocked, bool SkillCategorySpecializationsBlocked,
+        CharacterCareerSkillSpecializationSettings Settings,
+        ImmutableArray<CharacterCareerSkillSpecializationModifier> Modifiers,
+        ImmutableArray<CharacterCareerSkillSpecializationOption> Options,
+        string RawRuleState, string Digest)
+    {
+        internal bool Matches(CharacterCareerSkillSpecializationInput input,
+            CharacterCareerSkillSpecializationModifier[] modifiers,
+            CharacterCareerSkillSpecializationOption[] options)
+            => Identity == input.Identity && DictionaryKey == input.DictionaryKey
+                && SkillCategory == input.SkillCategory && SkillGroup == input.SkillGroup
+                && TotalBaseRating == input.TotalBaseRating
+                && EnabledSkillGroupMemberCount == input.EnabledSkillGroupMemberCount
+                && SkillSpecializationsBlocked == input.SkillSpecializationsBlocked
+                && SkillCategorySpecializationsBlocked == input.SkillCategorySpecializationsBlocked
+                && Settings == input.Settings && RawRuleState == input.RawRuleState
+                && ModifiersMatch3268(Modifiers.AsSpan(), modifiers.AsSpan())
+                && Options.AsSpan().SequenceEqual(options.AsSpan());
+    }
+
+    private static bool ModifiersMatch3268(
+        ReadOnlySpan<CharacterCareerSkillSpecializationModifier> before,
+        ReadOnlySpan<CharacterCareerSkillSpecializationModifier> after)
+    {
+        if (before.Length != after.Length) return false;
+        Span<int> beforeBits = stackalloc int[4];
+        Span<int> afterBits = stackalloc int[4];
+        for (int index = 0; index < before.Length; index++)
+        {
+            // Record equality covers every field but treats decimal scales as equal.
+            // The historical invariant text encoder preserves scale, so require the
+            // exact decimal representation too. A conservative cache miss is safe.
+            if (before[index] != after[index]) return false;
+            decimal.GetBits(before[index].Value, beforeBits);
+            decimal.GetBits(after[index].Value, afterBits);
+            if (!beforeBits.SequenceEqual(afterBits)) return false;
+        }
+        return true;
+    }
+
+    internal static string PrepareRuleDigest3261(CharacterCareerSkillSpecializationInput input,
+        ref RuleDigestPreparation3261? prepared)
+    {
+        if (input.Modifiers is not CharacterCareerSkillSpecializationModifier[] modifiers
+            || input.AvailableOptions is not CharacterCareerSkillSpecializationOption[] options
+            || modifiers.Length > MaximumPreparedRuleEntries3261
+            || options.Length > MaximumPreparedRuleEntries3261 - modifiers.Length)
+        {
+            prepared = null;
+            return CalculateRuleDigest(input);
+        }
+        if (prepared is not null && prepared.Matches(input, modifiers, options)) return prepared.Digest;
+        prepared = null;
+        var frozenModifiers = modifiers.ToImmutableArray();
+        var frozenOptions = options.ToImmutableArray();
+        // Bind the retained preparation to the very same detached values passed to
+        // the unchanged canonical encoder, never to a later second collection read.
+        string digest = CalculateRuleDigest(input with { Modifiers = frozenModifiers, AvailableOptions = frozenOptions });
+        prepared = new(input.Identity, input.DictionaryKey, input.SkillCategory, input.SkillGroup,
+            input.TotalBaseRating, input.EnabledSkillGroupMemberCount, input.SkillSpecializationsBlocked,
+            input.SkillCategorySpecializationsBlocked, input.Settings, frozenModifiers, frozenOptions,
+            input.RawRuleState, digest);
+        return digest;
+    }
+
     private static string CalculateRuleDigest(CharacterCareerSkillSpecializationInput input)
     {
         IEnumerable<string> modifiers = input.Modifiers
@@ -688,7 +824,7 @@ public static class CharacterCareerSkillSpecializationRules
         => value is { Length: RevisionHexLength }
             && value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
-    private static string Sha256(string value)
+    internal static string Sha256(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))
             .ToLowerInvariant();
 

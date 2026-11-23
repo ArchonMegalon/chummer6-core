@@ -7,7 +7,7 @@ public sealed partial class CharacterCreationLifestylesService
     // Private execution state, never a DTO/receipt or an input to archive replay.
     // Price invokes the existing consumer once. Full review and selected replay
     // each retain their own invocation; no second upstream preparation is needed.
-    internal sealed class CompleteGraphExecution
+    internal sealed partial class CompleteGraphExecution
     {
         private readonly SelectedCompletionLifestylesPricingInput input;
         private readonly SelectedCompletionLifestylesPrice price;

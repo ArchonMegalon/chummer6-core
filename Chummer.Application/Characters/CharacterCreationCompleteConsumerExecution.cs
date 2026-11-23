@@ -32,8 +32,17 @@ internal sealed class CharacterCreationCompleteConsumerExecution
     private readonly string? selectedEffects;
     // Assigned once by Capture, after the other canonical consumers exist.
     private IReadOnlyDictionary<string, string>? ruleSources;
+    private IReadOnlySet<string> inactiveAmendments = new HashSet<string>(StringComparer.Ordinal);
     private readonly CharacterCreationPolicyConsumption? canonicalConsumption955;
     private readonly IReadOnlyDictionary<O, string> additionalConsumers;
+    private CharacterCreationIdentityEvaluation? identity;
+    private CharacterCreationAmmunitionEvaluation? ammunition;
+
+    internal CharacterCreationIdentityEvaluation? IdentityFor(CharacterCreationCompleteAssessment authority)
+        => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority) ? identity : null;
+
+    internal CharacterCreationAmmunitionEvaluation? AmmunitionFor(CharacterCreationCompleteAssessment authority)
+        => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority) ? ammunition : null;
 
     private CharacterCreationCompleteConsumerExecution(CharacterCreationCompleteAssessment authority,
         IReadOnlyDictionary<string, string> limits, string? skillPoints, string? attributeSpending,
@@ -72,6 +81,7 @@ internal sealed class CharacterCreationCompleteConsumerExecution
         CharacterCreationLifestylesService.CompleteGraphExecution? lifestyles = null,
         CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null)
     {
+        CharacterCreationCompletionCost3340.Log.Checkpoint(40); // cost3340 consumer.full.begin
         if (authority.Schema is not (CharacterCreationCompleteAssessment.SchemaV2 or CharacterCreationCompleteAssessment.SchemaV3 or CharacterCreationCompleteAssessment.SchemaV4) || review.Blockers.Count != 0
             || review.Skills is null || review.UpstreamBudget is null
             || inputs.SnapshotDigest != CharacterCreationCompletionReviewRules.ComputeInputsDigest(inputs)
@@ -79,15 +89,20 @@ internal sealed class CharacterCreationCompleteConsumerExecution
             || !CharacterCreationEffectivePolicyValidation.IsValid(inputs.EffectivePolicy!, inputs)
             || !Same(authority, CharacterCreationCompleteAssessmentService.FromFullAuthority(inputs, review.Request, ruleSourceExecution)))
             return null;
+        CharacterCreationCompletionCost3340.Log.Checkpoint(41); // cost3340 consumer.admission.returned
         var selected = CharacterCreationSelectedPolicyProjection.FromFull(inputs,
             CharacterCreationCompletionPreservationRules.SnapshotOriginal(inputs));
         var skills = ExecuteSkills(inputs.Skills, review.Request.Selections, inputs.EffectivePolicy!,
             review.Skills, review.UpstreamBudget.Qualities.Qualities,
             (inputs.Magic.SelectedTalent.GrantedQualitySources ?? []).Select(row => row.CanonicalSourceXml),
             cancellationToken, authority.Schema == CharacterCreationCompleteAssessment.SchemaV4);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(42); // cost3340 consumer.skills.returned
         var qualityLimit947 = Q947.ExecuteFull(inputs, review, authority, out var qualities, cancellationToken);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(43); // cost3340 consumer.quality.returned
         var funding = CharacterCreationResourcesService.CompleteFundingExecution.FromFull(inputs, review, authority, cancellationToken, lifestyles, ruleSourceExecution);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(44); // cost3340 consumer.funding.returned
         var gear = CharacterCreationGearService.CompleteCostExecution.FromFull(inputs, review, authority, cancellationToken, ruleSourceExecution);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(45); // cost3340 consumer.gear.returned
         string? creationLifecycle = null;
         if (review.Request.AdditionalConsumerExecutionSchema == CharacterCreationCompletionReviewSchemas.AdditionalConsumerExecutionV1
             && review.Request.OriginalCharacterExecutionSchema == CharacterCreationCompletionReviewSchemas.OriginalCharacterExecutionV1
@@ -95,14 +110,15 @@ internal sealed class CharacterCreationCompleteConsumerExecution
             && funding?.LoadoutEvaluationDigest is not null
             && CharacterCreationOriginalCharacterSource.TryFromFull(inputs, out var originalCharacter, cancellationToken))
             creationLifecycle = originalCharacter!.CreationLifecycleDigestFor(authority, cancellationToken);
-        return Capture(authority, selected, skills, review.Skills,
+        CharacterCreationCompletionCost3340.Log.Checkpoint(46); // cost3340 consumer.lifecycle.returned
+        var result = Capture(authority, selected, skills, review.Skills,
             qualities.Outcome == CharacterCreationFoundationOutcomes.Success && qualities.Blockers.Count == 0
                 ? qualities.Value?.Qualities : null, review.UpstreamBudget.Qualities.Qualities,
             inputs.EffectivePolicy!.Consumers?.Schema == CharacterCreationCompletionConsumerPolicy.SchemaV5,
             lifestyles?.MatchesFull(inputs, review, authority) == true ? lifestyles : null,
             qualities.Outcome == CharacterCreationFoundationOutcomes.Success && qualities.Blockers.Count == 0
                 && qualities.Value is not null && Same(qualities.Value, review.UpstreamBudget.Qualities),
-            skills is null ? null : CharacterCreationSelectedEffectsConsumer.FromFull(inputs, review, authority, cancellationToken),
+            skills is null ? null : CharacterCreationSelectedEffectsConsumer.FromFull(inputs, review, authority, cancellationToken, ruleSourceExecution),
             funding, gear,
             CharacterCreationCompleteMagicExecution.FromFull(inputs, review, authority, cancellationToken, ruleSourceExecution),
             CharacterCreationCompleteContactsExecution.FromFull(inputs, review, authority, cancellationToken, ruleSourceExecution),
@@ -114,6 +130,8 @@ internal sealed class CharacterCreationCompleteConsumerExecution
                 inputs.Skills.Attributes, review.Request, authority, skills, review.Skills), qualityLimit947,
             CharacterCreationCompleteRuleSourceExecution.CanAttemptOtherSettings955(review.Request)
                 ? CharacterCreationPolicyConsumptionProjection.FromFull(inputs, review) : null);
+        CharacterCreationCompletionCost3340.Log.Checkpoint(47); // cost3340 consumer.full.returned
+        return result;
     }
 
     internal static CharacterCreationCompleteConsumerExecution? FromSelected(
@@ -124,7 +142,8 @@ internal sealed class CharacterCreationCompleteConsumerExecution
         CharacterCreationLifestylesService.CompleteGraphExecution? lifestyles = null,
         IReadOnlyList<CharacterCreationLoadoutInstance>? originalLoadoutInstances = null,
         CharacterCreationOriginalCharacterSource? originalCharacter = null,
-        CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null)
+        CharacterCreationCompleteRuleSourceExecution? ruleSourceExecution = null,
+        CharacterCreationCompleteContactsExecution.SelectedComponentReplay? contactComponent = null)
     {
         if (authority.Schema is not (CharacterCreationCompleteAssessment.SchemaV2 or CharacterCreationCompleteAssessment.SchemaV3 or CharacterCreationCompleteAssessment.SchemaV4)
             || witness.ProvenanceInputsSnapshotDigest != request.InputsSnapshotDigest
@@ -135,7 +154,8 @@ internal sealed class CharacterCreationCompleteConsumerExecution
         var skills = ExecuteSkills(witness.Skills, request.Selections, witness.EffectivePolicy!, result.Skills,
             result.Qualities, (witness.Magic.Talent.GrantedQualitySources ?? []).Select(row => row.CanonicalSourceXml),
             cancellationToken, authority.Schema == CharacterCreationCompleteAssessment.SchemaV4);
-        var qualityLimit947 = Q947.ExecuteSelected(witness, request, result, authority, out var qualities, cancellationToken, ruleSourceExecution);
+        var qualityLimit947 = Q947.ExecuteSelected(witness, request, result, authority, out var qualities, cancellationToken,
+            ruleSourceExecution, contactComponent);
         var funding = CharacterCreationResourcesService.CompleteFundingExecution.FromSelected(witness, request, result, authority, cancellationToken, lifestyles);
         var gear = CharacterCreationGearService.CompleteCostExecution.FromSelected(witness, request, result, authority, cancellationToken);
         // Replay reconstructs this private source from its own original history.
@@ -150,9 +170,11 @@ internal sealed class CharacterCreationCompleteConsumerExecution
             lifestyles?.MatchesSelected(witness, request, result, authority) == true ? lifestyles : null,
             qualities is { Blockers.Count: 0 } && Same(qualities, result.Qualities),
             skills is null ? null : CharacterCreationSelectedEffectsConsumer.FromSelected(witness, request, result,
-                authority, originalLoadoutInstances, cancellationToken, originalCharacter), funding, gear,
+                authority, originalLoadoutInstances, cancellationToken, originalCharacter, ruleSourceExecution), funding, gear,
             CharacterCreationCompleteMagicExecution.FromSelected(witness, request, result, original, effects, authority, cancellationToken, ruleSourceExecution),
-            CharacterCreationCompleteContactsExecution.FromSelected(witness, request, result, original, effects, authority, cancellationToken, ruleSourceExecution),
+            contactComponent is null
+                ? CharacterCreationCompleteContactsExecution.FromSelected(witness, request, result, original, effects, authority, cancellationToken, ruleSourceExecution)
+                : contactComponent.ContactsFor(witness, request, result, original, effects, authority, ruleSourceExecution),
             CharacterCreationCompleteProfileExecution.FromSelected(witness, request, original, effects, authority, ruleSourceExecution),
             CharacterCreationCompleteSettingsExecution.FromSelected(witness, request, result, original, effects, authority, cancellationToken, ruleSourceExecution), ruleSourceExecution,
             request.AdditionalConsumerExecutionSchema == CharacterCreationCompletionReviewSchemas.AdditionalConsumerExecutionV1,
@@ -205,6 +227,7 @@ internal sealed class CharacterCreationCompleteConsumerExecution
         bool includeAdditionalConsumers, string? creationLifecycle, CharacterCreationCompleteProfileSettingsExecution? profileSettings,
         Q947? qualityLimit947, CharacterCreationPolicyConsumption? canonicalConsumption955)
     {
+        CharacterCreationCompletionCost3340.Log.Checkpoint(50); // cost3340 consumer.capture.begin
         string Digest(object result) => CharacterCreationFinalizationDigest.Compute(new
         {
             authority.Schema, authority.InputsSnapshotDigest, authority.RawCharacterXmlDigest,
@@ -303,8 +326,21 @@ internal sealed class CharacterCreationCompleteConsumerExecution
             trace is null || !graphQualitiesMatch ? null : contacts?.DigestFor(authority),
             profile, settings, null, additional, graphQualitiesMatch ? profileSettings : null, canonicalConsumption955);
         if (graphQualitiesMatch)
+        {
+            CharacterCreationCompletionCost3340.Log.Checkpoint(51); // cost3340 consumer.source-complete.begin
             execution.ruleSources = ruleSourceExecution?.Complete(authority, trace, selectedEffects, gear,
                 actualQualities, skills, magic, funding, lifestyles, profileSettings, qualityLimit947, execution, contacts);
+            execution.identity = trace is null ? null : selectedEffects?.IdentityFor(authority);
+            execution.ammunition = trace is null ? null : ruleSourceExecution?.AmmunitionFor(authority);
+            CharacterCreationCompletionCost3340.Log.Checkpoint(52); // cost3340 consumer.source-complete.returned
+            if (ruleSourceExecution is not null)
+            {
+                execution.inactiveAmendments = ruleSourceExecution.InactiveAmendments954.ToHashSet(StringComparer.Ordinal);
+                execution.inactiveResourceSettings3185 = ruleSourceExecution.InactiveResourceSettings3185.ToHashSet(StringComparer.Ordinal);
+                execution.inactiveEconomicSettings3211 = ruleSourceExecution.InactiveEconomicSettings3211.ToHashSet(StringComparer.Ordinal);
+                execution.inactiveRegroupingSettings3207 = ruleSourceExecution.InactiveRegroupingSettings3207.ToHashSet(StringComparer.Ordinal);
+            }
+        }
         return execution;
     }
 
@@ -373,8 +409,17 @@ internal sealed class CharacterCreationCompleteConsumerExecution
             ? null : CharacterCreationCompleteAssessmentService.AfterEvaluation(authority, canonicalConsumption955,
                 mechanicalSucceeded: true, consumers: this);
 
+    private IReadOnlySet<string> inactiveResourceSettings3185 = new HashSet<string>(StringComparer.Ordinal);
+    private IReadOnlySet<string> inactiveEconomicSettings3211 = new HashSet<string>(StringComparer.Ordinal);
+
+    private IReadOnlySet<string> inactiveRegroupingSettings3207 = new HashSet<string>(StringComparer.Ordinal);
+
     internal bool IsProfileSettingInactive(CharacterCreationCompleteAssessment authority, string id)
-        => profileSettings?.IsInactiveFor(authority, id) == true;
+        => profileSettings?.IsInactiveFor(authority, id) == true
+            || authorityDigest == CharacterCreationFinalizationDigest.Compute(authority) && (inactiveResourceSettings3185.Contains(id) || inactiveRegroupingSettings3207.Contains(id) || inactiveEconomicSettings3211.Contains(id));
+
+    internal bool IsAmendmentInactive(CharacterCreationCompleteAssessment authority, string id)
+        => authorityDigest == CharacterCreationFinalizationDigest.Compute(authority) && inactiveAmendments.Contains(id);
 
     private static object QualityResult(CharacterCreationQualitiesCompletionEvaluation value) => new
     {
@@ -412,6 +457,7 @@ public sealed partial class CharacterCreationSkillsService
         {
             checks.Clear(); scopes.Clear(); groupPolicyChecks.Clear(); GroupPolicy = null;
             Completed = false; PurchasesDigest = null; SkillCosts972 = null; CompensationPolicy1015 = null;
+            ResetRegrouping3207();
         }
         internal void FinishPurchases(CharacterCreationKarmaSkillsPolicy policy,
             IReadOnlyList<CharacterCreationSkillKarmaPurchase> purchases, CharacterCreationAttributeSkillsPreview result)
@@ -448,6 +494,7 @@ public sealed partial class CharacterCreationSkillsService
                 authority.SpecializationsBreakSkillGroups, Array.AsReadOnly(groupPolicyChecks
                     .OrderBy(row => row.TargetId, StringComparer.Ordinal).ThenBy(row => row.GroupRating)
                     .ThenBy(row => row.PointSpecialization).ToArray()));
+            FinishGroupEnumeration3207(groups);
             Completed = true;
         }
 

@@ -248,10 +248,18 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                     || selection.Quote.Talent is null || selection.Quote.Attributes is null
                     || selection.Quote.Binding.SkillsPolicyDigest != skillsPolicy.AuthorityDigest
                     || selection.Quote.Binding.SkillsCatalogDigest != skillsCatalog.CatalogDigest
+                    || !context.TryResolveCreationKarmaGrantSources(selection.Command.MetatypeOptionId,
+                        selection.Command.TalentOptionId!, out var skillRacial, out var skillTalent)
                     || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedSkills,
                         CharacterCreationKarmaSkillsRules.Evaluate(skillsCatalog, skillsPolicy, talents,
                             selection.Quote.Metatype, selection.Quote.Talent.OptionId, selection.Quote.Attributes,
-                            selectedSkills.KarmaAvailable, selection.Command.SkillsSelection!))))
+                            selectedSkills.KarmaAvailable, selection.Command.SkillsSelection!,
+                            CharacterCreationKarmaSkillsRules.QualitySelections2568(selection.Quote.Qualities),
+                            new(skillRacial, skillTalent)))
+                    || !context.TryResolveCreationKarmaGrantSources(selection.Command.MetatypeOptionId,
+                        selection.Command.TalentOptionId!, out var finalSkillRacial, out var finalSkillTalent)
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(skillRacial, finalSkillRacial)
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(skillTalent, finalSkillTalent)))
                 return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             if (selection?.Quote.Resources is { } selectedResources
                 && (resourcesPolicy is null || selection.Quote.Attributes is null
@@ -266,7 +274,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                     || selection.Quote.Binding.QualitiesPolicyDigest != qualitiesCatalog.Policy.AuthorityDigest
                     || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedQualities,
                         admittedQualities!.Evaluate(selection.Quote.Metatype,
-                            selection.Quote.Talent, selection.Command.QualityOptionIds!))))
+                            selection.Quote.Talent, selection.Command.QualityOptionIds!, selection.Command.QualityPromptValues))))
                 return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             if (selection?.Quote.Gear is { } selectedGear
                 && (gearAuthority is null || selection.Quote.Resources is null
@@ -339,7 +347,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         // as a current review or accept a caller-supplied snapshot as authority.
         var preview = PreviewLoaded(state, admittedQualities, saved.MetatypeOptionId, saved.TalentOptionId,
             saved.AttributeAllocations, saved.SkillsSelection, saved.ResourceKarmaInvestment, saved.QualityOptionIds,
-            saved.GearSelections, saved.ContactSelections, saved.LifestyleSelections, saved.StartingLifestyleId, saved.MagicSelections, context!);
+            saved.GearSelections, saved.ContactSelections, saved.LifestyleSelections, saved.StartingLifestyleId, saved.MagicSelections, context!, saved.QualityPromptValues);
         return preview.Value is { } quote
             ? new(preview.Outcome, new(state, quote), preview.Blockers)
             : new(preview.Outcome, null, preview.Blockers);
@@ -481,7 +489,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections,
         IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections, Guid? startingLifestyleId,
         CharacterCreationMagicResonanceSelections? magicSelections,
-        ICharacterSourceDataContext context)
+        ICharacterSourceDataContext context, IReadOnlyDictionary<string, string>? qualityPromptValues = null)
     {
         CharacterCreationMetatypeOptionProjection? option = state.Options.SingleOrDefault(
             candidate => string.Equals(candidate.OptionId, metatypeOptionId, StringComparison.Ordinal));
@@ -524,7 +532,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                 return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
             if (admittedQualities is null || !ReferenceEquals(state.QualitiesCatalog, admittedQualities.Catalog))
                 return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.QualitiesAuthorityRequired);
-            qualities = admittedQualities.Evaluate(option, talent, qualityOptionIds);
+            qualities = admittedQualities.Evaluate(option, talent, qualityOptionIds, qualityPromptValues);
             if (qualities is null)
                 return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationQualitiesBlockers.InvalidSelection);
             // Negative qualities fund the same pool, including skills/resources.
@@ -541,8 +549,17 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                 return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.SkillsAuthorityRequired);
             if (used > state.KarmaBudget.Total || state.KarmaBudget.Total - used > int.MaxValue)
                 return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.BudgetExceeded);
+            if (!context.TryResolveCreationKarmaGrantSources(option.OptionId, talent.OptionId,
+                    out var skillRacial, out var skillTalent))
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.SkillsAuthorityRequired);
             skills = CharacterCreationKarmaSkillsRules.Evaluate(state.SkillsCatalog, state.SkillsPolicy, state.Talents,
-                option, talent.OptionId, attributes, (int)(state.KarmaBudget.Total - used), skillsSelection);
+                option, talent.OptionId, attributes, (int)(state.KarmaBudget.Total - used), skillsSelection,
+                CharacterCreationKarmaSkillsRules.QualitySelections2568(qualities), new(skillRacial, skillTalent));
+            if (!context.TryResolveCreationKarmaGrantSources(option.OptionId, talent.OptionId,
+                    out var finalSkillRacial, out var finalSkillTalent)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(skillRacial, finalSkillRacial)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(skillTalent, finalSkillTalent))
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             if (skills is null)
                 return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationSkillsBlockers.AllocationInvalid);
             used += skills.KarmaUsed;

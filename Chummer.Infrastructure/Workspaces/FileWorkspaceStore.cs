@@ -32,11 +32,26 @@ public sealed partial class FileWorkspaceStore :
     ISr6CareerAttributeAtomicCommitCapability,
     ISr6CreationFoundationAtomicCommitCapability, ISr6CreationFinalizationAtomicCommitCapability
 {
+    // Enable only together with the shape and generic-transition ledger guards below.
+    static partial void VerifyNaturalRecoveryGuards(ref bool installed) { installed = true; }
+    static partial void VerifyNaturalRecoveryRetainedGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerContactsGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerGearSaleGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerSpecializationGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerGearEquipmentGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerGearPurchaseGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerImplantCommerceGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerCustomDrugPurchaseGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerSpiritFetteringGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerFreeSpriteConversionGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerFocusBondingGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerMartialAcquisitionGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerSpellLearningGuards(ref bool installed) { installed = true; }
+    static partial void VerifyCareerComplexFormLearningGuards(ref bool installed) { installed = true; }
+
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 4;
-    // Versions through 5 predate SR6 advancement history and can silently drop it.
-    // Keep receipt-free records on their existing versions; only this history
-    // requires a format that those readers reject before any replacement.
+    // Published Windows format fence. Older readers must not erase SR6 receipts.
     private const int Sr6CareerAttributeRecordSchemaVersion = 6;
     private const string WorkspacePayloadKind = "workspace";
     private const long InitialContentRevision = 1;
@@ -74,12 +89,14 @@ public sealed partial class FileWorkspaceStore :
     public bool SupportsCharacterCreationBootstrapAtomicCreate => true;
 
     private readonly string _stateDirectory;
+    private readonly string? _ruleUpdateDurabilityBoundary;
     private readonly IFileWorkspaceStoreFaultInjector _faultInjector;
     private readonly TimeSpan _workspaceOperationTimeout;
 
-    public FileWorkspaceStore(string? stateDirectory = null)
+    public FileWorkspaceStore(string? stateDirectory = null, OriginTrustDomain? originTrust = null)
         : this(stateDirectory, FileWorkspaceStoreFaultInjector.None, DefaultWorkspaceOperationTimeout)
     {
+        if (originTrust is not null) _originTrust = new(() => originTrust);
     }
 
     internal FileWorkspaceStore(
@@ -89,6 +106,8 @@ public sealed partial class FileWorkspaceStore :
     {
         string configuredDirectory = stateDirectory ?? Path.Combine(Path.GetTempPath(), "chummer-state");
         _stateDirectory = Path.GetFullPath(configuredDirectory);
+        _originTrust = new(() => new OriginTrustDomain(Path.Combine(_stateDirectory, ".workspace-origin-custody")));
+        _ruleUpdateDurabilityBoundary = FindRuleUpdateDurabilityBoundary(_stateDirectory);
         _faultInjector = faultInjector ?? throw new ArgumentNullException(nameof(faultInjector));
         _workspaceOperationTimeout = workspaceOperationTimeout ?? DefaultWorkspaceOperationTimeout;
         if (_workspaceOperationTimeout <= TimeSpan.Zero
@@ -417,12 +436,12 @@ public sealed partial class FileWorkspaceStore :
 
         try
         {
-            if (!TrySecureExistingWorkspaceDirectory(owner))
+            if (!TrySecureExistingWorkspaceDirectory(owner, recoverStaleTempFiles: false))
             {
                 return MissingRead();
             }
 
-            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path, recoverStaleTempFiles: false);
             return ReadWorkspaceUnderLease(owner, id, path, out _, reuseReadValidation: true);
         }
         catch (IOException)
@@ -841,7 +860,7 @@ public sealed partial class FileWorkspaceStore :
         {
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+            WorkspaceStoreReadResult read = ReadWorkspaceForCheckpointUnderLease(
                 owner,
                 id,
                 path,
@@ -893,12 +912,39 @@ public sealed partial class FileWorkspaceStore :
         PersistedWorkspaceRecord record,
         WorkspaceWriteDisposition disposition,
         DateTimeOffset? logicalLastUpdatedUtc = null,
-        Action? beforeTargetReplace = null)
+        Action? beforeTargetReplace = null,
+        CharacterAugmentationPurchaseReceipt? admittedAugmentationReceipt = null,
+        CharacterCareerImplantCommerceReceipt? admittedImplantCommerceReceipt = null,
+        CharacterCareerSpiritFetteringReceipt? admittedSpiritFetteringReceipt = null,
+        CharacterCareerFocusBondingReceipt? admittedFocusBondingReceipt = null,
+        PrivateClosureRestoreAdmission? closureAdmission = null,
+        CharacterCareerMartialAcquisitionReceipt? admittedMartialAcquisitionReceipt = null,
+        CharacterCareerFreeSpriteConversionReceipt? admittedFreeSpriteConversionReceipt = null,
+        FreeSpriteConversionWriteAdmission5732? freeSpriteConversionAdmission = null,
+        CancellationToken cancellation = default,
+        RewardWriteAdmission? rewardAdmission = null)
     {
+        cancellation.ThrowIfCancellationRequested();
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace target");
-        record = PreserveRetainedRuleSources(normalizedPath, record, disposition);
-        using var recovery = OpenWriteRuleSources(normalizedPath, record);
+        freeSpriteConversionAdmission?.Claim(this, normalizedPath, record, disposition, admittedFreeSpriteConversionReceipt);
+        rewardAdmission?.Claim(this, normalizedPath, record, disposition, beforeTargetReplace is not null);
+        using var windowsPublicationLease = OperatingSystem.IsWindows() && closureAdmission?.UpdateOriginal is not null
+            ? PinWindowsRuleUpdateDirectory(RuleUpdateDirectory(closureAdmission.Owner.Owner,
+                closureAdmission.Target.WorkspaceId, create: false)) : null;
+        record = PreserveRetainedRuleSources(normalizedPath, record, disposition, closureAdmission, freeSpriteConversionAdmission);
+        ValidateConditionTransferWrite(normalizedPath, record, disposition);
+        ValidateAugmentationWrite(normalizedPath, record, disposition, admittedAugmentationReceipt);
+        ValidateImplantCommerceWrite(normalizedPath, record, disposition, admittedImplantCommerceReceipt);
+        ValidateSpiritFetteringWrite(normalizedPath, record, disposition, admittedSpiritFetteringReceipt);
+        ValidateFreeSpriteConversionWrite(normalizedPath, record, disposition, admittedFreeSpriteConversionReceipt);
+        ValidateFocusBondingWrite(normalizedPath, record, disposition, admittedFocusBondingReceipt);
+        ValidateMartialAcquisitionWrite(normalizedPath, record, disposition, admittedMartialAcquisitionReceipt);
+        ValidateGearEquipmentWrite(normalizedPath, record, disposition);
+        ValidateSustainedWrite(normalizedPath, record, disposition);
+        ValidateGearSaleWrite(normalizedPath, record, disposition);
+        ValidateSpecializationWrite(normalizedPath, record, disposition);
+        using var recovery = OpenWriteRuleSources(normalizedPath, record, cancellation, rewardAdmission);
         bool campaignTagged = record.AuxiliaryState?.CharacterCreationFinalizationArchive?.CompletionAuthority?.Proposal.CampaignAuthority is not null;
         ICharacterCreationRuleSourceRecovery? authorityRecovery = recovery;
         // Historical validation always uses the private committed observation.
@@ -909,12 +955,24 @@ public sealed partial class FileWorkspaceStore :
             || !CharacterCreationCompletionDraftTransaction.IsValidCurrentDocument(candidate, candidateRevision)
             || (recovery is not null || campaignTagged) && !WorkspaceAuxiliaryStateIntegrity.IsValidShape(
                 record.RetainedRuleSources is { } manifest ? new CharacterWorkspaceId(manifest.WorkspaceId)
-                    : candidate.AuxiliaryState.CharacterCreationFinalizationReceipts!.Single().Receipt.WorkspaceId, candidateRevision, candidate.AuxiliaryState, authorityRecovery))
+                    : candidate.AuxiliaryState.CharacterCreationFinalizationReceipts!.Single().Receipt.WorkspaceId, candidateRevision, candidate.AuxiliaryState, authorityRecovery, cancellation))
             throw new IOException("Completion result does not match its archived identity.");
-        byte[] serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(record));
+        cancellation.ThrowIfCancellationRequested();
+        // Admission fences still see their exact proposed record. History is an
+        // immutable publication-only extension of those same document/auxiliary bytes.
+        var publicationRecord = PreserveAuthenticatedHistory(normalizedPath, record, disposition, closureAdmission, admittedMartialAcquisitionReceipt);
+        byte[] serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(publicationRecord));
         if (record.RetainedRuleSources is not null && serialized.Length > MaximumRetainedWorkspaceRecordBytes)
             throw RetainedRuleSourceRejected();
-        string tempPath = Path.GetFullPath($"{normalizedPath}{TempFileMarker}{Guid.NewGuid():N}");
+        // Exact natural-recovery continuation intent includes the final authenticated-history publication.
+        RecoveryPublicationFor5472(normalizedPath)?.Prepare(publicationRecord);
+        var resume = closureAdmission?.ResumeStaging;
+        string tempPath = resume?.Path ?? Path.GetFullPath($"{normalizedPath}{TempFileMarker}{Guid.NewGuid():N}");
+        // V1 custody rotates its slot. A missing V2 target also needs a durable
+        // slot before the record becomes usable; existing V2 targets retain theirs.
+        string? stagedClosureSlot = closureAdmission is not null
+            && (closureAdmission.CurrentEnvironment is null || !closureAdmission.Target.Exists)
+                ? tempPath + ".slot" : null;
         EnsurePathContained(_stateDirectory, tempPath, "workspace temporary file");
         if (!PathComparer.Equals(Path.GetDirectoryName(normalizedPath), Path.GetDirectoryName(tempPath)))
         {
@@ -927,40 +985,110 @@ public sealed partial class FileWorkspaceStore :
 
         try
         {
-            ThrowIfLinkOrReparsePoint(tempPath, "workspace temporary file");
-            using (FileStream stream = OpenNewSecureFile(
-                       tempPath,
-                       FileAccess.Write,
-                       FileShare.None,
-                       FileOptions.WriteThrough))
+            if (resume is null)
             {
-                stream.Write(serialized);
-                stream.Flush(flushToDisk: true);
-            }
+                ThrowIfLinkOrReparsePoint(tempPath, "workspace temporary file");
+                using (FileStream stream = OpenNewSecureFile(
+                           tempPath,
+                           FileAccess.Write,
+                           FileShare.None,
+                           FileOptions.WriteThrough))
+                {
+                    stream.Write(serialized);
+                    stream.Flush(flushToDisk: true);
+                }
 
-            ThrowIfLinkOrReparsePoint(tempPath, "workspace temporary file");
-            SetSecureFileMode(tempPath);
-            File.SetLastWriteTimeUtc(tempPath, committedAtUtc.UtcDateTime);
-            // A continuation digest includes logical checkpoint time. Refuse a
-            // filesystem that cannot preserve it before replacing the target.
-            if (logicalLastUpdatedUtc is not null
-                && File.GetLastWriteTimeUtc(tempPath) != committedAtUtc.UtcDateTime)
-                throw new IOException("Workspace checkpoint timestamp cannot round-trip on this filesystem.");
+                ThrowIfLinkOrReparsePoint(tempPath, "workspace temporary file");
+                SetSecureFileMode(tempPath);
+                File.SetLastWriteTimeUtc(tempPath, committedAtUtc.UtcDateTime);
+                // The logical time is part of continuation identity. A content flush
+                // preceding this mutation does not acknowledge its inode metadata.
+                if (closureAdmission?.UpdateOriginal is not null)
+                {
+                    _faultInjector.OnStage(FileWorkspaceStoreFaultStage.BeforeRuleUpdateTimestampFlush, normalizedPath, tempPath);
+                    FlushRuleUpdateFile(tempPath);
+                }
+                // A continuation digest includes logical checkpoint time. Refuse a
+                // filesystem that cannot preserve it before replacing the target.
+                if (logicalLastUpdatedUtc is not null
+                    && File.GetLastWriteTimeUtc(tempPath) != committedAtUtc.UtcDateTime)
+                    throw new IOException("Workspace checkpoint timestamp cannot round-trip on this filesystem.");
+                if (stagedClosureSlot is not null) RotateContinuationSlotUnderLease(tempPath);
+            }
+            else
+            {
+                // All normal publication validators above still run. Reuse only
+                // the selected exact record; never rewrite or clean its evidence.
+                if (disposition != WorkspaceWriteDisposition.CreateNew || stagedClosureSlot is null)
+                    throw RetainedRuleSourceRejected();
+                resume.ValidatePublication(serialized, committedAtUtc);
+            }
             _faultInjector.OnStage(FileWorkspaceStoreFaultStage.AfterTempFileFlushed, normalizedPath, tempPath);
 
             ThrowIfLinkOrReparsePoint(normalizedPath, "workspace target");
             // Private owner-supplied final fence. Never a serialized command or
             // a caller-provided replacement-document authorization callback.
             if (recovery is not null && !recovery.ValidateRetainedRuleSources()) throw RetainedRuleSourceRejected();
+            // Generic/other typed writes keep their existing gate. Claimed Free Sprite
+            // and exact reward writes receive their mandatory fresh pair below;
+            // evaluating the proposed reward environment here as well is redundant.
+            if (freeSpriteConversionAdmission is null && rewardAdmission?.Current is null)
+                RevalidateCurrentEnvironmentForWrite(record, recovery, cancellation);
+            PreserveGearOriginalsBeforeReplacement(normalizedPath, record, disposition);
+            PreserveGearSaleOriginalsBeforeReplacement(normalizedPath, record, disposition);
+            PreserveSpecializationOriginalsBeforeReplacement(normalizedPath, record, disposition);
             beforeTargetReplace?.Invoke();
+            // Store-owned and mandatory for the single claimed reward publication.
+            // This still freshly evaluates both before and after environments.
+            rewardAdmission?.ValidateFinalFence(record);
+            ConditionTransferAdmissionFor(normalizedPath)?.ValidateFinalFence(record);
+            ConditionHealingAdmissionFor5460(normalizedPath)?.Validate(record);
+            RevalidateGearEquipmentForWrite(normalizedPath, record);
+            SustainedAdmissionFor(normalizedPath)?.ValidateFinalFence(record);
+            RevalidateGearSaleForWrite(normalizedPath, record);
+            RevalidateSpecializationForWrite(normalizedPath, record);
+            LifeModuleAdmissionFor(normalizedPath)?.ValidateFinalFence(record);
+            closureAdmission?.ValidateFinalFence();
+            if (stagedClosureSlot is not null)
+            {
+                ThrowIfLinkOrReparsePoint(stagedClosureSlot, "workspace staged closure slot");
+                if (resume is null) File.Move(stagedClosureSlot, normalizedPath + ".slot", overwrite: true);
+                else resume.PublishSlot(this);
+                _ = FlushRetainedDirectoryChain(Path.GetDirectoryName(normalizedPath)!);
+                // A published slot is only an ABA fence, never a restore receipt.
+                // An interruption here leaves no evidence that the record was restored.
+                _faultInjector.OnStage(FileWorkspaceStoreFaultStage.AfterTargetReplaced,
+                    normalizedPath + ".slot", stagedClosureSlot);
+                closureAdmission!.ValidateFinalFence();
+            }
+            // Current character + environment + receipt share this single record publication.
             if (disposition == WorkspaceWriteDisposition.ReplaceExisting)
             {
                 // File.Replace requires the destination to still exist, so a delete that wins the
                 // workspace lease cannot be undone by a later replacement save.
+                // The private lifestyle admission is checked after every caller hook,
+                // immediately before publishing the exact admitted replacement.
+                RevalidateLifestyleCurrentForWrite(normalizedPath, record);
+                ReputationAdmissionFor(normalizedPath)?.ValidateFinalFence(record);
+                if (closureAdmission?.UpdateOriginal is not null)
+                    FenceRuleUpdatePublication(normalizedPath, tempPath, closureAdmission, record);
+                freeSpriteConversionAdmission?.ValidateFinalFence(this, normalizedPath, record, recovery);
                 File.Replace(tempPath, normalizedPath, destinationBackupFileName: null);
             }
             else
             {
+                if (resume is not null)
+                {
+                    // The slot diagnostic/owner fence above may have invoked a
+                    // callback. Reopen live sources after it, then check the exact
+                    // staged bytes/slot again immediately before no-overwrite rename.
+                    if (recovery is null || !recovery.ValidateRetainedRuleSources()) throw RetainedRuleSourceRejected();
+                    resume.ValidateFinalFence();
+                    // Source/staging reads above may outlive cancellation or the
+                    // admission. Finish with current authority only; do not start
+                    // another source/staging reread after this live fence.
+                    closureAdmission!.ValidateLiveAuthorityFence();
+                }
                 File.Move(tempPath, normalizedPath, overwrite: false);
             }
 
@@ -976,7 +1104,9 @@ public sealed partial class FileWorkspaceStore :
                 // into a reported failure and induce an unsafe caller retry.
             }
 
-            if (record.RetainedRuleSources is not null)
+            if (closureAdmission?.UpdateOriginal is not null)
+                FlushRuleUpdateRecordDirectory(normalizedPath);
+            else if (record.RetainedRuleSources is not null)
                 _ = FlushRetainedDirectoryChain(Path.GetDirectoryName(normalizedPath)!);
             // Flush(true) above persists the file contents before the atomic same-directory rename.
             // System.IO does not expose a safely portable directory fsync primitive; persistence of
@@ -985,9 +1115,11 @@ public sealed partial class FileWorkspaceStore :
         }
         finally
         {
-            if (!targetReplaced)
+            if (!targetReplaced && resume is null)
             {
                 DeleteRegularFileIfPresent(tempPath, "workspace temporary file");
+                if (stagedClosureSlot is not null)
+                    DeleteRegularFileIfPresent(stagedClosureSlot, "workspace staged closure slot");
             }
         }
     }
@@ -1248,6 +1380,13 @@ public sealed partial class FileWorkspaceStore :
                 return ConflictMutation(current);
             }
 
+            if (HasPendingGearEquipment(current))
+                return UnavailableMutation("Resolve the original pending Gear operation before deleting this runner.");
+            PreserveConditionOriginalsBeforeDelete5472(owner, id, path, current);
+            PreserveGearOriginalsBeforeDelete(owner, id, path, current);
+            PreserveGearSaleOriginalsBeforeDelete(owner, id, path, current);
+            PreserveSpecializationOriginalsBeforeDelete(owner, id, path, current);
+
             RotateContinuationSlotUnderLease(path);
             File.Delete(path);
             return new WorkspaceStoreMutationResult(
@@ -1279,8 +1418,14 @@ public sealed partial class FileWorkspaceStore :
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger,
         bool continuationRead = false,
         bool localAdoptionRead = false,
-        bool reuseReadValidation = false)
+        bool reuseReadValidation = false,
+        bool privateClosureRead = false,
+        bool reuseCurrentCaptureForRead = false,
+        PrivateCurrentRuleEnvironmentAdmission.CurrentReadEvaluation? currentRead = null,
+        CancellationToken cancellation = default,
+        OrdinaryRosterRecordRead? ordinaryRosterRead = null)
     {
+        using var openTiming = StartupActivities8910.StartActivity("workspace-open");
         delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
         if (!File.Exists(path))
@@ -1294,6 +1439,7 @@ public sealed partial class FileWorkspaceStore :
             TimeSpan.Zero);
         PersistedWorkspaceRecord? record;
         string? recordDigest = null;
+        using var decodeTiming = StartupActivities8910.StartActivity("record-read-decode");
         try
         {
             using FileStream stream = new(
@@ -1305,25 +1451,39 @@ public sealed partial class FileWorkspaceStore :
                 FileOptions.SequentialScan);
             if (_retainedRuleSourcesEnabled && stream.Length > MaximumRetainedWorkspaceRecordBytes)
                 return CorruptRead();
-            record = continuationRead
-                ? ReadExactContinuationRecord(stream)
-                : reuseReadValidation && !localAdoptionRead
-                    ? ReadRecordWithDigest(stream, out recordDigest)
-                    : JsonSerializer.Deserialize(stream, WorkspaceRecordJsonContext.Default.PersistedWorkspaceRecord);
+            if (ordinaryRosterRead is not null
+                && (continuationRead || localAdoptionRead || privateClosureRead || !reuseReadValidation))
+                return CorruptRead();
+            record = ordinaryRosterRead is not null
+                ? ordinaryRosterRead.Read(stream, out recordDigest)
+                : continuationRead
+                    ? ReadExactContinuationRecord(stream)
+                    : reuseReadValidation && !localAdoptionRead
+                        ? ReadRecordWithDigest(stream, out recordDigest)
+                        : JsonSerializer.Deserialize(stream, WorkspaceRecordJsonContext.Default.PersistedWorkspaceRecord);
         }
         catch (JsonException)
         {
             return CorruptRead();
         }
+        decodeTiming?.Stop();
 
+        using var materializeTiming = StartupActivities8910.StartActivity("record-materialize");
         if (record is null
-            || !TryMaterializeRecord(
+            || !TryMaterializeDisplayRecord(
                 record,
+                ordinaryRosterRead,
                 out WorkspaceDocument document,
                 out long contentRevision,
                 out long savedRevision,
-                out bool requiresLegacyMigration)
-            || !TryMaterializeDelegatedEditLedger(
+                out bool requiresLegacyMigration))
+        {
+            return CorruptRead();
+        }
+        materializeTiming?.Stop();
+
+        using var historyTiming = StartupActivities8910.StartActivity("record-history-ledger");
+        if (!TryMaterializeDelegatedEditLedger(
                 owner,
                 id,
                 contentRevision,
@@ -1349,20 +1509,30 @@ public sealed partial class FileWorkspaceStore :
                 return CorruptRead();
             localHistory = CreateLocalHistory();
         }
+        historyTiming?.Stop();
 
-        // Retained sources need an authorized private-byte copy protocol; SR6
-        // advancement needs an SR6-aware continuation evaluator. Neither may be
-        // exported, adopted or restored through the current continuation path.
-        if ((continuationRead || localAdoptionRead)
-            && (record.RetainedRuleSources is not null || record.AuxiliaryState?.Sr6CareerAttributeReceipts is not null))
+        // Reference-bearing variants cannot be exported, adopted or restored
+        // until an authorized private-byte copy protocol exists. Legacy paths keep working.
+        // Current calculations must enter WithCurrentRuleEnvironment with retained sources.
+        // Custody alone never authorizes normal reads or computations.
+        if (!privateClosureRead && (record.RetainedRuleSources?.PrivateClosureBinding is not null
+            || record.RetainedRuleSources?.CurrentEnvironment is not null)) return UnavailableRead();
+        if ((continuationRead || localAdoptionRead || privateClosureRead)
+            && record.AuxiliaryState?.Sr6CareerAttributeReceipts is not null)
+            return UnavailableRead();
+        if (((continuationRead && !privateClosureRead) || localAdoptionRead) && record.RetainedRuleSources is not null)
             return UnavailableRead();
         RetainedRuleSourceWorkspace? recovered;
-        try { recovered = OpenRecordRuleSources(owner, id, record); }
+        try { recovered = OpenRecordRuleSources(owner, id, record, reuseCurrentCaptureForRead: reuseCurrentCaptureForRead, currentRead: currentRead, cancellation: cancellation); }
         catch (Exception error) when (IsRetainedRuleSourceFailure(error)) { return CorruptRead(); }
         using var recovery = recovered;
         bool campaignTagged = document.AuxiliaryState.CharacterCreationFinalizationArchive?.CompletionAuthority?.Proposal.CampaignAuthority is not null;
         ICharacterCreationRuleSourceRecovery? authorityRecovery = recovery;
+        using var augmentationTiming = StartupActivities8910.StartActivity("record-augmentation-ledger");
         using var historyValidation = CharacterCreationCompletionDraftTransaction.EnterValidationOperation();
+        if (!TryReadAugmentationLedger(document.Content, contentRevision, out _, id.Value))
+            return CorruptRead();
+        augmentationTiming?.Stop();
         ReadValidationKey? validationKey = recordDigest is not null && !requiresLegacyMigration
             ? new(owner.NormalizedValue, id, recordDigest)
             : null;
@@ -1371,6 +1541,7 @@ public sealed partial class FileWorkspaceStore :
         // has no replay inputs and cannot stand in for that validation.
         if ((campaignTagged || recovery is not null || !HasReadValidation(validationKey))
             && (!IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState, authorityRecovery)
+                || !CharacterCareerCustomDrugPurchaseTransaction.IsValidHistory(id, document, contentRevision, savedRevision)
                 || !Sr6CreationFinalizationIntegrity.IsValidCurrentDocument(document, contentRevision)
                 || !CharacterCreationCompletionTransaction.IsValidCurrentDocument(document, contentRevision, authorityRecovery)
                 || !CharacterCreationCompletionDraftTransaction.IsValidCurrentDocument(document, contentRevision)))
@@ -1435,6 +1606,9 @@ public sealed partial class FileWorkspaceStore :
         }
 
         DateTimeOffset lastUpdatedUtc = migratedAtUtc ?? persistedLastUpdatedUtc;
+        // A synchronous validation observer must not mutate the shared graph
+        // and seed the existing byte-keyed history cache with that new graph.
+        ordinaryRosterRead?.RevalidateMaterialization();
         RememberReadValidation(validationKey);
         return new WorkspaceStoreReadResult(
             WorkspaceOperationOutcome.Success,
@@ -1448,7 +1622,7 @@ public sealed partial class FileWorkspaceStore :
                 LocalHistory = localHistory,
                 DelegatedGmHistorySegmentStarts = segmentStarts,
                 HasDelegatedGmHistory = delegatedEditLedger.Count > 0
-            });
+            }.WithValidatedCreationReceiptHistory(authorityRecovery));
     }
 
     private static bool TryMaterializeRecord(
@@ -1692,7 +1866,11 @@ public sealed partial class FileWorkspaceStore :
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state,
         ICharacterCreationRuleSourceRecovery? recovery = null)
-        => WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspaceId, currentContentRevision, state, recovery);
+    {
+        using var auxiliaryTiming = StartupActivities8910.StartActivity("auxiliary-validation");
+        using var predecode8991 = CharacterCreationValidationTiming8991.Begin(auxiliaryTiming);
+        return WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspaceId, currentContentRevision, state, recovery);
+    }
 
     private static bool IsValidAuxiliaryStateTransition(
         CharacterWorkspaceId workspaceId,
@@ -1710,15 +1888,28 @@ public sealed partial class FileWorkspaceStore :
             return false;
         }
 
+        if (!CharacterCareerGearEquipmentTransaction.Same(currentState.CharacterCareerLoadoutPresets,
+                replacementState.CharacterCareerLoadoutPresets)) return false;
+        if (!CharacterCareerGearEquipmentTransaction.Same(currentState.CharacterSustainedSpellReceipts,
+                replacementState.CharacterSustainedSpellReceipts)) return false;
+        if (!Chummer.Application.Characters.CharacterCareerGearEquipmentTransaction.Same(currentState.SessionConditionTransfers, replacementState.SessionConditionTransfers)
+            || !Chummer.Application.Characters.CharacterCareerGearEquipmentTransaction.Same(currentState.SessionCondition, replacementState.SessionCondition)) return false;
+        // Natural recovery owns this ledger, including unresolved roll fences.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr5NaturalRecovery),
+                JsonSerializer.Serialize(replacementState.Sr5NaturalRecovery), StringComparison.Ordinal))
+            return false;
+
         // Composite commands may be issued only by CommitCompletionDraft.
         // Generic mutations must retain every historical composite receipt.
         if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCreationCompletionDrafts),
                 JsonSerializer.Serialize(replacementState.CharacterCreationCompletionDrafts), StringComparison.Ordinal))
             return false;
-        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CareerAttributeReceipts),
-            JsonSerializer.Serialize(replacementState.Sr6CareerAttributeReceipts), StringComparison.Ordinal)) return false;
         // SR6 choices have their own source-validated transaction. No generic
         // writer, including an unrelated lane, can replace or discard them.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CareerAttributeReceipts),
+                JsonSerializer.Serialize(replacementState.Sr6CareerAttributeReceipts), StringComparison.Ordinal))
+            return false;
+
         if (!string.Equals(JsonSerializer.Serialize(currentState.Sr6CreationFinalizationArchive),
                 JsonSerializer.Serialize(replacementState.Sr6CreationFinalizationArchive), StringComparison.Ordinal))
             return false;
@@ -1745,6 +1936,56 @@ public sealed partial class FileWorkspaceStore :
             // later Career mutation, including lanes with early returns below.
             return false;
         }
+
+        // Commerce receipts cannot be forged, removed or rewritten by generic mutations.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerImplantCommerceReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerImplantCommerceReceipts), StringComparison.Ordinal))
+            return false;
+
+        // Additional-dose receipts are immutable outside the dedicated leased transaction.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerCustomDrugPurchaseReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerCustomDrugPurchaseReceipts), StringComparison.Ordinal))
+            return false;
+
+        // Complex-form receipts can only change through the dedicated leased transaction.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerComplexFormLearningReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerComplexFormLearningReceipts), StringComparison.Ordinal))
+            return false;
+
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerFreeSpriteConversionReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerFreeSpriteConversionReceipts), StringComparison.Ordinal)) return false;
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerSpiritFetteringReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerSpiritFetteringReceipts), StringComparison.Ordinal)) return false;
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerMartialAcquisitionReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerMartialAcquisitionReceipts), StringComparison.Ordinal))
+            return false;
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerFocusBondingReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerFocusBondingReceipts), StringComparison.Ordinal)) return false;
+        if (!string.Equals(JsonSerializer.Serialize(currentState.WorkspaceWizardReceipts),
+                JsonSerializer.Serialize(replacementState.WorkspaceWizardReceipts), StringComparison.Ordinal)) return false;
+        // Gear and spell receipts are issued only by their dedicated source-admitted transactions.
+        // Check before every generic lane early return so none can append, replace or remove history.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerGearPurchaseReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerGearPurchaseReceipts), StringComparison.Ordinal)
+            || !string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerSpellLearningReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerSpellLearningReceipts), StringComparison.Ordinal))
+            return false;
+
+        // Contact history is issued only by CommitCareerContacts under the workspace lease.
+        // Check before every generic lane's early return, preserving all other ledgers.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerContactsReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerContactsReceipts), StringComparison.Ordinal))
+            return false;
+
+        // Maintenance receipts are issued only under the dedicated workspace lease.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerLifestyleMaintenanceReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerLifestyleMaintenanceReceipts), StringComparison.Ordinal))
+            return false;
+
+        // Lifestyle payments must be appended only by the dedicated leased transaction.
+        if (!string.Equals(JsonSerializer.Serialize(currentState.CharacterCareerLifestylePaymentReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerLifestylePaymentReceipts), StringComparison.Ordinal))
+            return false;
 
         // Only CommitCareerReputation may append this ledger after reading its
         // real source context inside the workspace lease. A rehashed receipt
@@ -2673,14 +2914,15 @@ public sealed partial class FileWorkspaceStore :
         EnsureSecureDirectory(Path.Combine(ownerDirectory, "workspaces"), "workspace directory");
     }
 
-    private bool TrySecureExistingWorkspaceDirectory(OwnerScope owner, bool allowLegacyMigration = true)
+    private bool TrySecureExistingWorkspaceDirectory(OwnerScope owner, bool allowLegacyMigration = true,
+        bool recoverStaleTempFiles = true)
     {
         ThrowIfLinkOrReparsePoint(_stateDirectory, "workspace state root");
         if (!Directory.Exists(_stateDirectory))
             return false;
         SetSecureDirectoryMode(_stateDirectory);
 
-        string? ownerDirectory = TrySecureExistingOwnerDirectory(owner, allowLegacyMigration);
+        string? ownerDirectory = TrySecureExistingOwnerDirectory(owner, allowLegacyMigration, recoverStaleTempFiles);
         if (ownerDirectory is null)
             return false;
 
@@ -2706,7 +2948,8 @@ public sealed partial class FileWorkspaceStore :
         return ownerDirectory;
     }
 
-    private string? TrySecureExistingOwnerDirectory(OwnerScope owner, bool allowLegacyMigration = true)
+    private string? TrySecureExistingOwnerDirectory(OwnerScope owner, bool allowLegacyMigration = true,
+        bool recoverStaleTempFiles = true)
     {
         string ownerDirectory = OwnerScopedStatePath.ResolveWorkspaceOwnerDirectory(_stateDirectory, owner);
         if (PathComparer.Equals(ownerDirectory, _stateDirectory))
@@ -2721,7 +2964,8 @@ public sealed partial class FileWorkspaceStore :
             return null;
         }
 
-        using WorkspaceOperationLease migration = AcquireOwnerMigrationOperation(ownerDirectory, allowLegacyMigration);
+        using WorkspaceOperationLease migration = AcquireOwnerMigrationOperation(ownerDirectory,
+            recoverStaleTempFiles: allowLegacyMigration && recoverStaleTempFiles);
         if (allowLegacyMigration)
             MigrateLegacyWorkspaceDirectoryUnderLease(owner, ownerDirectory);
         else
@@ -2817,15 +3061,17 @@ public sealed partial class FileWorkspaceStore :
         SetSecureDirectoryMode(workspaceDirectory);
     }
 
-    private WorkspaceOperationLease AcquireWorkspaceOperation(string path, bool recoverStaleTempFiles = true)
+    private WorkspaceOperationLease AcquireWorkspaceOperation(string path, bool recoverStaleTempFiles = true,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace operation target");
         Stopwatch deadline = Stopwatch.StartNew();
         InProcessGateLease processGate = AcquireInProcessGate(
             normalizedPath,
             deadline,
-            _workspaceOperationTimeout);
+            _workspaceOperationTimeout, cancellationToken);
         try
         {
             string lockPath = Path.GetFullPath(normalizedPath + LockFileSuffix);
@@ -2833,9 +3079,12 @@ public sealed partial class FileWorkspaceStore :
             FileStream fileLease = AcquireCrossProcessLease(
                 lockPath,
                 deadline,
-                _workspaceOperationTimeout);
+                _workspaceOperationTimeout, cancellationToken);
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (OperatingSystem.IsWindows() && _retainedRuleSourcesEnabled)
+                    RecoverWindowsRuleUpdatePublicationUnderLease(normalizedPath);
                 if (recoverStaleTempFiles)
                     RemoveStaleTempFiles(normalizedPath);
                 return new WorkspaceOperationLease(processGate, fileLease);
@@ -2856,7 +3105,7 @@ public sealed partial class FileWorkspaceStore :
     private static InProcessGateLease AcquireInProcessGate(
         string key,
         Stopwatch deadline,
-        TimeSpan timeout)
+        TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         WorkspaceGate gate;
         lock (GateRegistrySync)
@@ -2873,7 +3122,7 @@ public sealed partial class FileWorkspaceStore :
         try
         {
             TimeSpan remaining = GetRemaining(deadline, timeout);
-            if (remaining <= TimeSpan.Zero || !gate.Semaphore.Wait(remaining))
+            if (remaining <= TimeSpan.Zero || !gate.Semaphore.Wait(remaining, cancellationToken))
             {
                 throw new IOException("Timed out waiting for the workspace operation lease.");
             }
@@ -2908,10 +3157,11 @@ public sealed partial class FileWorkspaceStore :
     private static FileStream AcquireCrossProcessLease(
         string lockPath,
         Stopwatch deadline,
-        TimeSpan timeout)
+        TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ThrowIfLinkOrReparsePoint(lockPath, "workspace lock file");
             try
             {
@@ -2992,7 +3242,8 @@ public sealed partial class FileWorkspaceStore :
             Options = options,
             BufferSize = FileBufferSize
         };
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows()
+            && mode is FileMode.CreateNew or FileMode.Create or FileMode.OpenOrCreate or FileMode.Append)
         {
             streamOptions.UnixCreateMode = SecureFileMode;
         }
@@ -3289,16 +3540,22 @@ public sealed partial class FileWorkspaceStore :
     // auxiliary-state graph before it can show even one runner. Generate that
     // metadata at build time; retain the default wire contract and every normal
     // post-read integrity check. This is not a document or authority cache.
-    // Register the shared converter only on this default-policy read context.
+    // Display digests use the same generated default wire contract so their
+    // first serialization does not rebuild the auxiliary graph by reflection.
+    // Register the shared converter only on this default-policy context.
     // The separate strict continuation reader and ordinary writer keep their
     // own options; a property attribute here would also alter those paths.
     [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata,
         Converters = new[] { typeof(WorkspaceDocumentAuxiliaryStateJsonConverter) })]
     [JsonSerializable(typeof(PersistedWorkspaceRecord))]
+    [JsonSerializable(typeof(WorkspaceDocument))]
     private partial class WorkspaceRecordJsonContext : JsonSerializerContext;
 
     private sealed record PersistedWorkspaceRecord(string Format)
     {
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public WorkspaceAuthenticatedHistory? AuthenticatedHistory { get; init; }
+
         public int? RecordSchemaVersion { get; init; }
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -3397,7 +3654,20 @@ internal enum FileWorkspaceStoreFaultStage
     AfterCreationReservationPrepared,
     AfterCreationRecordCommitted,
     AfterCreationReservationCommitted,
-    BeforeCompletionDraftRead
+    BeforeCompletionDraftRead,
+    BeforeBoundDisplayProjection,
+    AfterRuleUpdateAttemptFlushed,
+    BeforeRuleUpdateNativeProbe,
+    BeforeRuleUpdateDirectorySync,
+    BeforeRuleUpdateRecordDirectorySync,
+    BeforeRuleUpdateTimestampFlush,
+    BeforeRuleUpdateFilePublished,
+    BeforeWindowsRuleUpdateJournalPublished,
+    AfterWindowsRuleUpdateJournalPublished,
+    BeforeWindowsRuleUpdateCommitPublished,
+    AfterWindowsRuleUpdateCommitPublished,
+    BeforeWindowsRuleUpdateRecoveryReplace,
+    AfterRuleUpdateClosurePublished
 }
 
 internal interface IFileWorkspaceStoreFaultInjector

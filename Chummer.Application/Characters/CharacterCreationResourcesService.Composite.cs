@@ -7,11 +7,12 @@ public sealed partial class CharacterCreationResourcesService
 {
     private CharacterCreationResourcesResult<CharacterCreationResourcesState> LoadComposite(WorkspaceStoredDocument workspace)
     {
-        var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _completionQueries);
+        using var previewReuse = new CharacterCreationContactsService.CompletionPreviewReuse();
+        var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _completionQueries, previewReuse);
         if (loaded.Value is not { Skills.CompositeBaseline: { } baseline } inputs)
             return new(CharacterCreationResourcesOutcomes.Blocked, null, loaded.Blockers);
         var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
-            baseline.Selections, CharacterCreationCompositeEditStage.Resources);
+            baseline.Selections, CharacterCreationCompositeEditStage.Resources, previewReuse);
         if (reviewed.Value is not { Lifestyles: { } lifestyles } review || reviewed.Blockers.Count != 0)
             return new(CharacterCreationResourcesOutcomes.Blocked, null, reviewed.Blockers);
         var context = CompositeContext(workspace, inputs, review);
@@ -42,7 +43,12 @@ public sealed partial class CharacterCreationResourcesService
     private PreviewEvaluation EvaluateCompositePreview(WorkspaceStoredDocument workspace,
         CharacterCreationResourcesPreviewRequest request)
     {
-        var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _completionQueries);
+        // Reuse only the successful pure calculations from this fresh input read.
+        // Every operation still admits current sources/history; the first review
+        // consumes the private preparation for the baseline amount. The proposed
+        // amount is then independently priced, with the same result precedence.
+        using var previewReuse = new CharacterCreationContactsService.CompletionPreviewReuse();
+        var loaded = OwnerBoundCharacterCreationCompletionReader.LoadForCompositeEdit(workspace, _sourceData, _completionQueries, previewReuse);
         if (loaded.Value is not { Skills.CompositeBaseline: { } baseline } inputs)
             return new(new(CharacterCreationResourcesOutcomes.Blocked, null, loaded.Blockers), workspace);
         var option = FindAllocationOption(inputs.Lifestyles.Gear.Resources.Authority,
@@ -50,12 +56,12 @@ public sealed partial class CharacterCreationResourcesService
         if (option is null)
             return new(Blocked<CharacterCreationResourcesPreview>(CharacterCreationResourcesOutcomes.Invalid,
                 CharacterCreationResourcesBlockers.InvalidOption), workspace);
+        var current = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
+            baseline.Selections, CharacterCreationCompositeEditStage.Resources, previewReuse);
         var reviewed = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
-            baseline.Selections with { TotalKarmaInvestment = option.KarmaInvestment }, CharacterCreationCompositeEditStage.Resources);
+            baseline.Selections with { TotalKarmaInvestment = option.KarmaInvestment }, CharacterCreationCompositeEditStage.Resources, previewReuse);
         if (reviewed.Value is not { Lifestyles: not null } shared)
             return new(new(CharacterCreationResourcesOutcomes.Blocked, null, reviewed.Blockers), workspace);
-        var current = OwnerBoundCharacterCreationCompletionReader.ReviewCompositeEdit(workspace, inputs,
-            baseline.Selections, CharacterCreationCompositeEditStage.Resources);
         if (current.Value is not { Lifestyles: not null } before || current.Blockers.Count != 0)
             return new(new(CharacterCreationResourcesOutcomes.Blocked, null, current.Blockers), workspace);
         var context = CompositeContext(workspace, inputs, before);

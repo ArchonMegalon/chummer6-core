@@ -43,6 +43,49 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
     private static readonly ConditionalWeakTable<CharacterCreationRuleSourceScopeInvocation, BoundSkillCosts972>
         skillCostInvocations972 = new();
 
+    private static void AddEmptySkillCostEvaluations972(CharacterCreationEffectivePolicyContext policy,
+        CharacterCreationCompleteAssessment authority, CompletedSkillCosts972? completed,
+        IDictionary<string, string> evaluations, ISet<string> inactive)
+    {
+        if (completed is not { Execution.EmptyPurchaseScope: true }
+            || completed.PolicyDigest != authority.PolicyDigest
+            || completed.PolicyContentDigest != CharacterCreationFinalizationDigest.Compute(policy)) return;
+        foreach (var row in authority.Obligations)
+        {
+            if (row.Kind != CharacterCreationCompleteObligationKind.Setting
+                || row.Evaluability != CharacterCreationCompleteEvaluability.CandidateDependent
+                || row.Consumer != CharacterCreationSettingConsumer.Skills
+                || row.Setting is not { State: CharacterCreationSettingObservationState.Present } setting
+                || policy.SettingObservations!.Settings.Count(item => item == setting) != 1) continue;
+            string? field = setting.Key switch
+            {
+                CharacterCreationObservedSetting.NewActiveSkill => "karmanewactiveskill",
+                CharacterCreationObservedSetting.ImproveActiveSkill => "karmaimproveactiveskill",
+                CharacterCreationObservedSetting.NewKnowledgeSkill => "karmanewknowledgeskill",
+                CharacterCreationObservedSetting.ImproveKnowledgeSkill => "karmaimproveknowledgeskill",
+                CharacterCreationObservedSetting.NewSkillGroup => "karmanewskillgroup",
+                CharacterCreationObservedSetting.ImproveSkillGroup => "karmaimproveskillgroup",
+                CharacterCreationObservedSetting.ActiveSpecialization => "karmaspecialization",
+                CharacterCreationObservedSetting.KnowledgeSpecialization => "karmaknospecialization",
+                _ => null
+            };
+            if (field is null || !completed.Leaves.TryGetValue(field, out var leaf)
+                || setting.SourceValueDigest != leaf.XmlDigest) continue;
+            var definition = CharacterCreationSettingDefinitions.ForSchema(policy.SettingObservations.Schema)!
+                .Single(item => item.Key == setting.Key);
+            if (setting.ValueDigest != CharacterCreationSettingDefinitions.ValueDigest(definition.Kind,
+                    leaf.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))) continue;
+            evaluations.Add(row.Id, CharacterCreationFinalizationDigest.Compute(new
+            {
+                Operation = "canonical-empty-skill-purchase-scope", Authority = CharacterCreationFinalizationDigest.Compute(authority),
+                row.Id, row.AuthorityDigest, Observation = setting, Field = field, Leaf = leaf,
+                completed.ProfileId, completed.ProfileInputsDigest, completed.ProfileXmlDigest,
+                completed.PolicyDigest, completed.Execution
+            }));
+            inactive.Add(row.Id);
+        }
+    }
+
     internal void BindSkillCosts972(CharacterCreationRuleSourceScopeInvocation invocation,
         CharacterCreationCompleteAssessment authority, CharacterCreationCompletionReviewInputs inputs,
         CharacterCreationCompletionReviewRequest request, CharacterCreationAttributeSkillsPreview skills)
@@ -77,16 +120,27 @@ internal sealed partial class CharacterCreationCompleteProfileSettingsExecution
         string profileId, string profileInputsDigest, string profileXmlDigest, string field, string leafXmlDigest,
         out int value, out string? executionDigest)
     {
+        if (TryReadSkillCost972(invocation, profileId, profileInputsDigest, profileXmlDigest, field, leafXmlDigest,
+                out value, out executionDigest, out bool inactive) && !inactive) return true;
         value = 0; executionDigest = null;
+        return false;
+    }
+
+    internal static bool TryReadSkillCost972(CharacterCreationRuleSourceScopeInvocation invocation,
+        string profileId, string profileInputsDigest, string profileXmlDigest, string field, string leafXmlDigest,
+        out int value, out string? executionDigest, out bool inactive)
+    {
+        value = 0; executionDigest = null; inactive = false;
         if (!skillCostInvocations972.TryGetValue(invocation, out var bound)) return false;
         var completed = bound.Completed;
         if (profileId != completed.ProfileId || profileInputsDigest != completed.ProfileInputsDigest
             || profileXmlDigest != completed.ProfileXmlDigest || !completed.Leaves.TryGetValue(field, out var leaf)
             || leaf.XmlDigest != leafXmlDigest || bound.InvocationDigest != SkillCostInvocationBinding972(invocation)) return false;
         value = leaf.Value;
+        inactive = completed.Execution.EmptyPurchaseScope;
         executionDigest = CharacterCreationFinalizationDigest.Compute(new
         {
-            Operation = "canonical-skill-Karma-price", bound.AuthorityDigest, bound.InputsDigest,
+            Operation = inactive ? "canonical-empty-skill-purchase-scope" : "canonical-skill-Karma-price", bound.AuthorityDigest, bound.InputsDigest,
             bound.InvocationDigest, completed.ProfileId, completed.ProfileInputsDigest, completed.ProfileXmlDigest,
             completed.PolicyDigest, completed.Execution, Field = field, Leaf = leaf
         });

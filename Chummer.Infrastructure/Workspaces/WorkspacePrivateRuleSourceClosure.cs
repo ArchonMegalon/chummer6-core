@@ -20,6 +20,15 @@ public sealed class WorkspacePrivateRuleSourceClosureLegacyFormatException : Inv
         : base("Local v1 rule inputs cannot be privately transferred; retained local history is unchanged.") { }
 }
 
+/// <summary>Explicit private current-environment blockers; contains no source bytes or paths.</summary>
+public sealed class WorkspaceCurrentRuleEnvironmentUnavailableException : InvalidOperationException
+{
+    public IReadOnlyList<string> Blockers { get; }
+    internal WorkspaceCurrentRuleEnvironmentUnavailableException(IReadOnlyList<string> blockers)
+        : base("The retained current rule environment is unavailable.")
+        => Blockers = Array.AsReadOnly(blockers.ToArray());
+}
+
 /// <summary>
 /// Core-owned private wire carrier. Import verifies content consistency only.
 /// The host must separately authenticate selection ownership, source-specific
@@ -42,6 +51,26 @@ public sealed class WorkspacePrivateRuleSourceClosure
 
     /// <summary>Private authenticated transport/storage only. Never a provider prompt or diagnostic.</summary>
     public byte[] ExportPrivateBytes() => _bytes.ToArray();
+
+    /// <summary>Detached candidate from these exact original bytes; not restore permission.</summary>
+    public WorkspaceContinuationExport ExportContinuation()
+    {
+        var decoded = Decode(_bytes, _bytes.Length);
+        return new(decoded.Snapshot, decoded.Binding.ContinuationDigest);
+    }
+
+    /// <summary>Detached private observation. V1 has no current-environment assertion.</summary>
+    public WorkspaceCurrentRuleEnvironmentBinding? InspectCurrentEnvironment()
+        => Decode(_bytes, _bytes.Length).CurrentEnvironment;
+
+    // One decode supplies both detached observations for this bridge export.
+    // No admission or lease is reused; no decoded graph is cached on the carrier.
+    internal (WorkspaceContinuationExport Continuation, WorkspaceCurrentRuleEnvironmentBinding? Environment)
+        InspectForExport(CancellationToken cancellationToken)
+    {
+        var decoded = Decode(_bytes, _bytes.Length, cancellationToken);
+        return (new(decoded.Snapshot, decoded.Binding.ContinuationDigest), decoded.CurrentEnvironment);
+    }
 
     public static WorkspacePrivateRuleSourceClosure Import(ReadOnlyMemory<byte> bytes,
         WorkspacePrivateRuleSourceClosureBinding expected, int maximumBytes, ICharacterFileQueries queries,
@@ -78,6 +107,9 @@ public sealed class WorkspacePrivateRuleSourceClosure
             WorkspacePrivateRuleSourceClosureBinding, TResult> evaluate,
         CancellationToken cancellationToken = default, bool sourcebookSelection = false)
     {
+        // This legacy API accepts an ambient resolver. Never silently substitute it
+        // for a V2 manifest's exact retained current environment.
+        if (Binding.Schema != WorkspacePrivateRuleSourceClosureBinding.SchemaV1) throw Rejected();
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
@@ -92,9 +124,23 @@ public sealed class WorkspacePrivateRuleSourceClosure
         catch (Exception error) when (IsFailure(error)) { throw Rejected(); }
     }
 
+    // Only the store's custody transaction consumes this graph. No execution authority is added.
+    internal static Decoded DecodeForRestore(byte[] detachedBytes, WorkspacePrivateRuleSourceClosureBinding expected,
+        ICharacterFileQueries queries, CancellationToken cancellationToken)
+    {
+        var decoded = Decode(detachedBytes, WorkspacePrivateRuleSourceClosureBinding.MaximumBytes, cancellationToken);
+        using var recovery = new ObservationRecovery(decoded.Captures, decoded.Campaigns, queries);
+        if (decoded.Binding != expected
+            || !WorkspacePrivateRuleSourceClosureCompletion.ValidateHistoryObservation(decoded.Snapshot, recovery))
+            throw Rejected();
+        cancellationToken.ThrowIfCancellationRequested();
+        return decoded;
+    }
+
     internal static WorkspacePrivateRuleSourceClosure Create(WorkspaceContinuationSnapshot snapshot,
         IReadOnlyList<byte[]> archives, IReadOnlyList<CharacterCreationCommittedCampaign> campaigns, int maximumBytes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, WorkspaceCurrentRuleEnvironmentBinding? currentEnvironment = null,
+        WorkspaceAuthenticatedHistory? authenticatedHistory = null)
     {
         CheckBound(maximumBytes);
         if (archives.Count > WorkspacePrivateRuleSourceClosureBinding.MaximumArchives
@@ -105,19 +151,32 @@ public sealed class WorkspacePrivateRuleSourceClosure
             .OrderBy(row => row.Digest, StringComparer.Ordinal).ToArray();
         byte[] campaignBytes = JsonSerializer.SerializeToUtf8Bytes(
             campaigns.OrderBy(c => c.ReceiptDigest, StringComparer.Ordinal).ToArray(), CampaignOptions);
+        string schema = currentEnvironment is null ? WorkspacePrivateRuleSourceClosureBinding.SchemaV1
+            : WorkspacePrivateRuleSourceClosureBinding.SchemaV2;
+        byte[]? environmentBytes = currentEnvironment is null ? null
+            : JsonSerializer.SerializeToUtf8Bytes(currentEnvironment, CampaignOptions);
+        // Optional versioned private history extension. Old V1/V2 bytes remain readable
+        // and carry no authenticated outcome. Keys and enrollment never enter this block.
+        byte[]? historyBytes = authenticatedHistory is null ? null : JsonSerializer.SerializeToUtf8Bytes(authenticatedHistory, CampaignOptions);
+        if (historyBytes is not null && (currentEnvironment is null || historyBytes.Length > WorkspaceAuthenticatedHistory.MaximumBytes)) throw Rejected();
         // Exact lengths are checked before the combined buffer is allocated.
-        long length = 4L + Utf8.GetByteCount(WorkspacePrivateRuleSourceClosureBinding.SchemaV1)
+        long length = 4L + Utf8.GetByteCount(schema)
             + 4L + continuation.Length + 4L + 4L + campaignBytes.Length;
+        if (environmentBytes is not null) length = checked(length + 4L + environmentBytes.Length);
+        if (historyBytes is not null) length = checked(length + 4L + historyBytes.Length);
         foreach (var row in ordered) length = checked(length + 4L + Utf8.GetByteCount(row.Digest) + 4L + row.Bytes.Length);
-        if (length > maximumBytes || campaignBytes.Length > MaximumCampaignBytes) throw Rejected();
+        if (length > maximumBytes || campaignBytes.Length > MaximumCampaignBytes
+            || environmentBytes?.Length > MaximumEnvironmentBytes) throw Rejected();
         using var stream = new MemoryStream(checked((int)length));
         using (var writer = new BinaryWriter(stream, Utf8, leaveOpen: true))
         {
-            WriteBlock(writer, Utf8.GetBytes(WorkspacePrivateRuleSourceClosureBinding.SchemaV1));
+            WriteBlock(writer, Utf8.GetBytes(schema));
             WriteBlock(writer, continuation);
             writer.Write(ordered.Length);
             foreach (var row in ordered) { WriteBlock(writer, Utf8.GetBytes(row.Digest)); WriteBlock(writer, row.Bytes); }
             WriteBlock(writer, campaignBytes);
+            if (environmentBytes is not null) WriteBlock(writer, environmentBytes);
+            if (historyBytes is not null) WriteBlock(writer, historyBytes);
         }
         byte[] result = stream.ToArray();
         var decoded = Decode(result, maximumBytes, cancellationToken);
@@ -125,6 +184,7 @@ public sealed class WorkspacePrivateRuleSourceClosure
     }
 
     private const int MaximumCampaignBytes = 1024 * 1024;
+    private const int MaximumEnvironmentBytes = 8 * 1024 * 1024;
 
     private static Decoded Decode(byte[] bytes, int maximumBytes, CancellationToken cancellationToken = default)
     {
@@ -133,7 +193,9 @@ public sealed class WorkspacePrivateRuleSourceClosure
         if (bytes.Length == 0 || bytes.Length > maximumBytes) throw Rejected();
         using var stream = new MemoryStream(bytes, writable: false);
         using var reader = new BinaryReader(stream, Utf8);
-        if (Utf8.GetString(ReadBlock(reader, 128)) != WorkspacePrivateRuleSourceClosureBinding.SchemaV1) throw Rejected();
+        string schema = Utf8.GetString(ReadBlock(reader, 128));
+        if (schema is not (WorkspacePrivateRuleSourceClosureBinding.SchemaV1
+            or WorkspacePrivateRuleSourceClosureBinding.SchemaV2)) throw Rejected();
         byte[] continuation = ReadBlock(reader, WorkspacePrivateRuleSourceClosureBinding.MaximumContinuationBytes);
         if (!WorkspaceContinuationCodec.TryDecodeCandidate(continuation, continuation.Length, out var candidate)) throw Rejected();
         // Canonical encoding excludes duplicate properties and alternate wire identities.
@@ -161,6 +223,34 @@ public sealed class WorkspacePrivateRuleSourceClosure
         }
         byte[] campaignBytes = ReadBlock(reader, MaximumCampaignBytes);
         ValidatePrivateText(campaignBytes, WorkspacePrivateRuleSourceClosureBinding.MaximumCampaigns);
+        WorkspaceCurrentRuleEnvironmentBinding? environment = null;
+        byte[]? environmentBytes = null;
+        if (schema == WorkspacePrivateRuleSourceClosureBinding.SchemaV2)
+        {
+            environmentBytes = ReadBlock(reader, MaximumEnvironmentBytes);
+            ValidatePrivateText(environmentBytes);
+            environment = JsonSerializer.Deserialize<WorkspaceCurrentRuleEnvironmentBinding>(environmentBytes, CampaignOptions)
+                ?? throw Rejected();
+            if (!captures.TryGetValue(environment.CaptureDigest, out var current)) throw Rejected();
+            // Interpretation identifiers remain untrusted observations until independent
+            // canonical admission matches them. Never rewrite them to the receiver's version.
+            var canonical = DescribeCurrentEnvironment(candidate.Snapshot, current,
+                environment.ExecutionProfile, environment.ExecutionProfileFingerprint, environment.AdmissionDiagnostics);
+            // Regenerate the entire ordered inventory from original retained inputs.
+            // Mutable DTO equality or a caller-supplied digest is insufficient.
+            if (!JsonSerializer.SerializeToUtf8Bytes(canonical, CampaignOptions).AsSpan().SequenceEqual(environmentBytes))
+                throw Rejected();
+        }
+        WorkspaceAuthenticatedHistory? authenticatedHistory = null;
+        if (environment is not null && stream.Position < stream.Length)
+        {
+            byte[] historyBytes = ReadBlock(reader, WorkspaceAuthenticatedHistory.MaximumBytes);
+            authenticatedHistory = JsonSerializer.Deserialize<WorkspaceAuthenticatedHistory>(historyBytes, CampaignOptions);
+            if (authenticatedHistory?.Transitions is not { Length: > 0 } transitions
+                || transitions.Length > WorkspaceAuthenticatedHistory.MaximumTransitions
+                || transitions.Any(row => row?.Observation is null || row.Observation.Version != 1)
+                || !JsonSerializer.SerializeToUtf8Bytes(authenticatedHistory, CampaignOptions).AsSpan().SequenceEqual(historyBytes)) throw Rejected();
+        }
         if (stream.Position != stream.Length) throw Rejected();
         var campaigns = JsonSerializer.Deserialize<CharacterCreationCommittedCampaign[]>(campaignBytes, CampaignOptions);
         if (campaigns is null || campaigns.Length > WorkspacePrivateRuleSourceClosureBinding.MaximumCampaigns
@@ -169,16 +259,63 @@ public sealed class WorkspacePrivateRuleSourceClosure
                 campaigns.Select(c => c.ReceiptDigest).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal), StringComparer.Ordinal)
             || !JsonSerializer.SerializeToUtf8Bytes(campaigns, CampaignOptions).AsSpan().SequenceEqual(campaignBytes))
             throw Rejected();
-        FileWorkspaceStore.ValidatePrivateClosureBindings(candidate.Snapshot, captures.Keys, campaigns);
+        FileWorkspaceStore.ValidatePrivateClosureBindings(candidate.Snapshot, captures.Keys, campaigns, environment?.CaptureDigest);
         var workspace = candidate.Snapshot.Workspace;
-        var binding = new WorkspacePrivateRuleSourceClosureBinding(WorkspacePrivateRuleSourceClosureBinding.SchemaV1,
+        var binding = new WorkspacePrivateRuleSourceClosureBinding(schema,
             candidate.Snapshot.OwnerId, workspace.Id, workspace.ContentRevision, workspace.SavedRevision,
-            candidate.SnapshotDigest, RetainedCharacterRuleSourceInputs.Digest(bytes), count, archiveBytes, campaigns.Length);
-        return new(candidate.Snapshot, continuation, captures, campaigns, binding);
+            candidate.SnapshotDigest, RetainedCharacterRuleSourceInputs.Digest(bytes), count, archiveBytes, campaigns.Length)
+        {
+            CurrentEnvironmentDigest = environmentBytes is null ? null : RetainedCharacterRuleSourceInputs.Digest(environmentBytes)
+        };
+        return new(candidate.Snapshot, continuation, captures, campaigns, binding, environment, authenticatedHistory);
     }
 
-    private sealed record Decoded(WorkspaceContinuationSnapshot Snapshot, byte[] Continuation, Dictionary<string, CharacterCreationRuleSourceCapture> Captures,
-        CharacterCreationCommittedCampaign[] Campaigns, WorkspacePrivateRuleSourceClosureBinding Binding);
+    internal sealed record Decoded(WorkspaceContinuationSnapshot Snapshot, byte[] Continuation, Dictionary<string, CharacterCreationRuleSourceCapture> Captures,
+        CharacterCreationCommittedCampaign[] Campaigns, WorkspacePrivateRuleSourceClosureBinding Binding,
+        WorkspaceCurrentRuleEnvironmentBinding? CurrentEnvironment, WorkspaceAuthenticatedHistory? AuthenticatedHistory = null);
+
+    internal static WorkspaceCurrentRuleEnvironmentBinding DescribeCurrentEnvironment(
+        WorkspaceContinuationSnapshot snapshot, CharacterCreationRuleSourceCapture capture,
+        string? executionProfile = null, string? executionProfileFingerprint = null,
+        IReadOnlyList<string>? admissionDiagnostics = null)
+    {
+        var workspace = snapshot.Workspace;
+        byte[] archive = capture.ExportPrivateInputs();
+        var inputs = FileSystemCharacterSourceDataResolver.ImportCaptureInputs(archive, capture.IntegrityDigest);
+        if (!inputs.IsPortable || !capture.MatchesOriginalCharacter(workspace.Document.Content)
+            || inputs.CharacterXml != workspace.Document.Content
+            || !Chummer5aLegacyImportCompatibility.TryGetInterpretation(capture.CompatibilityProfile,
+                out var resolverSemantics, out var definitionFingerprint)
+            || string.IsNullOrWhiteSpace(capture.RequiredPackageSetDigest)
+            || string.IsNullOrWhiteSpace(inputs.ProfileId)
+            || capture.RequiredAssets.Count == 0
+            || (executionProfile is null) != (executionProfileFingerprint is null)
+            || executionProfile is not null && (string.IsNullOrWhiteSpace(executionProfile)
+                || string.IsNullOrWhiteSpace(executionProfileFingerprint))) throw Rejected();
+        Chummer.Contracts.Characters.CharacterRetainedSettingsFile? settingsFile = null;
+        if (Chummer.Contracts.Characters.CharacterRetainedSettingsFile.IsFileSelector(inputs.ProfileId))
+        {
+            var source = capture.CreateReplayResolver().TryCreateContext(workspace.Document.Content);
+            if (source is null || !source.TryResolveCreationSourceProfile(out var profile)
+                || profile.RetainedSettingsFile is not { } retainedFile
+                || !retainedFile.IsSelectedBy(inputs.ProfileId)) throw Rejected();
+            settingsFile = retainedFile;
+        }
+        return new(WorkspaceCurrentRuleEnvironmentBinding.SchemaV1, snapshot.OwnerId, workspace.Id,
+            workspace.ContentRevision, workspace.SavedRevision,
+            RetainedCharacterRuleSourceInputs.Digest(Utf8.GetBytes(workspace.Document.Content)),
+            capture.IntegrityDigest, capture.EffectivePolicyDigest, inputs.ProfileId,
+            capture.CompatibilityProfile!, resolverSemantics,
+            Chummer5aLegacyImportCompatibility.SourceOrderV1, capture.RequiredPackageSetDigest,
+            capture.RequiredRulePacks.ToArray(), capture.RequiredAssets.ToArray(), capture.OrderedCustomSources.ToArray())
+        {
+            CompatibilityDefinitionFingerprint = definitionFingerprint,
+            ExecutionProfile = executionProfile,
+            ExecutionProfileFingerprint = executionProfileFingerprint,
+            AdmissionDiagnostics = admissionDiagnostics?.ToArray() ?? [],
+            RetainedSettingsFile = settingsFile
+        };
+    }
 
     private static void ValidatePrivateText(byte[] json, int? maximumArrayEntries = null, object? model = null)
     {
@@ -226,7 +363,7 @@ public sealed class WorkspacePrivateRuleSourceClosure
         }
     }
 
-    private sealed class ObservationRecovery(Dictionary<string, CharacterCreationRuleSourceCapture> captures,
+    internal sealed class ObservationRecovery(Dictionary<string, CharacterCreationRuleSourceCapture> captures,
         CharacterCreationCommittedCampaign[] campaigns, ICharacterFileQueries queries)
         : ICharacterCreationRuleSourceRecovery, IDisposable
     {
