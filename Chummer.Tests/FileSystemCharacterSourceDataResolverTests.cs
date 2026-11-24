@@ -1128,7 +1128,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         foreach (bool unsupported in new[] { false, true })
         {
             // Streams use <tradition> rows too. Preserve each real source
-            // element so this digest test also exercises valid admission.
+            // element while retaining deliberately unsupported digest payloads.
             string element = kind switch
             {
                 "tradition" or "stream" => "tradition",
@@ -1164,13 +1164,49 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.AreEqual(kind, option.Identity.Kind);
             Assert.AreEqual(id, option.Identity.SourceId);
             Assert.AreEqual("Zoë & 東京 😀", option.Name);
-            Assert.AreEqual(bookEnabled && !unsupported, option.IsEnabled);
+            // Namespace metadata and non-power fields in this shared digest
+            // fixture are outside the supported adept-power grammar.
+            bool semanticsUnsupported = unsupported || kind == "adept-power";
+            Assert.AreEqual(bookEnabled && !semanticsUnsupported, option.IsEnabled);
             var expected = new System.Collections.Generic.List<string>();
             if (!bookEnabled) expected.Add(CharacterCreationMagicResonanceBlockers.OptionDisabled);
-            if (unsupported) expected.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
+            if (semanticsUnsupported) expected.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
             CollectionAssert.AreEquivalent(expected.ToArray(), option.Blockers.ToArray());
             CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog([row, row], kind, inputs, ["SR5"], blockers);
             CollectionAssert.Contains(blockers, CharacterCreationMagicResonanceBlockers.AuthorityUnavailable);
+
+            if (kind == "adept-power" && space.Length == 0 && !unsupported)
+            {
+                // Exercise supported power admission with both enabled and
+                // disabled books, alongside every original digest fixture.
+                string powerRaw = $"<power>\n  <id>{id}</id>\n"
+                    + "  <name>Zoë &amp; 東京 😀</name>\n  <!-- retained -->\n"
+                    + "  <source>SR5</source>\n  <page>123</page>\n"
+                    + "  <points>0.5</points><levels>False</levels>\n</power>";
+                XElement powerRow = XElement.Parse(powerRaw, LoadOptions.PreserveWhitespace);
+                string powerSerialized = powerRow.ToString(SaveOptions.DisableFormatting);
+                string powerCanonical = XElement.Parse(powerSerialized, LoadOptions.None).ToString(SaveOptions.DisableFormatting);
+                var powerBlockers = new System.Collections.Generic.List<string>();
+                var powers = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
+                    [powerRow], kind, inputs, bookEnabled ? ["sr5"] : [], powerBlockers);
+                Assert.HasCount(0, powerBlockers);
+                Assert.HasCount(1, powers);
+                var power = powers[0];
+                Assert.AreEqual(kind, power.Identity.Kind);
+                Assert.AreEqual(id, power.Identity.SourceId);
+                Assert.AreEqual("Zoë & 東京 😀", power.Name);
+                Assert.AreEqual(bookEnabled, power.IsEnabled);
+                CollectionAssert.AreEquivalent(bookEnabled ? System.Array.Empty<string>()
+                    : new[] { CharacterCreationMagicResonanceBlockers.OptionDisabled }, power.Blockers.ToArray());
+                Assert.AreEqual(CharacterCreationMagicResonanceDigest.Compute(new
+                {
+                    Schema = $"chummer.sr5.standard_priority_magic_resonance_{kind}_source.v1",
+                    EffectiveInputsDigest = inputs, SourceId = id, RawNode = powerSerialized
+                }), power.SourceNodeDigest);
+                Assert.AreNotEqual(powerSerialized, powerCanonical);
+                Assert.AreEqual(powerCanonical, power.CanonicalSourceXml);
+                Assert.AreEqual(CharacterCreationMagicResonanceDigest.ComputeUtf8(powerCanonical), power.CanonicalSourceXmlDigest);
+            }
         }
     }
 
@@ -1918,7 +1954,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [TestMethod]
     [DataRow(SettingsId, 3)]
     [DataRow(CanonicalSumToTenSettingsId, 3)]
-    [DataRow(CanonicalLifeModuleSettingsId, 3)]
+    [DataRow(CanonicalLifeModuleSettingsId, 5)]
     [DataRow("fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef", 5)]
     public void Metatype_catalog_cache_preserves_profiles_and_karma_base_bonuses(string profile, int options)
     {
@@ -1926,8 +1962,39 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         var first = (CharacterCreationMetatypeCatalogAuthority)ReadCompletionProjection(context, "metatypes");
         Assert.HasCount(options, first.Options);
         string expected = System.Text.Json.JsonSerializer.Serialize(first);
+        (string Id, string Label)[] legacyMetatypes =
+        [
+            ("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "Human"),
+            ("b3259991-b315-4dbe-ae3c-51f71a1116e2", "Elf"),
+            ("8ed6892f-88e6-42d0-a704-b805778ec13e", "Ork")
+        ];
+        (string Id, string Label)[] expectedMetatypes = options == 5
+            ? [.. legacyMetatypes,
+                ("08f2c9cc-f9f8-4f1a-9efb-63555af71788", "Dwarf"),
+                ("77fa1ed8-f4e6-4763-9f0b-f125318b9782", "Troll")]
+            : legacyMetatypes;
+        CollectionAssert.AreEquivalent(expectedMetatypes,
+            first.Options.Select(option => (option.OptionId, option.Label)).ToArray());
+        foreach (var option in first.Options)
+        {
+            Assert.IsTrue(option.IsEnabled);
+            Assert.HasCount(0, option.Blockers);
+            if (legacyMetatypes.Any(metatype => metatype.Id == option.OptionId))
+                Assert.IsNull(option.BaseBonuses);
+        }
         if (options == 5)
-            Assert.IsNotNull(first.Options.Single(option => option.Label == "Troll").BaseBonuses);
+        {
+            var dwarf = first.Options.Single(option => option.OptionId == "08f2c9cc-f9f8-4f1a-9efb-63555af71788").BaseBonuses;
+            var troll = first.Options.Single(option => option.OptionId == "77fa1ed8-f4e6-4763-9f0b-f125318b9782").BaseBonuses;
+            Assert.IsNotNull(dwarf);
+            Assert.IsNotNull(troll);
+            Assert.AreEqual(0, dwarf.Armor);
+            Assert.AreEqual(0, dwarf.Reach);
+            Assert.AreEqual(20, dwarf.LifestyleCostPercent);
+            Assert.AreEqual(1, troll.Armor);
+            Assert.AreEqual(1, troll.Reach);
+            Assert.AreEqual(100, troll.LifestyleCostPercent);
+        }
         Assert.IsTrue(PoisonCompletionProjection(first));
         var second = (CharacterCreationMetatypeCatalogAuthority)ReadCompletionProjection(context, "metatypes");
         Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(second));
@@ -5794,8 +5861,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 int validations = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
                 Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var detached));
                 Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(detached));
-                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations,
-                    "Explicit projection reuse checks must not be bypassed by the ambient operation.");
+                Assert.AreEqual(validations, resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount,
+                    "Cached projection reads use the admitted operation's entry/exit fences without rescanning.");
                 before = resolver.LastSourceInputSnapshotDiagnostics;
             }
             var exited = resolver.LastSourceInputSnapshotDiagnostics!;
@@ -5806,6 +5873,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out _));
             Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount > exited.ValidationReadCount,
                 "Disposal restores ordinary per-method validation.");
+            int outsideValidations = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var outside));
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(outside));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > outsideValidations,
+                "Cached projection reuse outside the operation still validates live bytes.");
         }
         finally { DeleteTempDirectory(root); }
     }

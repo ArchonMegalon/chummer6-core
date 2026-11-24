@@ -89,7 +89,8 @@ public sealed partial class WorkspaceService : IWorkspaceService, IWorkspaceCurr
             summary,
             importedAtUtc,
             payloadSha256,
-            preservesNativePayload: portableWorkspace is not null);
+            preservesNativePayload: portableWorkspace is not null
+                || document.Format == WorkspaceDocumentFormat.NativeXml);
         WorkspaceWorkflowDeterministicReceipt workflowReceipt = BuildWorkflowDeterministicReceipt(
             importReceiptId,
             id,

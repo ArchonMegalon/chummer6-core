@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
+using System.Xml.Linq;
 using Chummer.Contracts.Api;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
@@ -226,7 +227,17 @@ public class WorkspaceServiceTests
         Assert.AreEqual("Neo", imported.Summary.Name);
         Assert.AreEqual("sr5", imported.RulesetId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.ImportReceiptId));
-        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState);
+        // A legacy settings filename does not retain a standalone source binding.
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings, imported.Portability?.CompatibilityState);
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings, imported.Portability?.Compatibility?.State);
+        CollectionAssert.AreEqual(new[] { "format-review-required" }, imported.Portability?.Compatibility?.WarningCodes.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<string>(), imported.Portability?.Compatibility?.BlockingCodes.ToArray());
+        var missingSettings = imported.Portability!.Notes.Single(note => note.Code == "missing-settings");
+        Assert.AreEqual(WorkspacePortabilityNoteSeverities.Warning, missingSettings.Severity);
+        Assert.AreEqual(
+            "This character-only import has no retained standalone settings binding. Import a complete private rule environment from the source installation, including the original selected settings file and its ordered custom data.",
+            missingSettings.Summary);
+        Assert.AreEqual(missingSettings.Summary, imported.Portability.NextSafeAction);
         Assert.AreEqual(WorkspacePortabilityOutputKinds.NativeWorkspaceXml, imported.Portability?.OutputKind);
         Assert.AreEqual(WorkspacePortabilityLossStates.None, imported.Portability?.Loss?.State);
         Assert.AreEqual(imported.ImportReceiptId, imported.Portability?.Provenance?.ReceiptId);
@@ -246,6 +257,7 @@ public class WorkspaceServiceTests
         CollectionAssert.AreEqual(Array.Empty<string>(), imported.WorkflowDeterministicReceipt?.MissingWorkflowRouteIds.ToArray());
         StringAssert.Contains(imported.Portability?.ReceiptSummary ?? string.Empty, "Portable import completed");
         StringAssert.Contains(imported.Portability?.ProvenanceSummary ?? string.Empty, imported.Id.Value);
+        Assert.AreEqual(xml, workspaceService.GetWorkspace(imported.Id).Value?.Document.Content);
         IReadOnlyList<WorkspaceListItem> listed = workspaceService.List();
         Assert.IsTrue(listed.Any(item => string.Equals(item.Id.Value, imported.Id.Value, StringComparison.Ordinal)));
         Assert.AreEqual("sr5", listed.First(item => string.Equals(item.Id.Value, imported.Id.Value, StringComparison.Ordinal)).RulesetId);
@@ -300,6 +312,17 @@ public class WorkspaceServiceTests
         Assert.AreEqual("sr5", download.Value?.RulesetId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(download.Value?.ReceiptId));
         Assert.IsNotNull(download.Value?.WorkflowDeterministicReceipt);
+        Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, download.Value?.Format);
+        string downloadedXml = Encoding.UTF8.GetString(Convert.FromBase64String(download.Value!.ContentBase64));
+        XElement expectedCharacter = XElement.Parse(xml);
+        expectedCharacter.SetElementValue("name", "Updated");
+        expectedCharacter.SetElementValue("alias", "Alias");
+        expectedCharacter.SetElementValue("notes", "Notes");
+        expectedCharacter.SetElementValue("gamenotes", "Game Notes");
+        expectedCharacter.SetElementValue("groupnotes", "Group Notes");
+        Assert.IsTrue(XNode.DeepEquals(expectedCharacter, XElement.Parse(downloadedXml)),
+            "Metadata update and save must preserve every other native character field.");
+        Assert.AreEqual(downloadedXml, workspaceService.GetWorkspace(imported.Id).Value?.Document.Content);
 
         var export = workspaceService.Export(imported.Id);
         Assert.IsTrue(export.Success);
@@ -311,6 +334,9 @@ public class WorkspaceServiceTests
         Assert.AreEqual("governed", export.Value?.ExchangeDeterministicReceipt?.RuleEnvironmentPosture);
         Assert.AreEqual("default.xml", export.Value?.ExchangeDeterministicReceipt?.SettingsProfile);
         Assert.AreEqual("Standard", export.Value?.ExchangeDeterministicReceipt?.GameplayOption);
+        DataExportBundle exported = JsonSerializer.Deserialize<DataExportBundle>(
+            Convert.FromBase64String(export.Value!.ContentBase64))!;
+        Assert.AreEqual(downloadedXml, exported.NativeWorkspace?.Payload);
 
         var print = workspaceService.Print(imported.Id);
         Assert.IsTrue(print.Success);
@@ -394,6 +420,21 @@ public class WorkspaceServiceTests
         OwnerScope owner = new("portable-owner@example.com");
         string xml = PortableRoundTripXml(rulesetId);
         WorkspaceImportResult original = service.Import(owner, new(xml, rulesetId));
+        // Native payload fidelity is independent of missing external rule authority.
+        Assert.AreEqual(xml, service.GetWorkspace(owner, original.Id).Value?.Document.Content);
+        bool missingStandaloneSr5Settings = rulesetId == "sr5";
+        Assert.AreEqual(missingStandaloneSr5Settings
+            ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+            : WorkspacePortabilityCompatibilityStates.Compatible, original.Portability?.CompatibilityState);
+        CollectionAssert.AreEqual(missingStandaloneSr5Settings
+            ? new[] { "format-review-required" } : Array.Empty<string>(),
+            original.Portability?.Compatibility?.WarningCodes.ToArray());
+        Assert.AreEqual(WorkspacePortabilityLossStates.None, original.Portability?.Loss?.State);
+        CollectionAssert.AreEqual(Array.Empty<string>(), original.Portability?.Loss?.AffectedSections.ToArray());
+        Assert.AreEqual(missingStandaloneSr5Settings, original.Portability?.Notes.Any(note => note.Code == "missing-settings"
+            && note.Severity == WorkspacePortabilityNoteSeverities.Warning) == true);
+        StringAssert.Contains(original.Portability!.Loss!.Summary,
+            "external source files require the separate continuation and source-admission paths");
         Assert.IsTrue(service.Save(owner, original.Id, original.ContentRevision).Success);
         WorkspaceDocumentSnapshot before = service.GetWorkspace(owner, original.Id).Value!;
 

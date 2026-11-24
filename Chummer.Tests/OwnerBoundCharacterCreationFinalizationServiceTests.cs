@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Chummer.Application.Characters;
+using Chummer.Application.LifeModules;
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
@@ -108,6 +109,13 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
             ? new OwnerBoundCharacterCreationLifeModuleFinalizationService(
                 baselineStore, fixture.Owner, s_source.Queries, baselineResolver, OverviewCatalog())
                 .Load(stamp, fixture.Id) : null;
+        if (includeFoundation)
+        {
+            Assert.IsNotNull(expectedFoundation);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, expectedFoundation.Outcome);
+            Assert.IsNotNull(expectedFoundation.Value);
+            Assert.AreEqual(fixture.Id, expectedFoundation.Value.Binding.WorkspaceId);
+        }
         int duplicateDomainQueries = 0;
         T CountOverviewDomain<T>(Func<T> load)
         {
@@ -1417,12 +1425,45 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         }
     }
 
-    private sealed class ScopedAtomicStore(Fixture fixture) : LocalAtomicStore(fixture), IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
+    private sealed class ScopedAtomicStore(Fixture fixture) : LocalAtomicStore(fixture),
+        IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability,
+        ICharacterCreationCurrentLifeModuleFinalizationCapability
     {
         public bool SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit => true;
         public WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
             OwnerScope owner, CharacterWorkspaceId id, long revision, string digest, WorkspaceDocument document)
             => Commit(owner, id, revision, digest, document);
+
+        // The standalone Foundation reader now asks storage to classify and read
+        // under its owner/workspace leases. Forward that read to the real store;
+        // never synthesize unbound authority or call the overview as its oracle.
+        public CharacterCreationFoundationResult<CharacterCreationFoundationState>? LoadCurrentLifeModuleFinalization(
+            IOwnerContextAccessor owners, OwnerContextStamp expectedOwner, CharacterWorkspaceId workspaceId,
+            ICharacterFileQueries characterFiles, ICharacterSourceDataResolver unboundResolver,
+            ILifeModulesCatalogService unboundCatalog, CancellationToken cancellationToken = default)
+        {
+            Assert.AreSame(Fixture.Owner, owners);
+            return new FileWorkspaceStore(Fixture.Root).LoadCurrentLifeModuleFinalization(
+                owners, expectedOwner, workspaceId, characterFiles, unboundResolver, unboundCatalog, cancellationToken);
+        }
+
+        public CurrentLifeModuleFinalizationDisposition ReviewCurrentLifeModuleFinalization(
+            IOwnerContextAccessor owners, OwnerContextStamp expectedOwner,
+            CharacterCreationFoundationFinalizationPreviewRequest request,
+            out CurrentLifeModuleFinalizationReview? review, CancellationToken cancellationToken = default)
+            => throw new AssertFailedException("Unexpected current Life Modules review.");
+
+        public CurrentLifeModuleFinalizationResult ConfirmCurrentLifeModuleFinalization(
+            IOwnerContextAccessor owners, OwnerContextStamp expectedOwner,
+            CharacterCreationFoundationFinalizationConfirmRequest request,
+            CurrentLifeModuleFinalizationReview? review, CancellationToken cancellationToken = default)
+            => throw new AssertFailedException("Unexpected current Life Modules commit.");
+
+        public CurrentLifeModuleFinalizationResult LookupCurrentLifeModuleFinalization(
+            IOwnerContextAccessor owners, OwnerContextStamp expectedOwner,
+            CharacterCreationFoundationFinalizationConfirmRequest request,
+            CurrentLifeModuleFinalizationReview review, CancellationToken cancellationToken = default)
+            => throw new AssertFailedException("Unexpected current Life Modules receipt lookup.");
     }
 
     private sealed class CurrentOnlyOwner(OwnerScope owner) : IOwnerContextAccessor

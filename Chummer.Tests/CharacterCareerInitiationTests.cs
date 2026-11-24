@@ -123,19 +123,49 @@ public sealed partial class CharacterCareerInitiationTests
     public void Saved_grade_and_separate_adept_effective_Magic_cap_are_required()
     {
         using var f = new Fixture(adept: true, magician: true, separate: true);
+        // Without local purchase receipts, malformed native history is exposed
+        // as a blocked quote. Repair it before testing the independent Magic cap.
+        f.Edit(x => x.SetElementValue("initiategrade", 3));
+        var inconsistent = f.Read(new(PowerPoint, AcceptObligations: true));
+        Assert.IsFalse(inconsistent.CanApply);
+        Assert.IsTrue(inconsistent.Blockers.Contains("initiation_saved_grade_inconsistent"));
         f.Edit(x =>
         {
+            x.SetElementValue("initiategrade", 0);
             var a = x.Element("attributes")!.Elements().Single(a => a.Element("name")!.Value == "MAGAdept");
             a.SetElementValue("base", 0);
             a.SetElementValue("totalvalue", 1);
         });
         var first = f.Plan(PowerPoint);
         Assert.AreEqual(CharacterCareerInitiationOutcome.Applied, f.Service.Commit(f.Owners.Capture(), first).Outcome);
-        Assert.IsTrue(f.Read(new(PowerPoint, AcceptObligations: true)).Blockers.Contains("initiation_magic_cap"));
+        var coherent = f.Saved();
+        var ledger = coherent.Document.AuxiliaryState.CharacterCareerInitiationTransactions;
+        Assert.HasCount(1, ledger!);
+        Assert.IsTrue(CharacterCareerInitiationTransaction.IsValidLedger(coherent.Id, coherent.ContentRevision, ledger));
+        Assert.IsTrue(CharacterCareerInitiationTransaction.ObserveHistory(coherent));
+        var capped = f.Read(new(PowerPoint, AcceptObligations: true));
+        Assert.AreEqual(1, capped.CurrentGrade);
+        Assert.AreEqual(2, capped.NextGrade);
+        Assert.IsTrue(capped.SeparateAdeptMagic);
+        Assert.AreEqual(5, capped.EffectiveMagic);
+        Assert.AreEqual(1, capped.EffectiveAdeptMagic!.Value);
+        Assert.IsFalse(capped.CanApply);
+        Assert.IsTrue(capped.Blockers.Contains("initiation_magic_cap"));
+        Assert.IsFalse(capped.Blockers.Contains("initiation_saved_grade_inconsistent"));
+        Assert.AreEqual(coherent.Document.Content, f.Saved().Document.Content);
+
+        // Once a local purchase exists, its exact saved history must authenticate
+        // before a quote is issued. A valid ledger alone cannot bless scalar grade 3.
         f.Edit(x => x.SetElementValue("initiategrade", 3));
-        Assert.IsTrue(f.Read(new(PowerPoint, AcceptObligations: true)).Blockers.Contains("initiation_saved_grade_inconsistent"));
+        var corrupt = f.Saved();
+        Assert.IsTrue(CharacterCareerInitiationTransaction.IsValidLedger(corrupt.Id, corrupt.ContentRevision,
+            corrupt.Document.AuxiliaryState.CharacterCareerInitiationTransactions));
+        Assert.IsFalse(CharacterCareerInitiationTransaction.ObserveHistory(corrupt));
+        Assert.IsNull(f.Service.Read(f.Owners.Capture(), f.Id, new(PowerPoint, AcceptObligations: true)));
         Assert.AreEqual(CharacterCareerInitiationOutcome.Conflict,
             f.Service.Commit(f.Owners.Capture(), first with { TransactionId = Guid.NewGuid(), Quote = first.Quote with { NextGrade = 7 } }).Outcome);
+        Assert.AreEqual(corrupt.Document.Content, f.Saved().Document.Content);
+        Assert.AreEqual(corrupt.Document.AuxiliaryStateDigest, f.Saved().Document.AuxiliaryStateDigest);
     }
 
     [TestMethod]
