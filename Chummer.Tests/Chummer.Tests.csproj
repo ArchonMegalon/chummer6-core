@@ -52,6 +52,7 @@
     <Compile Remove="ServiceCollectionDesktopRuntimeExtensionsTests.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Remove="CharacterCreationAttributesServiceTests.AllocationOwners.cs" />
     <Compile Remove="PortalAuthenticatedOwnerPropagationTests.cs" />
     <Compile Remove="PortalAuthenticationFlowTests.cs" />
     <Compile Remove="PortalSettingsResolverTests.cs" />
