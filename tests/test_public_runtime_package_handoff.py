@@ -607,6 +607,13 @@ class PublicRuntimePackageHandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(handoff.PublicHandoffError, "bounded regular file"):
             handoff._validate_bundle(self.repo, self.bundle, self.COMMIT)
 
+    def test_prepare_rejects_individual_package_above_member_bound(self) -> None:
+        package = self.bundle / "packages" / self.rows[0]["file_name"]
+        with package.open("r+b") as stream:
+            stream.truncate(handoff.MAX_MEMBER_BYTES + 1)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "bounded regular file"):
+            handoff._validate_bundle(self.repo, self.bundle, self.COMMIT)
+
     def test_prepare_rejects_extra_bundle_member(self) -> None:
         (self.bundle / "foreign.txt").write_text("foreign", encoding="utf-8")
         with self.assertRaisesRegex(handoff.PublicHandoffError, "root members differ"):
@@ -630,6 +637,80 @@ class PublicRuntimePackageHandoffTests(unittest.TestCase):
             downloaded_bundle_path=archive,
             downloaded_receipt_path=downloaded_receipt,
         )
+
+    def test_public_release_accepts_large_valid_local_bundle_and_checks_byte_authority(self) -> None:
+        # Two legal members make a stored ZIP larger than the individual member cap.
+        raw = b"x" * (handoff.MAX_MEMBER_BYTES // 2 + 1)
+        for row in self.rows[:2]:
+            (self.bundle / "packages" / row["file_name"]).write_bytes(raw)
+            row.update(size_bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+        inventory_path = self.bundle / handoff.INVENTORY_NAME
+        self._write_json(inventory_path, self.inventory)
+        proof_path = self.bundle / handoff.NO_SIBLINGS_RECEIPT_NAME
+        proof = json.loads(proof_path.read_bytes())
+        proof["runtime_package_inventory_sha256"] = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+        proof["resolved_owner_contracts"] = [
+            dict(row, role="current_core_runtime_candidate") for row in self.rows
+        ]
+        self._write_json(proof_path, proof)
+        metadata, tag, receipt, archive, downloaded_receipt, _ = self._release_fixture(local=True)
+        self.assertGreater(archive.stat().st_size, handoff.MAX_MEMBER_BYTES)
+        self.assertLess(archive.stat().st_size, handoff.MAX_BUNDLE_BYTES)
+        with zipfile.ZipFile(archive) as bundle:
+            self.assertTrue(all(info.file_size <= handoff.MAX_MEMBER_BYTES for info in bundle.infolist()))
+        args = dict(release_metadata_path=metadata, tag_metadata_path=tag, receipt_path=receipt,
+                    downloaded_bundle_path=archive, downloaded_receipt_path=downloaded_receipt)
+        handoff.verify_public_release(**args)
+        with archive.open("r+b") as stream:
+            stream.seek(-1, 2)
+            last_byte = stream.read(1)
+            stream.seek(-1, 2)
+            stream.write(bytes([last_byte[0] ^ 1]))
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "byte authority differs"):
+            handoff.verify_public_release(**args)
+
+    def test_public_release_rejects_downloaded_bundle_above_aggregate_bound(self) -> None:
+        metadata, tag, receipt, archive, downloaded_receipt, _ = self._release_fixture(local=True)
+        with archive.open("r+b") as stream:
+            stream.truncate(handoff.MAX_BUNDLE_BYTES + 1)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "downloaded public bundle is not one bounded regular file"):
+            handoff.verify_public_release(
+                release_metadata_path=metadata, tag_metadata_path=tag, receipt_path=receipt,
+                downloaded_bundle_path=archive, downloaded_receipt_path=downloaded_receipt,
+            )
+
+    def test_public_release_preserves_downloaded_bundle_file_and_link_guards(self) -> None:
+        metadata, tag, receipt, archive, downloaded_receipt, _ = self._release_fixture(local=True)
+        target = archive.with_suffix(".original")
+        archive.rename(target)
+        for kind in ("empty", "directory", "symlink", "hardlink"):
+            with self.subTest(kind=kind):
+                if kind == "empty":
+                    archive.touch()
+                elif kind == "directory":
+                    archive.mkdir()
+                elif kind == "symlink":
+                    archive.symlink_to(target)
+                else:
+                    archive.hardlink_to(target)
+                try:
+                    with self.assertRaisesRegex(handoff.PublicHandoffError, "downloaded public bundle is not one bounded regular file"):
+                        handoff.verify_public_release(
+                            release_metadata_path=metadata, tag_metadata_path=tag, receipt_path=receipt,
+                            downloaded_bundle_path=archive, downloaded_receipt_path=downloaded_receipt,
+                        )
+                finally:
+                    archive.rmdir() if kind == "directory" else archive.unlink()
+
+    def test_public_release_preserves_downloaded_receipt_member_bound(self) -> None:
+        metadata, tag, receipt, archive, downloaded_receipt, _ = self._release_fixture(local=True)
+        with downloaded_receipt.open("r+b") as stream:
+            stream.truncate(handoff.MAX_MEMBER_BYTES + 1)
+        with self.assertRaisesRegex(handoff.PublicHandoffError, "downloaded public receipt is not one bounded regular file"):
+            handoff.verify_public_release(
+                release_metadata_path=metadata, tag_metadata_path=tag, receipt_path=receipt,
+                downloaded_bundle_path=archive, downloaded_receipt_path=downloaded_receipt,
+            )
 
     def test_public_release_rejects_extra_asset(self) -> None:
         metadata_path, tag, receipt, archive, downloaded_receipt, metadata = self._release_fixture()

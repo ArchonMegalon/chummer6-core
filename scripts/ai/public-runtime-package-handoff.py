@@ -1135,7 +1135,9 @@ def verify_public_release(
     if set(by_name) != expected_names:
         raise PublicHandoffError("public release asset names differ")
 
-    downloaded_bundle = _read_bound_file(downloaded_bundle_path, "downloaded public bundle")
+    downloaded_bundle = _read_bound_file(
+        downloaded_bundle_path, "downloaded public bundle", maximum_bytes=MAX_BUNDLE_BYTES,
+    )
     downloaded_receipt = _read_bound_file(downloaded_receipt_path, "downloaded public receipt")
     expected = {
         receipt["bundle"]["asset_name"]: (
