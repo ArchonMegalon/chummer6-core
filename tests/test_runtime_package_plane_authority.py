@@ -64,9 +64,54 @@ class RuntimePackageLockTests(unittest.TestCase):
         self.assertIn(f'candidate_version="{runtime.PACKAGE_VERSION}"',
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
-    def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("903be22902d51769a8742cb2778dbf4bf3385ac8", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51", runtime.PACKAGE_VERSION)
+    def test_candidate_is_bound_to_exact_workspace_native_payload_integration(self) -> None:
+        self.assertEqual("752d7a3a45ed19070a7873e59c96f9f4ebca71dd", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261124.10388.sh752d7a3a45ed1", runtime.PACKAGE_VERSION)
+
+    def test_workspace_native_payload_roundtrips_are_in_the_required_consumer(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        actual_filter = verifier.split("portable_workspace_filter='", 1)[1].split("'", 1)[0]
+        self.assertEqual('FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Export_import_|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Portable_envelope_dispatch_preserves_sr6_hero_lab_json_import|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Export_builds_receipt_from_ruleset_codec_sections|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Export_marks_bounded_loss_when_portable_sections_are_missing|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_json_marks_portable_dossier_review_posture|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_get_profile_update_and_save_roundtrip|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_accepts_xml_with_utf8_bom_prefix|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_with_owner_scope_routes_create_through_owner_scoped_store|FullyQualifiedName~Chummer.Tests.WorkspaceServiceTests.Import_does_not_create_workspace_when_summary_parse_fails', actual_filter)
+        isolated_test = verifier.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1]
+        self.assertIn("$sr6_spell_runtime_filter|$portable_workspace_filter|", isolated_test)
+
+    def test_previous_recipe_cannot_stand_in_for_sr6_spell_runtime(self) -> None:
+        for field, value in (
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY, "commit": "8c9a0792dad4e1d1e4435cce6811475666a5f98c"}),
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY, "commit": "2d9677304947505e56ff6865ee4e8eb69e637aa2"}),
+            ("package_version", "0.0.0-packageplane.candidate.v20261122.9867.sh8c9a0792dad4e"),
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
+                                "commit": "903be22902d51769a8742cb2778dbf4bf3385ac8"}),
+            ("package_version", "0.0.0-packageplane.candidate.v20261114.1.sh903be22902d51"),
+        ):
+            altered = copy.deepcopy(self.lock)
+            altered[field] = value
+            with self.subTest(field=field), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_sr6_spell_runtime_controls_are_in_the_required_consumer(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        selected = verifier.split("sr6_spell_runtime_filter='", 1)[1].split("'", 1)[0]
+        self.assertEqual(
+            "FullyQualifiedName~Sr6CreationFoundationTests.Spell_runtime_|"
+            "FullyQualifiedName~Sr6CreationFoundationTests.Character_projection_keeps_spell_and_form_source_identity_without_invented_runtime_stats|"
+            "FullyQualifiedName~Sr6CreationFoundationTests.Sr6_finalization_does_not_promote_unresolved_equipment_or_magical_tradition|"
+            "FullyQualifiedName~Sr6CreationFoundationTests.Tradition_selection_resolves_magical_tradition_and_materializes|"
+            "FullyQualifiedName~Sr6CreationFoundationTests.Spells_and_rituals_share_one_creation_pool_save_and_cold_reopen|"
+            "FullyQualifiedName~Sr6CreationFoundationTests.Spell_freeze_is_detached_canonical_and_redigested_forgery_is_not_authority",
+            selected,
+        )
+        isolated_test = verifier.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1]
+        self.assertIn("$career_magic_filter|$sr6_spell_runtime_filter|", isolated_test)
+        for member in (
+            "Chummer.Rulesets.Sr6/Sr6CreationSpellProfiles.cs",
+            "Chummer.Rulesets.Sr6/Sr6CreationCharacterProjector.cs",
+            "Chummer.Tests/Sr6CreationSpellTests.cs",
+            "Chummer.Tests/Sr6CreationCharacterProjectionTests.cs",
+            "Chummer.Tests/Sr6CreationFinalizationTests.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
     def test_career_magic_intake_is_in_runtime_and_required_consumer_tests(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
@@ -456,7 +501,7 @@ class RuntimePackageLockTests(unittest.TestCase):
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         self.assertIn("\nprivate_runtime_filter='FullyQualifiedName~PrivateWorkspaceRuleRuntimeTests|FullyQualifiedName~RequestOwnerContextLifetimeTests'\n", script)
         invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
-        self.assertIn('$source_input_filter|$private_runtime_filter|$career_magic_filter|FullyQualifiedName~WorkspaceContinuation', invocation)
+        self.assertIn('$source_input_filter|$private_runtime_filter|$career_magic_filter|$sr6_spell_runtime_filter|$portable_workspace_filter|FullyQualifiedName~WorkspaceContinuation', invocation)
         self.assertIn('--no-restore', invocation)
 
     def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
@@ -639,7 +684,9 @@ class RuntimePackageLockTests(unittest.TestCase):
             runtime.ALLOWED_RECIPE_DELTA,
         )
         real_run = runtime._run
-        for mutation in ("missing", "extra", "untracked"):
+        for mutation in ("missing", "extra", "untracked",
+                         "Chummer.Application/packages.lock.json",
+                         "Chummer.Contracts/packages.lock.json"):
             def altered_delta(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
                     files = list(runtime.ALLOWED_RECIPE_DELTA)
@@ -647,6 +694,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                         files.pop()
                     if mutation == "extra":
                         files.append("Directory.Build.props")
+                    if mutation.endswith("/packages.lock.json"):
+                        files.append(mutation)
                     return "\n".join(files)
                 if tuple(command) == ("git", "ls-files", "--others", "--exclude-standard"):
                     return "Chummer.Application/unreviewed.cs" if mutation == "untracked" else ""
@@ -955,7 +1004,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 self.feed,
             )
 
-    def _execute_late_receipt_validator(self, mutation: str | None = None) -> dict:
+    def _execute_late_receipt_validator(self, mutation: str | None = None, *, source_mode: str = "declared-source") -> dict:
         self._write_inventory_and_receipt()
         inventory_path = self.feed / runtime.INVENTORY_NAME
         inventory = json.loads(inventory_path.read_bytes())
@@ -997,7 +1046,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         arguments = ["late-receipt-validator", str(consumer), str(package_root), str(owner_lock_path),
                      str(self.feed / runtime.OWNER_INVENTORY_NAME), str(candidate_path), str(gm_path),
                      str(inventory_path), str(runtime_assets), str(self.feed), str(receipt_path),
-                     version, source_commit]
+                     version, source_commit, source_mode]
         with mock.patch.object(sys, "argv", arguments), mock.patch(
             "subprocess.check_output", return_value=inventory["package_recipe_commit"] + "\n"
         ) as head, mock.patch("sys.stdout", new_callable=io.StringIO):
@@ -1291,6 +1340,10 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 "package_source_mapping",
                 {"Chummer.*": "nuget.org", "other": "https://api.nuget.org/v3/index.json"},
             ),
+            (
+                "package_source_mapping",
+                {"Chummer.*": "locked-owner-contracts", "other": "offline-packages"},
+            ),
             ("build", "skipped"),
         )
         for index, (key, value) in enumerate(mutations):
@@ -1309,6 +1362,53 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                         receipt_path,
                         self.feed / f"foreign-claim-export-{index}",
                     )
+
+    def test_receipt_producer_reports_the_selected_source_mode(self) -> None:
+        for mode, other in (("declared-source", "https://api.nuget.org/v3/index.json"),
+                            ("offline", "offline-packages")):
+            with self.subTest(mode=mode):
+                receipt = self._execute_late_receipt_validator(source_mode=mode)
+                self.assertEqual({"Chummer.*": "locked-owner-contracts", "other": other},
+                                 receipt["package_source_mapping"])
+
+    def test_offline_receipt_requires_explicit_matching_validation_mode(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        receipt["package_source_mapping"]["other"] = "offline-packages"
+        runtime._atomic_json(receipt_path, receipt)
+        with mock.patch.dict(os.environ, {"CHUMMER_PACKAGE_PLANE_SOURCE_MODE": "offline"}):
+            runtime.export_bundle(
+                REPO_ROOT, REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed, receipt_path, self.feed / "offline-export",
+            )
+
+    def test_offline_mode_preserves_foreign_mapping_refusal(self) -> None:
+        for index, mapping in enumerate((
+            {"Chummer.*": "locked-owner-contracts", "other": "https://api.nuget.org/v3/index.json"},
+            {"Chummer.*": "locked-owner-contracts", "other": "https://foreign.invalid/index.json"},
+            {"Chummer.*": "offline-packages", "other": "offline-packages"},
+            {"Chummer.*": "locked-owner-contracts", "other": "/arbitrary/feed"},
+        )):
+            with self.subTest(mapping=mapping):
+                receipt_path, receipt = self._write_inventory_and_receipt()
+                receipt["package_source_mapping"] = mapping
+                runtime._atomic_json(receipt_path, receipt)
+                with mock.patch.dict(os.environ, {"CHUMMER_PACKAGE_PLANE_SOURCE_MODE": "offline"}), self.assertRaisesRegex(
+                    runtime.RuntimePackagePlaneError, "receipt field is stale"
+                ):
+                    runtime.export_bundle(
+                        REPO_ROOT, REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                        self.feed, receipt_path, self.feed / f"foreign-offline-{index}",
+                    )
+
+    def test_receipt_validation_rejects_unknown_configured_mode(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        with mock.patch.dict(os.environ, {"CHUMMER_PACKAGE_PLANE_SOURCE_MODE": "foreign"}), self.assertRaisesRegex(
+            runtime.RuntimePackagePlaneError, "unsupported package-plane source mode"
+        ):
+            runtime.export_bundle(
+                REPO_ROOT, REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed, receipt_path, self.feed / "unknown-mode",
+            )
 
     def test_export_rejects_case_colliding_package_source(self) -> None:
         receipt_path, _ = self._write_inventory_and_receipt()
@@ -1811,6 +1911,164 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
                 self.assertEqual(state == "success", result.returncode == 0)
         self.assertNotIn("if: always()", remaining)
 
+    def test_default_caller_bootstraps_and_offline_caller_never_bootstraps(self) -> None:
+        # Execute the real entry point with source-only stubs. Owner validation
+        # deliberately terminates before any restore/build/package operation.
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts/ai"
+            scripts.mkdir(parents=True)
+            (scripts / "verify.sh").write_text(verifier)
+            (scripts / "_env.sh").write_text('repo_root="' + str(root) + '"\n')
+            (scripts / "runtime-package-plane.py").write_text("pass\n")
+            (scripts / "bootstrap-owner-contracts-feed.py").write_text(
+                "import sys\nif '--print-version' in sys.argv: print('fixture')\nelse: sys.exit(31)\n"
+            )
+            marker = root / "bootstrap-called"
+            lock_environment_check = (
+                'test "$NuGetLockFilePath" = obj/package-plane.packages.lock.json || exit 32\n'
+                'test "$RestorePackagesWithLockFile" = true || exit 33\n'
+            )
+            (scripts / "bootstrap-contracts-feed.sh").write_text(
+                lock_environment_check + 'touch "' + str(marker) + '"\n'
+            )
+            sdk = root / "sdk"
+            sdk.write_text("#!/bin/sh\n" + lock_environment_check + "echo 10.0.103\n")
+            sdk.chmod(0o700)
+            base = {"PATH": os.defpath, "CHUMMER_PACKAGE_PLANE_DOTNET": str(sdk),
+                    "NuGetLockFilePath": "packages.lock.json", "RestorePackagesWithLockFile": "false"}
+            for mode in (None, "offline"):
+                env = dict(base)
+                if mode:
+                    env.update(CHUMMER_PACKAGE_PLANE_SOURCE_MODE=mode,
+                               CHUMMER_PACKAGE_PLANE_OWNER_FEED=str(root),
+                               CHUMMER_PACKAGE_PLANE_OFFLINE_SOURCE=str(root))
+                result = subprocess.run(["bash", str(scripts / "verify.sh")], env=env,
+                                        capture_output=True, text=True, timeout=5, check=False)
+                self.assertEqual(31, result.returncode, result.stderr)
+                self.assertEqual(mode is None, marker.exists())
+                marker.unlink(missing_ok=True)
+            for changes in ({"CHUMMER_PACKAGE_PLANE_OWNER_FEED": str(root)},
+                            {"CHUMMER_PACKAGE_PLANE_SOURCE_MODE": "foreign"}):
+                result = subprocess.run(["bash", str(scripts / "verify.sh")], env=base | changes,
+                                        capture_output=True, text=True, timeout=5, check=False)
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(marker.exists())
+
+    def test_pack_row_authority_failure_stops_before_packing_or_continuation(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        block = verifier.split("# Pack every non-leaf runtime project separately.", 1)[1].split(
+            'dotnet restore "$consumer_root/Chummer.GmCharacterEdits/', 1
+        )[0]
+        script = """set -euo pipefail
+runtime_properties=()
+python3() { cat "$fixture_rows"; return "$fixture_status"; }
+dotnet() { printf '%s\\n' "$2" >>"$marker"; }
+""" + "# Pack every non-leaf runtime project separately." + block + """
+printf 'continued\\n' >>"$marker"
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = root / "fixture-rows.tsv"
+            rows.write_text("".join(f"{s.package_id}\t{s.project}\n" for s in runtime.PACKAGE_SPECS))
+            marker = root / "pack-calls"
+            env = {"PATH": os.defpath, "temporary_root": directory, "repo_root": directory,
+                   "consumer_root": directory, "runtime_plane_script": "unused",
+                   "runtime_lock_path": "unused", "isolated_feed": directory,
+                   "candidate_id": "Chummer.Engine.Contracts",
+                   "candidate_runtime_id": "Chummer.Engine.GmCharacterEdits",
+                   "candidate_version": runtime.PACKAGE_VERSION,
+                   "runtime_source_commit": runtime.SOURCE_COMMIT,
+                   "candidate_repository": runtime.SOURCE_REPOSITORY,
+                   "fixture_rows": str(rows), "marker": str(marker)}
+            for status in (0, 37):
+                with self.subTest(producer_status=status):
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-c", script],
+                        env=env | {"fixture_status": str(status)}, text=True,
+                        capture_output=True, timeout=5, check=False,
+                    )
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    if status:
+                        # Even emitted rows must not be consumed when validation fails.
+                        self.assertFalse(marker.exists())
+                    else:
+                        expected = [str(root / s.project) for s in runtime.PACKAGE_SPECS
+                                    if s.package_id not in (env["candidate_id"], env["candidate_runtime_id"])]
+                        self.assertEqual(expected + ["continued"], marker.read_text().splitlines())
+                        marker.unlink()
+
+    def test_offline_lane_refuses_missing_or_network_inputs_before_sdk(self) -> None:
+        verifier = REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sdk = root / "sdk"
+            called = root / "called"
+            sdk.write_text("#!/bin/sh\necho called > '" + str(called) + "'\nexit 99\n")
+            sdk.chmod(0o700)
+            env = {"PATH": os.defpath, "TMPDIR": str(root),
+                   "DOTNET_CLI_HOME": str(root / "cli"), "NUGET_PACKAGES": str(root / "packages"),
+                   "CHUMMER_PACKAGE_PLANE_DOTNET": str(sdk),
+                   "CHUMMER_PACKAGE_PLANE_SOURCE_MODE": "offline"}
+            for owner, source in ((None, None), (str(root), "https://api.nuget.org/v3/index.json"),
+                                  ("relative-owner-feed", str(root))):
+                current = dict(env)
+                if owner is not None:
+                    current["CHUMMER_PACKAGE_PLANE_OWNER_FEED"] = owner
+                if source is not None:
+                    current["CHUMMER_PACKAGE_PLANE_OFFLINE_SOURCE"] = source
+                with self.subTest(owner=owner, source=source):
+                    result = subprocess.run(["bash", str(verifier)], env=current, text=True,
+                                            capture_output=True, timeout=5, check=False)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse(called.exists(), result.stderr)
+
+    def test_offline_lane_refuses_a_different_sdk_before_restore(self) -> None:
+        verifier = REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sdk = root / "sdk"
+            called = root / "called"
+            sdk.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + str(called) + "'\necho 10.0.104\n")
+            sdk.chmod(0o700)
+            env = {"PATH": os.defpath, "TMPDIR": str(root),
+                   "DOTNET_CLI_HOME": str(root / "cli"), "NUGET_PACKAGES": str(root / "packages"),
+                   "CHUMMER_PACKAGE_PLANE_OWNER_FEED": str(root),
+                   "CHUMMER_PACKAGE_PLANE_OFFLINE_SOURCE": str(root),
+                   "CHUMMER_PACKAGE_PLANE_DOTNET": str(sdk),
+                   "CHUMMER_PACKAGE_PLANE_SOURCE_MODE": "offline"}
+            result = subprocess.run(["bash", str(verifier)], env=env, text=True,
+                                    capture_output=True, timeout=5, check=False)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("requires exact SDK 10.0.103", result.stderr)
+            self.assertEqual(["--version"], called.read_text().splitlines())
+
+    def test_offline_source_mapping_keeps_owner_packages_out_of_general_cache(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
+        config_function = verifier.split("write_package_nuget_config() {", 1)[1].split("\n}\n", 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "NuGet.Config"
+            owner = root / "owner & packages"
+            source = root / "offline & archives"
+            script = "write_package_nuget_config() {" + config_function + "\n}\n"
+            script += 'source_mode=offline; offline_source="$3"; write_package_nuget_config "$1" "$2"\n'
+            subprocess.run(["bash", "-c", script, "config-test", str(config), str(owner), str(source)],
+                           env={"PATH": os.defpath}, capture_output=True, text=True, timeout=5, check=True)
+            parsed = ET.parse(config).getroot()
+            self.assertEqual(["clear", "add", "add"], [element.tag for element in parsed.find("packageSources")])
+            self.assertEqual({"locked-owner-contracts": str(owner), "offline-packages": str(source)},
+                             {element.attrib["key"]: element.attrib["value"] for element in parsed.findall("packageSources/add")})
+            self.assertEqual({"locked-owner-contracts": ["Chummer.*"], "offline-packages": ["*"]},
+                             {element.attrib["key"]: [child.attrib["pattern"] for child in element]
+                              for element in parsed.findall("packageSourceMapping/packageSource")})
+        self.assertIn('if [[ "$source_mode" == declared-source ]]; then\n  bash "$script_dir/bootstrap-contracts-feed.sh"\nfi', verifier)
+        self.assertIn('"-p:RestoreConfigFile=$nuget_config"', verifier)
+        self.assertIn("-p:RestoreAdditionalProjectSources=", verifier)
+        self.assertIn("-p:RestoreFallbackFolders=", verifier)
+        self.assertIn("-p:DisableImplicitNuGetFallbackFolder=true", verifier)
+
     def test_all_candidate_packs_bind_assembly_metadata_to_semantic_source(self) -> None:
         verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         packs = re.findall(r"(?m)^\s*dotnet pack .*?(?=\n\s*\n)", verifier, re.DOTALL)
@@ -1849,7 +2107,7 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
         self.assertIn(f'runtime_source_commit="{runtime.SOURCE_COMMIT}"', verifier)
         self.assertEqual(1, verifier.count(runtime.PACKAGE_VERSION))
         self.assertEqual(1, verifier.count(runtime.SOURCE_COMMIT))
-        self.assertIn('  "$receipt_path" \\\n  "$candidate_version" \\\n  "$runtime_source_commit" <<\'PY\'', verifier)
+        self.assertIn('  "$receipt_path" \\\n  "$candidate_version" \\\n  "$runtime_source_commit" "$source_mode" <<\'PY\'', verifier)
 
     def test_workflow_upload_is_pinned_and_fail_closed(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
@@ -1926,7 +2184,7 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         final_validate = verifier.rfind("--validate-feed")
-        receipt = verifier.rfind('"$runtime_source_commit" <<\'PY\'')
+        receipt = verifier.rfind('"$runtime_source_commit" "$source_mode" <<\'PY\'')
         export = verifier.rfind("--export-bundle")
         self.assertGreater(final_validate, 0)
         self.assertGreater(receipt, final_validate)
