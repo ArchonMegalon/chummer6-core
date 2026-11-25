@@ -76,7 +76,9 @@ PRODUCER_INPUT_PATHS = (
     ".github/workflows/android-content-plane.yml",
     "eng/android-content-plane.lock.json",
     "scripts/ai/android-content-plane.py",
+    "scripts/ai/android-content-archive.py",
     "tests/test_android_content_plane.py",
+    "tests/test_android_content_archive.py",
 )
 FORBIDDEN_SUFFIXES = (
     ".dll",

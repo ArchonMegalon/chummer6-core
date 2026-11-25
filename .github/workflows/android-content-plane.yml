@@ -8,13 +8,17 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  android-content:
+  android-content-producer:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: "1"
+    outputs:
+      artifact-id: ${{ steps.upload-android-content.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload-android-content.outputs.artifact-digest }}
     steps:
       - name: Check out the exact Core producer
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -27,7 +31,7 @@ jobs:
           python3 scripts/ai/android-content-plane.py \
             --check \
             --expected-producer-commit "${GITHUB_SHA}"
-          python3 -m unittest -v tests/test_android_content_plane.py
+          python3 -m unittest -v tests/test_android_content_plane.py tests/test_android_content_archive.py
 
       - name: Export the isolated Android content artifact
         env:
@@ -58,38 +62,33 @@ jobs:
           overwrite: false
           include-hidden-files: false
 
-      - name: Validate post-upload artifact authority outputs
-        env:
-          CONTENT_ARTIFACT_ID: ${{ steps.upload-android-content.outputs.artifact-id }}
-          CONTENT_ARTIFACT_DIGEST: ${{ steps.upload-android-content.outputs.artifact-digest }}
-        run: |
-          [[ "${CONTENT_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${CONTENT_ARTIFACT_DIGEST}" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
 
-      - name: Reserve a fresh post-upload verification root
+  android-content:
+    needs: android-content-producer
+    # Retain the required check even when production fails or is cancelled.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Require successful exact producer
         env:
-          CONTENT_REDOWNLOAD: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          if [[ -e "${CONTENT_REDOWNLOAD}" || -L "${CONTENT_REDOWNLOAD}" ]]; then
-            echo "post-upload verification root already exists" >&2
-            exit 1
-          fi
-          mkdir -m 0755 -- "${CONTENT_REDOWNLOAD}"
+          PRODUCER_RESULT: ${{ needs.android-content-producer.result }}
+        run: test "${PRODUCER_RESULT}" = success
 
-      - name: Download the exact uploaded artifact ID
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Check out exact Core producer
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          artifact-ids: ${{ steps.upload-android-content.outputs.artifact-id }}
-          path: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          merge-multiple: true
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Reverify the downloaded artifact name, run authority, layout, and bytes
+      - name: Download and verify the exact uploaded archive
+        timeout-minutes: 10
         env:
+          CONTENT_ARTIFACT_ID: ${{ needs.android-content-producer.outputs.artifact-id }}
+          CONTENT_ARTIFACT_DIGEST: ${{ needs.android-content-producer.outputs.artifact-digest }}
+          GH_TOKEN: ${{ github.token }}
           CONTENT_REDOWNLOAD: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          python3 scripts/ai/android-content-plane.py \
-            --verify-export \
-            --export-dir "${CONTENT_REDOWNLOAD}" \
-            --expected-producer-commit "${GITHUB_SHA}" \
-            --run-id "${GITHUB_RUN_ID}" \
-            --run-attempt "${GITHUB_RUN_ATTEMPT}"
+          python3 scripts/ai/android-content-archive.py --export-dir "${CONTENT_REDOWNLOAD}"
