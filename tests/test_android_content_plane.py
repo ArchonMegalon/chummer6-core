@@ -7,7 +7,6 @@ import json
 import os
 import sys
 import tempfile
-import textwrap
 import unittest
 import urllib.error
 import xml.etree.ElementTree as ET
@@ -36,10 +35,11 @@ plane = load_script()
 class UploadedArtifactVisibilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        script = workflow.split("python3 - <<'PY'\n", 1)[1].split("          PY\n", 1)[0]
-        cls.namespace = {"__name__": "artifact_visibility_test"}
-        exec(compile(textwrap.dedent(script), str(WORKFLOW_PATH), "exec"), cls.namespace)
+        path = REPO_ROOT / "scripts/ai/android-content-archive.py"
+        spec = importlib.util.spec_from_file_location("android_content_archive_visibility", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cls.namespace = vars(module)
 
     def setUp(self) -> None:
         self.env = {
@@ -642,27 +642,18 @@ class AndroidContentPlaneTests(unittest.TestCase):
             "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
             workflow,
         )
-        self.assertIn(
-            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
-            workflow,
-        )
-        self.assertIn("--expected-producer-commit \"${GITHUB_SHA}\"", workflow)
-        self.assertIn("CONTENT_ARTIFACT_ID", workflow)
-        self.assertIn("CONTENT_ARTIFACT_DIGEST", workflow)
-        self.assertIn(
-            "artifact-ids: ${{ steps.upload-android-content.outputs.artifact-id }}",
-            workflow,
-        )
-        self.assertIn("merge-multiple: true", workflow)
-        self.assertIn("  actions: read", workflow)
-        self.assertIn("github-token: ${{ github.token }}", workflow)
-        self.assertIn("repository: ${{ github.repository }}", workflow)
-        self.assertIn("run-id: ${{ github.run_id }}", workflow)
-        self.assertIn("timeout-minutes: 5", workflow)
-        self.assertLess(workflow.index("wait_for_artifact(os.environ)"),
-                        workflow.index("uses: actions/download-artifact@"))
-        self.assertIn("post-upload verification root already exists", workflow)
-        self.assertEqual(2, workflow.count("--verify-export"))
+        self.assertIn('--expected-producer-commit "${GITHUB_SHA}"', workflow)
+        self.assertIn("needs: android-content-producer", workflow)
+        self.assertIn("if: ${{ always() }}", workflow)
+        self.assertIn('test "${PRODUCER_RESULT}" = success', workflow)
+        self.assertIn("CONTENT_ARTIFACT_ID: ${{ needs.android-content-producer.outputs.artifact-id }}", workflow)
+        self.assertIn("CONTENT_ARTIFACT_DIGEST: ${{ needs.android-content-producer.outputs.artifact-digest }}", workflow)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn("timeout-minutes: 10", workflow)
+        self.assertIn('python3 scripts/ai/android-content-archive.py --export-dir "${CONTENT_REDOWNLOAD}"', workflow)
+        self.assertNotIn("actions/download-artifact@", workflow)
+        self.assertIn("chummer-core-android-content-post-upload-", workflow)
+        self.assertEqual(1, workflow.count("--verify-export"))
         for forbidden in (
             "dotnet ",
             "curl ",
