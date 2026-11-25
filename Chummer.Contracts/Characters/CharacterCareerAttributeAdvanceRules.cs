@@ -70,8 +70,9 @@ public sealed record CharacterCareerAttributeAdvanceInput(
     string RawSourceState,
     string RawRuleState)
 {
-    // Required only for a burn repair. This is the exact projected post-repair
-    // natural value, not the rating used to price the purchase (EffectiveValue + 1).
+    // Exact projected post-repair natural value for a burn repair. Omission keeps
+    // the original constructor's ordinary +1 repair; clamped repairs must supply
+    // their unchanged value. Pricing still uses EffectiveValue + 1.
     public int? BurnedEdgeRepairValue { get; init; }
 }
 
@@ -249,7 +250,7 @@ public static class CharacterCareerAttributeAdvanceRules
         bool repairsBurnedEdge = valid.Identity.Kind == CharacterCareerAttributeKind.Edge
             && valid.BurnedEdgePoints > 0;
         int targetValue = repairsBurnedEdge
-            ? valid.BurnedEdgeRepairValue!.Value
+            ? ResolveBurnedEdgeRepairValue(valid)
             : Math.Min(MaximumRating, valid.EffectiveValue + 1);
         CharacterCareerAttributePrerequisiteResult[] prerequisites =
         [
@@ -609,10 +610,12 @@ public static class CharacterCareerAttributeAdvanceRules
 
     private static bool IsValidBurnedEdgeRepairValue(CharacterCareerAttributeAdvanceInput input)
         => input.Identity.Kind == CharacterCareerAttributeKind.Edge && input.BurnedEdgePoints > 0
-            ? input.BurnedEdgeRepairValue is int value
-                && value >= input.EffectiveValue
-                && value <= Math.Min(input.NaturalMaximum, input.EffectiveValue + 1)
+            ? ResolveBurnedEdgeRepairValue(input) >= input.EffectiveValue
+                && ResolveBurnedEdgeRepairValue(input) <= Math.Min(input.NaturalMaximum, input.EffectiveValue + 1)
             : input.BurnedEdgeRepairValue is null;
+
+    private static int ResolveBurnedEdgeRepairValue(CharacterCareerAttributeAdvanceInput input)
+        => input.BurnedEdgeRepairValue ?? Math.Min(MaximumRating, input.EffectiveValue + 1);
 
     private static bool IsValidModifier(
         CharacterCareerAttributeIdentity identity,

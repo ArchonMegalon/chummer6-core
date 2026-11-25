@@ -110,6 +110,55 @@ public sealed class CharacterCareerAttributeAdvanceRulesTests
     }
 
     [TestMethod]
+    public void Original_constructor_keeps_ordinary_burn_repair_and_explicit_projection_authority()
+    {
+        CharacterCareerAttributeAdvanceInput input = Input("EDG") with
+        {
+            BasePoints = 2,
+            KarmaPoints = 0,
+            EffectiveValue = 2,
+            BurnedEdgePoints = 1
+        };
+
+        CharacterCareerAttributeAdvanceQuote legacy = Quote(input);
+        CharacterCareerAttributeAdvanceQuote projected = Quote(input with { BurnedEdgeRepairValue = 3 });
+        Assert.AreEqual(3, legacy.TargetValue);
+        Assert.AreEqual(15, legacy.KarmaCost);
+        Assert.AreEqual(projected.LogicalRevision, legacy.LogicalRevision);
+        Assert.AreEqual(projected.SourceRevision, legacy.SourceRevision);
+        Assert.AreEqual(projected.RuleDigest, legacy.RuleDigest);
+
+        CharacterCareerAttributeAdvanceQuote clamped = Quote(input with { BurnedEdgeRepairValue = 2 });
+        Assert.AreEqual(2, clamped.TargetValue);
+        Assert.AreEqual(15, clamped.KarmaCost);
+        Assert.AreNotEqual(legacy.LogicalRevision, clamped.LogicalRevision);
+    }
+
+    [TestMethod]
+    public void Burn_repair_rejects_invalid_explicit_targets_and_unrelated_authority()
+    {
+        CharacterCareerAttributeAdvanceInput input = Input("EDG") with
+        {
+            KarmaPoints = 0,
+            EffectiveValue = 2,
+            BurnedEdgePoints = 1
+        };
+        foreach (int target in new[] { -1, 1, 4, int.MaxValue })
+        {
+            Assert.IsFalse(CharacterCareerAttributeAdvanceRules.TryCreateQuote(
+                input with { BurnedEdgeRepairValue = target }, out _));
+        }
+        Assert.IsFalse(CharacterCareerAttributeAdvanceRules.TryCreateQuote(
+            input with { NaturalMaximum = 2 }, out _));
+        Assert.IsFalse(CharacterCareerAttributeAdvanceRules.TryCreateQuote(
+            input with { BurnedEdgePoints = 0, BurnedEdgeRepairValue = 3 }, out _));
+        Assert.IsFalse(CharacterCareerAttributeAdvanceRules.TryCreateQuote(
+            Input("BOD") with { BurnedEdgePoints = 1 }, out _));
+        Assert.IsFalse(CharacterCareerAttributeAdvanceRules.TryCreateQuote(
+            Input("BOD") with { BurnedEdgeRepairValue = 4 }, out _));
+    }
+
+    [TestMethod]
     public void Magic_alias_and_resonance_require_their_exact_enable_authority()
     {
         foreach (string abbreviation in new[] { "MAG", "MAGAdept" })
