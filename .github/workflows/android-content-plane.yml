@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   android-content:
@@ -58,13 +59,75 @@ jobs:
           overwrite: false
           include-hidden-files: false
 
-      - name: Validate post-upload artifact authority outputs
+      - name: Wait for exact post-upload artifact authority
+        timeout-minutes: 5
         env:
           CONTENT_ARTIFACT_ID: ${{ steps.upload-android-content.outputs.artifact-id }}
           CONTENT_ARTIFACT_DIGEST: ${{ steps.upload-android-content.outputs.artifact-digest }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          [[ "${CONTENT_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${CONTENT_ARTIFACT_DIGEST}" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          def wait_for_artifact(env, open_url=None, sleep=time.sleep):
+              artifact_id = env["CONTENT_ARTIFACT_ID"]
+              digest = env["CONTENT_ARTIFACT_DIGEST"].removeprefix("sha256:")
+              repository = env["GITHUB_REPOSITORY"]
+              run_id = env["GITHUB_RUN_ID"]
+              repository_id = env["GITHUB_REPOSITORY_ID"]
+              run_attempt = env["GITHUB_RUN_ATTEMPT"]
+              sha = env["GITHUB_SHA"]
+              if (not all(re.fullmatch(r"[1-9][0-9]*", value) for value in
+                          (artifact_id, run_id, repository_id, run_attempt))
+                      or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                      or not re.fullmatch(r"[0-9a-f]{40}", sha)
+                      or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)):
+                  raise RuntimeError("invalid upload authority receipt")
+              name = f"chummer-core-android-content-{sha}-{run_id}-{run_attempt}"
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repository}/actions/artifacts/{artifact_id}",
+                  headers={"Authorization": f"Bearer {env['GH_TOKEN']}",
+                           "Accept": "application/vnd.github+json",
+                           "X-GitHub-Api-Version": "2022-11-28"},
+              )
+              if open_url is None:
+                  open_url = urllib.request.build_opener(NoRedirect()).open
+              # At most 12 ten-second requests and 11 fifteen-second waits.
+              # Read only: never re-upload or select an artifact by name/latest.
+              for attempt in range(12):
+                  try:
+                      with open_url(request, timeout=10) as response:
+                          artifact = json.load(response)
+                  except urllib.error.HTTPError as error:
+                      if error.code != 404:
+                          raise RuntimeError(f"artifact lookup failed: HTTP {error.code}") from None
+                      if attempt == 11:
+                          raise RuntimeError("exact uploaded artifact remained invisible after 12 attempts") from None
+                      print(f"Exact artifact {artifact_id} not visible; retry {attempt + 1}/11", flush=True)
+                      sleep(15)
+                      continue
+                  run = artifact.get("workflow_run") or {}
+                  if (artifact.get("id") != int(artifact_id)
+                          or artifact.get("name") != name
+                          or artifact.get("expired") is not False
+                          or artifact.get("digest") != f"sha256:{digest}"
+                          or run.get("id") != int(run_id)
+                          or run.get("repository_id") != int(repository_id)):
+                      raise RuntimeError("visible artifact does not match exact upload authority receipt")
+                  return
+
+          if __name__ == "__main__":
+              wait_for_artifact(os.environ)
+          PY
 
       - name: Reserve a fresh post-upload verification root
         env:
@@ -80,6 +143,9 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           artifact-ids: ${{ steps.upload-android-content.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
           path: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           merge-multiple: true
 

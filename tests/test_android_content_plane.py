@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
+import textwrap
 import unittest
+import urllib.error
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest import mock
@@ -28,6 +31,137 @@ def load_script():
 
 
 plane = load_script()
+
+
+class UploadedArtifactVisibilityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        script = workflow.split("python3 - <<'PY'\n", 1)[1].split("          PY\n", 1)[0]
+        cls.namespace = {"__name__": "artifact_visibility_test"}
+        exec(compile(textwrap.dedent(script), str(WORKFLOW_PATH), "exec"), cls.namespace)
+
+    def setUp(self) -> None:
+        self.env = {
+            "CONTENT_ARTIFACT_ID": "15024180714",
+            "CONTENT_ARTIFACT_DIGEST": "sha256:" + "a" * 64,
+            "GITHUB_REPOSITORY": "ArchonMegalon/chummer6-core",
+            "GITHUB_REPOSITORY_ID": "123",
+            "GITHUB_RUN_ID": "45618372404",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_SHA": "b" * 40,
+            "GH_TOKEN": "test-token",
+        }
+        self.artifact = {
+            "id": 15024180714,
+            "name": f"chummer-core-android-content-{'b' * 40}-45618372404-1",
+            "digest": "sha256:" + "a" * 64,
+            "expired": False,
+            "workflow_run": {
+                "id": 45618372404,
+                "repository_id": 123,
+                # A fork PR's head need not be the merge checkout or producer repo.
+                "head_sha": "c" * 40,
+                "head_repository_id": 456,
+            },
+        }
+        self.sleep = mock.Mock()
+
+    def response(self, artifact=None):
+        return io.BytesIO(json.dumps(self.artifact if artifact is None else artifact).encode())
+
+    def error(self, status):
+        return urllib.error.HTTPError("https://api.github.com/", status, "test", {}, None)
+
+    def wait(self, lookup, env=None):
+        self.namespace["wait_for_artifact"](
+            self.env if env is None else env, open_url=lookup, sleep=self.sleep
+        )
+
+    def test_visibility_race_retries_only_the_exact_receipted_id(self) -> None:
+        lookup = mock.Mock(side_effect=[self.error(404), self.error(404), self.response()])
+        self.wait(lookup)
+        self.assertEqual([mock.call(15), mock.call(15)], self.sleep.call_args_list)
+        self.assertEqual(3, lookup.call_count)
+        for call in lookup.call_args_list:
+            request = call.args[0]
+            self.assertEqual(
+                "https://api.github.com/repos/ArchonMegalon/chummer6-core/actions/artifacts/15024180714",
+                request.full_url,
+            )
+            self.assertEqual("GET", request.get_method())
+            self.assertEqual("Bearer test-token", request.get_header("Authorization"))
+            self.assertEqual({"timeout": 10}, call.kwargs)
+
+    def test_immediately_visible_artifact_needs_no_wait(self) -> None:
+        self.env["CONTENT_ARTIFACT_DIGEST"] = "a" * 64
+        lookup = mock.Mock(return_value=self.response())
+        self.wait(lookup)
+        lookup.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_invisibility_exhaustion_fails_without_extra_wait_or_upload(self) -> None:
+        lookup = mock.Mock(side_effect=self.error(404))
+        with self.assertRaisesRegex(RuntimeError, "remained invisible after 12 attempts"):
+            self.wait(lookup)
+        self.assertEqual(12, lookup.call_count)
+        self.assertEqual([mock.call(15)] * 11, self.sleep.call_args_list)
+
+    def test_visible_wrong_identity_or_digest_fails_without_retry(self) -> None:
+        mutations = (
+            {"id": 15024180715}, {"name": "other"}, {"expired": True},
+            {"digest": "sha256:" + "d" * 64}, {"digest": None},
+            {"workflow_run": {"id": 45618372405, "repository_id": 123}},
+            {"workflow_run": {"id": 45618372404, "repository_id": 456}},
+            {"workflow_run": None},
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                lookup = mock.Mock(return_value=self.response(dict(self.artifact, **mutation)))
+                with self.assertRaisesRegex(RuntimeError, "does not match exact upload"):
+                    self.wait(lookup)
+                lookup.assert_called_once()
+                self.sleep.assert_not_called()
+
+    def test_invalid_upload_receipt_is_rejected_before_network_access(self) -> None:
+        for key, value in (
+            ("CONTENT_ARTIFACT_ID", "0"), ("CONTENT_ARTIFACT_ID", "1,2"),
+            ("CONTENT_ARTIFACT_DIGEST", ""), ("CONTENT_ARTIFACT_DIGEST", "sha256:abc"),
+            ("GITHUB_RUN_ID", ""), ("GITHUB_REPOSITORY_ID", "0"),
+            ("GITHUB_RUN_ATTEMPT", "0"), ("GITHUB_SHA", "latest"),
+            ("GITHUB_REPOSITORY", "owner/repo/other"),
+        ):
+            with self.subTest(key=key, value=value):
+                lookup = mock.Mock()
+                with self.assertRaisesRegex(RuntimeError, "invalid upload authority"):
+                    self.wait(lookup, dict(self.env, **{key: value}))
+                lookup.assert_not_called()
+                self.sleep.assert_not_called()
+
+    def test_other_http_failures_are_not_retried(self) -> None:
+        for status in (301, 401, 403, 429, 500):
+            with self.subTest(status=status):
+                lookup = mock.Mock(side_effect=self.error(status))
+                with self.assertRaisesRegex(RuntimeError, f"HTTP {status}"):
+                    self.wait(lookup)
+                lookup.assert_called_once()
+                self.sleep.assert_not_called()
+
+    def test_transport_and_malformed_json_fail_without_retry(self) -> None:
+        lookup = mock.Mock(side_effect=TimeoutError("test"))
+        with self.assertRaises(TimeoutError):
+            self.wait(lookup)
+        lookup.assert_called_once()
+        lookup = mock.Mock(return_value=io.BytesIO(b"not JSON"))
+        with self.assertRaises(json.JSONDecodeError):
+            self.wait(lookup)
+        lookup.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_metadata_redirects_cannot_forward_the_token(self) -> None:
+        self.assertIsNone(self.namespace["NoRedirect"]().redirect_request(
+            None, None, 302, "test", {}, "https://other.example/"
+        ))
 
 
 class CurrentQualityContentTests(unittest.TestCase):
@@ -520,6 +654,13 @@ class AndroidContentPlaneTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("merge-multiple: true", workflow)
+        self.assertIn("  actions: read", workflow)
+        self.assertIn("github-token: ${{ github.token }}", workflow)
+        self.assertIn("repository: ${{ github.repository }}", workflow)
+        self.assertIn("run-id: ${{ github.run_id }}", workflow)
+        self.assertIn("timeout-minutes: 5", workflow)
+        self.assertLess(workflow.index("wait_for_artifact(os.environ)"),
+                        workflow.index("uses: actions/download-artifact@"))
         self.assertIn("post-upload verification root already exists", workflow)
         self.assertEqual(2, workflow.count("--verify-export"))
         for forbidden in (
