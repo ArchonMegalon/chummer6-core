@@ -313,14 +313,18 @@ public class WorkspaceServiceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(download.Value?.ReceiptId));
         Assert.IsNotNull(download.Value?.WorkflowDeterministicReceipt);
         Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, download.Value?.Format);
-        string downloadedXml = Encoding.UTF8.GetString(Convert.FromBase64String(download.Value!.ContentBase64));
+        using var downloadedFile = new MemoryStream(Convert.FromBase64String(download.Value!.ContentBase64), writable: false);
+        XElement downloadedCharacter = XElement.Load(downloadedFile);
+        downloadedFile.Position = 0;
+        using var downloadReader = new StreamReader(downloadedFile, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
+        string downloadedXml = downloadReader.ReadToEnd();
         XElement expectedCharacter = XElement.Parse(xml);
         expectedCharacter.SetElementValue("name", "Updated");
         expectedCharacter.SetElementValue("alias", "Alias");
         expectedCharacter.SetElementValue("notes", "Notes");
         expectedCharacter.SetElementValue("gamenotes", "Game Notes");
         expectedCharacter.SetElementValue("groupnotes", "Group Notes");
-        Assert.IsTrue(XNode.DeepEquals(expectedCharacter, XElement.Parse(downloadedXml)),
+        Assert.IsTrue(XNode.DeepEquals(expectedCharacter, downloadedCharacter),
             "Metadata update and save must preserve every other native character field.");
         Assert.AreEqual(downloadedXml, workspaceService.GetWorkspace(imported.Id).Value?.Document.Content);
 

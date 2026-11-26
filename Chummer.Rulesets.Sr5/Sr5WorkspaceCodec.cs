@@ -5,6 +5,7 @@ using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace Chummer.Rulesets.Sr5;
@@ -95,7 +96,10 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
         WorkspaceDocumentFormat format)
     {
         string xml = ToXmlContent(envelope.Payload, format);
-        byte[] contentBytes = Encoding.UTF8.GetBytes(xml);
+        Encoding encoding = GetDownloadEncoding(xml);
+        byte[] contentBytes = encoding.CodePage == Encoding.UTF8.CodePage
+            ? encoding.GetBytes(xml)
+            : [.. encoding.GetPreamble(), .. encoding.GetBytes(xml)];
         string contentBase64 = Convert.ToBase64String(contentBytes);
         string fileName = format switch
         {
@@ -110,6 +114,23 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
             FileName: fileName,
             DocumentLength: xml.Length,
             RulesetId: RulesetDefaults.NormalizeOptional(envelope.RulesetId) ?? RulesetDefaults.Sr5);
+    }
+
+    private static Encoding GetDownloadEncoding(string xml)
+    {
+        // Preserve the XML text, including its declaration, rather than reserializing it.
+        if (!xml.StartsWith("<?xml", StringComparison.Ordinal)
+            || xml.Length <= 5 || !char.IsWhiteSpace(xml[5]))
+        {
+            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+        }
+
+        using XmlReader reader = XmlReader.Create(new StringReader(xml));
+        reader.Read();
+        return Encoding.GetEncoding(
+            reader.GetAttribute("encoding") ?? "utf-8",
+            EncoderFallback.ExceptionFallback,
+            DecoderFallback.ExceptionFallback);
     }
 
     public DataExportBundle BuildExportBundle(WorkspacePayloadEnvelope envelope)
