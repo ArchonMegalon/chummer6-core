@@ -65,8 +65,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                       (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text())
 
     def test_candidate_is_bound_to_exact_workspace_native_payload_integration(self) -> None:
-        self.assertEqual("bedc834ec0dd4602bb4b7d8bb7d7b81c291baa61", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.v20261125.10780.shbedc834ec0dd4", runtime.PACKAGE_VERSION)
+        self.assertEqual("5ff17bbc636ec160e26a46ef4a89eef73da37a3a", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.v20261126.10846.sh5ff17bbc636ec", runtime.PACKAGE_VERSION)
 
     def test_workspace_native_payload_roundtrips_are_in_the_required_consumer(self) -> None:
         verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text()
