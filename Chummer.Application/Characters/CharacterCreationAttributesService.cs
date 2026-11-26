@@ -532,7 +532,7 @@ public sealed partial class CharacterCreationAttributesService : ICharacterCreat
             || heritage.Kind != CharacterCreationPriorityChildKinds.Metatype
             || heritage.MetavariantSourceId is not null
             || (heritage.MetatypeName != "Human"
-                && (heritage.MetatypeName is not ("Elf" or "Ork")
+                && (heritage.MetatypeName is not ("Elf" or "Ork" or "Dwarf")
                     || !CharacterCreationPriorityRacialQualities.TryProject(heritage.RacialQualitySources,
                         prerequisite.DraftDigest, out _)))
             || heritage.Attributes.Count != 13

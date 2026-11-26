@@ -560,6 +560,12 @@ public static class CharacterCreationCompletionFinalizationProjector
             qualities.KarmaRemaining, qualities.SourceAnchorIds, graph.OriginalReviewDigest, deltas, ref order, graph.RuleSourceExecutionSchema);
         if (!CharacterCreationPriorityRacialQualities.TryApply(root, heritage, prerequisite.DraftDigest, deltas, ref order))
             return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
+        // Metatype base bonuses (Priority Dwarf admission: 20% lifestyle
+        // surcharge) materialize through the same shared strict source-bound
+        // materializer the ordinary finalization projector uses.
+        if (!CharacterCreationMetatypeBaseBonusMaterializer.TryApply(heritage, root, deltas, ref order,
+                (element, name) => GetOrCreateDirectContainer(element, name)))
+            return CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable;
         ReplaceDirect(root, BuildGearGraph(gear.Lines, graph.OriginalReviewDigest, deltas, ref order));
         if (graph.Loadout is { } loadout)
         {

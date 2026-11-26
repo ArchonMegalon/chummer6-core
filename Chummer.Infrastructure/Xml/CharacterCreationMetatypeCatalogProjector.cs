@@ -169,16 +169,39 @@ internal static class CharacterCreationMetatypeCatalogProjector
     {
         option = null!;
         string name = Read(entry, "name");
-        string id = name switch { "Elf" => ElfId, "Ork" => OrkId, _ => string.Empty };
+        string id = name switch { "Elf" => ElfId, "Ork" => OrkId, "Dwarf" => DwarfId, _ => string.Empty };
         // Attribute/modifier-bearing races and variants require their complete
         // budget/write paths before admission. Share the strict source parser.
-        return id.Length != 0
+        // Dwarf is admitted source-bound: its single bonus element must reduce
+        // to exactly the 20% lifestyle surcharge (no armor/reach semantics),
+        // parsed by the same strict TryReadBaseBonuses grammar the Karma/Life
+        // Module paths already use.
+        bool dwarfAdmission = id == DwarfId;
+        bool allowBonuses = dwarfAdmission;
+        if (id.Length != 0
             && !entry.Elements().Any(element => element.Name.Namespace != XNamespace.None
                 || !SupportedBaseFields.Contains(element.Name.LocalName)
                 && !(sourceExecutionSchema == CharacterCreationCompletionReviewSchemas.RuleSourceExecutionV4 && element.Name == "initiativedice"))
             && !entry.Elements().GroupBy(element => element.Name).Any(group => group.Count() != 1)
-            && TryProjectOption(entry, id, name, 1, 1, enabledSourcebooks, false, out option, sourceExecutionSchema)
-            && option.IsEnabled && option.Blockers.Count == 0 && option.BaseBonuses is null;
+            && TryProjectOption(entry, id, name, 1, 1, enabledSourcebooks, allowBonuses, out option, sourceExecutionSchema)
+            && option.IsEnabled && option.Blockers.Count == 0
+            && (dwarfAdmission
+                ? option.BaseBonuses is { } baseBonuses && IsDwarfLifestyleSurcharge(baseBonuses)
+                : option.BaseBonuses is null))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    // Source-bound admission predicate: the metatype's parsed base bonuses must
+    // be exactly the lifestyle surcharge. Any armor/reach or unexpected extra
+    // semantics keep the row excluded (strict grammar, no whitelist shortcut).
+    internal static bool IsDwarfLifestyleSurcharge(CharacterCreationMetatypeBaseBonuses bonuses)
+    {
+        return bonuses.Armor == 0
+            && bonuses.Reach == 0
+            && bonuses.LifestyleCostPercent == 20;
     }
 
     private static bool TryProjectOption(
@@ -280,7 +303,15 @@ internal static class CharacterCreationMetatypeCatalogProjector
         if (bonus.HasAttributes || bonus.Name != "bonus"
             || bonus.Nodes().Any(node => node is not XElement && (node is not XText text || !string.IsNullOrWhiteSpace(text.Value))))
             return false;
-        if (!bonus.HasElements) return true;
+        // An empty bonus element is only a legitimate null projection for
+        // metatypes whose bonuses carry no admitted semantics (Human/Elf/Ork).
+        // For allowed paths (Dwarf/Troll) the claimed surcharge is required:
+        // an empty shape must fail closed, never admit via a null short-circuit.
+        if (!bonus.HasElements)
+        {
+            if (allowed) return false;
+            return true;
+        }
         if (!allowed || bonus.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)) return false;
         int armor = 0, reach = 0, lifestyle = 0;
         foreach (var effect in bonus.Elements())

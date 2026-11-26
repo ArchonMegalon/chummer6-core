@@ -213,6 +213,22 @@ public static class CharacterCreationFinalizationProjector
             SetDirect(root, "sumtoten", prerequisite.SumToTenTarget.GetValueOrDefault()
                 .ToString(CultureInfo.InvariantCulture));
 
+            // Metatype base bonuses (Priority Dwarf admission: 20% lifestyle
+            // surcharge) materialize through the shared strict source-bound
+            // materializer, identical to the completion/selected graph path.
+            if (!CharacterCreationMetatypeBaseBonusMaterializer.TryApply(heritage, root, projected, ref order,
+                    (element, name) => GetOrCreateDirectContainer(element, name)))
+            {
+                blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
+                return false;
+            }
+
+            // Admitted heritage movement (Priority metatype source-bound rates)
+            // persists exactly like the completion-graph path: the shared
+            // materializer writes walk/run/sprint and no-ops for special
+            // movement. Never relies on local-source fallback as saved authority.
+            CharacterCreationHeritageGraph832.ApplyMovement(root, heritage);
+
             ReplaceDirect(root, BuildAttributes(attributes!, projected, ref order));
             ReplaceDirect(root, BuildSkills(skills!, projected, ref order));
             SetDirect(root, "magenabled", "False");
@@ -742,7 +758,7 @@ public static class CharacterCreationFinalizationProjector
             root.Add(replacement);
     }
 
-    private static XElement GetOrCreateDirectContainer(XElement root, string name)
+    internal static XElement GetOrCreateDirectContainer(XElement root, string name)
     {
         XElement[] nodes = root.Elements(name).Take(2).ToArray();
         if (nodes.Length > 1)

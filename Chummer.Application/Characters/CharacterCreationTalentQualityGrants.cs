@@ -61,8 +61,15 @@ internal static class CharacterCreationTalentQualityGrants
         authority = original;
         if (prerequisite.HeritageSelection?.RacialQualitySources is not { } sources) return true;
         if (!context.TryResolveCreationPrerequisiteAuthority(out var current)
-            || !current.IsAuthoritative || current.Blockers.Count != 0
-            || current.AuthorityDigest != prerequisite.AuthorityDigest) return false;
+            || !current.IsAuthoritative || current.Blockers.Count != 0) return false;
+        // The stored draft digest matches either the live catalog or one of
+        // the recognized historical catalogs (Human-only era, or the 80584eff
+        // baseline with only Dwarf downgraded). Both are complete
+        // current-source comparisons; the digest itself remains the gate.
+        if (!CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
+                current.AuthorityDigest, prerequisite.AuthorityDigest)
+            && !CharacterCreationPriorityAuthorityCompatibility
+                .MatchesLegacyPendingDraftAuthority(prerequisite, current)) return false;
         var matches = current.Options.SelectMany(option => option.HeritageOptions)
             .Where(option => option.SelectionId == prerequisite.HeritageSelection.SelectionId).Take(2).ToArray();
         if (matches.Length != 1 || matches[0] is not { IsEnabled: true, Blockers.Count: 0 } heritage

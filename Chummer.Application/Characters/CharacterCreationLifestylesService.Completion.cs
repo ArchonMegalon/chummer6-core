@@ -280,7 +280,7 @@ public sealed partial class CharacterCreationLifestylesService
             return Blocked<SelectedCompletionLifestylesPrice>(CharacterCreationLifestyleOutcomes.Blocked,
                 CharacterCreationLifestylesBlockers.AuthorityUnavailable);
         if (!AreCompletionGrantEffectsSupported(input.Prerequisite, input.TalentQualitySources)
-            || !TryCompletionAuthority(input.Authority, input.QualitySelections,
+            || !TryCompletionAuthority(input.Authority, input.Prerequisite, input.QualitySelections,
                 input.QualityProjectionProvenanceSeed, out var authority))
             return Blocked<SelectedCompletionLifestylesPrice>(CharacterCreationLifestyleOutcomes.Blocked,
                 CharacterCreationLifestylesBlockers.UnsupportedSemantics);
@@ -361,8 +361,8 @@ public sealed partial class CharacterCreationLifestylesService
     }
 
     private static bool TryCompletionAuthority(CharacterCreationLifestylesAuthority original,
-        IReadOnlyList<CharacterCreationQualitySelection> qualitySelections, string qualityProjectionProvenanceSeed,
-        out CharacterCreationLifestylesAuthority effective)
+        CharacterCreationPrerequisiteDraft prerequisite, IReadOnlyList<CharacterCreationQualitySelection> qualitySelections,
+        string qualityProjectionProvenanceSeed, out CharacterCreationLifestylesAuthority effective)
     {
         effective = CharacterCreationLifestylesAuthority.Unavailable;
         if (!CharacterCreationLifestyleImprovementRules.IsValidPurchasedQualityCosts(original.PurchasedQualityCosts)
@@ -377,6 +377,25 @@ public sealed partial class CharacterCreationLifestylesService
             if (effect.ImprovedName.Length != 0 || effect.Value is < 1m or > 4m
                 || effect.Value != decimal.Truncate(effect.Value) || level != 0) return false;
             level = (int)effect.Value;
+        }
+        // C2 gen3: bind the admitted source-backed pending heritage lifestyle
+        // surcharge into the effective MetatypeCostPercent exactly once, before
+        // materialization (Standard Low Lifestyle quotes 2400, not 2000).
+        // Provenance/digest strings mirror the resolver's racial fold exactly
+        // (resolver lines 6114-6125); the Karma path adds the same way.
+        // Refuse a nonzero incoming percent so historical replay cannot
+        // double-bind the same source-backed bonus.
+        decimal heritagePercent = 0m;
+        var heritage = prerequisite?.HeritageSelection;
+        if (heritage?.BaseBonuses is { } baseBonuses && baseBonuses.LifestyleCostPercent != 0)
+        {
+            if (original.MetatypeCostPercent != 0m
+                || baseBonuses.LifestyleCostPercent is < 0 or > 100)
+            {
+                effective = CharacterCreationLifestylesAuthority.Unavailable;
+                return false;
+            }
+            heritagePercent = baseBonuses.LifestyleCostPercent;
         }
         var candidate = original with
         {
@@ -408,6 +427,23 @@ public sealed partial class CharacterCreationLifestylesService
                     ? "unconditional-source-occurrences-min-minus100-standard-only-basic-after-racial-before-outings-v3"
                     : "unconditional-source-occurrences-min-minus100-after-racial-before-outings-v2"
             }) };
+        if (heritagePercent != 0m)
+        {
+            candidate = candidate with
+            {
+                MetatypeCostPercent = checked(original.MetatypeCostPercent + heritagePercent),
+                GmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    PreviousPolicyDigest = candidate.GmPolicyDigest,
+                    MetatypeCostPercent = heritagePercent
+                }),
+                RuntimeDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    PreviousRuntimeDigest = original.RuntimeDigest,
+                    MetatypeCostLayer = "unconditional-global-racial-after-split-before-outings-v1"
+                })
+            };
+        }
         effective = candidate with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(candidate) };
         return CharacterCreationLifestylesRules.IsValidAuthority(effective);
     }

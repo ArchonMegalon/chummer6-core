@@ -1,4 +1,4 @@
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Application.Characters;
@@ -59,7 +59,35 @@ public static partial class CharacterCreationLegacySourceProjector
             || container.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value))) return false;
         foreach (var effect in container.Elements())
         {
-            if (racial || effect.HasAttributes || effect.Name.Namespace != XNamespace.None) return false;
+            if (effect.HasAttributes || effect.Name.Namespace != XNamespace.None) return false;
+            if (racial)
+            {
+                // Racial grants compile ONLY the exact shared literal resistance
+                // grammar (AwakenedLegacyProjector case cluster): no children,
+                // non-negative invariant integer value. Everything else fails
+                // closed exactly as before, so no future Lifestyle-changing
+                // racial grant can slip through this independence proof.
+                switch (effect.Name.LocalName)
+                {
+                    case "pathogencontactresist":
+                    case "pathogeningestionresist":
+                    case "pathogeninhalationresist":
+                    case "pathogeninjectionresist":
+                    case "toxincontactresist":
+                    case "toxiningestionresist":
+                    case "toxininhalationresist":
+                    case "toxininjectionresist":
+                        if (effect.HasElements
+                            || !int.TryParse(effect.Value, System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture, out int racialResistance)
+                            || racialResistance < 0)
+                            return false;
+                        break;
+                    default:
+                        return false;
+                }
+                continue;
+            }
             switch (effect.Name.LocalName)
             {
                 case "enableattribute":
